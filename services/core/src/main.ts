@@ -88,9 +88,11 @@ import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
 import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
+import { proAnswers } from './pro/answers';
 import { ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
 import { sqlSyncSource } from './pro/sync-source';
+import type { ProHooks } from './pro/types';
 import { GhCliClient, GitHubAccessor, GitHubRestClient, savedToken } from './repos/github';
 import { MCP_ADDED_SETTING, repoRoutes } from './repos/routes';
 import { RepoService } from './repos/service';
@@ -138,6 +140,8 @@ const SERVICE_NAMES: Record<string, string> = {
 const serviceName = (id: string) => SERVICE_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 
 async function main() {
+  /** Pro's part in answering (set once Pro has loaded; absent in the free build). */
+  let proHooks: ProHooks | undefined;
   let env: ReturnType<typeof loadEnv>;
   try {
     env = loadEnv();
@@ -421,6 +425,11 @@ async function main() {
         memory,
         // Grounded mode (DESIGN.md §10.7): every answer in the notebook is fact-checked.
         afterAnswer: async (a) => {
+          // Pro (Flow lab): a shadow flow answers the same question off the record. Never awaited.
+          if (proHooks?.afterAnswer)
+            void proHooks
+              .afterAnswer(a)
+              .catch((err: unknown) => log.warn({ err }, 'a Pro after-answer step failed'));
           if (!a.notebookId || !(await notebooks.get(a.notebookId))?.grounded) return;
           await startFactcheck(
             { repo: threads, runs: runStore, store: factchecks, worker, familyOf },
@@ -622,11 +631,30 @@ async function main() {
           hasFeature: hasProFeature,
           owner: { userId: owner.userId, workspaceId: owner.workspaceId },
           sync: sqlSyncSource(sql, { userId: owner.userId, workspaceId: owner.workspaceId }),
+          answers: proAnswers({
+            workspaceId: owner.workspaceId,
+            repo: threads,
+            runs: runStore,
+            worker,
+            registry,
+            gateway,
+            branches: branchStore,
+            flows,
+            flowStore,
+            notebooks,
+            memory,
+          }),
         }),
       )
       .catch((err: unknown) =>
         log.warn({ err }, "Pro's features could not start: the free product carries on"),
       );
+  // Where Pro takes part in answering: read when each answer runs, so a lapse stops it at once.
+  proHooks = proFeatures?.hooks;
+  if (proHooks?.routeHint) {
+    const hint = proHooks.routeHint.bind(proHooks);
+    flows.deps.routeHint = (q) => (hasProFeature('flow_lab') ? hint(q) : Promise.resolve(null));
+  }
   const soleOwner = ownerIdentity({ userId: owner.userId, workspaceId: owner.workspaceId });
   tierNow = () => licence.status().tier;
   telemetry.setUsage(() =>

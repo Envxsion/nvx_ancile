@@ -125,7 +125,9 @@ describe('creating a node', () => {
       'create-key-0001',
     );
     expect(calls[0]?.url).toBe('https://api.runpod.io/v2/pods');
-    expect((calls[0]?.init.headers as Record<string, string>)['idempotency-key']).toBe('create-key-0001');
+    expect((calls[0]?.init.headers as Record<string, string> | undefined)?.['idempotency-key']).toBe(
+      'create-key-0001',
+    );
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
       name: 'Coder',
       gpuTypeIds: ['NVIDIA RTX A6000'],

@@ -104,7 +104,7 @@ eachBackend('thread and notebook repositories', (backend) => {
       parts: [{ type: 'text', text: 'An 8 kW one.' }],
       status: 'complete',
       model_id: 'offline/test',
-      usage: { input_tokens: 10, output_tokens: 5, cost_usd: 0 },
+      usage: { input_tokens: 10, output_tokens: 5, cached_tokens: 0, cost_usd: 0 },
       provenance: { route: { kind: 'model', from: 'default' } },
     });
     const updated = await threads.getMessage(a.id);
