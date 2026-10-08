@@ -25,6 +25,8 @@ import type { ProSyncSource } from './types';
 type Row = Record<string, unknown>;
 
 interface Collection {
+  /** One row as it is now, or null. */
+  read?(id: string): Promise<Row | null>;
   /** Rows changed since `since` (ISO), newest state each. */
   changes(since: string | null): Promise<{ id: string; updatedAt: string; data: Row }[]>;
   /** Upsert rows that arrived; returns how many were written. */
@@ -129,6 +131,10 @@ function upsert(sql: Sql, table: keyof typeof COLS, row: Row, extra: Row): Promi
 export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: string }): ProSyncSource {
   const ws = { workspace_id: owner.workspaceId };
   const table = (name: keyof typeof COLS, where: string, extra: Row = {}): Collection => ({
+    async read(id) {
+      const [r] = await sql.unsafe<Row[]>(`select * from core.${name} where id = $1`, [id] as never[]);
+      return r ? Object.fromEntries(COLS[name].filter((c) => c in r).map((c) => [c, r[c]])) : null;
+    },
     async changes(since) {
       const rows = await sql.unsafe<Row[]>(`select * from core.${name} where ${where} order by 1`, [
         since ?? '1970-01-01T00:00:00Z',
@@ -218,6 +224,13 @@ export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: st
     },
     notes: table('notes', 'updated_at > $1 or deleted_at > $1'),
     preferences: {
+      async read(key) {
+        const [r] = await sql.unsafe<Row[]>('select value from core.ui_state where user_id = $1 and key = $2', [
+          owner.userId,
+          key,
+        ] as never[]);
+        return r ? { value: r.value } : null;
+      },
       async changes(since) {
         const rows = await sql.unsafe<Row[]>(
           'select key, value, updated_at from core.ui_state where user_id = $1 and updated_at > $2',
@@ -246,5 +259,6 @@ export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: st
     collections: ['notebooks', 'flows', 'threads', 'messages', 'notes', 'preferences'],
     changes: (c, since) => collections[c]?.changes(since) ?? Promise.resolve([]),
     apply: (c, items) => collections[c]?.apply(items as never) ?? Promise.resolve(0),
+    read: async (c, id) => (await collections[c]?.read?.(id)) ?? null,
   };
 }

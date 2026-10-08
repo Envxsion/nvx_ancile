@@ -102,6 +102,8 @@ export interface ProSyncSource {
   ): Promise<{ id: string; updatedAt: string; data: unknown }[]>;
   /** Write items that arrived from another device. Returns how many were applied. */
   apply(collection: string, items: { id: string; data: unknown; deleted: boolean }[]): Promise<number>;
+  /** One item as it is here now (null if absent): kept aside when another device's change replaces it. */
+  read(collection: string, id: string): Promise<unknown | null>;
 }
 
 /** A message as Pro's answer features see it: its text, never its raw parts. */
