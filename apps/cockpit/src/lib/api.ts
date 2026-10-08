@@ -103,7 +103,8 @@ async function request<T>(method: string, path: string, body?: unknown, schema?:
     }
     useConnection.getState().ok();
     // A team (Pro) with nobody signed in: show the sign-in screen, not a page of failures.
-    if (parsed.success && parsed.data.error.code === 'auth.sign_in_required') useSignInGate.getState().raise();
+    if (parsed.success && parsed.data.error.code === 'auth.sign_in_required')
+      useSignInGate.getState().raise();
     throw new ApiCallError(
       res.status,
       parsed.success
