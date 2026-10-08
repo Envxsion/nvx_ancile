@@ -37,9 +37,11 @@ import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CACHE_BUSTER, persister, queryClient } from './lib/query';
+import { markRuntime } from './lib/runtime';
 import { router } from './router';
 import { useUi } from './state/ui';
 
+markRuntime();
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing #root');
 

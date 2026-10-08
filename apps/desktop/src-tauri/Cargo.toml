@@ -1,0 +1,51 @@
+# ------------------------------------------------------------------
+#  NVX Ancile desktop app (Tauri v2 shell)
+#  The native host: it runs every service (embedded Postgres, Core,
+#  Knowledge, and the lab and Controller when bundled), keeps their
+#  secrets in the OS keychain, and shows the Cockpit that Core serves.
+#  Its own workspace, like the family's other Tauri apps, so a plain
+#  `pnpm i` never pulls the Tauri toolchain.
+# ------------------------------------------------------------------
+[package]
+name = "ancile-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["nvx.sh"]
+description = "NVX Ancile: your self-hosted AI workspace, as a desktop app."
+repository = "https://github.com/Envxsion/nvx_ancile"
+rust-version = "1.88"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-updater = { version = "2", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+simplelog = "0.12"
+# Secrets live in the OS keychain (Windows Credential Manager, macOS
+# Keychain, the Secret Service on Linux), never in a file.
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+rand = "0.8"
+base64 = "0.22"
+# Plain-HTTP readiness probes to 127.0.0.1; no TLS stack needed.
+ureq = { version = "2", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+# A job object that kills every sidecar (and its children) with the app.
+win32job = "2"
+
+[features]
+# Release builds turn this on; the update key comes from CI, never the repo.
+updater = ["dep:tauri-plugin-updater"]
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[workspace]

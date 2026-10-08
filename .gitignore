@@ -53,3 +53,9 @@ SECURITY.md
 UPSTREAM.md
 docs/clean-room/
 .coverage
+
+# Desktop app: Rust build output, bundled sidecars, generated schemas
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/sidecars/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/app-icon.png

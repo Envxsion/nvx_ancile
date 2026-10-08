@@ -207,6 +207,10 @@ ANCILE_OFFLINE_MODELS=1
 # Default: $ANCILE_DATA_DIR/workspace
 # ANCILE_WORKSPACE_DIR=
 
+# The built Cockpit that Core serves when NODE_ENV=production. The desktop
+# app points it at its bundled copy. Default: apps/cockpit/dist
+# ANCILE_COCKPIT_DIST=
+
 # The lab's key to Core. Accepted for /internal/v1/openai/* (model calls)
 # only. Generated into .ancile/secrets.json by `pnpm start`.
 # AGENT_GATEWAY_TOKEN=

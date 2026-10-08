@@ -34,7 +34,11 @@ Everything is rebranded, wired into one control plane and improved. Exactly what
 
 How the pieces fit together is in [docs/architecture.md](docs/architecture.md), and every guide is in [docs/](docs/).
 
-## Quick start
+## Install
+
+**The desktop app** is the easy way: download the installer for Windows, macOS or Linux from the [releases](https://github.com/Envxsion/nvx_ancile/releases), open it, and NVX Ancile runs every service for you. Nothing else to install: no Node, Python or Docker. Your data stays in your user folder, and its secrets in your system keychain. See [the desktop app](docs/desktop.md).
+
+## Quick start (from source)
 
 You need Node 22.12 or later, pnpm 11, [uv](https://docs.astral.sh/uv/) and git. **No Docker, and no `.env`.**
 
@@ -56,12 +60,13 @@ Postgres keeps running in the background between sessions. `pnpm stop` stops it,
 
 Something not right? `pnpm doctor` checks prerequisites, ports and disk space, and suggests fixes.
 
-**The desktop app** packages the same runtime behind one installer (`NVX Ancile.exe`): no terminals, no Docker. **Docker** remains only for servers and CI: `pnpm start:docker`.
+The desktop app (`apps/desktop`) packages the same services behind one installer; build it yourself with `pnpm --filter @nvx/ancile-desktop build`. **Docker** remains only for servers and CI: `pnpm up:docker`.
 
 ## Repository
 
 ```
 apps/cockpit            the app (Vite, React 19)
+apps/desktop            the desktop app: a Tauri shell that runs every service (Rust)
 services/core           conductor, gateway, permissions, memory, runs, traces (Node 22, Hono)
 services/knowledge      sources, ingestion, retrieval, evidence (Python 3.12, FastAPI)
 vendor/opencode         agent engine (opencode fork), run as a sidecar
@@ -83,6 +88,7 @@ tests/                  end-to-end, evals, chaos
 
 Start with [getting started](docs/getting-started.md). Then:
 
+- [The desktop app](docs/desktop.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Permissions](docs/permissions.md)

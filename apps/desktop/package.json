@@ -1,0 +1,19 @@
+{
+  "name": "@nvx/ancile-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NVX Ancile for the desktop: a Tauri shell that runs every service for you.",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "icons": "node scripts/icons.mjs",
+    "sidecars": "node scripts/bundle.mjs",
+    "dev": "tauri dev",
+    "build": "node scripts/bundle.mjs && tauri build",
+    "typecheck": "node --check scripts/bundle.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "esbuild": "^0.28.2"
+  }
+}

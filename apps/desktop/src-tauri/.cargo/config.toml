@@ -1,0 +1,4 @@
+# Pick dependency versions that build with the Rust declared in Cargo.toml
+# (rust-version), so a slightly older toolchain still builds the app.
+[resolver]
+incompatible-rust-versions = "fallback"

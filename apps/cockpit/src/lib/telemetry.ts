@@ -24,6 +24,7 @@ import { bindingById } from '../keys/registry';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { api } from './api';
+import { isDesktop } from './runtime';
 
 type Feature = telemetry.Feature;
 type Area = (typeof telemetry.UI_AREAS)[number];
@@ -121,7 +122,7 @@ function env(): NonNullable<telemetry.TelemetryUiRequest['env']> {
     tz,
     theme: theme === 'light' || theme === 'dark' ? theme : 'system',
     narrow: window.matchMedia('(max-width: 820px)').matches,
-    runtime: '__TAURI_INTERNALS__' in window ? 'desktop' : 'browser',
+    runtime: isDesktop() ? 'desktop' : 'browser',
   };
 }
 

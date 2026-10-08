@@ -21,11 +21,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Job-level, so a step's `if` can see it (a step's own env is not visible there).
+    env:
+      PRO_REPO_TOKEN: '${{ secrets.PRO_REPO_TOKEN }}'
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Pro (private), when this build may include it
-        env: { PRO_REPO_TOKEN: '${{ secrets.PRO_REPO_TOKEN }}' }
         if: env.PRO_REPO_TOKEN != ''
         run: |
           git config --global url."https://x-access-token:${PRO_REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -55,8 +57,6 @@ jobs:
           [ -d pro ] && [ -f pro/package.json ] && cp -r pro "dist/$out/pro" || true
           tar -C dist -czf "dist/$out.tar.gz" "$out"
           (cd dist && sha256sum "$out.tar.gz" > "$out.tar.gz.sha256")
-      # TODO(phase-6): signed desktop installers (Tauri: .msi/.exe, .dmg,
-      # AppImage) on a build matrix once apps/desktop lands.
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
@@ -64,3 +64,99 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.sha256
+
+  # The desktop app (apps/desktop, Tauri): installers for each platform, built
+  # on that platform. Signing and auto-update switch on only when their
+  # secrets exist; nothing secret is in the repository.
+  #   Windows code signing   WINDOWS_CERTIFICATE (base64 .pfx), WINDOWS_CERTIFICATE_PASSWORD
+  #   macOS signing/notarise APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+  #                          APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+  #   Update manifests       TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+  #                          UPDATER_PUBKEY (the matching public key)
+  desktop:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis,msi
+          - os: macos-14
+            bundles: dmg,app
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      PRO_REPO_TOKEN: '${{ secrets.PRO_REPO_TOKEN }}'
+      WINDOWS_CERTIFICATE: '${{ secrets.WINDOWS_CERTIFICATE }}'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pro (private), when this build may include it
+        if: env.PRO_REPO_TOKEN != ''
+        shell: bash
+        run: |
+          git config --global url."https://x-access-token:${PRO_REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --depth 1 pro
+      - name: Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsecret-1-dev
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: 'apps/desktop/src-tauri -> target' }
+      - run: pnpm install --frozen-lockfile
+      - name: Sidecars (Postgres, Node, Core, Cockpit, Knowledge)
+        run: pnpm --filter @nvx/ancile-desktop sidecars
+      - name: Updater configuration, when its keys exist
+        id: updater
+        shell: bash
+        env:
+          UPDATER_PUBKEY: '${{ secrets.UPDATER_PUBKEY }}'
+          TAURI_SIGNING_PRIVATE_KEY: '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}'
+        run: |
+          if [ -n "$UPDATER_PUBKEY" ] && [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            node -e "require('fs').writeFileSync('apps/desktop/src-tauri/updater.json', JSON.stringify({bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:process.env.UPDATER_PUBKEY,endpoints:['https://ancile.nvx.sh/releases/{{target}}/{{arch}}/{{current_version}}']}}}))"
+            echo "args=--features updater --config src-tauri/updater.json" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Windows signing certificate
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != ''
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: '${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}'
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
+          Remove-Item $pfx
+          node -e "const f='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.bundle.windows.certificateThumbprint='$($cert.Thumbprint)';c.bundle.windows.digestAlgorithm='sha256';c.bundle.windows.timestampUrl='http://timestamp.digicert.com';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+      - name: Build the installers
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}'
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: '${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}'
+          APPLE_CERTIFICATE: '${{ secrets.APPLE_CERTIFICATE }}'
+          APPLE_CERTIFICATE_PASSWORD: '${{ secrets.APPLE_CERTIFICATE_PASSWORD }}'
+          APPLE_SIGNING_IDENTITY: '${{ secrets.APPLE_SIGNING_IDENTITY }}'
+          APPLE_ID: '${{ secrets.APPLE_ID }}'
+          APPLE_PASSWORD: '${{ secrets.APPLE_PASSWORD }}'
+          APPLE_TEAM_ID: '${{ secrets.APPLE_TEAM_ID }}'
+        run: pnpm tauri build --bundles ${{ matrix.bundles }} ${{ steps.updater.outputs.args }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            apps/desktop/src-tauri/target/release/bundle/**/*.exe
+            apps/desktop/src-tauri/target/release/bundle/**/*.msi
+            apps/desktop/src-tauri/target/release/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/**/*.deb
+            apps/desktop/src-tauri/target/release/bundle/**/*.sig
+            apps/desktop/src-tauri/target/release/bundle/**/*.tar.gz

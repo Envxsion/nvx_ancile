@@ -49,6 +49,9 @@ export const EnvSchema = z
     ANCILE_OFFLINE_MODELS: bool,
     // Where the file tools work; models see it as /workspace.
     ANCILE_WORKSPACE_DIR: z.string().optional(),
+    // The built Cockpit Core serves in production. The desktop app points it at
+    // its bundled copy; a checkout defaults to apps/cockpit/dist.
+    ANCILE_COCKPIT_DIST: z.string().optional(),
 
     DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL'),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),

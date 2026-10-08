@@ -1,0 +1,140 @@
+<!doctype html>
+<!--
+  NVX Ancile desktop: the start-up screen. Shown for the few seconds the
+  services take to start, then the window moves to the Cockpit that Core
+  serves. Listens for "ancile://status" events from the native supervisor.
+-->
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NVX Ancile</title>
+    <style>
+      :root {
+        --void: #08090a;
+        --fg: #eff0ea;
+        --fg-2: #a9aba3;
+        --signal: #9d86ff;
+        --fail: #e0806a;
+        color-scheme: dark;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: var(--void);
+        color: var(--fg);
+        font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+      }
+      main {
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 18px;
+        height: 100%;
+        text-align: center;
+      }
+      svg {
+        width: 64px;
+        height: 64px;
+      }
+      .half-l,
+      .half-r {
+        animation: breathe 2.4s ease-in-out infinite;
+      }
+      .half-r {
+        animation-delay: 0.3s;
+      }
+      @keyframes breathe {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .half-l,
+        .half-r {
+          animation: none;
+        }
+      }
+      h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 560;
+        letter-spacing: 0.01em;
+      }
+      #status {
+        min-height: 1.5em;
+        color: var(--fg-2);
+      }
+      ol {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--fg-2);
+        font-size: 13px;
+      }
+      li[data-state="ready"]::before {
+        content: "✓ ";
+        color: var(--signal);
+      }
+      li[data-state="starting"]::before {
+        content: "… ";
+      }
+      li[data-state="failed"] {
+        color: var(--fail);
+      }
+      li[data-state="failed"]::before {
+        content: "✕ ";
+      }
+      #hint {
+        max-width: 420px;
+        color: var(--fg-2);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="0 0 34 34" aria-hidden="true">
+        <g fill="none" stroke="#9d86ff" stroke-width="2" stroke-linecap="round">
+          <path class="half-l" d="M14.4 3.4 C8.6 3.6 4.8 6.8 4.8 10.8 C4.8 14 9.8 14.4 9.8 17 C9.8 19.6 4.8 20 4.8 23.2 C4.8 27.2 8.6 30.4 14.4 30.6" />
+          <path class="half-r" opacity="0.7" d="M19.6 3.4 C25.4 3.6 29.2 6.8 29.2 10.8 C29.2 14 24.2 14.4 24.2 17 C24.2 19.6 29.2 20 29.2 23.2 C29.2 27.2 25.4 30.4 19.6 30.6" />
+          <path opacity="0.4" d="M17 12.6 A4.4 4.4 0 1 1 13.2 19.2" />
+          <circle cx="17" cy="17" r="1.5" fill="#9d86ff" stroke="none" />
+        </g>
+      </svg>
+      <h1>NVX Ancile</h1>
+      <p id="status" role="status">Starting</p>
+      <ol id="services" aria-label="Services"></ol>
+      <p id="hint" hidden></p>
+    </main>
+    <script>
+      const LABELS = {
+        database: "Database",
+        knowledge: "Sources and search",
+        core: "Core",
+        controller: "GPU nodes",
+        lab: "The lab",
+      };
+      const list = document.getElementById("services");
+      const status = document.getElementById("status");
+      const hint = document.getElementById("hint");
+      function render(s) {
+        status.textContent = s.message;
+        list.replaceChildren(
+          ...s.services.map((svc) => {
+            const li = document.createElement("li");
+            li.dataset.state = svc.state;
+            li.textContent = LABELS[svc.name] ?? svc.name;
+            return li;
+          }),
+        );
+        hint.hidden = !s.hint;
+        hint.textContent = s.hint ?? "";
+      }
+      window.__TAURI__?.event.listen("ancile://status", (e) => render(e.payload));
+    </script>
+  </body>
+</html>

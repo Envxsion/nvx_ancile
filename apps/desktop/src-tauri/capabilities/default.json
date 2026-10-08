@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The start-up screen only: it listens for service status. The Cockpit, served by Core, gets no access to native APIs.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

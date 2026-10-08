@@ -44,7 +44,11 @@ export function formatKey(raw: string): string {
 
 export function LicenceScreen() {
   const details = useQuery({ queryKey: KEY, queryFn: () => api.get<Details>('/license/details') });
-  const [key, setKey] = useState('');
+  // An ancile://activate link (desktop app) opens this screen with ?key=…
+  // filled in; activating is still the person's own press.
+  const [key, setKey] = useState(() =>
+    formatKey(new URLSearchParams(window.location.search).get('key') ?? ''),
+  );
   /** The key is in use elsewhere: offer to move the seat here. */
   const [seatTaken, setSeatTaken] = useState<string[] | null>(null);
   const activate = useMutation({

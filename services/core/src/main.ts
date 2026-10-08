@@ -663,7 +663,7 @@ async function main() {
   await telemetry.start();
   // ---- end Phase 5 services ----
 
-  const cockpitDist = resolve('../../apps/cockpit/dist');
+  const cockpitDist = resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist');
   const app = createApp({
     version: VERSION,
     serviceToken: env.ANCILE_SERVICE_TOKEN,

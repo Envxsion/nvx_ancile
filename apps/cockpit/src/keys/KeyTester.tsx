@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { isDesktop } from '../lib/runtime';
 import { track } from '../lib/telemetry';
 import { usePrefs } from '../state/prefs';
 import { Kbd } from '../ui/primitives';
@@ -94,7 +95,7 @@ export function KeyTester() {
           </>
         ) : null}
       </div>
-      {on ? (
+      {on && !isDesktop() ? (
         <p className="keytest__note mute">
           If a key shows nothing here, it never reached the page: your browser or an extension kept it.
           Browsers always keep {isMac ? '⌘N, ⌘T and ⌘W' : 'Ctrl+N, Ctrl+T and Ctrl+W'}.
