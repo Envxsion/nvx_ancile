@@ -41,6 +41,16 @@ export const FREE: Status = {
 /** kid → raw Ed25519 public key, base64url (32 bytes). */
 export type KeyMap = Record<string, string>;
 
+/**
+ * The public halves of the keys ancile.nvx.sh signs licences with. Public by
+ * design: they can only check a signature, never make one. NVX_LICENSE_KEYS
+ * replaces this map (tests and key rotation); a build with neither unlocks
+ * nothing.
+ */
+export const OFFICIAL_LICENSE_KEYS: KeyMap = {
+  k1: 'p-8EqeaC6qOZALrq3ajQg8NnGra9NLboMzEboeGgU_M',
+};
+
 const keyCache = new Map<string, KeyObject>();
 function publicKey(raw: string): KeyObject {
   let k = keyCache.get(raw);

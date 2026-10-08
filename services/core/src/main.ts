@@ -61,7 +61,7 @@ import { LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
 import { labRoutes } from './lab/routes';
 import { licenseRoutes } from './license/routes';
-import { hasFeature, parseKeyMap } from './license/verify';
+import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
 import { logIngestRoutes, logRoutes } from './logs/routes';
 import { mcpClientRoutes } from './mcp/clients';
 import { McpManager } from './mcp/manager';
@@ -611,7 +611,7 @@ async function main() {
     host: {
       settings,
       secrets,
-      keys: parseKeyMap(env.NVX_LICENSE_KEYS),
+      keys: env.NVX_LICENSE_KEYS ? parseKeyMap(env.NVX_LICENSE_KEYS) : OFFICIAL_LICENSE_KEYS,
       licenseUrl: env.NVX_LICENSE_URL,
       version: VERSION,
     },

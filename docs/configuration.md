@@ -99,7 +99,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `ANCILE_LOG_RETENTION_DAYS` / `_SPAN_` / `_RUN_EVENT_` | `14` / `30` / `7` | Retention. |
 | `NVX_TIER` | empty | `free` never loads Pro; `pro` loads it from `pro/`. Empty: Pro when `pro/` is present, free otherwise. |
 | `NVX_LICENSE_URL` | `https://ancile.nvx.sh/api/license` | Licence activation and the daily refresh. Tokens are checked offline. |
-| `NVX_LICENSE_KEYS` | empty | Licence public keys, `{"kid":"<base64url Ed25519 key>"}` or `kid:key,kid:key`. Set by release builds; with none, no token unlocks anything. |
+| `NVX_LICENSE_KEYS` | nvx.sh's public keys | Licence public keys, `{"kid":"<base64url Ed25519 key>"}` or `kid:key,kid:key`. Empty uses the keys built into the app (`OFFICIAL_LICENSE_KEYS`); set it only to test with your own signing key. |
 | `NVX_TELEMETRY_URL` | empty | Anonymous usage statistics endpoint, `https://` only. Empty: nothing is ever sent, whatever is chosen in Settings. See [telemetry](telemetry.md). |
 
 ## config/ files

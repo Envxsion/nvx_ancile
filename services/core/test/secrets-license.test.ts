@@ -1,6 +1,6 @@
-import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
+import { createPublicKey, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { hasFeature, parseKeyMap, verifyToken } from '../src/license/verify';
+import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap, verifyToken } from '../src/license/verify';
 import { redact, redactText } from '../src/obs/redact';
 import { MemorySecretStore, SecretBox } from '../src/secrets';
 
@@ -122,5 +122,17 @@ describe('redaction', () => {
     expect(redactText('url postgres://ancile:hunter2@db:5432/x and key sk-proj-abcdefghijklmnopqrstuv')).toBe(
       'url postgres://ancile:…@db:5432/x and key sk-…',
     );
+  });
+});
+
+describe('official licence keys', () => {
+  it('are valid Ed25519 public keys, and k1 is there', () => {
+    expect(Object.keys(OFFICIAL_LICENSE_KEYS)).toContain('k1');
+    for (const x of Object.values(OFFICIAL_LICENSE_KEYS)) {
+      expect(Buffer.from(x, 'base64url')).toHaveLength(32);
+      expect(
+        createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' }).asymmetricKeyType,
+      ).toBe('ed25519');
+    }
   });
 });
