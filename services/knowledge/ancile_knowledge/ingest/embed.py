@@ -78,7 +78,8 @@ class LocalEmbedder:
 
     def embed_query(self, text: str) -> list[float]:
         # bge models want the query instruction; fastembed applies it here.
-        return next(iter(self._model.query_embed(text))).tolist()
+        vector: list[float] = next(iter(self._model.query_embed(text))).tolist()
+        return vector
 
 
 class HashEmbedder:

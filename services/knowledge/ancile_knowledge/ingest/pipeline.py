@@ -35,7 +35,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.orm import Session
 
 from ..db import hnsw_index_sql, sessions
@@ -181,7 +181,7 @@ def _transition(
     params: dict[str, Any] | None = None,
 ) -> None:
     """Move to the next stage in the same transaction as the stage's writes."""
-    n = db.execute(
+    result = db.execute(
         text(
             # attempts = 1: this run is the first attempt at the new stage.
             f"UPDATE {S}.sources SET status = :status, progress = CAST(:p AS jsonb), attempts = 1, "
@@ -196,7 +196,9 @@ def _transition(
             "w": worker_id,
             **(params or {}),
         },
-    ).rowcount
+    )
+    # An UPDATE returns a cursor result, which carries the row count.
+    n = result.rowcount if isinstance(result, CursorResult) else 0
     if n == 0:
         raise LeaseLost(source_id)
     publish(db, progress.as_event(source_id, status))

@@ -100,7 +100,7 @@ _FIXES = {
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     try:
-        s = Settings()  # type: ignore[call-arg]
+        s = Settings()
     except ValidationError as exc:
         lines = []
         for err in exc.errors():

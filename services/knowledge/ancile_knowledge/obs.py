@@ -23,7 +23,7 @@ import re
 import secrets
 import sys
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any
 
 import structlog
@@ -70,7 +70,7 @@ def _scrub(value: Any, depth: int = 0) -> Any:
     return value
 
 
-def _redact(_: Any, __: str, event: dict[str, Any]) -> dict[str, Any]:
+def _redact(_: Any, __: str, event: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     for k in list(event):
         if _SECRET_KEYS.search(k):
             event[k] = "[redacted]"

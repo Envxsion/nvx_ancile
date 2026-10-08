@@ -33,8 +33,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
       - run: uv sync --project services/knowledge --frozen
-      - run: uv run --project services/knowledge ruff check services/knowledge
-      - run: uv run --project services/knowledge mypy services/knowledge/ancile_knowledge
+      - run: pnpm lint:py
 
   unit:
     name: Unit and integration

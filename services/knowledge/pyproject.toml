@@ -71,6 +71,11 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 
+# Libraries that ship no type information.
+[[tool.mypy.overrides]]
+module = ["datasketch", "datasketch.*", "pypdfium2", "pypdfium2.*", "readability", "readability.*"]
+ignore_missing_imports = true
+
 [tool.uv]
 # Security floors carried over from the upstream notebook engine.
 constraint-dependencies = [

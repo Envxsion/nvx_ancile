@@ -14,6 +14,7 @@
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "biome check .",
+    "lint:py": "uv run --project services/knowledge ruff check services/knowledge && uv run --project services/knowledge mypy --config-file services/knowledge/pyproject.toml services/knowledge/ancile_knowledge",
     "format": "biome format --write .",
     "test": "pnpm -r run test && pnpm test:py",
     "test:py": "node scripts/test-py.mjs",

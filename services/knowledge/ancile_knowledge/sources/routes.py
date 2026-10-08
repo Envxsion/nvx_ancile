@@ -262,7 +262,7 @@ def get_content(source_id: str, workspace_id: str | None = None) -> dict[str, An
         "version": version,
         "markdown": markdown,
         "pages": pages,
-        "outline": [{**h, "char_start": u16(h["char_start"])} for h in outline(markdown)],
+        "outline": [{**h, "char_start": u16(int(str(h["char_start"])))} for h in outline(markdown)],
     }
 
 
