@@ -96,6 +96,9 @@ import {
   writeDraft,
 } from './store';
 
+/** A phone opens the canvas at actual size: ports are 24px targets there (flows.css). */
+const PHONE_ZOOM = 1;
+
 const metaOf = (f: Flow): FlowMeta => ({
   id: f.id,
   name: f.name,
@@ -226,6 +229,23 @@ function Editor({
   const flow = useFlow(flowId);
   const stats = useNodeStats(flowId).data;
   const rf = useReactFlow();
+  /**
+   * The first view. On a wide screen the whole flow fits. On a phone a fit
+   * draws everything too small to read or tap, so it opens at a readable
+   * zoom with the input near the left edge; the minimap and pinch show the rest.
+   */
+  const openView = () => {
+    if (!window.matchMedia('(max-width: 820px)').matches)
+      return void rf.fitView({ padding: 0.2, maxZoom: 1, duration: 0 });
+    const input = rf.getNodes().find((n) => (n.data as Partial<CardData>).node?.kind === 'input');
+    if (!input) return void rf.fitView({ padding: 0.1, minZoom: PHONE_ZOOM, maxZoom: 1, duration: 0 });
+    const h = input.measured?.height ?? 60;
+    const across = window.innerWidth / PHONE_ZOOM;
+    void rf.setCenter(input.position.x + across / 2 - 24, input.position.y + h / 2, {
+      zoom: PHONE_ZOOM,
+      duration: 0,
+    });
+  };
   const navigate = useNavigate();
   const wrap = useRef<HTMLDivElement>(null);
   const models = useFlowModels();
@@ -265,7 +285,7 @@ function Editor({
           s.load(metaOf(f), graphOf(f), null);
         },
       });
-    requestAnimationFrame(() => void rf.fitView({ padding: 0.2, maxZoom: 1, duration: 0 }));
+    requestAnimationFrame(openView);
   }, [flow.data]);
 
   const dirty = isDirty(s) || !!metaDraft.name || metaDraft.description !== undefined;

@@ -519,6 +519,33 @@
   background: var(--signal) !important;
   border: 0 !important;
 }
+/* Phones: every port is a 24px target (the dot inside stays small), and
+   stacked route ports are spaced so their targets never touch. */
+@media (max-width: 820px) {
+  .fport,
+  .fnote__handle {
+    width: 24px !important;
+    height: 24px !important;
+    border: 0 !important;
+    box-shadow: none;
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--hue, var(--signal)) 70%, var(--fg-3)) 0 4.5px,
+      var(--lift) 4.5px 6.5px,
+      var(--hair-2) 6.5px 7.5px,
+      transparent 7.5px
+    ) !important;
+  }
+  .fport--in {
+    left: -12px !important;
+  }
+  .fport--out {
+    right: -12px !important;
+  }
+  .fnode__port {
+    height: 26px;
+  }
+}
 .fnote__resize,
 .fgroup__resize {
   border-color: rgb(var(--signal-rgb) / 0.5) !important;

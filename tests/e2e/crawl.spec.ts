@@ -199,11 +199,10 @@ test.describe('crawl', () => {
       await page.waitForLoadState('load');
       await page.waitForTimeout(1200);
       await page.screenshot({ path: join(out, `${slug}.png`), fullPage: true });
-      // On a phone the flow canvas opens zoomed out to fit, so its controls are
-      // drawn under 24px until you zoom in (you set the scale): exclude it there.
-      await expectAccessible(page, info.project.name === 'phone' ? ['.react-flow__viewport'] : []).catch(
-        (e: Error) =>
-          findings.push({ route, control: '(axe)', issue: e.message.split('\n').slice(0, 8).join(' / ') }),
+      // The flow canvas opens at actual size on a phone, with 24px ports, so it
+      // is checked like everything else.
+      await expectAccessible(page).catch((e: Error) =>
+        findings.push({ route, control: '(axe)', issue: e.message.split('\n').slice(0, 8).join(' / ') }),
       );
       if (errors.length) findings.push({ route, control: '(load)', issue: errors.join(' / ') });
 
