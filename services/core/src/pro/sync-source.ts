@@ -225,10 +225,10 @@ export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: st
     notes: table('notes', 'updated_at > $1 or deleted_at > $1'),
     preferences: {
       async read(key) {
-        const [r] = await sql.unsafe<Row[]>('select value from core.ui_state where user_id = $1 and key = $2', [
-          owner.userId,
-          key,
-        ] as never[]);
+        const [r] = await sql.unsafe<Row[]>(
+          'select value from core.ui_state where user_id = $1 and key = $2',
+          [owner.userId, key] as never[],
+        );
         return r ? { value: r.value } : null;
       },
       async changes(since) {
