@@ -180,9 +180,9 @@ export function LicenceScreen() {
       {seatTaken ? (
         <div className="licence__seat m-glass" role="alert">
           <p>
-            <strong>This key is in use on another computer</strong>
-            {seatTaken.length ? ` (${seatTaken.join(', ')})` : ''}. Move it here, and that computer goes back
-            to the free edition.
+            <strong>This key is already on as many computers as it allows</strong>
+            {seatTaken.length ? ` (${seatTaken.join(', ')})` : ''}. Move it here, and the one used least
+            recently goes back to the free edition.
           </p>
           <div className="licence__seat-actions">
             <button
