@@ -39,11 +39,13 @@ import { mountPlanned } from './http/stubs';
 import { type InternalDeps, internalRoutes } from './internal/openai';
 import { errorHandler, notFound } from './obs/errors';
 import { traceMiddleware } from './obs/tracing';
+import { identityMiddleware } from './pro/routes';
+import type { IdentityProvider, Principal } from './pro/types';
 import type { RunStore } from './runs/engine';
 import { type RunEventLog, replayThenTail } from './runs/events';
 import type { ApiObservation } from './telemetry/collect';
 
-export type AppEnv = { Variables: { traceId: string } };
+export type AppEnv = { Variables: { traceId: string; principal?: Principal } };
 
 export interface AppDeps {
   version: string;
@@ -76,6 +78,8 @@ export interface AppDeps {
   internalRoutes?: Hono<AppEnv>[];
   /** Phase 6: every /api/v1 request, answered (anonymous usage statistics). */
   observe?: (o: ApiObservation) => void;
+  /** Who is asking (the one owner in the free build; Teams in Pro). Read per request. */
+  identity?: () => IdentityProvider;
 }
 
 /** Largest JSON body /api/v1 accepts. */
@@ -111,6 +115,7 @@ export function createApp(deps: AppDeps) {
     });
   }
   api.use('*', requestGuard({ origins: deps.allowedOrigins ?? cockpitOrigins() }));
+  if (deps.identity) api.use('*', identityMiddleware(deps.identity));
   const limit = (maxSize: number, what: string) =>
     bodyLimit({
       maxSize,

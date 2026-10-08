@@ -61,7 +61,7 @@ import { LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
 import { labRoutes } from './lab/routes';
 import { licenseRoutes } from './license/routes';
-import { parseKeyMap } from './license/verify';
+import { hasFeature, parseKeyMap } from './license/verify';
 import { logIngestRoutes, logRoutes } from './logs/routes';
 import { mcpClientRoutes } from './mcp/clients';
 import { McpManager } from './mcp/manager';
@@ -88,6 +88,8 @@ import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
 import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
+import { ownerIdentity, proRoutes } from './pro/routes';
+import { proServices } from './pro/services';
 import { GhCliClient, GitHubAccessor, GitHubRestClient, savedToken } from './repos/github';
 import { MCP_ADDED_SETTING, repoRoutes } from './repos/routes';
 import { RepoService } from './repos/service';
@@ -606,6 +608,24 @@ async function main() {
   });
   const licence = pro.license;
   await licence.start().catch((err: unknown) => log.warn({ err }, 'the licence could not be read'));
+  // Pro's features read the licence each time they run, so a lapse locks them at once.
+  const hasProFeature = (f: Parameters<typeof hasFeature>[1]) => hasFeature(licence.status(), f);
+  const proFeatures = pro.build === 'pro' ? pro : null;
+  if (proFeatures?.start)
+    await proFeatures
+      .start(
+        proServices({
+          sql,
+          controller: compute,
+          events,
+          hasFeature: hasProFeature,
+          owner: { userId: owner.userId, workspaceId: owner.workspaceId },
+        }),
+      )
+      .catch((err: unknown) =>
+        log.warn({ err }, "Pro's features could not start: the free product carries on"),
+      );
+  const soleOwner = ownerIdentity({ userId: owner.userId, workspaceId: owner.workspaceId });
   tierNow = () => licence.status().tier;
   telemetry.setUsage(() =>
     usageOf({
@@ -651,6 +671,7 @@ async function main() {
     health: supervisor.snapshot,
     checkHealthNow: supervisor.checkNow,
     license: () => licence.status(),
+    identity: () => proFeatures?.identity ?? soleOwner,
     observe: observeApi(telemetry, (o) => {
       // A flow published or turned on: report its shape, never its words.
       const m = /^\/flows\/([^/]+)\/(publish|activate)$/.exec(o.path);
@@ -771,7 +792,8 @@ async function main() {
       }),
       stateRoutes(new PgStateStore(sql, owner.userId)),
       notificationRoutes(notifications),
-      computeRoutes({ client: compute }),
+      computeRoutes({ client: compute, hasFeature: hasProFeature }),
+      proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, mcp }),
       repoRoutes({ repos, github, secrets, settings, mcp }),
       labRoutes({
@@ -800,6 +822,7 @@ async function main() {
     supervisor.stop();
     automations.stop();
     licence.stop();
+    proFeatures?.stop?.();
     telemetry.stop();
     await obs.stop();
     stopCompute();

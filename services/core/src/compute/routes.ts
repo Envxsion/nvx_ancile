@@ -22,6 +22,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { useCloud } from '../gateway/compute';
 import { body } from '../http/body';
+import { featureRequired } from '../pro/routes';
 import type { ControllerClient } from './controller';
 
 const enc = encodeURIComponent;
@@ -50,7 +51,21 @@ const RuleBody = z.object({
   config: z.record(z.string(), z.unknown()),
 });
 
-export function computeRoutes(deps: { client: ControllerClient }) {
+/**
+ * The free edition runs one GPU node; GPU fleet (Pro) runs many. Sample
+ * nodes never count, and nodes added before are never switched off.
+ */
+async function assertRoomForNode(client: ControllerClient, hasFleet: boolean) {
+  if (hasFleet) return;
+  const { items } = await client.get<{ items: { provider: string }[] }>('/nodes');
+  if (items.filter((n) => n.provider !== 'fake').length >= 1) throw featureRequired('fleet');
+}
+
+export function computeRoutes(deps: {
+  client: ControllerClient;
+  /** Pro's licence check; absent (tests, older wiring) means no limit. */
+  hasFeature?: (f: 'fleet') => boolean;
+}) {
   const r = new Hono<AppEnv>();
   const { client } = deps;
 
@@ -72,9 +87,11 @@ export function computeRoutes(deps: { client: ControllerClient }) {
   });
 
   r.get('/compute/nodes', async (c) => c.json(await client.get('/nodes')));
-  r.post('/compute/nodes', async (c) =>
-    c.json(await client.send('POST', '/nodes', await body(c, AddNodeBody)), 201),
-  );
+  r.post('/compute/nodes', async (c) => {
+    const req = await body(c, AddNodeBody);
+    if (deps.hasFeature) await assertRoomForNode(client, deps.hasFeature('fleet'));
+    return c.json(await client.send('POST', '/nodes', req), 201);
+  });
   r.delete('/compute/nodes/:id', async (c) => {
     await client.send('DELETE', `/nodes/${enc(c.req.param('id'))}`);
     return c.body(null, 204);
