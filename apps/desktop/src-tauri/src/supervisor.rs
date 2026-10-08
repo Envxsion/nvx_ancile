@@ -199,6 +199,12 @@ impl Supervisor {
         &self.layout
     }
 
+    /// Core's service token (the desktop host's way into /internal/v1).
+    #[allow(dead_code)] // used only with the updater feature
+    pub fn service_token(&self) -> Option<&str> {
+        self.env.get("ANCILE_SERVICE_TOKEN").map(String::as_str)
+    }
+
     pub fn status(&self) -> Status {
         self.status.lock().unwrap().clone()
     }

@@ -20,7 +20,16 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let logs = MenuItem::with_id(app, "logs", "Open the logs folder", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit NVX Ancile", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
+    #[cfg(not(feature = "updater"))]
     let menu = Menu::with_items(app, &[&status, &sep, &open, &logs, &sep, &quit])?;
+    // With updates on, a line that offers an update once one is found.
+    #[cfg(feature = "updater")]
+    let menu = {
+        let update = MenuItem::with_id(app, "update", "Up to date", false, None::<&str>)?;
+        let menu = Menu::with_items(app, &[&status, &update, &sep, &open, &logs, &sep, &quit])?;
+        app.manage(crate::updates::TrayLine(update));
+        menu
+    };
     app.manage(StatusItem(status));
 
     TrayIconBuilder::with_id(TRAY_ID)
@@ -36,6 +45,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "quit" => app.exit(0),
+            #[cfg(feature = "updater")]
+            "update" => crate::updates::install(app.clone()),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

@@ -22,6 +22,8 @@ mod layout;
 mod secrets;
 mod supervisor;
 mod tray;
+#[cfg(feature = "updater")]
+mod updates;
 
 use std::sync::{Arc, Mutex};
 use supervisor::Supervisor;
@@ -155,6 +157,8 @@ fn main() {
                 .build()?;
 
             app.manage(Pending(Mutex::new(None)));
+            #[cfg(feature = "updater")]
+            app.manage(updates::Waiting(Mutex::new(None)));
             tray::install(&handle)?;
 
             #[cfg(any(windows, target_os = "linux"))]
@@ -198,6 +202,9 @@ fn main() {
                         .take()
                         .unwrap_or_else(|| "/".into());
                     navigate(&handle, &route);
+                    // Services are up: look for an update now, then daily.
+                    #[cfg(feature = "updater")]
+                    updates::spawn(handle.clone());
                 }
                 Err(e) => log::error!("start-up failed: {e}"),
             });

@@ -106,6 +106,7 @@ import { importEnvKeys, PgSecretStore, SecretBox } from './secrets';
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
+import { updateInternalRoutes, updateRoutes } from './system/updates';
 import { flowShape, observeApi, observeRunEvents, serverEnv, usageOf } from './telemetry/collect';
 import { telemetryRoutes } from './telemetry/routes';
 import { Telemetry } from './telemetry/service';
@@ -729,7 +730,11 @@ async function main() {
         restartAfter: env.ANCILE_RESTART_AFTER_FAILURES,
       }),
     mcp: mcpServe,
-    internalRoutes: [logIngestRoutes({ pipeline: obs })],
+    internalRoutes: [
+      logIngestRoutes({ pipeline: obs }),
+      // The desktop host asks here before checking nvx.sh for updates.
+      updateInternalRoutes({ settings, pro: () => pro.build === 'pro' }),
+    ],
     ready: async () => {
       const db = await database.sql`select 1`.then(() => true).catch(() => false);
       return { ok: db, checks: { database: db } };
@@ -738,6 +743,7 @@ async function main() {
     runs: runStore,
     allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     routes: [
+      updateRoutes({ settings }),
       // Phase 5: operations
       logRoutes({ pipeline: obs }),
       traceRoutes({

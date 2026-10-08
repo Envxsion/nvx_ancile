@@ -90,7 +90,16 @@ Release builds are made by `.github/workflows/release.yml` on Windows, macOS and
 |---|---|
 | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | Signing the Windows installers (a base64 `.pfx`) |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Signing and notarising the macOS app |
-| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `UPDATER_PUBKEY` | Signed update manifests; the app checks `https://ancile.nvx.sh/releases/<target>/<arch>/<version>` |
-| `PRO_REPO_TOKEN` | Building the Pro edition (the private `pro/` submodule) |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `UPDATER_PUBKEY` | Signed update bundles; turns the updater on in the build |
+| `NVX_RELEASE_TOKEN` | Publishing each release on nvx.sh so the updater offers it (the product's release token) |
+| `PRO_REPO_TOKEN` | Building the Pro edition (the private `pro/` submodule). Pro builds are never published to GitHub. |
 
 Make the update key pair once with `pnpm --filter @nvx/ancile-desktop tauri signer generate`, keep the private key in the secret store, and put the public key in `UPDATER_PUBKEY`.
+
+### How updates reach people
+
+Once its services are up, and then every 24 hours, the app asks
+`https://ancile.nvx.sh/api/updates/{target}/{arch}/{version}?edition=free|pro&channel=stable|beta`.
+The edition is what was installed (the Pro edition carries Pro beside Core); the channel is a setting (`PUT /api/v1/system/updates {"channel":"beta"}`, stable by default). A Pro install sends its licence token, so nvx.sh offers Pro builds only to a licence that is current; a lapsed one is offered the free build. Nothing installs on its own: an update appears in the tray menu as "Install NVX Ancile x.y.z and restart". With no network, or no answer, the app tries again the next day.
+
+Publishing: a version tag builds the installers. The free edition becomes a public asset of the GitHub release, then `apps/desktop/scripts/publish-release.mjs --github-release <tag>` tells nvx.sh about it (`POST /api/releases/publish` with `external_url`), so the updater can offer it. One updater bundle per platform is published: the Windows NSIS setup, the macOS `.app.tar.gz`, the Linux AppImage. A version is never replaced: publishing a different build under a published version fails the job. The Pro edition is built but not published yet, until where its installers live is decided; it is never put on GitHub.

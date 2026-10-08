@@ -10,7 +10,8 @@
     "sidecars": "node scripts/bundle.mjs",
     "dev": "tauri dev",
     "build": "node scripts/bundle.mjs && tauri build",
-    "typecheck": "node --check scripts/bundle.mjs"
+    "typecheck": "node --check scripts/bundle.mjs && node --check scripts/publish-release.mjs",
+    "test": "node --test scripts/publish-release.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
