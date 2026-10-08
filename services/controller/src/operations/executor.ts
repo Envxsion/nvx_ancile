@@ -55,7 +55,10 @@ export async function runOperation(
     await store.putOperation(op);
     return op;
   }
-  const action = op.action as NodeAction;
+  // A create was already asked of the provider by the route; what is left is
+  // watching the new node come up, exactly as for a start.
+  const creating = op.action === 'create';
+  const action = (creating ? 'start' : op.action) as NodeAction;
   const save = async (next: Operation) => {
     op = next;
     await store.putOperation(op);
@@ -64,7 +67,7 @@ export async function runOperation(
   // 1. Ask the provider, retrying transient failures. An operation resumed
   // after a restart that the provider already acknowledged skips this.
   const attempts = deps.maxActionAttempts ?? 3;
-  const asked = op.status === 'acknowledged' || op.status === 'in_progress';
+  const asked = creating || op.status === 'acknowledged' || op.status === 'in_progress';
   for (let i = 1; !asked; i++) {
     try {
       const ack = await provider.action(node.provider_ref, action, idempotencyKey);

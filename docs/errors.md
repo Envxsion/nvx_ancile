@@ -162,6 +162,7 @@ Validation issues (shown in the editor, not as HTTP errors): `flow.no_input`, `f
 | `compute.unavailable` | 503 | "The Controller is not answering." / It starts with NVX Ancile; check "Controller" in Admin → Health. |
 | `compute.not_configured` | 503 | "Remote compute is not set up." / Set `CONTROLLER_URL` and `CONTROLLER_TOKEN` in .env, then restart. |
 | `node.not_found` | 404 | "No such node." / Refresh the node list. |
+| `provider.cannot_create` | 501 | "The <provider> provider cannot create nodes." / Create the machine yourself, then add it by its id or address. |
 | `node.busy` | 409 | "This node has an operation in progress." / Wait for it to confirm or time out, then remove the node. |
 | `provider.manual_node` | 422 | "<Machine> is a machine on your network; NVX Ancile cannot <action> it." / Turn it on and start Ollama or vLLM on it; NVX Ancile notices within a minute. |
 | `provider.<code>` (adding a node) | 422 | RunPod's own words (`not_found`, `auth`, `capacity_unavailable`, `billing`…) / The matching fix, e.g. "Create a key with pod read/write scope and set RUNPOD_API_KEY." |

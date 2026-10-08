@@ -24,7 +24,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { NodeAction, NodeState } from '@nvx/contracts/controller';
+import type { CreateNodeSpec, NodeAction, NodeState } from '@nvx/contracts/controller';
 import {
   type ActionAck,
   type ComputeProvider,
@@ -250,6 +250,30 @@ export class RunPodProvider implements ComputeProvider {
       state: pod.state === 'unknown' ? null : pod.state,
       detail: `RunPod accepted the request; pod reports ${pod.state}.`,
     };
+  }
+
+  /**
+   * POST {base}/v2/pods: a new pod from an image or a template. RunPod's
+   * create body (Oct 2026 reference): name, imageName | templateId,
+   * gpuTypeIds[], gpuCount, cloudType (SECURE | COMMUNITY), dataCenterIds[],
+   * containerDiskInGb, volumeInGb, ports[], env{}. The answer is the pod.
+   */
+  async create(spec: CreateNodeSpec & { name: string }, idempotencyKey: string, signal?: AbortSignal) {
+    const body: Json = {
+      name: spec.name,
+      gpuTypeIds: [spec.gpu_type_id],
+      gpuCount: spec.gpu_count,
+      cloudType: spec.cloud === 'community' ? 'COMMUNITY' : 'SECURE',
+      containerDiskInGb: spec.container_disk_gb,
+      volumeInGb: spec.volume_gb,
+      ports: spec.ports,
+      env: spec.env,
+      ...(spec.image && { imageName: spec.image }),
+      ...(spec.template_id && { templateId: spec.template_id }),
+      ...(spec.region && { dataCenterIds: [spec.region] }),
+    };
+    const res = await this.call('POST', '/v2/pods', body, 'start', signal, idempotencyKey);
+    return mapPod((await res.json()) as Json);
   }
 
   async ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string }> {

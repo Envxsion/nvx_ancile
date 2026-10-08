@@ -83,8 +83,12 @@ When a request needs a model that's only on a stopped node:
 
 Queued requests run in order once the node is healthy. Any that pass their deadline (`CONTROLLER_QUEUE_DEADLINE_S`) fall back. See [self-healing](self-healing.md#when-your-gpu-node-is-asleep).
 
+## Creating a node
+
+A provider that can create machines implements the optional `create(spec)`, and the Controller then accepts `POST /control/v1/nodes/create` with `{name, spec, idempotency_key, served_models?}`. `spec` names the GPU type and count, an image or a template, the region, secure or community cloud, disk and volume sizes, ports and environment (`CreateNodeSpec` in `packages/contracts/src/controller.ts`). The new node goes through the same four-link chain as a start (requested, acknowledged when the provider has created it, in progress, confirmed once it runs), and the same idempotency key never creates a second machine. RunPod creates pods with `POST /v2/pods`; the local-network provider cannot create and answers 501 (`provider.cannot_create`). Creating pods from the app, with the price shown first, is part of GPU fleet in NVX Ancile Pro; the free edition manages one node you add by its id.
+
 ## Using a different provider
 
-Implement `ComputeProvider` in `services/controller/src/providers/` (`list`, `get`, `action`, `cost`, and `mapError` → `{code, provider_message, suggestion}`). The operation state machine, queue, rules and the UI work unchanged. The conformance suite in `services/controller/test/contract` checks the result.
+Implement `ComputeProvider` in `services/controller/src/providers/` (`getNode`, `action`, `ping`, optionally `create`, and errors as `ProviderError` → `{code, provider_message, suggestion}`). The operation state machine, queue, rules and the UI work unchanged. The conformance suite in `services/controller/test/contract` checks the result.
 
 If a node won't start, see [the runbook](runbooks/node-wont-start.md).

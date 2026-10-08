@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { ActionRequest, Rule } from '@nvx/contracts/controller';
+import { ActionRequest, CreateNodeRequest, Rule } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -82,6 +82,86 @@ export function controlRoutes(deps: ControlDeps) {
         );
       throw err;
     }
+  });
+
+  // Create a new node at the provider (a RunPod pod), then watch it come up
+  // through the same confirmation chain as a start. Providers that only
+  // manage existing machines answer 501.
+  app.post('/nodes/create', async (c) => {
+    const parsed = CreateNodeRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return apiError(
+        c,
+        422,
+        'request.invalid',
+        'The new node was not described in the expected shape',
+        'Send {name, spec {gpu_type_id, image or template_id, …}, idempotency_key}.',
+        { context: { issues: parsed.error.issues } },
+      );
+    const req = parsed.data;
+    if (!req.spec.image && !req.spec.template_id)
+      return apiError(
+        c,
+        422,
+        'request.invalid',
+        'A new node needs an image or a template',
+        'Choose a template, or give the container image to run.',
+      );
+    const create = deps.provider.create?.bind(deps.provider);
+    if (!create)
+      return apiError(
+        c,
+        501,
+        'provider.cannot_create',
+        `The ${deps.provider.id} provider cannot create nodes`,
+        'Create the machine yourself, then add it by its id or address.',
+      );
+    const known = await store.findOperationByKey(req.idempotency_key);
+    if (known) return c.json({ operation_id: known.id, node_id: known.node_id, replayed: true }, 202);
+    let seen: Awaited<ReturnType<typeof create>>;
+    try {
+      seen = await create({ ...req.spec, name: req.name }, req.idempotency_key);
+    } catch (err) {
+      if (err instanceof ProviderError)
+        return apiError(
+          c,
+          422,
+          `provider.${err.error.code}`,
+          err.error.provider_message,
+          err.error.suggestion,
+        );
+      throw err;
+    }
+    const node = await register(
+      store,
+      deps.provider,
+      {
+        provider_ref: seen.ref,
+        name: req.name,
+        ...(req.served_models && { served_models: req.served_models }),
+        ...(req.storage_rate_month !== undefined && { storage_rate_month: req.storage_rate_month }),
+      },
+      now(),
+    );
+    await store.putNode({ ...node, desired_state: 'running' });
+    const at = now();
+    let op = createOperation({
+      id: newId('opn'),
+      nodeId: node.id,
+      action: 'create',
+      requestedBy: 'core',
+      reason: req.reason ?? null,
+      traceId: c.get('traceId'),
+      now: at,
+      detail: `Create ${req.name} (${req.spec.gpu_count > 1 ? `${req.spec.gpu_count}× ` : ''}${req.spec.gpu_type_id}) requested`,
+    });
+    op = advance(op, 'acknowledged', `The provider created it as ${seen.ref}.`, at);
+    await store.putOperation(op, req.idempotency_key);
+    const log = componentLogger('operations', op.trace_id);
+    void runOperation(op.id, req.idempotency_key, deps).catch((err) =>
+      log.error({ err }, 'executor crashed'),
+    );
+    return c.json({ operation_id: op.id, node_id: node.id }, 202);
   });
 
   app.delete('/nodes/:id', async (c) => {

@@ -13,7 +13,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { NodeAction, NodeState, Operation } from '@nvx/contracts/controller';
+import type { CreateNodeSpec, NodeAction, NodeState, Operation } from '@nvx/contracts/controller';
 
 export type OperationError = NonNullable<Operation['error']>;
 
@@ -44,6 +44,15 @@ export interface ComputeProvider {
   readonly id: string;
   getNode(ref: string, signal?: AbortSignal): Promise<ProviderNode>;
   action(ref: string, action: NodeAction, idempotencyKey: string, signal?: AbortSignal): Promise<ActionAck>;
+  /**
+   * Create a node (e.g. a RunPod pod) and return it as first seen. Optional:
+   * providers that only manage existing machines leave it out.
+   */
+  create?(
+    spec: CreateNodeSpec & { name: string },
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ProviderNode>;
   /** Cheap reachability probe for /ready and the self-diagnostic. */
   ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string }>;
   /**

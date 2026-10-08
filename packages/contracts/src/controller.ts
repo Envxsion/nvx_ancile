@@ -74,6 +74,40 @@ export const Operation = z.object({
 });
 export type Operation = z.infer<typeof Operation>;
 
+/**
+ * Create a new node at the provider (a RunPod pod) and manage it. Optional:
+ * a provider that cannot create answers 501 (provider.cannot_create).
+ */
+export const CreateNodeSpec = z.object({
+  /** The provider's GPU type id, e.g. "NVIDIA RTX A6000". */
+  gpu_type_id: z.string().min(1).max(120),
+  gpu_count: z.number().int().min(1).max(8).default(1),
+  /** A container image, or a provider template id; one of them. */
+  image: z.string().min(1).max(300).optional(),
+  template_id: z.string().min(1).max(120).optional(),
+  /** Data centre / region id, e.g. "EU-RO-1". Absent: the provider chooses. */
+  region: z.string().min(1).max(60).optional(),
+  cloud: z.enum(['secure', 'community']).default('secure'),
+  container_disk_gb: z.number().int().min(5).max(2_000).default(40),
+  volume_gb: z.number().int().min(0).max(4_000).default(0),
+  /** "8000/http" style; the first http port serves the OpenAI-compatible API. */
+  ports: z
+    .array(z.string().regex(/^\d{2,5}\/(http|tcp)$/))
+    .max(10)
+    .default(['8000/http']),
+  env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(4_000)).default({}),
+});
+export type CreateNodeSpec = z.infer<typeof CreateNodeSpec>;
+
+export const CreateNodeRequest = z.object({
+  name: z.string().min(1).max(120),
+  spec: CreateNodeSpec,
+  idempotency_key: z.string().min(8).max(200),
+  served_models: z.array(z.string().min(1).max(200)).max(50).optional(),
+  storage_rate_month: z.number().nonnegative().max(100_000).optional(),
+  reason: z.string().max(500).optional(),
+});
+
 export const ActionRequest = z.object({
   action: NodeAction,
   idempotency_key: z.string().min(8),

@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { NodeAction, NodeState } from '@nvx/contracts/controller';
+import type { CreateNodeSpec, NodeAction, NodeState } from '@nvx/contracts/controller';
 import { targetState } from '../operations/machine';
 import { mapError } from './runpod';
 import type { ActionAck, ComputeProvider, ProviderNode } from './types';
@@ -90,6 +90,25 @@ export class FakeProvider implements ComputeProvider {
     n.state = transitional[action];
     this.pending.set(ref, { to: targetState(action), at: this.now() + this.transitionMs });
     return { accepted: true, state: n.state, detail: `Sample provider: ${action} accepted.` };
+  }
+
+  private created = 0;
+
+  /** A new sample pod: provisioning, then running after the transition time. */
+  async create(spec: CreateNodeSpec & { name: string }): Promise<ProviderNode> {
+    const ref = `sample-${String(++this.created).padStart(3, '0')}`;
+    const node: FakeNode = {
+      ref,
+      name: spec.name,
+      state: 'starting',
+      gpuType: `${spec.gpu_count > 1 ? `${spec.gpu_count}× ` : ''}${spec.gpu_type_id}`,
+      hourlyRate: 0.79 * spec.gpu_count,
+      endpointUrl: `${FAKE_SCHEME}${ref}/v1`,
+      region: spec.region ?? null,
+    };
+    this.nodes.set(ref, node);
+    this.pending.set(ref, { to: 'running', at: this.now() + this.transitionMs });
+    return this.getNode(ref);
   }
 
   async ping() {
