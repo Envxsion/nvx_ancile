@@ -97,9 +97,9 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `ANCILE_MEMORY_AUTHOR_NAME` / `_EMAIL` | `NVX Ancile` / `memory@ancile.local` | Author of automatic memory commits. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | empty | Optional OTLP export, for example to Phoenix. |
 | `ANCILE_LOG_RETENTION_DAYS` / `_SPAN_` / `_RUN_EVENT_` | `14` / `30` / `7` | Retention. |
-| `NVX_TIER` | empty | `free` never loads Pro; `pro` loads it from `pro/`. Empty: Pro when `pro/` is present, free otherwise. |
+| `NVX_TIER` | empty | Running from source only: `free` never loads Pro; `pro` loads it from `pro/`. Empty: Pro when `pro/` is present, free otherwise. Release builds ignore it: their edition is what was bundled. |
 | `NVX_LICENSE_URL` | `https://ancile.nvx.sh/api/license` | Licence activation and the daily refresh. Tokens are checked offline. |
-| `NVX_LICENSE_KEYS` | nvx.sh's public keys | Licence public keys, `{"kid":"<base64url Ed25519 key>"}` or `kid:key,kid:key`. Empty uses the keys built into the app (`OFFICIAL_LICENSE_KEYS`); set it only to test with your own signing key. |
+| `NVX_LICENSE_KEYS` | nvx.sh's public keys | Licence public keys, `{"kid":"<base64url Ed25519 key>"}` or `kid:key,kid:key`. Running from source only, to test with your own signing key. Release builds ignore it and trust only the keys built in (`OFFICIAL_LICENSE_KEYS`). |
 | `NVX_TELEMETRY_URL` | empty | Anonymous usage statistics endpoint, `https://` only. Empty: nothing is ever sent, whatever is chosen in Settings. See [telemetry](telemetry.md). |
 
 ## config/ files
