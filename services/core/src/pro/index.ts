@@ -84,6 +84,7 @@ export async function loadPro(opts: {
   };
   const host: ProHost = {
     fetch: timedFetch,
+    now: () => (clock ? clock.now() : Date.now()),
     AncileError,
     deviceLabel: deviceLabel(),
     log: logFor('pro'),

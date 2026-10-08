@@ -89,3 +89,33 @@ describe('licence clock', () => {
     expect(new Date(clock.now()).toISOString()).toBe('2026-12-01T00:00:00.000Z');
   });
 });
+
+describe('token v2 (NVX licensing v2)', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const times = { iat: now - 10, exp: now + 86_400 };
+
+  it('accepts v1, and v2 for NVX Ancile', () => {
+    const v1 = token(times);
+    expect(verifyToken(v1.token, { keys: v1.keys, build: 'pro', deviceId: 'dev-1' }).status.verified).toBe(
+      true,
+    );
+    const v2 = token({ ...times, v: 2, product: 'ancile' });
+    expect(verifyToken(v2.token, { keys: v2.keys, build: 'pro', deviceId: 'dev-1' }).status.verified).toBe(
+      true,
+    );
+  });
+
+  it('refuses a token for another NVX product', () => {
+    const other = token({ ...times, v: 2, product: 'session' });
+    const r = verifyToken(other.token, { keys: other.keys, build: 'pro', deviceId: 'dev-1' });
+    expect(r.failure).toBe('wrong_product');
+    expect(r.status.tier).toBe('free');
+  });
+
+  it('refuses a version it does not know', () => {
+    const v3 = token({ ...times, v: 3, product: 'ancile' });
+    expect(verifyToken(v3.token, { keys: v3.keys, build: 'pro', deviceId: 'dev-1' }).failure).toBe(
+      'bad_token',
+    );
+  });
+});

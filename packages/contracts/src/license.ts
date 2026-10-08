@@ -26,7 +26,10 @@ export const TokenHeader = z.object({ alg: z.literal('EdDSA'), kid: z.string().m
 export type TokenHeader = z.infer<typeof TokenHeader>;
 
 export const TokenClaims = z.object({
-  v: z.literal(1),
+  /** 1, or 2 (NVX licensing v2: adds `product`). Both are accepted. */
+  v: z.union([z.literal(1), z.literal(2)]),
+  /** v2: the product this token is for. A token for another product is refused. */
+  product: z.string().min(1).max(32).optional(),
   /** The licence row on the licence server. */
   id: z.string().min(1).max(64),
   tier: z.enum(['pro', 'max_access']),
@@ -42,7 +45,14 @@ export const TokenClaims = z.object({
 export type TokenClaims = z.infer<typeof TokenClaims>;
 
 /** Why a token did not unlock anything. `build_free`: a free build ignores every token. */
-export const TokenFailure = z.enum(['bad_token', 'expired', 'wrong_device', 'unknown_kid', 'build_free']);
+export const TokenFailure = z.enum([
+  'bad_token',
+  'expired',
+  'wrong_device',
+  'wrong_product',
+  'unknown_kid',
+  'build_free',
+]);
 export type TokenFailure = z.infer<typeof TokenFailure>;
 
 /**

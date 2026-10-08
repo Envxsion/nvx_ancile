@@ -41,6 +41,8 @@ export interface ProHost {
   /** A name for this computer the licence server can show ("Ana's laptop"). */
   deviceLabel: string;
   version: string;
+  /** The licence clock (never earlier than any time seen before); Date.now when absent. */
+  now?: () => number;
 }
 
 /** Turning Pro on and keeping it on: Admin → Licence talks to this. */

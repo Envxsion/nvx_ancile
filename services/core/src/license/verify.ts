@@ -41,6 +41,9 @@ export const FREE: Status = {
 /** kid → raw Ed25519 public key, base64url (32 bytes). */
 export type KeyMap = Record<string, string>;
 
+/** The product name in a v2 token. */
+export const PRODUCT = 'ancile';
+
 /**
  * The public halves of the keys ancile.nvx.sh signs licences with. Public by
  * design: they can only check a signature, never make one. NVX_LICENSE_KEYS
@@ -122,6 +125,9 @@ export function verifyToken(
   const parsed = license.TokenClaims.safeParse(json(p));
   if (!parsed.success || parsed.data.kid !== header.data.kid) return { status: FREE, failure: 'bad_token' };
   const claims = parsed.data;
+  // NVX licensing v2: every product has its own key, and the token names it.
+  if (claims.product !== undefined && claims.product !== PRODUCT)
+    return { status: FREE, failure: 'wrong_product', claims };
   if (claims.dev !== opts.deviceId) return { status: FREE, failure: 'wrong_device', claims };
 
   const now = Math.floor((opts.now ?? Date.now()) / 1000);

@@ -191,14 +191,16 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `automation.busy` | 409 | "It is running already." / Wait for it to finish. |
 | `license.unreachable` | 503 | "nvx.sh could not be reached." / Check your connection; once Pro is on, it keeps working offline until its token expires. |
 | `license.rejected` | 422 | nvx.sh's own words / Check the key (NVX-XXXX-XXXX-XXXX) in your nvx.sh account. |
-| `license.invalid` | 422 | Why the token did not unlock anything: not a token from nvx.sh, issued for another computer, signed by a key this version does not know, or expired / Turn Pro on here with your key, or update NVX Ancile. |
+| `license.invalid` | 422 | Why the token did not unlock anything: not a token from nvx.sh, issued for another computer, signed by a key this version does not know, for another NVX product, or expired / Turn Pro on here with your key, or update NVX Ancile. |
 | `license.free_build` | 422 | "This build has no Pro in it." / Download NVX Ancile from ancile.nvx.sh to use Pro. A clone without `pro/` is the free product. |
-| `license.seat_taken` | 409 | "This key is in use on another computer." / Choose Move it here; the other computer goes back to the free edition. `error.context.devices` names it. |
+| `license.seat_taken` | 409 | "This key is already on as many computers as it allows." / Choose Move it here; the one used least recently goes back to the free edition. `error.context` has `devices` and `max_devices`. |
 | `license.transfer_limit` | 409 | "This key has moved too many times recently." / Wait a few days, or ask nvx.sh support to move it. |
 | `license.not_found` | 404 | "There is no licence with that key." / Copy the key again from your nvx.sh account. |
 | `license.paused` | 410 | "This licence is paused." / Resume it in your nvx.sh account. A paused licence keeps its key; Pro comes back when it is resumed. |
 | `license.expired` | 410 | "This licence has ended." / Renew it in your nvx.sh account, then check again. |
 | `license.revoked` | 410 | "This licence was revoked." / Contact nvx.sh support. The key is forgotten on this computer. |
+| `license.released` | 410 | "This computer was released from the licence." / Turn Pro on again with your key to take a seat here. The key is forgotten on this computer. |
+| `license.bad_token` | 401 | "nvx.sh did not accept this licence." / Enter your key again in Admin → Licence. The token is cleared; the key, if held, is kept. |
 | `license.rate_limited` | 429 | "Too many tries just now." / Wait a minute, then try again. |
 | `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). |
 | `pro.core_too_old` | 501 | "This part of Pro needs a newer NVX Ancile." / Update NVX Ancile, then try again. Pro is newer than the Core it runs in. |
