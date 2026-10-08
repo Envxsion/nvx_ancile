@@ -346,6 +346,17 @@ function watchExit(s) {
       console.log(`\n${mark.fail} ${s.name} exited with code ${code}. Its last lines are above.`);
       console.log(c.dim('  The others keep running. Fix and save, or press Ctrl+C to stop everything.'));
     }
+    // Every service is gone (`pnpm stop` from another terminal, or all crashed):
+    // nothing is left to run or restart, so the launcher leaves too instead of
+    // lingering with no services under it.
+    setTimeout(() => {
+      const alive = (x) => x.child.exitCode === null && x.child.signalCode === null;
+      if (stopping || children.some((x) => x.restarting || alive(x))) return;
+      console.log(`\n${mark.step} Every service has stopped, so this launcher is stopping too.`);
+      stopping = true;
+      control.close();
+      process.exit(0);
+    }, 1000);
   });
 }
 for (const s of children) watchExit(s);
