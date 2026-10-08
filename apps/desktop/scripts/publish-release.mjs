@@ -132,14 +132,21 @@ export async function publishExternal({
   throw new Failed(`nvx.sh did not publish ${meta.filename}: ${pub.status} ${codeOf(pub.body)}`);
 }
 
-export async function publish({ file, meta, token, base = 'https://nvx.sh', fetchImpl = fetch }) {
+/**
+ * Upload to nvx.sh's storage, then publish. `requireStore` refuses any
+ * store but the one named (Pro installers go only to Cloudflare R2: before
+ * R2 is set up nvx.sh offers Supabase, capped at 50 MB) and returns
+ * 'skipped' without sending anything.
+ */
+export async function publish({ file, meta, token, base = 'https://nvx.sh', fetchImpl = fetch, requireStore }) {
   const up = await call(fetchImpl, base, '/api/releases/upload', token, meta);
   if (up.status === 409 && codeOf(up.body) === 'release.exists') {
     // Already published: the same build again is a harmless retry; another build fails below.
   } else if (up.status >= 200 && up.status < 300 && up.body?.upload_url) {
+    if (requireStore && up.body.store !== requireStore) return 'skipped';
+    // A presigned PUT signs only the host: any other header breaks the signature.
     const put = await fetchImpl(up.body.upload_url, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/octet-stream' },
+      method: up.body.method ?? 'PUT',
       body: readFileSync(file),
     });
     if (!put.ok) throw new Failed(`Storage refused ${meta.filename}: ${put.status}`);
@@ -212,7 +219,14 @@ async function main() {
         `Published on nvx.sh from GitHub: ${meta.filename} (${edition}, ${target}/${arch}, ${meta.channel})`,
       );
     } else if (process.argv.includes('--upload')) {
-      const r = await publish({ file, meta, token, base });
+      // Pro installers live only in R2 (no download fees); never in the 50 MB Supabase fallback.
+      const r = await publish({ file, meta, token, base, ...(edition === 'pro' && { requireStore: 'r2' }) });
+      if (r === 'skipped') {
+        console.log(
+          `Not published: nvx.sh's release storage is not Cloudflare R2 yet, and Pro installers go only there (${meta.filename}).`,
+        );
+        return;
+      }
       console.log(
         `${r === 'already' ? 'Already published' : 'Published'}: ${meta.filename} (${edition}, ${target}/${arch}, ${meta.channel})`,
       );

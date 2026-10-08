@@ -31,7 +31,12 @@ before(async () => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const raw = Buffer.concat(chunks);
-    calls.push({ method: req.method, url: req.url, auth: req.headers.authorization ?? null });
+    calls.push({
+      method: req.method,
+      url: req.url,
+      auth: req.headers.authorization ?? null,
+      type: req.headers['content-type'] ?? null,
+    });
     const json = (status, body) => {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
@@ -39,7 +44,8 @@ before(async () => {
     if (req.url === '/api/releases/upload') {
       const meta = JSON.parse(raw.toString());
       if (published.has(meta.version)) return json(409, { error: { code: 'release.exists' } });
-      return json(200, { upload_url: `${base}/storage/${meta.filename}`, token: 't', path: meta.filename });
+      const store = meta.notes === 'supabase' ? 'supabase' : 'r2';
+      return json(200, { upload_url: `${base}/storage/${meta.filename}`, method: 'PUT', store, path: meta.filename });
     }
     if (req.url?.startsWith('/storage/')) {
       stored.set(decodeURIComponent(req.url), raw.length);
@@ -116,6 +122,19 @@ describe('publish to nvx.sh', () => {
     );
     assert.equal(calls[0].auth, 'Bearer rel_test');
     assert.equal(calls[1].auth, null, 'the storage link carries no release token');
+    assert.equal(calls[1].type, null, 'no content-type: a presigned PUT signs only the host');
+  });
+
+  it('sends a Pro installer only to R2, never to the 50 MB fallback', async () => {
+    const file = build(1024);
+    const before = calls.length;
+    const meta = { ...metaFor(file, 1024), version: '3.0.0', edition: 'pro', notes: 'supabase' };
+    assert.equal(await publish({ file, meta, token: 'rel_test', base, requireStore: 'r2' }), 'skipped');
+    assert.deepEqual(
+      calls.slice(before).map((c) => `${c.method} ${c.url}`),
+      ['POST /api/releases/upload'],
+      'nothing is sent to storage or published',
+    );
   });
 
   it('treats the same build again as already done', async () => {

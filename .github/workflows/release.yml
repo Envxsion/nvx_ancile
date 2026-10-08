@@ -161,10 +161,9 @@ jobs:
         run: node scripts/publish-release.mjs --edition free --version "${GITHUB_REF_NAME#v}" --github-release "$GITHUB_REF_NAME"
       # The Pro edition: built to prove it builds, then kept. It never goes to
       # GitHub (releases or artifacts), which would make it public.
-      # TODO(phase-6): publish Pro installers once their storage is decided
-      # (Cloudflare R2, or Pro delivered as a separate module); then
-      # `node scripts/publish-release.mjs --edition pro --version … --upload`
-      # or an external_url to that storage.
+      # Published only to nvx.sh's private Cloudflare R2 bucket (no download
+      # fees); entitled Pro installs get a 15-minute link from /api/updates.
+      # Until R2 is set up the script skips it rather than use the 50 MB fallback.
       - name: Pro (private)
         if: env.PRO_REPO_TOKEN != ''
         shell: bash
@@ -175,7 +174,7 @@ jobs:
       - name: Core with Pro bundled
         if: env.PRO_REPO_TOKEN != ''
         run: pnpm --filter @nvx/ancile-desktop sidecars core
-      - name: Build the installers (Pro, not published)
+      - name: Build the installers (Pro)
         if: env.PRO_REPO_TOKEN != ''
         working-directory: apps/desktop
         shell: bash
@@ -189,3 +188,8 @@ jobs:
           APPLE_PASSWORD: '${{ secrets.APPLE_PASSWORD }}'
           APPLE_TEAM_ID: '${{ secrets.APPLE_TEAM_ID }}'
         run: pnpm tauri build --bundles ${{ matrix.bundles }} ${{ steps.updater.outputs.args }}
+      - name: Publish the Pro edition on nvx.sh (Cloudflare R2, private)
+        if: env.PRO_REPO_TOKEN != '' && env.NVX_RELEASE_TOKEN != ''
+        working-directory: apps/desktop
+        shell: bash
+        run: node scripts/publish-release.mjs --edition pro --version "${GITHUB_REF_NAME#v}" --upload
