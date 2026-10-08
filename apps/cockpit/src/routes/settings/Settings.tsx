@@ -16,6 +16,7 @@ import { DEFAULT_PREFERENCES, Preferences, type PrefGroup } from '@nvx/contracts
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { helpDone } from '../../help/store';
+import { ProSurfaceView } from '../../pro/slot';
 import { notify } from '../../state/notify';
 import { usePrefs } from '../../state/prefs';
 import { useUi } from '../../state/ui';
@@ -35,7 +36,7 @@ import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
 const GROUPS: {
-  id: PrefGroup | 'about' | 'privacy';
+  id: PrefGroup | 'about' | 'privacy' | 'sync';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -84,6 +85,13 @@ const GROUPS: {
     icon: 'shield',
     body: PrivacyGroup,
     lede: 'What NVX Ancile may share about how it is used.',
+  },
+  {
+    id: 'sync',
+    label: 'Sync',
+    icon: 'globe',
+    body: () => <ProSurfaceView id="sync" />,
+    lede: 'Your workspace on every computer, encrypted before it leaves this one.',
   },
   {
     id: 'advanced',
@@ -336,7 +344,11 @@ export function SettingsScreen() {
               <Icon name="download" size={13} />
               Export
             </button>
-            {!searching && current && current.id !== 'about' && current.id !== 'privacy' ? (
+            {!searching &&
+            current &&
+            current.id !== 'about' &&
+            current.id !== 'privacy' &&
+            current.id !== 'sync' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

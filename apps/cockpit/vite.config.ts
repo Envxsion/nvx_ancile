@@ -12,10 +12,14 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+// Pro's screens (pro/cockpit, a private submodule) import React and nothing
+// else; they live outside this package, so React must resolve to this copy.
+
 const core = process.env.ANCILE_CORE_URL ?? 'http://localhost:7700';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: { dedupe: ['react', 'react-dom'] },
   server: {
     // 7701, or 7801 for the test profile (pnpm start:e2e) so both can run.
     port: Number(process.env.COCKPIT_PORT ?? 7701),

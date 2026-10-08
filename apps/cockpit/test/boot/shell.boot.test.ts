@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { BOOT_SCRIPT } from '@nvx/aperture';
 import { describe, expect, it } from 'vitest';
 import { BINDINGS, findConflicts } from '../../src/keys/registry';
+import { PRO_SURFACES } from '../../src/pro/slot';
 import { ADMIN_SECTIONS } from '../../src/routes/admin/sections';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -67,6 +68,8 @@ describe('boot: routes', () => {
       'automations',
       'diagnostics',
       'license',
+      // Pro features: their screen with Pro, a card explaining them without.
+      ...PRO_SURFACES.filter((s) => s.place === 'admin').map((s) => s.id),
     ];
     expect(ADMIN_SECTIONS.map((s) => s.id).sort()).toEqual([...required].sort());
   });

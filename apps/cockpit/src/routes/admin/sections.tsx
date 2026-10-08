@@ -27,6 +27,7 @@ import { LicenceScreen } from '../../ops/LicenceScreen';
 import { LogsScreen } from '../../ops/LogsScreen';
 import { PluginsScreen } from '../../ops/PluginsScreen';
 import { TracesScreen } from '../../ops/TracesScreen';
+import { PRO_SURFACES, ProSurfaceView } from '../../pro/slot';
 import { useUi } from '../../state/ui';
 import { Icon, type IconName } from '../../ui/Icon';
 import { EmptyState, StatusDot } from '../../ui/primitives';
@@ -376,4 +377,14 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     group: 'Extend',
     render: () => <LicenceScreen />,
   },
+  // Pro features (DESIGN.md §9): their own screen with Pro, a card explaining them without.
+  ...PRO_SURFACES.filter((s) => s.place === 'admin').map(
+    (s): AdminSection => ({
+      id: s.id,
+      label: s.label,
+      icon: s.icon,
+      group: s.feature === 'team' ? 'Trust' : s.feature === 'fleet' ? 'System' : 'Extend',
+      render: () => <ProSurfaceView id={s.id} />,
+    }),
+  ),
 ];
