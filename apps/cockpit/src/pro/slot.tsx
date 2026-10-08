@@ -24,7 +24,9 @@ import { Link } from '@tanstack/react-router';
 import { type ComponentType, Suspense, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { queryClient } from '../lib/query';
+import { attachRun, useLiveTurn } from '../lib/run';
 import { notify } from '../state/notify';
+import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { EmptyState, Kbd, Skeleton, StatusDot, Tip } from '../ui/primitives';
@@ -39,6 +41,8 @@ export interface ProSurface {
   place: 'admin' | 'settings' | 'gate';
   label: string;
   icon: IconName;
+  /** Where it sits in Admin's list; absent: decided by feature. */
+  group?: 'System' | 'Trust' | 'Models' | 'Extend';
 }
 
 export const PRO_SURFACES: ProSurface[] = [
@@ -46,6 +50,15 @@ export const PRO_SURFACES: ProSurface[] = [
   { id: 'team', feature: 'team', place: 'admin', label: 'Team', icon: 'user' },
   { id: 'sync', feature: 'sync', place: 'settings', label: 'Sync', icon: 'globe' },
   { id: 'signin', feature: 'team', place: 'gate', label: 'Sign in', icon: 'lock' },
+  { id: 'insights', feature: 'insights', place: 'admin', label: 'Insights', icon: 'pulse', group: 'System' },
+  {
+    id: 'flow-lab',
+    feature: 'flow_lab',
+    place: 'admin',
+    label: 'Flow lab',
+    icon: 'compare',
+    group: 'Models',
+  },
 ];
 
 /** What the Cockpit lends Pro's screens. */
@@ -56,14 +69,28 @@ export const proKit = {
   useMutation,
   notify,
   Link,
-  ui: { Icon, EmptyState, Kbd, Skeleton, StatusDot, Tip, Switch, Check, Segmented },
+  /** Follow answers as they are written (the same live store the thread uses). */
+  runs: { attach: attachRun, useLive: useLiveTurn },
+  ui: { Icon, EmptyState, Kbd, Skeleton, StatusDot, Tip, Switch, Check, Segmented, Parts },
 };
 export type ProKit = typeof proKit;
+
+/** What the Beam dialog is opened with: where the question goes, and its text so far. */
+export interface BeamDialogProps {
+  threadId: string | null;
+  notebookId: string | null;
+  /** The message the question replies to; undefined: the thread's latest answer. */
+  parentId: string | null | undefined;
+  text: string;
+  onClose: () => void;
+}
 
 /** pro/cockpit/index.tsx's export. */
 export interface ProUi {
   /** One screen per surface id (PRO_SURFACES[].id). */
   screens: Record<string, ComponentType>;
+  /** Pieces that live inside public screens (the Beam dialog opened from the composer). */
+  parts?: { BeamDialog?: ComponentType<BeamDialogProps> };
 }
 type CreateProUi = (kit: ProKit) => ProUi;
 
@@ -129,6 +156,27 @@ export function ProUpsell({ feature, build }: { feature: ProFeatureId; build: 'f
       />
     </div>
   );
+}
+
+/** Pro's UI module (null in a free build), and whether a feature is unlocked now. */
+export function useProFeature(feature: ProFeatureId): {
+  ui: ProUi | null | undefined;
+  unlocked: boolean;
+  build: 'free' | 'pro' | null;
+  loading: boolean;
+} {
+  const ui = useProUi();
+  const licence = useQuery({
+    queryKey: ['license', 'details'],
+    queryFn: () => api.get<LicenceView>('/license/details'),
+    staleTime: 30_000,
+  });
+  return {
+    ui,
+    unlocked: licence.data?.features.find((f) => f.id === feature)?.unlocked ?? false,
+    build: licence.data?.build ?? null,
+    loading: licence.isLoading || ui === undefined,
+  };
 }
 
 /** A Pro feature's screen, or the card that explains it. */

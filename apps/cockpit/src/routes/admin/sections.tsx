@@ -383,7 +383,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       id: s.id,
       label: s.label,
       icon: s.icon,
-      group: s.feature === 'team' ? 'Trust' : s.feature === 'fleet' ? 'System' : 'Extend',
+      group: s.group ?? (s.feature === 'team' ? 'Trust' : s.feature === 'fleet' ? 'System' : 'Extend'),
       render: () => <ProSurfaceView id={s.id} />,
     }),
   ),

@@ -31,6 +31,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
 import { Palette } from '../palette/Palette';
+import { BeamHost } from '../pro/beam';
 import { SignInGate, useSignInGate } from '../pro/gate';
 import { ADMIN_SECTIONS } from '../routes/admin/sections';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
@@ -213,6 +214,7 @@ export function AppShell() {
       <Center />
       <HelpCentre />
       <TourOverlay />
+      <BeamHost />
       <Toaster />
     </div>
   );

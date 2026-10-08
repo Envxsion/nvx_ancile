@@ -39,6 +39,7 @@ import { useModels, useNotebooks, useSources } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import type { Hue } from '../lib/types';
+import { openBeam } from '../pro/beam';
 import { useRepos } from '../repos/data';
 import { useUploads } from '../sources/uploads';
 import { usePref } from '../state/prefs';
@@ -53,7 +54,7 @@ interface Slash {
   cmd: string;
   hint: string;
   /** Runs here instead of being sent. */
-  run?: 'models' | 'sources' | 'shortcuts';
+  run?: 'models' | 'sources' | 'shortcuts' | 'beam';
 }
 
 // Only commands that work today. TODO(phase-4): /memory, /compact, /branch, /factcheck.
@@ -61,6 +62,7 @@ const SLASH: Slash[] = [
   { cmd: '/model', hint: 'Choose the model for this thread', run: 'models' },
   { cmd: '/sources', hint: "Open this notebook's sources", run: 'sources' },
   { cmd: '/keys', hint: 'Show keyboard shortcuts', run: 'shortcuts' },
+  { cmd: '/beam', hint: 'Ask several models at once, then fuse their answers', run: 'beam' },
 ];
 
 /** What the offline test model obeys; listed only while it is the model. */
@@ -350,6 +352,8 @@ export function Composer({
         setText('');
         if (item.run === 'models') openPalette('models');
         else if (item.run === 'sources') openDrawer('sources');
+        else if (item.run === 'beam')
+          openBeam({ threadId: realThread ? threadId : null, notebookId, parentId, text: '' });
         else setShortcuts(true);
         return;
       }

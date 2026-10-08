@@ -35,6 +35,7 @@ import { hueVar } from '../lib/format';
 import { chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
+import { openBeam } from '../pro/beam';
 import { useRepoCommands } from '../repos/commands';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
@@ -256,6 +257,13 @@ export function Palette() {
       icon: 'model',
       binding: 'model.switch',
       run: () => setTimeout(() => openPalette('models'), 0),
+    },
+    {
+      id: 'beam',
+      label: 'Ask several models at once',
+      icon: 'compare',
+      words: 'beam fan out fuse compare models',
+      run: () => openBeam({ threadId: thread?.id ?? null, notebookId: thread?.notebookId ?? null }),
     },
     {
       id: 'settings',
