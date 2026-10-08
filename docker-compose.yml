@@ -1,0 +1,187 @@
+# NVX Ancile: local services
+#
+#   docker compose up -d                       Postgres, Knowledge, Core, Controller
+#   docker compose --profile search up -d      + SearXNG for web evidence
+#   docker compose --profile observability up -d  + Phoenix trace UI on :6006
+#
+# For day-to-day development use `pnpm up`, which runs Postgres here and the
+# services on the host with hot reload, after their boot tests pass.
+
+name: nvx-ancile
+
+x-service-env: &service-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-ancile}:${POSTGRES_PASSWORD:-change-me-locally}@postgres:5432/${POSTGRES_DB:-ancile}
+  ANCILE_SERVICE_TOKEN: ${ANCILE_SERVICE_TOKEN:?set ANCILE_SERVICE_TOKEN in .env}
+  ANCILE_LOG_LEVEL: ${ANCILE_LOG_LEVEL:-info}
+  ANCILE_BOOT_TESTS: ${ANCILE_BOOT_TESTS:-strict}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ancile}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      POSTGRES_DB: ${POSTGRES_DB:-ancile}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ancile} -d ${POSTGRES_DB:-ancile}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  knowledge:
+    build: { context: ., dockerfile: infra/docker/knowledge.Dockerfile }
+    restart: unless-stopped
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      <<: *service-env
+      CORE_INTERNAL_URL: http://core:7700/internal/v1
+      KNOWLEDGE_PORT: 7710
+      KNOWLEDGE_EMBED_MODEL: ${KNOWLEDGE_EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      KNOWLEDGE_RERANK_MODEL: ${KNOWLEDGE_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      KNOWLEDGE_MODEL_CACHE: /data/models
+      KNOWLEDGE_USE_DOCLING: ${KNOWLEDGE_USE_DOCLING:-true}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+    volumes:
+      - ./data:/data
+    ports: ["127.0.0.1:${KNOWLEDGE_PORT:-7710}:7710"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7710/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  controller:
+    build: { context: ., dockerfile: infra/docker/controller.Dockerfile }
+    restart: unless-stopped
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      <<: *service-env
+      CONTROLLER_PORT: 7720
+      CONTROLLER_TOKEN: ${CONTROLLER_TOKEN:?set CONTROLLER_TOKEN in .env}
+      CONTROLLER_NODE_TOKEN: ${CONTROLLER_NODE_TOKEN:-}
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      RUNPOD_API_BASE: ${RUNPOD_API_BASE:-https://api.runpod.io}
+      CONTROLLER_COST_CAP_USD: ${CONTROLLER_COST_CAP_USD:-150}
+      CONTROLLER_QUEUE_DEADLINE_S: ${CONTROLLER_QUEUE_DEADLINE_S:-240}
+    ports: ["127.0.0.1:${CONTROLLER_PORT:-7720}:7720"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:7720/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  core:
+    build: { context: ., dockerfile: infra/docker/core.Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      knowledge: { condition: service_started }
+      controller: { condition: service_started }
+    environment:
+      <<: *service-env
+      ANCILE_HOST: 0.0.0.0
+      ANCILE_PORT: 7700
+      ANCILE_PUBLIC_URL: ${ANCILE_PUBLIC_URL:-http://localhost:7700}
+      ANCILE_SECRET_KEY: ${ANCILE_SECRET_KEY:?set ANCILE_SECRET_KEY in .env}
+      ANCILE_PASSPHRASE_REQUIRED: ${ANCILE_PASSPHRASE_REQUIRED:-false}
+      ANCILE_DATA_DIR: /data
+      KNOWLEDGE_URL: http://knowledge:7710
+      CONTROLLER_URL: http://controller:7720
+      CONTROLLER_TOKEN: ${CONTROLLER_TOKEN}
+      ANCILE_RESTART_ADAPTER: ${ANCILE_RESTART_ADAPTER:-none}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - ./data:/data
+      - ./config:/app/config
+      - ./prompts:/app/prompts:ro
+      # Opt-in: uncomment to let the supervisor restart containers (DESIGN.md §7.4)
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # Loopback only. Expose deliberately, with a passphrase.
+    ports: ["127.0.0.1:${ANCILE_PORT:-7700}:7700"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:7700/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # The lab lane: our opencode fork, driven by Core (DESIGN.md §1.2)
+  agent:
+    build: { context: ., dockerfile: infra/docker/agent.Dockerfile }
+    restart: unless-stopped
+    environment:
+      OPENCODE_SERVER_PASSWORD: ${AGENT_ENGINE_TOKEN:?set AGENT_ENGINE_TOKEN in .env}
+      # Every model call goes through Core's gateway (patch 4 in UPSTREAM.md)
+      ANCILE_GATEWAY_URL: http://core:7700/internal/v1/openai
+      ANCILE_PERMISSION_URL: http://core:7700/internal/v1/permissions/decide
+      ANCILE_SERVICE_TOKEN: ${ANCILE_SERVICE_TOKEN}
+      OPENCODE_DISABLE_AUTOUPDATE: "true"
+      OPENCODE_DISABLE_SHARE: "true"
+    volumes:
+      - ./data/labs:/workspace
+      - ./data/agent:/root/.local/share/opencode
+    ports: ["127.0.0.1:${AGENT_ENGINE_PORT:-7730}:4096"]
+
+  research:
+    profiles: [research]
+    image: gptresearcher/gpt-researcher:latest
+    restart: unless-stopped
+    environment:
+      OPENAI_BASE_URL: http://core:7700/internal/v1/openai
+      OPENAI_API_KEY: ${ANCILE_SERVICE_TOKEN}
+      RETRIEVER: searx
+      SEARX_URL: http://searxng:8080
+    ports: ["127.0.0.1:8011:8000"]
+
+  crawl4ai:
+    profiles: [crawl]
+    image: unclecode/crawl4ai:latest
+    restart: unless-stopped
+    shm_size: 1g
+    ports: ["127.0.0.1:11235:11235"]
+
+  docling:
+    profiles: [docling]
+    image: quay.io/docling-project/docling-serve:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:5001:5001"]
+
+  speech:
+    profiles: [speech]
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    ports: ["127.0.0.1:8020:8000"]
+    volumes:
+      - ./data/models/speech:/home/ubuntu/.cache/huggingface
+
+  searxng:
+    profiles: [search, research]
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:8088:8080"]
+    volumes:
+      - ./infra/searxng:/etc/searxng:ro
+
+  # Opik (Apache-2.0) trace UI. Phoenix was dropped: Elastic-2.0 licence.
+  # Opik's full self-host stack is larger; see docs/observability.md for the
+  # compose override. Any OTLP collector works with OTEL_EXPORTER_OTLP_ENDPOINT.
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318"]
+
+volumes:
+  pgdata:

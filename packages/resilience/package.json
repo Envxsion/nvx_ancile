@@ -1,0 +1,21 @@
+{
+  "name": "@nvx/resilience",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Retry, circuit breaker, deadlines, bulkheads and fallback chains: the only sanctioned way NVX Ancile calls anything external.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nvx/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

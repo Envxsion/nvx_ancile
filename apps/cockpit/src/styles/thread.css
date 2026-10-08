@@ -1,0 +1,947 @@
+/* ==========================================================================
+   Thread
+
+   The answer is the loudest thing on screen. Assistant prose is set on the
+   page at reading size and measure; your turns sit on a lifted plate; the
+   chrome around a message appears only when you are on it.
+   ========================================================================== */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.thread--center {
+  justify-content: center;
+}
+.thread__scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 36px 28px 24px;
+}
+.thread__measure {
+  width: 100%;
+  max-width: calc(var(--measure) + 64px);
+  margin: 0 auto;
+}
+.thread__title {
+  font-size: var(--t-h1);
+  line-height: 1.12;
+  margin-bottom: 18px;
+}
+.thread__messages {
+  display: grid;
+  gap: 28px;
+  padding-bottom: 24px;
+}
+.thread__composer {
+  padding: 0 28px 18px;
+  background: linear-gradient(to bottom, transparent, var(--lift) 30%);
+  margin-top: -20px;
+  position: relative;
+}
+
+.tldr {
+  margin-bottom: 28px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.tldr__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+.tldr__body {
+  margin-top: 6px;
+  color: var(--fg-2);
+  line-height: 1.55;
+  font-size: var(--t-body);
+  text-wrap: pretty;
+}
+
+/* --- Message ------------------------------------------------------------ */
+
+.msg {
+  position: relative;
+  display: grid;
+  gap: 10px;
+}
+.msg[data-role='user'] {
+  justify-items: end;
+}
+.msg[data-role='user'] .msg__body {
+  max-width: 84%;
+  padding: 12px 16px;
+  border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--fg);
+}
+[data-theme='light'] .msg[data-role='user'] .msg__body {
+  background: var(--panel);
+}
+
+.msg__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.msg-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--fg-3);
+}
+.msg-model::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--hue);
+}
+.siblings {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mute);
+  font-size: 11px;
+}
+
+.msg[data-role='assistant'] .msg__body {
+  font-size: var(--t-read);
+  line-height: var(--lh-read);
+  color: var(--fg-2);
+  max-width: var(--measure);
+}
+.msg__body:focus {
+  outline: none;
+}
+.msg__body > * + * {
+  margin-top: 0.8em;
+}
+.msg__body ul {
+  display: grid;
+  gap: 0.55em;
+  padding-left: 0;
+}
+.msg__body ul > li {
+  position: relative;
+  padding-left: 18px;
+}
+.msg__body ul > li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.72em;
+  width: 5px;
+  height: 1.5px;
+  background: var(--mute-2);
+}
+.msg__body code {
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--chalk);
+  font-size: 0.86em;
+}
+.msg__body h3 {
+  font-size: var(--t-h3);
+  color: var(--fg);
+}
+
+.msg__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.msg__fallback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin: 0 0 10px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--hair-2);
+  border-radius: 999px;
+  color: var(--fg-2);
+  background: var(--wash-2);
+  font-size: var(--t-small);
+}
+.msg__fallback svg {
+  color: var(--mute);
+  flex: none;
+}
+.msg__conf {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.msg__conf[data-level='high'] {
+  color: var(--ok);
+}
+.msg__conf[data-level='mid'] {
+  color: var(--warn);
+}
+.msg__conf[data-level='low'] {
+  color: var(--fail);
+}
+
+.msg__waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgb(var(--signal-rgb) / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.32);
+  color: var(--signal-ink);
+  font-size: var(--t-ui);
+}
+.msg__waiting .btn {
+  margin-left: auto;
+}
+
+/* Hover actions: present, quiet, then gone. Keyboard focus shows them too. */
+.msg__actions {
+  position: absolute;
+  right: 0;
+  top: -8px;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--lift-3);
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition:
+    opacity var(--d-micro) var(--ease),
+    transform var(--d-short) var(--ease);
+}
+.msg[data-role='user'] .msg__actions {
+  top: -30px;
+}
+.msg:hover .msg__actions,
+.msg__actions[data-visible]:focus-within,
+.msg:focus-within .msg__actions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* --- Claims and citations ---------------------------------------------- */
+
+.claim {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  text-decoration-skip-ink: auto;
+  border-radius: 2px;
+  cursor: help;
+  transition: background-color var(--d-micro) var(--ease);
+}
+.claim:hover {
+  background: var(--chalk);
+}
+.claim[data-verdict='verified'] {
+  text-decoration-style: dotted;
+  text-decoration-color: rgb(var(--ok-rgb) / 0.7);
+}
+.claim[data-verdict='unverified'] {
+  text-decoration-style: dotted;
+  text-decoration-color: var(--mute-3);
+}
+.claim[data-verdict='contradicted'] {
+  text-decoration-style: wavy;
+  text-decoration-color: var(--fail);
+  text-decoration-thickness: 1px;
+}
+.claim__glyph {
+  margin-left: 1px;
+  vertical-align: super;
+  line-height: 0;
+}
+.claim[data-verdict='verified'] .claim__glyph {
+  color: var(--ok);
+}
+.claim[data-verdict='unverified'] .claim__glyph {
+  color: var(--mute);
+}
+.claim[data-verdict='contradicted'] .claim__glyph {
+  color: var(--fail);
+}
+
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.verdict[data-verdict='verified'] {
+  color: var(--ok);
+}
+.verdict[data-verdict='unverified'] {
+  color: var(--mute);
+}
+.verdict[data-verdict='contradicted'] {
+  color: var(--fail);
+}
+
+.cite {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  vertical-align: 2px;
+  font-size: 10px;
+  color: var(--signal-ink);
+  background: rgb(var(--signal-rgb) / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.25);
+  transition: background-color var(--d-micro) var(--ease);
+}
+.cite:hover {
+  background: rgb(var(--signal-rgb) / 0.22);
+}
+
+/* --- Composer ----------------------------------------------------------- */
+
+.composer {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 10px 10px 8px 14px;
+  border-radius: var(--r-lg);
+  background: var(--lift-2);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    0 18px 40px -28px rgb(0 0 0 / 0.8);
+  transition: box-shadow var(--d-short) var(--ease);
+}
+[data-theme='light'] .composer {
+  background: var(--lift);
+  box-shadow: var(--shadow-pop);
+}
+.composer:focus-within {
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--signal-rgb) / 0.55),
+    0 0 0 4px rgb(var(--signal-rgb) / 0.1),
+    0 18px 40px -28px rgb(0 0 0 / 0.8);
+}
+.composer__input {
+  width: 100%;
+  min-height: 24px;
+  padding: 4px 0;
+  border: 0;
+  resize: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--t-body);
+  line-height: 1.55;
+}
+.composer__input:focus,
+.composer__input:focus-visible {
+  outline: none;
+}
+.composer__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer__model {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--fg-3);
+  font-size: var(--t-small);
+}
+.composer__model:hover {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.composer__hint {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--signal);
+  color: var(--on-signal);
+  transition:
+    transform var(--d-micro) var(--ease),
+    opacity var(--d-micro) var(--ease);
+}
+.send:disabled {
+  background: var(--chalk-2);
+  color: var(--mute);
+}
+.send:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.composer__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: var(--r-md);
+  background: var(--lift-3);
+  box-shadow: var(--shadow-pop);
+  animation: pop var(--d-micro) var(--ease);
+}
+.composer__menu [role='option'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-ui);
+  cursor: pointer;
+}
+.composer__menu [role='option'][aria-selected='true'] {
+  background: var(--chalk-2);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+.composer__kind {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.composer__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  font-size: var(--t-small);
+}
+
+.composer__drop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  border-radius: var(--r-lg);
+  background: rgb(var(--void-rgb) / 0.88);
+  box-shadow: inset 0 0 0 1.5px var(--signal-ink);
+  color: var(--signal-ink);
+  font-weight: 560;
+  pointer-events: none;
+  animation: pop var(--d-micro) var(--ease);
+}
+
+/* ---------------------------------------------------------------------------
+   Markdown prose (Streamdown output). Aperture styles it; no utility classes.
+   --------------------------------------------------------------------------- */
+
+.md {
+  display: block;
+}
+.md > * + * {
+  margin-top: 0.85em;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre,
+.md table {
+  margin: 0;
+}
+.md * + p,
+.md * + ul,
+.md * + ol,
+.md * + pre,
+.md * + blockquote,
+.md * + table,
+.md * + h1,
+.md * + h2,
+.md * + h3,
+.md * + h4 {
+  margin-top: 0.85em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 1.3em 0 0.4em;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: var(--t-h2);
+}
+.md h2 {
+  font-size: var(--t-h3);
+}
+.md h3,
+.md h4 {
+  font-size: var(--t-body);
+}
+.md strong {
+  color: var(--fg);
+  font-weight: 620;
+}
+.md a {
+  color: var(--signal-ink);
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--signal-rgb) / 0.4);
+  text-underline-offset: 3px;
+}
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+.md ul,
+.md ol {
+  padding-left: 1.3em;
+}
+/* The reset strips markers; markdown lists need them back. In a message
+   bullets are drawn as a short dash (.msg__body ul > li::before). */
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.msg__body .md ul {
+  list-style: none;
+}
+.md ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+.md li + li {
+  margin-top: 0.3em;
+}
+.md li::marker {
+  color: var(--mute-2);
+}
+.md blockquote {
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--hair-2);
+  color: var(--fg-3);
+}
+.md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--fg);
+}
+.md pre {
+  overflow-x: auto;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--hair);
+  margin: 1.4em 0;
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-ui);
+}
+.md th,
+.md td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--hair);
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  font-weight: 600;
+  color: var(--fg);
+  border-bottom-color: var(--hair-2);
+}
+/* Streamdown wraps tables and code in its own containers; let them breathe. */
+.md [data-streamdown='table-wrapper'],
+.md [data-streamdown='code-block'] {
+  margin-top: 0.85em;
+}
+
+/* ---------------------------------------------------------------------------
+   Tool steps, thinking, seams
+   --------------------------------------------------------------------------- */
+
+.tool-step {
+  margin-top: 0.85em;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  background: var(--wash);
+  font-size: var(--t-ui);
+  line-height: 1.45;
+}
+.tool-step + .tool-step {
+  margin-top: 6px;
+}
+.tool-step > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--fg-2);
+  border-radius: var(--r-md);
+}
+.tool-step > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-step > summary:hover {
+  background: var(--wash-2);
+}
+.tool-step > summary svg {
+  flex: none;
+  color: var(--mute);
+}
+.tool-step[data-state='ok'] > summary svg {
+  color: var(--ok);
+}
+.tool-step[data-state='failed'] > summary svg,
+.tool-step[data-state='declined'] > summary svg {
+  color: var(--warn);
+}
+.tool-step[data-state='waiting'] {
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.32);
+}
+.tool-step[data-state='waiting'] > summary svg {
+  color: var(--signal-ink);
+}
+.tool-step[data-state='running'] > summary svg {
+  animation: pulse 1.4s var(--ease) infinite;
+}
+.tool-step__label {
+  font-weight: 540;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.tool-step__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mute);
+}
+.tool-step__body {
+  padding: 2px 12px 12px;
+}
+.tool-step__k {
+  margin: 8px 0 4px;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--mute);
+}
+.tool-step__body pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--lift-2);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-3);
+}
+
+.thinking {
+  margin-top: 0.85em;
+  font-size: var(--t-ui);
+  color: var(--mute);
+}
+.thinking > summary {
+  cursor: pointer;
+  width: max-content;
+}
+.thinking > p {
+  margin: 6px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--hair);
+  white-space: pre-wrap;
+}
+
+.seam {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0.9em 0;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.seam::before,
+.seam::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hair);
+}
+
+/* ---------------------------------------------------------------------------
+   Live state: thinking dots, stop, errors, inline edit
+   --------------------------------------------------------------------------- */
+
+.msg__thinking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: var(--t-ui);
+  color: var(--mute);
+}
+.dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+  animation: pulse 1.2s var(--ease) infinite;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.msg__live {
+  margin-top: 10px;
+}
+
+.msg__error {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgb(var(--fail-rgb) / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(var(--fail-rgb) / 0.3);
+  font-size: var(--t-ui);
+}
+.msg__error > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fail);
+}
+.msg__error p {
+  margin: 0;
+}
+.msg__error-title {
+  font-weight: 560;
+  color: var(--fg);
+}
+.msg__error-hint {
+  margin-top: 2px;
+  color: var(--fg-3);
+}
+.msg__error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msg__edit {
+  width: min(100%, var(--measure));
+  margin-left: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.4);
+}
+.msg__edit .composer__input {
+  width: 100%;
+}
+.msg__edit-note {
+  margin: 6px 0 0;
+  font-size: var(--t-small);
+}
+.msg__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Streamdown's code blocks lean on Tailwind classes Ancile does not ship;
+   these rules give them the Aperture treatment. */
+.md [data-streamdown='code-block'] {
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.md [data-streamdown='code-block-header'] {
+  padding: 8px 14px 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--mute);
+}
+.md [data-streamdown='code-block-header'][data-language=''] {
+  display: none;
+}
+.md [data-streamdown='code-block-body'] {
+  overflow: auto;
+  padding: 10px 14px;
+}
+.md [data-streamdown='code-block-body'] pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+.md [data-streamdown='code-block-body'] code > span {
+  display: block;
+  white-space: pre;
+}
+
+/* ---------------------------------------------------------------------------
+   What the lab changed
+   --------------------------------------------------------------------------- */
+
+.lab-changes {
+  margin-top: 12px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  background: var(--wash);
+  font-size: var(--t-ui);
+}
+.lab-changes__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--fg-2);
+}
+.lab-changes__head > span {
+  flex: 1;
+}
+.lab-changes__head svg {
+  color: var(--mute);
+}
+.lab-changes__list {
+  margin: 0;
+  padding: 0 0 6px;
+  list-style: none;
+}
+.lab-changes__list summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.lab-changes__list summary::-webkit-details-marker {
+  display: none;
+}
+.lab-changes__list summary:hover {
+  background: var(--wash-2);
+}
+.lab-changes__status {
+  width: 58px;
+  flex: none;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.lab-changes__status[data-status='added'] {
+  color: var(--ok);
+}
+.lab-changes__status[data-status='deleted'] {
+  color: var(--fail);
+}
+.lab-changes__file {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+}
+.lab-diff {
+  margin: 4px 12px 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px 0;
+  border-radius: var(--r-sm);
+  background: var(--lift-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.lab-diff > span {
+  display: block;
+  padding: 0 12px;
+  white-space: pre;
+  color: var(--fg-3);
+}
+.lab-diff > span[data-line='add'] {
+  background: rgb(var(--ok-rgb) / 0.1);
+  color: var(--fg);
+}
+.lab-diff > span[data-line='del'] {
+  background: rgb(var(--fail-rgb) / 0.1);
+  color: var(--fg);
+}
+.lab-diff > span[data-line='hunk'] {
+  color: var(--mute);
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@nvx/plugin-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Build NVX Ancile plugins: tools (as MCP servers with permission tiers), memory providers, and drawer/admin panels.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./panel": "./src/panel.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nvx/contracts": "workspace:*",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

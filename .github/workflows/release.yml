@@ -1,0 +1,66 @@
+name: Release
+
+# A tag like v0.2.0 builds, tests and publishes a release. The private Pro
+# submodule is fetched only when PRO_REPO_TOKEN is set (the nvx.sh build);
+# without it (forks, the public repo) the free edition is built, complete
+# on its own.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '22.17'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Pro (private), when this build may include it
+        env: { PRO_REPO_TOKEN: '${{ secrets.PRO_REPO_TOKEN }}' }
+        if: env.PRO_REPO_TOKEN != ''
+        run: |
+          git config --global url."https://x-access-token:${PRO_REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --depth 1 pro
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --project services/knowledge --frozen
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm -r run test
+      - run: uv run --project services/knowledge pytest services/knowledge -m "not boot" -q
+      - run: pnpm build
+      - name: Edition
+        id: edition
+        run: echo "name=$([ -f pro/package.json ] && echo pro || echo free)" >> "$GITHUB_OUTPUT"
+      - name: Package
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          out="nvx-ancile-${v}-${{ steps.edition.outputs.name }}"
+          mkdir -p "dist/$out"
+          git archive --format=tar HEAD | tar -x -C "dist/$out"
+          cp -r apps/cockpit/dist "dist/$out/apps/cockpit/dist"
+          [ -d pro ] && [ -f pro/package.json ] && cp -r pro "dist/$out/pro" || true
+          tar -C dist -czf "dist/$out.tar.gz" "$out"
+          (cd dist && sha256sum "$out.tar.gz" > "$out.tar.gz.sha256")
+      # TODO(phase-6): signed desktop installers (Tauri: .msi/.exe, .dmg,
+      # AppImage) on a build matrix once apps/desktop lands.
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256

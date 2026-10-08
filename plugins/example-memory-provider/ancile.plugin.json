@@ -1,0 +1,10 @@
+{
+  "id": "example-memory-provider",
+  "name": "Obsidian vault memory",
+  "version": "0.1.0",
+  "kind": "memory-provider",
+  "entry": "dist/index.js",
+  "description": "Keeps Ancile's memory in a folder of an Obsidian vault instead of the built-in git repository. A sketch showing the MemoryProvider interface.",
+  "requests": ["fs:${OBSIDIAN_VAULT}/Ancile/**"],
+  "tools": []
+}

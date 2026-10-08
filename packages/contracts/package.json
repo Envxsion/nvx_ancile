@@ -1,0 +1,24 @@
+{
+  "name": "@nvx/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The single source of truth for NVX Ancile's API, events, config and Controller contract (zod). Python models are generated from the JSON Schema export.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "export:jsonschema": "tsx scripts/export-jsonschema.ts"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

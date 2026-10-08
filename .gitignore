@@ -1,0 +1,55 @@
+node_modules/
+dist/
+build/
+.turbo/
+.vite/
+coverage/
+playwright-report/
+test-results/
+crawl-report/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local data: user memory, uploads, db volumes, traces. Never committed here.
+# Memory has its own git repository inside data/memory.
+data/
+.env
+.env.*
+!.env.example
+
+# Secrets
+*.pem
+*private-key*
+licence.token
+license.token
+
+.DS_Store
+Thumbs.db
+
+# Upstream reference clones (read-only). Odysseus is AGPL: reference only, never copied.
+# Permissive upstreams are imported into the tree deliberately (see docs/upstream.md).
+upstream/
+
+# Native runtime binaries and instance data (scripts/runtime)
+.ancile/
+
+# Internal planning and AI-assistant docs: kept locally, never published
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+DESIGN.md
+NOTICE.md
+ROADMAP.md
+DESIGN-UI.md
+AUDIT.md
+SECURITY.md
+UPSTREAM.md
+docs/clean-room/
+.coverage

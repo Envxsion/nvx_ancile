@@ -1,0 +1,14 @@
+# =============================================================================
+#  Plugin UI panels (DESIGN.md §12).
+#  Schema: packages/contracts/src/config.ts → PanelsFile
+#  Panels run in a sandboxed iframe and talk to the host over the
+#  @nvx/plugin-sdk/panel bridge, with only the capabilities listed.
+# =============================================================================
+version: 1
+panels: []
+#  - id: word-stats
+#    title: Word stats
+#    placement: drawer               # drawer (beside a thread) | admin (a page in Admin)
+#    plugin: example-tool             # plugin id from its ancile.plugin.json
+#    entry: panel/index.html          # path inside the plugin folder
+#    capabilities: [read:thread]      # read:thread | read:sources | read:memory | write:notes | invoke:tools

@@ -1,0 +1,551 @@
+/* ---------------------------------------------------------------------------
+   Teamwork (DESIGN.md §16.5): the fold that shows a flow at work. Violet
+   only for what is running now; gilt for the path an answer actually took
+   once it is done (kept, earned). Tokens only.
+   ------------------------------------------------------------------------ */
+
+.teamwork {
+  margin: 2px 0 10px;
+  border-radius: var(--r-md);
+  background: var(--lift);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+  transition: box-shadow var(--d-short) var(--ease);
+}
+.teamwork[data-open] {
+  box-shadow: var(--elev-2);
+}
+.teamwork[data-running] {
+  box-shadow:
+    var(--elev-1),
+    0 0 0 1px rgb(var(--signal-rgb) / 0.28);
+}
+
+.teamwork__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  text-align: left;
+  transition: background var(--d-micro) var(--ease);
+}
+.teamwork__bar:hover {
+  background: var(--chalk);
+}
+.teamwork__bar:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgb(var(--signal-rgb) / 0.5);
+}
+.teamwork__pulse {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--gilt);
+}
+.teamwork[data-running] .teamwork__pulse {
+  background: var(--signal);
+  animation: pulse 1.4s var(--ease) infinite;
+}
+.teamwork[data-failed] .teamwork__pulse {
+  background: var(--fail);
+}
+.teamwork .tw-tag--fail {
+  color: var(--fail);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--fail) 40%, transparent);
+}
+.teamwork__summary {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg);
+  font-weight: 560;
+}
+.teamwork__chips {
+  display: inline-flex;
+  gap: 3px;
+}
+.teamwork__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hue);
+  box-shadow: 0 0 0 1.5px var(--lift);
+}
+.teamwork__meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.teamwork__chev {
+  transition: transform var(--d-short) var(--ease-spring);
+}
+.teamwork[data-open] .teamwork__chev {
+  transform: rotate(180deg);
+}
+
+.teamwork__body {
+  overflow: hidden;
+}
+.teamwork__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 6px 12px 4px;
+  border-top: 1px solid var(--hair);
+}
+.teamwork__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px 10px;
+  font-size: 11.5px;
+}
+
+/* ---- Timeline ---------------------------------------------------------- */
+
+.teamwork__steps {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+/* The thread that joins the steps: a hairline that turns gilt when done. */
+.teamwork__steps::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 10px;
+  width: 1px;
+  background: var(--hair-2);
+}
+
+.tw-step {
+  --hue: var(--fg-3);
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 4px 0 6px 28px;
+  animation: rise var(--d-short) var(--ease-out) both;
+}
+.tw-step[data-plumbing] {
+  opacity: 0.62;
+}
+.tw-step__handoff {
+  font-size: 10.5px;
+  line-height: 1;
+}
+.tw-step__handoff:empty {
+  display: none;
+}
+.tw-step__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: var(--t-small);
+}
+.tw-step__ring {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  color: var(--hue);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--hue) 55%, var(--hair-2));
+}
+.tw-step[data-status='running'] .tw-step__ring {
+  color: var(--signal-ink);
+  box-shadow:
+    inset 0 0 0 1.5px var(--signal),
+    0 0 0 4px rgb(var(--signal-rgb) / 0.14);
+  animation: tw-ring 1.6s var(--ease) infinite;
+}
+.tw-step[data-status='failed'] .tw-step__ring {
+  color: var(--fail);
+  box-shadow: inset 0 0 0 1.5px var(--fail);
+}
+.tw-step[data-status='skipped'] .tw-step__ring {
+  opacity: 0.5;
+}
+@keyframes tw-ring {
+  50% {
+    box-shadow:
+      inset 0 0 0 1.5px var(--signal),
+      0 0 0 7px rgb(var(--signal-rgb) / 0.04);
+  }
+}
+.tw-step__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg);
+  font-weight: 600;
+}
+.tw-step__model {
+  flex: none;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--fg-2);
+  background: color-mix(in srgb, var(--hue) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 30%, transparent);
+}
+.tw-step__meta {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tw-tag {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  color: var(--fg-3);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+}
+
+.tw-decision {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--vault);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.tw-decision__routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tw-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--chalk);
+}
+.tw-conf {
+  display: block;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--chalk-2);
+  overflow: hidden;
+}
+.tw-conf__fill {
+  display: block;
+  height: 100%;
+  background: var(--gilt);
+  transform-origin: left;
+}
+.tw-decision__reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+
+.tw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 1px 6px;
+  margin-left: -6px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: var(--fg-3);
+  transition:
+    color var(--d-micro) var(--ease),
+    background var(--d-micro) var(--ease);
+}
+.tw-toggle:hover {
+  color: var(--fg);
+  background: var(--chalk);
+}
+.tw-thinking__text {
+  margin: 2px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--hair-2);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--fg-3);
+}
+.tw-output__text {
+  margin: 2px 0 0;
+  padding: 7px 9px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--vault);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+}
+.tw-caret {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--signal);
+  animation: pulse 1s steps(2) infinite;
+}
+.tw-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--fail);
+}
+
+/* ---- Mini-graph -------------------------------------------------------- */
+
+.tw-graph {
+  position: sticky;
+  top: 8px;
+  align-self: start;
+  margin: 4px 0;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--vault);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.tw-graph figcaption {
+  padding: 2px 4px 0;
+  font-size: 10.5px;
+  text-align: center;
+}
+.tw-graph__edge {
+  fill: none;
+  stroke: var(--hair-2);
+  stroke-width: 1.2;
+  transition: stroke var(--d-medium) var(--ease);
+}
+.tw-graph__edge[data-taken] {
+  stroke: rgb(var(--signal-rgb) / 0.55);
+}
+.tw-graph__edge[data-taken][data-done] {
+  stroke: var(--gilt);
+  stroke-width: 1.6;
+}
+.tw-graph__node circle {
+  fill: var(--lift-2);
+  stroke: var(--hair-2);
+  stroke-width: 1.5;
+  transition:
+    fill var(--d-medium) var(--ease),
+    stroke var(--d-medium) var(--ease),
+    r var(--d-short) var(--ease-spring);
+}
+.tw-graph__node[data-ran] circle {
+  fill: var(--chalk-2);
+  stroke: rgb(var(--signal-rgb) / 0.6);
+}
+.tw-graph__node[data-ran][data-done] circle {
+  fill: rgb(var(--gilt-rgb) / 0.25);
+  stroke: var(--gilt);
+}
+.tw-graph__node[data-active] circle {
+  fill: var(--signal);
+  stroke: var(--signal);
+  filter: drop-shadow(0 0 4px rgb(var(--signal-rgb) / 0.8));
+}
+
+@media (max-width: 720px) {
+  .teamwork__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tw-graph {
+    position: static;
+    justify-self: center;
+  }
+  .teamwork__chips {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tw-step,
+  .tw-step[data-status='running'] .tw-step__ring,
+  .teamwork[data-running] .teamwork__pulse,
+  .tw-caret {
+    animation: none;
+  }
+}
+
+/* ---- Flow chip in the composer, route marks, memory tray --------------- */
+
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 200px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.flow-chip:hover,
+.flow-chip[data-state='open'] {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.flow-chip[data-from='thread'],
+.flow-chip[data-from='message'] {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.45);
+}
+/* The thread turned its flow off: a dashed edge reads as "set aside", not gone. */
+.flow-chip[data-from='paused'] {
+  color: var(--fg-2);
+  box-shadow: none;
+  outline: 1px dashed var(--edge-2);
+  outline-offset: -1px;
+}
+.flow-chip__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.flow-chip__wake {
+  color: var(--warn);
+}
+
+.msg__route {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--fg-3);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
+}
+
+.mem-tray {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: rgb(var(--gilt-rgb) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.28);
+  animation: rise var(--d-short) var(--ease-out) both;
+}
+.mem-tray__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--fg);
+}
+.mem-tray__head > svg {
+  color: var(--gilt);
+}
+.mem-tray__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.mem-tray__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tnode__route {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  font-size: 9.5px;
+  color: var(--gilt);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
+}
+
+/* Why panel: the route section */
+.why__path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 6px 0;
+}
+.why__hop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-small);
+  color: var(--fg);
+  background: rgb(var(--gilt-rgb) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
+}
+.why__hop > svg {
+  color: var(--fg-3);
+}
+.why__decisions {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.why__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.why__links > .mute {
+  margin-left: auto;
+  font-size: 11.5px;
+}
+.why__path {
+  padding: 0;
+  list-style: none;
+}
+
+.tw-step__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -2px 0 0;
+  font-size: 11px;
+}
+.tw-step__handoff {
+  font-size: 11px;
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="NVX Ancile: a private AI workspace for serious knowledge work." />
+    <title>NVX Ancile</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icon-128.svg" />
+    <!-- Theme before first paint. Must equal BOOT_SCRIPT in packages/aperture/src/theme.ts
+         (test/boot/shell.boot.test.ts fails if they drift). -->
+    <script>(function(){var r=document.documentElement;try{var c=localStorage.getItem('nvx.ancile.theme')||'system';var d=c==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):c;r.dataset.theme=d;r.dataset.themeChoice=c;var l=JSON.parse(localStorage.getItem('nvx.ancile.look')||'null');if(l){for(var k in l.attrs)r.dataset[k]=l.attrs[k];for(var v in l.vars)r.style.setProperty(v,l.vars[v])}}catch(e){r.dataset.theme=r.dataset.theme||'dark'}})();</script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>NVX Ancile needs JavaScript to run.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

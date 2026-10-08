@@ -1,0 +1,48 @@
+# =============================================================================
+#  Memory types and budgets (DESIGN.md §6).
+#  Schema: packages/contracts/src/config.ts → MemoryFile
+#  Adding a type here is all it takes to give Ancile a new kind of memory.
+#  Path placeholders: {notebook} = notebook slug, {model} = model id with
+#  "/" replaced by "__".
+# =============================================================================
+version: 1
+
+budget:
+  share_of_context: 0.08            # at most 8% of the target model's window…
+  max_tokens: 4000                  # …and never more than this
+
+capture: auto_confident             # propose_all | auto_confident | off
+remote: null                        # or { url: "git@host:me/ancile-memory.git", push_cron: "0 * * * *" }
+
+types:
+  agents:                           # house rules for every model
+    path: AGENTS.md
+    scope: global
+    priority: 100                   # injected first, truncated last
+    budget_share: 0.25              # share of the memory budget
+    auto_apply: null                # never written automatically; you own this file
+  user:                             # your preferences, distilled from corrections
+    path: USER.md
+    scope: user
+    priority: 90
+    budget_share: 0.25
+    auto_apply: 0.85                # auto-apply at or above this confidence, otherwise propose
+  projects:                         # per-notebook goals, decisions and findings
+    path: "PROJECTS/{notebook}.md"
+    scope: notebook
+    priority: 80
+    budget_share: 0.3
+    auto_apply: 0.85
+  failures:                         # lessons from things that went wrong, then right
+    path: "FAILURES/*.md"
+    scope: retrieved                # only the most relevant entries are injected
+    priority: 60
+    budget_share: 0.12
+    auto_apply: 0.0                 # always applied; Undo is offered in a toast
+    top_k: 5
+  models:                           # quirks of the model actually called (resolved after fallback)
+    path: "MODELS/{model}.md"
+    scope: model
+    priority: 50
+    budget_share: 0.08
+    auto_apply: 0.9

@@ -1,0 +1,73 @@
+/* Usage statistics: the one-time question and Settings → Privacy (telemetry/ShareStats.tsx). */
+
+.share-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: var(--t-small);
+}
+.share-stats[data-place='setup'] {
+  margin-top: 22px;
+}
+.share-stats__text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.share-stats__title {
+  margin-bottom: 2px;
+  font-size: var(--t-ui);
+  font-weight: 600;
+  color: var(--fg);
+}
+.share-stats__text p {
+  max-width: 70ch;
+  line-height: var(--lh-ui);
+}
+.share-stats__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.privacy__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--t-small);
+  list-style: disc;
+}
+.setting.privacy__preview {
+  gap: 10px;
+  justify-items: start;
+}
+.privacy__json {
+  width: 100%;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--r-sm);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  white-space: pre;
+}
+
+@media (max-width: 520px) {
+  .share-stats__actions {
+    width: 100%;
+  }
+  .share-stats__actions .btn {
+    flex: 1;
+  }
+}

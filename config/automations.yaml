@@ -1,0 +1,48 @@
+# =============================================================================
+#  Quality-of-life automations (DESIGN.md §13.6).
+#  Schema: packages/contracts/src/config.ts → AutomationsFile
+#  Cron runs in the server's local time zone. Jobs without cron are
+#  event-driven (after a turn, on ingest, and so on).
+# =============================================================================
+version: 1
+jobs:
+  auto_title:            # title a thread after its first assistant reply
+    enabled: true
+    config: { after_turns: 1 }
+  auto_tag_sources:      # topic tags from embedding clusters, on ingest
+    enabled: true
+    config: { max_tags: 5 }
+  stale_sources:         # weekly ETag / Last-Modified / content-hash check of URL sources
+    enabled: true
+    cron: "0 4 * * 1"
+    config: { url_stale_after_days: 30 }
+  tldr:                  # pinned summary on long threads, refreshed incrementally
+    enabled: true
+    config: { min_turns: 12 }
+  draft_autosave:        # the Cockpit also saves locally on every keystroke
+    enabled: true
+    config: { server_every_s: 3 }
+  cleanup:               # drop old log/span partitions, sweep temp files
+    enabled: true
+    cron: "0 3 * * *"
+    config: { temp_max_age_h: 24 }
+  memory_backup:         # push the memory repo; does nothing unless memory.yaml has a remote
+    enabled: true
+    cron: "0 * * * *"
+  duplicate_sources:     # exact hash and near-duplicate detection, on ingest
+    enabled: true
+    config: { near_dup_threshold: 0.92 }
+  branch_suggestions:    # suggest a branch when the topic shifts
+    enabled: true
+    config: { drift_threshold: 0.35 }
+  model_suggestions:     # suggest the best model per task class from past performance
+    enabled: true
+    config: { min_calls: 20 }
+  context_overflow_warn: # warn, then compact automatically
+    enabled: true
+    config: { warn_at: 0.8, auto_compact_at: 0.95 }
+  memory_capture:        # corrections, failure lessons, findings, model quirks
+    enabled: true
+  model_stats_rollup:    # aggregate model_stats for suggestions
+    enabled: true
+    cron: "*/15 * * * *"

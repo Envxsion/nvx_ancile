@@ -1,0 +1,21 @@
+{
+  "name": "@nvx/plugin-example-memory-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sketch: an NVX Ancile memory provider backed by an Obsidian vault folder.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@nvx/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

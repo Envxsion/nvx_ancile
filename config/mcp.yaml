@@ -1,0 +1,27 @@
+# =============================================================================
+#  MCP servers, which is how every tool is added (DESIGN.md §12).
+#  Schema: packages/contracts/src/config.ts → McpFile
+#  Add servers here or in Settings → Tools. Per-tool overrides use the same
+#  shape as tools.yaml. MCP annotations set the defaults: readOnlyHint → auto,
+#  destructiveHint → critical, anything else → gated.
+# =============================================================================
+version: 1
+servers:
+  - name: example-tool              # plugins/example-tool, the worked example in docs/plugins.md
+    transport: stdio                # stdio: Ancile spawns and supervises the process
+    command: node
+    args: [plugins/example-tool/dist/index.js]
+    env_secrets: []                 # names of secrets passed to the process as env vars
+    enabled: false
+    tools:
+      word_count: { tier: auto }    # read-only, never asks
+
+  # A remote server over Streamable HTTP with OAuth:
+  # - name: github
+  #   transport: http
+  #   url: https://api.githubcopilot.com/mcp/
+  #   oauth: true
+  #   enabled: false
+  #   tools:
+  #     create_issue: { tier: gated }
+  #     delete_repository: { disabled: true }

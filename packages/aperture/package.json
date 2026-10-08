@@ -1,0 +1,24 @@
+{
+  "name": "@nvx/aperture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "APERTURE, the NVX family design system, as carried by NVX Ancile: tokens, identity, the mark, theme boot.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./ancile.css": "./src/ancile.css",
+    "./prefs.css": "./src/prefs.css",
+    "./icons/*": "./src/icons/*"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "typescript": "^5.9.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

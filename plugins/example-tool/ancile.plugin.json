@@ -1,0 +1,13 @@
+{
+  "id": "example-tool",
+  "name": "Writing tools",
+  "version": "0.1.0",
+  "kind": "tools",
+  "entry": "dist/index.js",
+  "description": "Counts words and reading time in text, and saves snippets to the workspace. The worked example in docs/plugins.md.",
+  "requests": ["fs:/workspace/snippets/**"],
+  "tools": [
+    { "name": "word_count", "action": "text.count", "tier": "auto", "destructive": false },
+    { "name": "save_snippet", "action": "fs.write", "tier": "gated", "destructive": false }
+  ]
+}

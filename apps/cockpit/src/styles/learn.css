@@ -1,0 +1,88 @@
+/* ---------------------------------------------------------------------------
+   Learning: first steps on Home and terms that explain themselves.
+   Quiet by design: a dotted underline, a hairline card. Violet only on
+   focus.
+   ------------------------------------------------------------------------ */
+
+/* --- Terms ---------------------------------------------------------------- */
+
+.term {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: 2px;
+}
+.term:hover {
+  text-decoration-color: currentColor;
+}
+.term-pop {
+  max-width: 300px;
+}
+
+/* --- First steps on Home -------------------------------------------------- */
+
+.first-steps {
+  display: grid;
+  gap: 8px;
+}
+.first-steps__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.first-steps__head .home__h {
+  margin: 0;
+}
+.first-steps__count {
+  font-size: var(--t-small);
+  margin-right: auto;
+}
+.first-steps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--hair);
+  box-shadow:
+    inset 0 0 0 1px var(--hair),
+    var(--elev-1);
+}
+.first-step {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--lift);
+}
+.first-step__title {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.first-step__why {
+  margin: 0;
+  color: var(--mute);
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+.first-step__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.first-step__actions .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 1100px) {
+  .first-steps__grid {
+    grid-template-columns: 1fr;
+  }
+}

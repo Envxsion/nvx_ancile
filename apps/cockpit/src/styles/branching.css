@@ -1,0 +1,677 @@
+/* ==========================================================================
+   Branching (DESIGN.md §8): the tree, compare, merge, composer hints and
+   the marks a message carries when its context was compacted or merged.
+   Signal violet marks only the path you are on and the cursor; branch
+   names are the person's own, so they get a gilt hairline, nothing more.
+   ========================================================================== */
+
+/* --- The tree canvas ---------------------------------------------------- */
+
+/* The tree fills the panel: the tab pane must pass its height down. */
+.drawer__pane:has(> .panel--tree) {
+  height: 100%;
+}
+.panel--tree {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 0;
+}
+.panel__canvas {
+  position: relative;
+  min-height: 320px;
+}
+
+.btree {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  outline: none;
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--hair-2);
+  --xy-minimap-background-color: var(--lift-2);
+  --xy-minimap-mask-background-color: rgb(var(--void-rgb) / 0.55);
+}
+.btree:focus-visible {
+  box-shadow: inset 0 0 0 2px rgb(var(--signal-rgb) / 0.45);
+}
+.btree .react-flow__renderer {
+  border-radius: inherit;
+}
+.btree__bg {
+  --xy-background-pattern-dots-color-default: var(--hair-2);
+  opacity: 0.7;
+}
+.btree .react-flow__node {
+  transition:
+    transform var(--d-medium) var(--ease-out),
+    opacity var(--d-short) var(--ease-out);
+}
+.btree__map {
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--elev-2);
+}
+.btree__map .react-flow__minimap-node {
+  fill: var(--chalk-2);
+}
+.btree__map .react-flow__minimap-node.is-active {
+  fill: rgb(var(--signal-rgb) / 0.7);
+}
+
+/* Edges: hairlines; the active path in signal, drawn once when it changes. */
+.tedge .react-flow__edge-path {
+  stroke: var(--hair-2);
+  stroke-width: 1.25;
+}
+.tedge--active .react-flow__edge-path {
+  stroke: rgb(var(--signal-rgb) / 0.85);
+  stroke-width: 1.75;
+  stroke-dasharray: 400;
+  stroke-dashoffset: 400;
+  animation: tedge-draw var(--d-view) var(--ease-out) forwards;
+}
+@keyframes tedge-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tedge--active .react-flow__edge-path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+:root[data-motion='off'] .tedge--active .react-flow__edge-path {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+/* Nodes: a raised plate per stretch of conversation. */
+.tnode {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  height: 58px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: var(--elev-1);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  cursor: pointer;
+  transition:
+    box-shadow var(--d-short) var(--ease-out),
+    translate var(--d-short) var(--ease-out),
+    background var(--d-short) var(--ease-out);
+}
+.tnode[data-variant='full'] {
+  width: 264px;
+  height: 66px;
+  font-size: var(--t-ui);
+}
+.tnode:hover {
+  translate: 0 -1px;
+  box-shadow: var(--elev-2);
+}
+.tnode:active {
+  scale: 0.98;
+}
+.tnode[data-active] {
+  background: var(--lift-3);
+  color: var(--fg);
+  box-shadow:
+    var(--elev-1),
+    inset 2px 0 0 rgb(var(--signal-rgb) / 0.9);
+}
+.tnode[data-selected] {
+  box-shadow:
+    var(--elev-2),
+    0 0 0 2px rgb(var(--signal-rgb) / 0.55);
+}
+.tnode[data-compare] {
+  box-shadow:
+    var(--elev-2),
+    0 0 0 2px var(--hair-2),
+    0 0 0 4px rgb(var(--signal-rgb) / 0.18);
+}
+.tnode[data-compare]::after {
+  content: 'Compare';
+  position: absolute;
+  top: -9px;
+  right: 10px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--lift-3);
+  box-shadow: var(--elev-1);
+  font-size: 10px;
+  color: var(--fg-3);
+}
+.tnode[data-status='error'] .tnode__glyph {
+  background: var(--fail);
+}
+.tnode__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.tnode__glyph {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  justify-self: center;
+}
+.tnode[data-role='user'] .tnode__glyph {
+  background: var(--fg-3);
+}
+.tnode[data-role='assistant'] .tnode__glyph,
+.tnode[data-role='system'] .tnode__glyph {
+  box-shadow: inset 0 0 0 1.5px var(--fg-3);
+}
+.tnode[data-active] .tnode__glyph {
+  background: rgb(var(--signal-rgb));
+  box-shadow: 0 0 0 3px rgb(var(--signal-rgb) / 0.18);
+}
+.tnode__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.tnode__preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+/* With a branch name above it, the preview gets one line, so the node
+   keeps its fixed height (the layout depends on it). */
+.tnode__body:has(.tnode__names) .tnode__preview {
+  -webkit-line-clamp: 1;
+}
+.tnode__names {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.tnode__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 0 7px 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background:
+    linear-gradient(var(--lift-3), var(--lift-3)) padding-box,
+    var(--gilt-hair) border-box;
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 16px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tnode__name::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hue);
+}
+.tnode__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tnode__count {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--chalk);
+  font-size: 10.5px;
+  color: var(--mute);
+}
+.tnode__model {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--hue);
+}
+.tnode__here {
+  position: absolute;
+  bottom: -9px;
+  left: 12px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--signal-rgb));
+  color: var(--on-signal);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  box-shadow: var(--elev-1);
+}
+
+/* The node menu, opened where you right-clicked. */
+.menu--floating {
+  position: fixed;
+  transform-origin: top left;
+  animation: none;
+}
+.menu--floating .menu__item:focus,
+.menu--floating .menu__item:hover:not([data-disabled]) {
+  background: var(--chalk-2);
+  color: var(--fg);
+}
+.menu--floating .menu__item[data-danger]:focus,
+.menu--floating .menu__item[data-danger]:hover {
+  background: rgb(var(--fail-rgb) / 0.12);
+  color: var(--fail);
+}
+
+/* --- Full screen -------------------------------------------------------- */
+
+.tree-full {
+  position: fixed;
+  z-index: 51;
+  inset: 4vh 3vw;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  animation: pop var(--d-medium) var(--ease-sheet);
+}
+.tree-full:focus {
+  outline: none;
+}
+.tree-full__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px 12px 18px;
+  box-shadow: inset 0 -1px 0 var(--hair);
+}
+.tree-full__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-h3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.tree-full__spacer {
+  flex: 1;
+}
+.tree-full__keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-small);
+}
+.tree-full__canvas {
+  position: relative;
+  min-height: 0;
+}
+@media (max-width: 720px) {
+  .tree-full {
+    inset: 0;
+    border-radius: 0;
+  }
+  .tree-full__keys {
+    display: none;
+  }
+}
+
+/* --- Compare ------------------------------------------------------------ */
+
+.dialog--wide {
+  top: 6vh;
+  width: min(1080px, calc(100vw - 32px));
+  max-height: 88vh;
+  display: grid;
+  gap: 16px;
+}
+.cmp {
+  grid-template-rows: auto auto auto 1fr auto;
+}
+.cmp__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cmp__head .dialog__title,
+.merge ~ .dialog__title,
+.dialog--wide > .dialog__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cmp__loading {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+}
+.cmp__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fail);
+}
+.cmp__summary {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--lift);
+  box-shadow: var(--elev-1);
+}
+.cmp__lede {
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--fg);
+  max-width: 72ch;
+}
+.cmp__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+.cmp__table th,
+.cmp__table td {
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--hair);
+}
+.cmp__table thead th {
+  color: var(--mute);
+  font-weight: 500;
+}
+.cmp__table tbody th {
+  width: 16%;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.cmp__table td {
+  width: 42%;
+  color: var(--fg-2);
+}
+.cmp__better {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: var(--t-small);
+}
+.cmp__better dt {
+  color: var(--mute);
+}
+.cmp__better dd {
+  color: var(--fg-2);
+}
+.cmp__by {
+  font-size: var(--t-small);
+}
+.cmp__side {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  background: var(--chalk-2);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--fg-2);
+}
+.cmp__side[data-side='B'] {
+  background: var(--fg-2);
+  color: var(--lift);
+}
+.cmp__heads,
+.cmp__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.cmp__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-small);
+}
+.cmp__rows {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.cmp__row {
+  padding-bottom: 12px;
+  box-shadow: inset 0 -1px 0 var(--hair);
+}
+.cmp__col {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+.cmp__msg {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+}
+.cmp__msg[data-role='user'] {
+  background: var(--lift);
+  box-shadow: var(--elev-1);
+}
+.cmp__who {
+  font-size: 11px;
+  color: var(--mute);
+}
+.cmp__text {
+  font-size: var(--t-ui);
+  line-height: 1.55;
+  max-height: 340px;
+  overflow: auto;
+}
+.cmp__gap {
+  padding: 10px 12px;
+  font-size: var(--t-small);
+  font-style: italic;
+}
+.cmp__actions {
+  margin-top: 0;
+}
+@media (max-width: 760px) {
+  .cmp__heads,
+  .cmp__row,
+  .cmp__better {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Merge -------------------------------------------------------------- */
+
+.merge {
+  display: grid;
+  gap: 14px;
+}
+.merge__explain {
+  font-size: var(--t-small);
+  line-height: 1.5;
+}
+.merge__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-height: 46vh;
+  overflow: auto;
+}
+.merge__col {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--lift);
+  box-shadow: var(--elev-0);
+}
+.merge__col legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.merge__pick {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: background var(--d-micro) var(--ease-out);
+}
+.merge__pick:hover {
+  background: var(--chalk);
+}
+.merge__pick[data-checked] {
+  color: var(--fg);
+}
+.merge__who {
+  color: var(--mute);
+  font-size: 11px;
+}
+.merge__line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge__count {
+  margin-right: auto;
+  font-size: var(--t-small);
+}
+@media (max-width: 760px) {
+  .merge__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Composer hints ----------------------------------------------------- */
+
+.composer-hints {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  margin-bottom: 8px;
+}
+.composer-hints:empty {
+  display: none;
+}
+.hint-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 6px 5px 10px;
+  border-radius: var(--r-pill);
+  background: var(--lift-2);
+  box-shadow: var(--elev-1);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.hint-chip[data-level='warn'] {
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px rgb(var(--warn-rgb) / 0.35);
+}
+.hint-chip[data-level='critical'] {
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px rgb(var(--fail-rgb) / 0.4);
+}
+.hint-chip__meter {
+  position: relative;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chalk-2);
+  overflow: hidden;
+}
+.hint-chip__meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: var(--warn);
+  transition: width var(--d-view) var(--ease);
+}
+.hint-chip[data-level='critical'] .hint-chip__meter > span {
+  background: var(--fail);
+}
+.hint-chip--branch .icon {
+  color: var(--fg-3);
+}
+.hint-chip strong {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* --- Message marks ------------------------------------------------------ */
+
+.msg__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--mute);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+}
+
+/* The status bar meter as a button: only clickable past the warning line. */
+button.status-seg[aria-disabled='true'] {
+  cursor: default;
+}
+
+.rename-branch {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+/* React Flow's credit (MIT, and they ask): kept, but quiet. */
+.btree .react-flow__attribution {
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-size: 9px;
+  opacity: 0.45;
+}
+.btree .react-flow__attribution a {
+  color: var(--mute);
+}
+
+/* Part of the tree is off screen: fade the edges so it reads as "more this
+   way", not as a clipped panel. The minimap shows the whole shape. */
+.btree[data-overflow] .react-flow__renderer {
+  mask-image:
+    linear-gradient(90deg, transparent, currentColor 28px, currentColor calc(100% - 40px), transparent),
+    linear-gradient(180deg, transparent, currentColor 20px, currentColor calc(100% - 20px), transparent);
+  mask-composite: intersect;
+}

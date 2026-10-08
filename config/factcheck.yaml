@@ -1,0 +1,16 @@
+# =============================================================================
+#  Fact-checking and confidence (DESIGN.md §10).
+#  Schema: packages/contracts/src/config.ts → FactcheckFile
+#  confidence = support·w.support + agreement·w.agreement + retrieval·w.retrieval
+#  The weights should sum to 1.
+# =============================================================================
+version: 1
+weights:
+  support: 0.5          # how strongly your sources back the claim
+  agreement: 0.3        # whether an independent verifier agrees with the generator
+  retrieval: 0.2        # how good the evidence that was found is
+thresholds:
+  contradict: 0.6       # contradicting evidence above this marks a claim contradicted
+  verified: 0.6         # source support at or above this (and the verifier agreeing) verifies a claim;
+                        # one passage that states it outright (score ~0.95) is enough
+web_search: false       # also search the web (needs SEARXNG_URL and a web.search grant)

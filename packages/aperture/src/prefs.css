@@ -1,0 +1,322 @@
+/* ==========================================================================
+   Preferences, materials and gilt
+
+   Every appearance setting is an attribute on <html>, written before first
+   paint by prefs.ts, so a choice costs no re-render and never flashes.
+   This file loads after tokens.css and ancile.css.
+
+   data-accent     ultraviolet (default) | iris | orchid | rose | ember | jade | graphite
+   data-tint       graphite (default) | ink | obsidian       (dark grounds only)
+   data-contrast   standard | high
+   data-density    compact | comfortable | spacious
+   data-corners    rounded | sharp
+   data-material   glass | solid
+   data-grain      on | off
+   data-gilt       on | subtle | off
+   data-motion     full | reduced
+   data-fx         full | lite        (lite: no blur, no grain; set by the governor)
+   data-font       archivo | system
+   data-mono       martian | system
+   data-focus      standard | thick
+   data-links      plain | underline
+   --wdth, --read-size, --lh-read, --measure, --ui-zoom: set inline.
+   ========================================================================== */
+
+/* ---- Accents. Ultraviolet is NVX Ancile; the rest are the owner's choice.
+   Fills hold their on-signal text at 4.5:1; inks hold 4.5:1 on the ground. */
+
+:root[data-accent='iris'] {
+  --signal: #8ea4ff;
+  --signal-rgb: 142 164 255;
+  --signal-ink: #a9baff;
+  --signal-mid: #6f86e8;
+  --signal-dim: #1e2a5c;
+}
+:root[data-accent='orchid'] {
+  --signal: #d28bff;
+  --signal-rgb: 210 139 255;
+  --signal-ink: #dfa8ff;
+  --signal-mid: #b56de6;
+  --signal-dim: #3d2157;
+}
+:root[data-accent='rose'] {
+  --signal: #ff7fa6;
+  --signal-rgb: 255 127 166;
+  --signal-ink: #ff9dbb;
+  --signal-mid: #e5608a;
+  --signal-dim: #5a1f32;
+}
+:root[data-accent='ember'] {
+  --signal: #ff8f66;
+  --signal-rgb: 255 143 102;
+  --signal-ink: #ffa585;
+  --signal-mid: #e8714a;
+  --signal-dim: #5a2616;
+}
+:root[data-accent='jade'] {
+  --signal: #4fd69e;
+  --signal-rgb: 79 214 158;
+  --signal-ink: #79e2b6;
+  --signal-mid: #33b882;
+  --signal-dim: #123d2c;
+}
+:root[data-accent='graphite'] {
+  --signal: #d7dbe2;
+  --signal-rgb: 215 219 226;
+  --signal-ink: #e7e9ee;
+  --signal-mid: #b5bac3;
+  --signal-dim: #2a2e35;
+}
+:root[data-theme='light'][data-accent='iris'] {
+  --signal: #3d5bd9;
+  --signal-rgb: 61 91 217;
+  --signal-ink: #3150c7;
+  --signal-mid: #3150c7;
+  --signal-dim: #dfe5fd;
+}
+:root[data-theme='light'][data-accent='orchid'] {
+  --signal: #9a3fd0;
+  --signal-rgb: 154 63 208;
+  --signal-ink: #8a32bf;
+  --signal-mid: #8a32bf;
+  --signal-dim: #f2e1fc;
+}
+:root[data-theme='light'][data-accent='rose'] {
+  --signal: #c22f63;
+  --signal-rgb: 194 47 99;
+  --signal-ink: #b0255a;
+  --signal-mid: #b0255a;
+  --signal-dim: #fde0ea;
+}
+:root[data-theme='light'][data-accent='ember'] {
+  --signal: #c24a1f;
+  --signal-rgb: 194 74 31;
+  --signal-ink: #b0401a;
+  --signal-mid: #b0401a;
+  --signal-dim: #fde3d8;
+}
+:root[data-theme='light'][data-accent='jade'] {
+  --signal: #13805a;
+  --signal-rgb: 19 128 90;
+  --signal-ink: #0f7350;
+  --signal-mid: #0f7350;
+  --signal-dim: #d6f3e7;
+}
+:root[data-theme='light'][data-accent='graphite'] {
+  --signal: #2b3137;
+  --signal-rgb: 43 49 55;
+  --signal-ink: #2b3137;
+  --signal-mid: #2b3137;
+  --signal-dim: #e2e5e9;
+}
+
+/* ---- Ground tints (dark). Never warm: the family's rule. */
+
+:root[data-theme='dark'][data-tint='ink'] {
+  --void: #07080d;
+  --void-rgb: 7 8 13;
+  --void-deep: #030409;
+  --chrome: #090a12;
+  --lift: #11131d;
+  --lift-2: #161926;
+  --lift-3: #1c2030;
+  --panel: #131521;
+  --glass: rgb(22 25 38 / 0.72);
+  --glass-thick: rgb(22 25 38 / 0.88);
+}
+:root[data-theme='dark'][data-tint='obsidian'] {
+  --void: #050505;
+  --void-rgb: 5 5 5;
+  --void-deep: #000000;
+  --chrome: #070707;
+  --lift: #0f0f10;
+  --lift-2: #141415;
+  --lift-3: #1a1a1c;
+  --panel: #111112;
+  --glass: rgb(20 20 21 / 0.72);
+  --glass-thick: rgb(20 20 21 / 0.88);
+}
+
+/* ---- Contrast */
+
+:root[data-contrast='high'] {
+  --hair: rgb(var(--fg-rgb) / 0.2);
+  --hair-2: rgb(var(--fg-rgb) / 0.3);
+  --edge: rgb(var(--fg-rgb) / 0.32);
+  --edge-2: rgb(var(--fg-rgb) / 0.45);
+  --mute: var(--fg-3);
+  --mute-2: var(--fg-3);
+  --placeholder: rgb(var(--fg-rgb) / 0.55);
+}
+
+/* ---- Density and corners */
+
+:root[data-density='compact'] {
+  --dens: 0.85;
+}
+:root[data-density='spacious'] {
+  --dens: 1.15;
+}
+:root[data-corners='sharp'] {
+  --r-k: 0.5;
+}
+
+/* ---- Fonts and focus */
+
+:root[data-font='system'] {
+  --font-display: system-ui, 'Segoe UI', 'SF Pro Text', sans-serif;
+  --font-sans: system-ui, 'Segoe UI', 'SF Pro Text', sans-serif;
+}
+:root[data-mono='system'] {
+  --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Consolas, monospace;
+}
+:root[data-focus='thick'] :focus-visible {
+  outline-width: 3px;
+}
+:root[data-links='underline'] a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- Motion. "Reduced" keeps fades of 120 ms or less and drops travel. */
+
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Materials. [data-material] on an element picks its recipe; the root's
+   data-material="solid" (or lite mode) turns every glass opaque.
+   --------------------------------------------------------------------------- */
+
+.m-raised {
+  background: var(--sheen), var(--lift-2);
+  box-shadow: var(--elev-1);
+  border-radius: var(--r-lg);
+}
+.m-glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: var(--elev-3);
+}
+.m-glass-thick {
+  background: var(--glass-thick);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: var(--elev-4);
+}
+.m-vault {
+  background: var(--void-deep);
+  box-shadow: var(--vault);
+}
+:root[data-material='solid'] .m-glass,
+:root[data-fx='lite'] .m-glass {
+  background: var(--lift-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-material='solid'] .m-glass-thick,
+:root[data-fx='lite'] .m-glass-thick {
+  background: var(--lift-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .m-glass,
+  .m-glass-thick {
+    background: var(--lift-2);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Grain: one fixed layer over the whole app, never animated, never per
+   component. The family's film grain at the family's strength.
+   --------------------------------------------------------------------------- */
+
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-grain='off'] .grain,
+:root[data-fx='lite'] .grain {
+  display: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .grain {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Gilt utilities. Budget: one gilt element per cluster, about 1% of a
+   screen. data-gilt="subtle" halves it; "off" removes it everywhere.
+   --------------------------------------------------------------------------- */
+
+/* A 1px brass hairline round anything, keeping its own background */
+.gilt-edge {
+  position: relative;
+}
+.gilt-edge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--gilt-hair);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+.gilt-ink {
+  color: var(--gilt);
+}
+/* The single sheen, played once when something is pinned, sealed or earned */
+.gilt-sheen-once {
+  background-image: var(--gilt-sheen);
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  animation: gilt-sweep 900ms var(--ease-out) 1 both;
+}
+@keyframes gilt-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+:root[data-gilt='subtle'] {
+  --gilt-hair: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.3), rgb(var(--gilt-rgb) / 0.12));
+}
+:root[data-gilt='off'] {
+  --gilt: var(--fg-3);
+  --gilt-rgb: var(--fg-rgb);
+  --gilt-hi: var(--fg-2);
+  --gilt-lo: var(--mute);
+  --gilt-hair: linear-gradient(var(--hair-2), var(--hair-2));
+  --gilt-sheen: linear-gradient(var(--fg-3), var(--fg-3));
+  --gilt-glow: 0 0 0 1px var(--hair-2);
+}
+
+/* Zoom: the whole interface, persisted (Mod+= / Mod+-) */
+body {
+  zoom: var(--ui-zoom, 1);
+}

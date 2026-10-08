@@ -1,0 +1,32 @@
+# =============================================================================
+#  Tool tiers and overrides (DESIGN.md §5).
+#  Schema: packages/contracts/src/config.ts → ToolsFile
+#  Tools declare their own default tiers; override only what you need.
+#  Floors: an action marked destructive can never be auto, and lowering
+#  critical to gated must be confirmed in the UI and is logged.
+# =============================================================================
+version: 1
+preset: balanced                    # careful | balanced | hands_off (chosen in onboarding)
+workspace_root: /workspace          # file tools are confined here; writes outside escalate to critical
+
+tools:
+  fs:
+    read: { tier: auto }            # reading inside the workspace never asks
+    list: { tier: auto }
+    write: { tier: gated }          # asks once per pattern, then remembers
+    delete: { tier: critical, destructive: true }   # asks every time
+  http:
+    get: { tier: gated }            # remembered per host pattern
+    post: { tier: critical }
+  shell:
+    exec: { tier: critical, destructive: true }
+  web:
+    search: { tier: gated }
+  memory:
+    write: { tier: gated }          # an agent asking to remember something explicitly
+  compute:
+    start: { tier: gated }
+    stop: { tier: gated }
+    terminate: { tier: critical, destructive: true }
+  email:
+    send: { tier: critical }

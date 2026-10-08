@@ -1,0 +1,4 @@
+[submodule "pro"]
+	path = pro
+	url = https://github.com/Envxsion/nvx_ancile_pro.git
+	branch = main

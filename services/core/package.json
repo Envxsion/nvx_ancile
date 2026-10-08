@@ -1,0 +1,54 @@
+{
+  "name": "@nvx/ancile-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NVX Ancile Core: the conductor between the Cockpit, the Knowledge service, the Controller and model providers.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --sourcemap --clean && node -e \"require('fs').cpSync('src/db/migrations','dist/migrations',{recursive:true})\"",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --project \"unit*\"",
+    "test:boot": "vitest run --project boot",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/google": "^2.0.0",
+    "@ai-sdk/openai": "^2.0.0",
+    "@ai-sdk/openai-compatible": "^1.0.0",
+    "@cedar-policy/cedar-wasm": "^4.5.0",
+    "@hono/node-server": "^1.19.0",
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@nvx/contracts": "workspace:*",
+    "@nvx/plugin-sdk": "workspace:*",
+    "@nvx/resilience": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
+    "@opentelemetry/resources": "^2.0.1",
+    "@opentelemetry/sdk-node": "^0.203.0",
+    "@opentelemetry/semantic-conventions": "^1.36.0",
+    "ai": "^5.0.0",
+    "diff": "^8.0.4",
+    "drizzle-orm": "^0.44.0",
+    "hono": "^4.9.0",
+    "pino": "^9.9.0",
+    "postgres": "^3.4.7",
+    "simple-git": "^3.28.0",
+    "ulid": "^3.0.1",
+    "yaml": "^2.8.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "drizzle-kit": "^0.31.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

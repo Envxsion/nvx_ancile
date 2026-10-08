@@ -1,0 +1,40 @@
+name: Nightly evals
+
+on:
+  schedule:
+    - cron: '0 17 * * *' # 03:00 Melbourne
+  workflow_dispatch:
+
+jobs:
+  evals:
+    name: Retrieval and fact-check evals
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17
+        env: { POSTGRES_USER: ancile, POSTGRES_PASSWORD: ancile, POSTGRES_DB: ancile }
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U ancile" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://ancile:ancile@localhost:5433/ancile
+      # Fact-check evals need a real verifier model; set as repository secrets.
+      ANTHROPIC_API_KEY: ${{ secrets.EVAL_ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.EVAL_OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '3.12' }
+      - run: uv sync --project services/knowledge --frozen
+      - run: psql postgres://ancile:ancile@localhost:5433/ancile -f infra/db/init.sql
+      # TODO(phase-3): runner lands with the retrieval pipeline
+      - name: Retrieval eval
+        if: hashFiles('tests/eval/retrieval/run.py') != ''
+        run: uv run --project services/knowledge python tests/eval/retrieval/run.py --fail-under-recall10 0.85
+      # TODO(phase-4): runner lands with fact-checking
+      - name: Fact-check eval
+        if: hashFiles('tests/eval/factcheck/run.py') != ''
+        run: uv run --project services/knowledge python tests/eval/factcheck/run.py --fail-under-f1 0.75 --max-ece 0.12
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: eval-reports, path: tests/eval/**/report*.json, if-no-files-found: ignore }

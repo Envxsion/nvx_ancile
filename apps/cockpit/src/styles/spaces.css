@@ -1,0 +1,329 @@
+/* ---------------------------------------------------------------------------
+   Spaces: Home and the notebook front page. Each notebook takes its own
+   identity hue (--hue) for its swatch, the hairline under its head and
+   the drop veil; gilt marks what it has kept (notes).
+   ------------------------------------------------------------------------ */
+
+/* --- Home --------------------------------------------------------------- */
+
+.home__inner {
+  animation: rise var(--d-view) var(--ease-out) both;
+}
+.home__greeting {
+  margin-bottom: -16px;
+  font-size: var(--t-small);
+  letter-spacing: 0.01em;
+}
+.home__starters {
+  box-shadow: var(--elev-1);
+}
+.starter {
+  position: relative;
+  transition:
+    background-color var(--d-micro) var(--ease),
+    transform var(--d-micro) var(--ease-spring);
+}
+.starter::after {
+  content: '';
+  position: absolute;
+  inset: auto 14px 0;
+  height: 1px;
+  background: var(--gilt-hair);
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition:
+    opacity var(--d-short) var(--ease),
+    transform var(--d-short) var(--ease-out);
+}
+.starter:hover::after,
+.starter:focus-visible::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.recent {
+  transition: background var(--d-instant) var(--ease);
+}
+.recent__nb {
+  --hue: var(--fg-3);
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  background: color-mix(in srgb, var(--hue) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 30%, transparent);
+}
+
+/* --- Notebook ----------------------------------------------------------- */
+
+.nbk {
+  --hue: var(--s-azure);
+  position: relative;
+  overflow: auto;
+}
+.nbk__measure {
+  animation: rise var(--d-view) var(--ease-out) both;
+}
+.nbk__head {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding-bottom: 22px;
+}
+.nbk__head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--hue) 55%, transparent), transparent 70%);
+}
+.nbk__swatch {
+  width: 14px;
+  height: 14px;
+  margin-top: 14px;
+  border-radius: 4px;
+  background: var(--hue);
+  box-shadow:
+    var(--hi),
+    0 0 0 4px color-mix(in srgb, var(--hue) 16%, transparent),
+    0 4px 14px -4px color-mix(in srgb, var(--hue) 70%, transparent);
+}
+.nbk__titles {
+  min-width: 0;
+}
+.nbk__title {
+  margin: 0;
+}
+.nbk__title-btn {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+  transition: background var(--d-micro) var(--ease);
+}
+.nbk__title-btn:hover {
+  background: var(--chalk);
+}
+.nbk__title-input {
+  width: 100%;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--vault);
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.55);
+  color: var(--fg);
+  font-family: var(--font-display);
+  outline: none;
+}
+.nbk__desc {
+  margin-top: 6px;
+  max-width: 62ch;
+  color: var(--fg-2);
+}
+.nbk__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 14px 0 0;
+}
+.nbk__stats div {
+  display: grid;
+  gap: 1px;
+}
+.nbk__stats dt {
+  font-size: 11px;
+  color: var(--mute);
+}
+.nbk__stats dd {
+  margin: 0;
+  font-size: var(--t-ui);
+  font-weight: 600;
+  color: var(--fg);
+}
+.nbk__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.nbk__ask {
+  margin-top: 24px;
+}
+.nbk__reading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--t-small);
+}
+.nbk__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+
+.nbk__sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+.nbk__sources > * {
+  animation: rise var(--d-short) var(--ease-out) both;
+}
+.nbk__more {
+  margin-top: 8px;
+}
+.nbk__dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 34px 20px;
+  border-radius: var(--r-lg);
+  background: var(--vault);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  text-align: center;
+  color: var(--fg-2);
+  transition:
+    box-shadow var(--d-short) var(--ease),
+    background var(--d-short) var(--ease);
+}
+.nbk__dropzone:hover,
+.nbk__dropzone:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 55%, transparent);
+  background: color-mix(in srgb, var(--hue) 5%, var(--vault));
+}
+.nbk__dropzone > svg {
+  color: var(--hue);
+}
+.nbk__dropzone-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.nbk__cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 28px;
+}
+.nbk__empty {
+  font-size: var(--t-small);
+  line-height: 1.5;
+}
+.nbk__notes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.note-card {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  background: var(--lift);
+  box-shadow: var(--elev-1);
+  text-align: left;
+  transition:
+    box-shadow var(--d-short) var(--ease),
+    transform var(--d-short) var(--ease-spring);
+}
+.note-card:hover {
+  box-shadow:
+    var(--elev-2),
+    0 0 0 1px rgb(var(--gilt-rgb) / 0.28);
+  transform: translateY(-1px);
+}
+.note-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.note-card__title > svg {
+  color: var(--gilt);
+}
+.note-card__body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+.note-card__meta {
+  font-size: 11px;
+}
+
+.nbk__drop {
+  position: fixed;
+  inset: 12px;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  border-radius: var(--r-xl);
+  background: color-mix(in srgb, var(--hue) 10%, rgb(var(--void-rgb) / 0.82));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--hue) 70%, transparent);
+  color: var(--fg);
+  font-size: var(--t-h3);
+  font-weight: 600;
+  pointer-events: none;
+  animation: pop var(--d-micro) var(--ease-spring);
+}
+.nbk__drop > svg {
+  color: var(--hue);
+}
+
+@media (max-width: 760px) {
+  .nbk__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nbk__head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .nbk__actions {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home__inner,
+  .nbk__measure,
+  .nbk__sources > * {
+    animation: none;
+  }
+}
+
+/* Delete a notebook: what happens to each thing in it, one line each. */
+.nbk-del__list {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+}

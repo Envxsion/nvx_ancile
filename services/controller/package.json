@@ -1,0 +1,39 @@
+{
+  "name": "@nvx/ancile-controller",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NVX Ancile Controller: remote compute lifecycle, model routing to nodes, queueing, costs and auto-shutdown rules. A separate deployable with its own contract.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsup",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "test:boot": "vitest run test/boot",
+    "test:contract": "vitest run test/contract",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.0",
+    "@nvx/contracts": "workspace:*",
+    "drizzle-orm": "^0.44.0",
+    "hono": "^4.9.0",
+    "pino": "^9.9.0",
+    "postgres": "^3.4.7",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "drizzle-kit": "^0.31.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

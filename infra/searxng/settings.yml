@@ -1,0 +1,19 @@
+# SearXNG for NVX Ancile (compose profile "search"). Optional web evidence
+# for fact-checking. Runs as a separate, unmodified container and is only
+# reached over HTTP (AGPL boundary, see NOTICE.md).
+use_default_settings: true
+
+server:
+  # Local-only instance; replace before exposing it anywhere.
+  secret_key: "ancile-local-searxng-change-me"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true

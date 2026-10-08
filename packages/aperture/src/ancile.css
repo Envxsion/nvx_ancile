@@ -1,0 +1,171 @@
+/* ==========================================================================
+   NVX Ancile product identity
+
+   Loads AFTER tokens.css and overrides only the accent and the mark, the
+   same way Kinetix trades Session's chartreuse for cyan. Session is the
+   signal in the tab, Kinetix the signal down the wire; Ancile is the light
+   just past the visible edge, an ultraviolet, because the ancile was the
+   shield that fell out of the sky.
+
+   Signal is reserved for system affordance: focus, the primary action, live
+   state, the thing the AI is doing right now. Never decoration, never a
+   status colour.
+
+   Fill vs ink: --signal is a fill (buttons, the active bar, the mark).
+   --signal-ink is for text and hairline strokes, and on the light ground it
+   drops to a deep violet to hold 4.5:1.
+   ========================================================================== */
+
+:root,
+[data-theme='dark'] {
+  --signal: #9d86ff;
+  --signal-rgb: 157 134 255;
+  --signal-ink: #b3a1ff;
+  --signal-mid: #7a63e6;
+  --signal-dim: #2a2160;
+  --on-signal: #08090a;
+}
+
+[data-theme='light'] {
+  /* Darker than the dark-ground fill so white button text holds 5.2:1 */
+  --signal: #6e52ec;
+  --signal-rgb: 110 82 236;
+  --signal-ink: #5a3fd6;
+  --signal-mid: #5a3fd6;
+  --signal-dim: #e4defe;
+  --on-signal: #ffffff;
+}
+
+/* ---------------------------------------------------------------------------
+   The mark (mark.tsx)
+
+   The ancile: a shield with its waist cut in on both sides, drawn as two
+   contours that never close, the family's open-mark trait. The left contour
+   is full strength, the right at 0.7, the inner broken ring at 0.4: the
+   same depth ramp as Session's aperture. The core is the model.
+
+   States change speed, distance and colour, never the geometry:
+   idle       still; the inner ring drifts
+   thinking   inner ring turns quickly; the halves breathe
+   streaming  the core beats with the tokens
+   ask        a decision is waiting on you: the halves close in, the shield
+              shuts until you answer
+   offline    grey and stopped
+   alarm      fail colour and a shake
+   --------------------------------------------------------------------------- */
+
+svg.ancile-mark {
+  --mark-tone: var(--signal);
+  display: block;
+  overflow: visible;
+  color: var(--mark-tone);
+  transition: color 600ms var(--ease);
+}
+
+[data-theme='light'] svg.ancile-mark {
+  --mark-tone: var(--signal-ink);
+}
+
+svg.ancile-mark path {
+  stroke: currentColor;
+}
+
+svg.ancile-mark .core {
+  fill: currentColor;
+}
+
+svg.ancile-mark .half,
+svg.ancile-mark .inner,
+svg.ancile-mark .core {
+  transform-box: view-box;
+  transform-origin: 17px 17px;
+  transition: translate 500ms var(--ease);
+}
+
+svg.ancile-mark .inner {
+  animation: ancile-spin 16s linear infinite;
+}
+
+svg.ancile-mark[data-state='thinking'] .inner {
+  animation-duration: 2.2s;
+}
+svg.ancile-mark[data-state='thinking'] .half-l {
+  animation: ancile-breathe-l 2.4s var(--ease) infinite;
+}
+svg.ancile-mark[data-state='thinking'] .half-r {
+  animation: ancile-breathe-r 2.4s var(--ease) infinite;
+}
+
+svg.ancile-mark[data-state='streaming'] .core {
+  animation: ancile-beat 1.1s var(--ease) infinite;
+}
+svg.ancile-mark[data-state='streaming'] .inner {
+  animation-duration: 5s;
+}
+
+svg.ancile-mark[data-state='ask'] .half-l {
+  translate: 2.2px 0;
+}
+svg.ancile-mark[data-state='ask'] .half-r {
+  translate: -2.2px 0;
+}
+svg.ancile-mark[data-state='ask'] .core {
+  animation: pulse 1.6s var(--ease) infinite;
+}
+
+svg.ancile-mark[data-state='offline'] {
+  --mark-tone: var(--mute-3) !important;
+}
+svg.ancile-mark[data-state='offline'] .inner {
+  animation-play-state: paused;
+}
+
+svg.ancile-mark[data-state='alarm'] {
+  --mark-tone: var(--fail) !important;
+}
+svg.ancile-mark[data-state='alarm'] .half {
+  animation: ancile-shake 0.5s var(--ease-shake) 2;
+}
+
+@keyframes ancile-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+@keyframes ancile-beat {
+  0%,
+  100% {
+    scale: 1;
+  }
+  35% {
+    scale: 1.55;
+  }
+}
+@keyframes ancile-breathe-l {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: -0.8px 0;
+  }
+}
+@keyframes ancile-breathe-r {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0.8px 0;
+  }
+}
+@keyframes ancile-shake {
+  20%,
+  60% {
+    translate: -1px 0;
+  }
+  40%,
+  80% {
+    translate: 1px 0;
+  }
+}

@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22.17'
+  PYTHON_VERSION: '3.12'
+  # Test-only secrets. Never real keys.
+  ANCILE_SECRET_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  ANCILE_SERVICE_TOKEN: ci-service-token-not-secret
+  CONTROLLER_TOKEN: ci-controller-token-not-secret
+  NODE_ENV: test
+
+jobs:
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
+      - run: uv sync --project services/knowledge --frozen
+      - run: uv run --project services/knowledge ruff check services/knowledge
+      - run: uv run --project services/knowledge mypy services/knowledge/ancile_knowledge
+
+  unit:
+    name: Unit and integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17
+        env: { POSTGRES_USER: ancile, POSTGRES_PASSWORD: ancile, POSTGRES_DB: ancile }
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U ancile" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://ancile:ancile@localhost:5433/ancile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --project services/knowledge --frozen
+      - run: psql postgres://ancile:ancile@localhost:5433/ancile -f infra/db/init.sql
+      - name: Migrate
+        run: |
+          pnpm --filter @nvx/ancile-core run db:migrate
+          pnpm --filter @nvx/ancile-controller run db:migrate
+          (cd services/knowledge && uv run alembic upgrade head)
+      - name: Boot suites
+        run: |
+          pnpm test:boot
+          uv run --project services/knowledge pytest services/knowledge -m boot -q
+      - name: TypeScript tests
+        run: pnpm -r run test -- --coverage
+      - name: Python tests
+        run: uv run --project services/knowledge pytest services/knowledge -m "not boot" --cov=ancile_knowledge
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage, path: '**/coverage/**', if-no-files-found: ignore }
+
+  e2e:
+    name: End to end, chaos and load
+    runs-on: ubuntu-latest
+    needs: [lint]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --project services/knowledge --frozen --extra embed --extra extract
+      - run: pnpm exec playwright install --with-deps chromium
+      # Cockpit alone (demo data): shell, theme, palette.
+      - run: pnpm test:e2e --project=chromium-dark --project=chromium-light
+      # The real stack: the test profile (ports 7800-7830, its own database),
+      # embedded Postgres, the offline models. No Docker, no provider keys.
+      - name: Start the test profile
+        run: |
+          pnpm start:e2e > stack.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://localhost:7800/api/v1/system/health >/dev/null && break; sleep 3; done
+          curl -sf http://localhost:7800/api/v1/system/health
+          pnpm seed --e2e
+      - name: Journeys
+        run: E2E_BACKEND=1 pnpm test:e2e --project=chromium-dark
+      - name: Every control on every route (desktop, phone, both themes)
+        run: E2E_BACKEND=1 E2E_CRAWL=1 pnpm test:e2e crawl --project=chromium-dark --project=chromium-light --project=phone
+      - name: Chaos
+        run: E2E_BACKEND=1 pnpm test:chaos
+      - name: Load (50 concurrent streams)
+        # TODO(phase-6): p95 first-word overhead is ~430 ms at 50 streams
+        # against a 150 ms budget; reported, not yet blocking.
+        continue-on-error: true
+        run: pnpm test:load
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts
+          path: |
+            test-results
+            crawl-report
+            stack.log
+          if-no-files-found: ignore

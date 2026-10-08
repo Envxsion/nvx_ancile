@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "id": "meta-llama/llama-4-maverick",
+      "name": "Meta: Llama 4 Maverick",
+      "description": "A mixture-of-experts model from Meta.",
+      "context_length": 1048576,
+      "pricing": { "prompt": "0.00000015", "completion": "0.0000006" },
+      "top_provider": { "context_length": 1048576, "max_completion_tokens": 16384 },
+      "architecture": { "input_modalities": ["text", "image"], "modality": "text+image->text" },
+      "supported_parameters": ["tools", "temperature", "response_format"]
+    },
+    {
+      "id": "deepseek/deepseek-r1",
+      "name": "DeepSeek: R1",
+      "context_length": 163840,
+      "pricing": { "prompt": "0.0000004", "completion": "0.000002" },
+      "top_provider": { "context_length": 163840, "max_completion_tokens": null },
+      "architecture": { "input_modalities": ["text"] },
+      "supported_parameters": ["reasoning", "include_reasoning", "temperature"]
+    }
+  ]
+}

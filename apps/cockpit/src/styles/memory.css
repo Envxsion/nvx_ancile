@@ -1,0 +1,868 @@
+/* ==========================================================================
+   Memory (Admin → Memory, Phase 4)
+
+   A library, not a database: files on the left like spines on a shelf,
+   the open one read as a list of things kept. Gilt marks what NVX Ancile
+   learned and kept (the seal), and the line added in a diff: kept.
+   Violet stays for focus and the primary action only.
+   ========================================================================== */
+
+.mem {
+  display: grid;
+  gap: 18px;
+}
+.mem:focus-visible {
+  outline: none;
+}
+.mem__intro {
+  display: grid;
+  gap: 12px;
+}
+.mem__capture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.mem__capture-desc {
+  font-size: var(--t-small);
+  transition: opacity var(--d-short) var(--ease-out);
+}
+
+/* ---- Tabs ------------------------------------------------------------------ */
+
+.mem-tabs {
+  display: flex;
+  gap: 2px;
+  box-shadow: 0 1px 0 var(--hair);
+}
+.mem-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--mute);
+  font: inherit;
+  font-size: var(--t-ui);
+  cursor: pointer;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  transition:
+    color var(--d-micro) var(--ease-out),
+    background var(--d-micro) var(--ease-out);
+}
+.mem-tab:hover {
+  color: var(--fg-2);
+  background: rgb(var(--fg-rgb) / 0.03);
+}
+.mem-tab[aria-selected='true'] {
+  color: var(--fg);
+}
+.mem-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--signal);
+  box-shadow: 0 0 12px rgb(var(--signal-rgb) / calc(0.6 * var(--glow, 1)));
+  animation: mem-underline var(--d-short) var(--ease-out);
+}
+@keyframes mem-underline {
+  from {
+    transform: scaleX(0.4);
+    opacity: 0;
+  }
+}
+.mem-tab__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 640;
+  color: var(--void);
+  background: var(--gilt);
+  box-shadow: var(--gilt-glow);
+}
+
+/* ---- Browser ------------------------------------------------------------- */
+
+.mem-browser {
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .mem-browser {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mem-files {
+  display: grid;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+}
+.mem-files__group {
+  display: grid;
+  gap: 2px;
+}
+.mem-files__h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 620;
+  color: var(--fg-3);
+}
+.mem-files__h .icon {
+  color: var(--gilt);
+  opacity: 0.85;
+}
+
+.mem-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--d-micro) var(--ease-out),
+    color var(--d-micro) var(--ease-out);
+}
+.mem-file:hover {
+  background: rgb(var(--fg-rgb) / 0.04);
+  color: var(--fg);
+}
+.mem-file[data-active] {
+  color: var(--fg);
+  background: var(--lift-2);
+  box-shadow:
+    var(--elev-1),
+    inset 2px 0 0 var(--signal);
+}
+.mem-file[data-guide] {
+  opacity: 0.6;
+}
+.mem-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-ui);
+}
+.mem-file__path {
+  grid-row: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--mute-2);
+}
+.mem-file__count {
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 11px;
+  color: var(--mute);
+}
+
+/* ---- The open file ------------------------------------------------------- */
+
+.mem-pane {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 20px 20px;
+  border-radius: var(--r-xl);
+  background: var(--sheen, none), var(--lift-2);
+  box-shadow: var(--elev-2);
+  animation: mem-rise var(--d-medium) var(--ease-out);
+}
+@keyframes mem-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.mem-pane__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mem-pane__title h2 {
+  margin: 0;
+  font-size: var(--t-h3);
+  line-height: 1.2;
+}
+.mem-pane__title p {
+  margin: 4px 0 0;
+  font-size: var(--t-small);
+}
+.mem-pane__modes .segmented__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mem-entries {
+  display: grid;
+  gap: 16px;
+}
+.mem-entries__section ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mem-entries__h {
+  margin: 0 0 6px;
+  font-size: var(--t-small);
+  font-weight: 620;
+  color: var(--fg-3);
+}
+.mem-entries__old > .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--t-small);
+}
+
+.mem-entry {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  line-height: var(--lh-read);
+  animation: mem-entry-in var(--d-medium) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+  transition: background var(--d-micro) var(--ease-out);
+}
+.mem-entry:hover {
+  background: rgb(var(--fg-rgb) / 0.03);
+}
+@keyframes mem-entry-in {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}
+.mem-entry__seal {
+  display: grid;
+  place-items: center;
+  translate: 0 2px;
+  color: var(--gilt);
+  filter: drop-shadow(0 0 6px rgb(var(--gilt-rgb) / 0.35));
+}
+.mem-entry__dot {
+  justify-self: center;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  translate: 0 -2px;
+  background: var(--mute-3);
+}
+.mem-entry__text {
+  color: var(--fg);
+  font-size: var(--t-body);
+}
+.mem-entry[data-superseded] .mem-entry__text {
+  color: var(--mute);
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--fg-rgb) / 0.25);
+}
+.mem-entry__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--mute-2);
+  opacity: 0.7;
+  transition: opacity var(--d-micro) var(--ease-out);
+}
+.mem-entry:hover .mem-entry__meta {
+  opacity: 1;
+}
+
+/* Confidence: a hairline that fills with gilt. */
+.mem-conf {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--chalk-2);
+}
+.mem-conf__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--gilt-sheen, var(--gilt));
+}
+
+/* ---- Editor ---------------------------------------------------------------- */
+
+.mem-editor {
+  display: grid;
+  gap: 12px;
+}
+.mem-editor__field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  height: min(62vh, 640px);
+  border-radius: var(--r-lg);
+  background: var(--void-deep);
+  box-shadow: var(--vault);
+  overflow: hidden;
+  transition: box-shadow var(--d-short) var(--ease-out);
+}
+.mem-editor__field:focus-within {
+  box-shadow:
+    var(--vault),
+    inset 0 0 0 1px var(--signal-ink, var(--signal)),
+    0 0 0 3px rgb(var(--signal-rgb) / 0.14);
+}
+.mem-editor__gutter {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px 14px 14px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  text-align: right;
+  color: var(--mute-3);
+  user-select: none;
+  box-shadow: 1px 0 0 var(--hair);
+}
+.mem-editor__text {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  resize: none;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  tab-size: 2;
+  caret-color: var(--signal);
+}
+.mem-editor__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mem-editor__tip {
+  font-size: var(--t-small);
+}
+.mem-editor__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.mem-review {
+  display: grid;
+  gap: 12px;
+  animation: mem-rise var(--d-medium) var(--ease-out);
+}
+.mem-review__stats {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--t-small);
+}
+.mem-review__add {
+  color: var(--gilt);
+  font-weight: 640;
+}
+.mem-review__del {
+  color: var(--mute);
+  font-weight: 640;
+}
+.mem-review__msg {
+  display: grid;
+  gap: 6px;
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+
+.mem-conflict {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: rgb(var(--warn-rgb) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.3);
+  animation: mem-rise var(--d-medium) var(--ease-out);
+}
+.mem-conflict__head {
+  display: flex;
+  gap: 10px;
+}
+.mem-conflict__head > .icon {
+  margin-top: 2px;
+  color: var(--warn);
+}
+.mem-conflict__head p {
+  margin: 2px 0 0;
+  font-size: var(--t-small);
+}
+.mem-conflict__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .mem-conflict__sides {
+    grid-template-columns: 1fr;
+  }
+}
+.mem-conflict__sides h4 {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 620;
+  color: var(--fg-3);
+}
+.mem-conflict__text {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--void-deep);
+  box-shadow: var(--vault);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+}
+
+/* ---- Diff ------------------------------------------------------------------- */
+
+.mem-diff {
+  display: grid;
+  max-height: 420px;
+  overflow: auto;
+  padding: 6px 0;
+  border-radius: var(--r-md);
+  background: var(--void-deep);
+  box-shadow: var(--vault);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.mem-diff__none {
+  font-size: var(--t-small);
+}
+.mem-diff__file {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.mem-diff__fold {
+  min-height: 8px;
+  padding: 2px 12px 2px 92px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--mute-2);
+  background: rgb(var(--fg-rgb) / 0.02);
+}
+.mem-diff__line {
+  display: grid;
+  grid-template-columns: 36px 36px 18px minmax(0, 1fr);
+  padding-right: 12px;
+}
+.mem-diff__no {
+  padding-right: 8px;
+  text-align: right;
+  color: var(--mute-3);
+  user-select: none;
+}
+.mem-diff__sign {
+  text-align: center;
+  user-select: none;
+  color: var(--mute-2);
+}
+.mem-diff__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-2);
+}
+.mem-diff__line[data-kind='add'] {
+  background: rgb(var(--gilt-rgb) / 0.08);
+  box-shadow: inset 2px 0 0 var(--gilt);
+}
+.mem-diff__line[data-kind='add'] .mem-diff__sign,
+.mem-diff__line[data-kind='add'] .mem-diff__text {
+  color: var(--fg);
+}
+.mem-diff__line[data-kind='add'] .mem-diff__sign {
+  color: var(--gilt);
+}
+.mem-diff__line[data-kind='del'] {
+  background: rgb(var(--fg-rgb) / 0.03);
+}
+.mem-diff__line[data-kind='del'] .mem-diff__text {
+  color: var(--mute);
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--fg-rgb) / 0.22);
+}
+
+/* ---- Inbox ------------------------------------------------------------------ */
+
+.mem-inbox {
+  display: grid;
+  gap: 22px;
+}
+.mem-inbox__list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mem-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--sheen, none), var(--lift-2);
+  box-shadow: var(--elev-1);
+  outline: none;
+  animation: mem-rise var(--d-medium) var(--ease-out) both;
+  transition:
+    box-shadow var(--d-short) var(--ease-out),
+    transform var(--d-short) var(--ease-out),
+    opacity var(--d-medium) var(--ease-out);
+}
+.mem-card:hover {
+  box-shadow: var(--elev-2);
+}
+.mem-card:focus-visible {
+  box-shadow:
+    var(--elev-2),
+    0 0 0 2px var(--signal);
+}
+.mem-card[data-untrusted] {
+  box-shadow:
+    var(--elev-1),
+    inset 2px 0 0 rgb(var(--warn-rgb) / 0.6);
+}
+.mem-card[data-leaving='kept'] {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.99);
+  box-shadow: var(--elev-1), var(--gilt-glow);
+}
+.mem-card[data-leaving='dropped'] {
+  opacity: 0;
+  transform: translateX(10px);
+}
+.mem-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.mem-card__kind {
+  font-weight: 620;
+  color: var(--fg-3);
+}
+.mem-card__where {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  color: var(--fg-2);
+}
+.mem-card__where .icon {
+  color: var(--gilt);
+}
+.mem-card__text {
+  margin: 0;
+  font-size: var(--t-read, var(--t-body));
+  line-height: var(--lh-read);
+  color: var(--fg);
+}
+.mem-card__edit {
+  font-size: var(--t-body);
+  line-height: var(--lh-read);
+}
+.mem-card__was {
+  margin: -4px 0 0;
+  font-size: var(--t-small);
+}
+.mem-card__was s {
+  color: var(--mute);
+}
+.mem-card__why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-small);
+}
+.mem-card__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--warn);
+  background: rgb(var(--warn-rgb) / 0.08);
+}
+.mem-card__quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
+  color: var(--fg-3);
+  background: rgb(var(--fg-rgb) / 0.03);
+  box-shadow: inset 2px 0 0 var(--hair-2);
+  white-space: pre-wrap;
+  max-height: 6.5em;
+  overflow: hidden;
+}
+.mem-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mem-card__buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mem-card__buttons kbd {
+  margin-left: 4px;
+  opacity: 0.6;
+}
+
+.mem-inbox__done ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mem-kept {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
+}
+.mem-kept:hover {
+  background: rgb(var(--fg-rgb) / 0.03);
+}
+.mem-kept__icon {
+  color: var(--gilt);
+}
+.mem-kept[data-status='undone'] .mem-kept__icon,
+.mem-kept[data-status='rejected'] .mem-kept__icon {
+  color: var(--mute-3);
+}
+.mem-kept[data-status='undone'] .mem-kept__text,
+.mem-kept[data-status='rejected'] .mem-kept__text {
+  color: var(--mute);
+  text-decoration: line-through;
+}
+.mem-kept__text {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mem-kept__text:hover {
+  color: var(--fg);
+}
+@media (max-width: 700px) {
+  .mem-kept {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+  }
+  .mem-kept__where,
+  .mem-kept time {
+    display: none;
+  }
+}
+
+/* ---- History ---------------------------------------------------------------- */
+
+.mem-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mem-commit {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.mem-commit__rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.mem-commit__rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hair-2);
+}
+.mem-commit:first-child .mem-commit__rail::before {
+  top: 16px;
+}
+.mem-commit:last-child .mem-commit__rail::before {
+  bottom: calc(100% - 16px);
+}
+.mem-commit__node {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 6px;
+  border-radius: 50%;
+  color: var(--fg-3);
+  background: var(--lift-2);
+  box-shadow: var(--elev-1);
+}
+.mem-commit[data-auto] .mem-commit__node {
+  color: var(--gilt);
+  box-shadow:
+    var(--elev-1),
+    0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
+}
+.mem-commit__body {
+  min-width: 0;
+  padding-bottom: 6px;
+}
+.mem-commit__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 12px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--d-micro) var(--ease-out);
+}
+.mem-commit__head:hover,
+.mem-commit[data-open] .mem-commit__head {
+  background: rgb(var(--fg-rgb) / 0.04);
+  color: var(--fg);
+}
+.mem-commit__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mem-commit__scope {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--fg-3);
+  background: rgb(var(--fg-rgb) / 0.05);
+}
+.mem-commit__who {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.mem-commit__chev {
+  color: var(--mute-2);
+}
+.mem-commit__detail {
+  display: grid;
+  gap: 10px;
+  padding: 8px 8px 14px;
+  animation: mem-rise var(--d-short) var(--ease-out);
+}
+.mem-commit__why {
+  margin: 0;
+  font-size: var(--t-small);
+  white-space: pre-wrap;
+}
+.mem-commit__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.mem-commit__actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mem-commit__actions .btn[data-armed] {
+  color: var(--fail);
+  box-shadow: inset 0 0 0 1px rgb(var(--fail-rgb) / 0.45);
+  animation: mem-arm 300ms var(--ease-shake, var(--ease-out));
+}
+@keyframes mem-arm {
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+@media (max-width: 700px) {
+  .mem-commit__head {
+    grid-template-columns: minmax(0, 1fr) 12px;
+  }
+  .mem-commit__scope,
+  .mem-commit__who {
+    display: none;
+  }
+}

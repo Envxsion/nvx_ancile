@@ -1,0 +1,45 @@
+# =============================================================================
+#  Task classes → fallback chains (DESIGN.md §7.2).
+#  Schema: packages/contracts/src/config.ts → RoutingFile
+#  A user's explicit model choice is always the first link; the chain fills
+#  in behind it. Disabled or unconfigured models are skipped.
+# =============================================================================
+version: 1
+
+task_classes:
+  chat.default:                     # ordinary chat turns
+    - anthropic/claude-sonnet-5-5
+    - openai/gpt-5.5
+    - controller/qwen3-72b
+    - ollama/qwen3-14b
+  chat.deep:                        # "think harder" turns and research synthesis
+    - anthropic/claude-opus-5-5
+    - openai/gpt-5.5
+    - anthropic/claude-sonnet-5-5
+  utility:                          # titles, tags, memory capture, summaries
+    - anthropic/claude-haiku-4-5
+    - ollama/qwen3-14b
+  embed:                            # chunk and memory embeddings
+    - local/bge-small-en-v1.5
+  rerank:                           # cross-encoder reranking of retrieved chunks
+    - local/bge-reranker-v2-m3
+  factcheck.verify:                 # the verifier must be independent of the generator
+    prefer_different_family: true   # skip the generator's family when another is available
+    chain:
+      - openai/gpt-5.5
+      - google/gemini-3-pro
+      - anthropic/claude-sonnet-5-5
+
+resilience:
+  retry:
+    base_ms: 250                    # first backoff
+    factor: 2                       # exponential growth
+    cap_ms: 8000                    # longest single wait
+    max_attempts: 4                 # per target, before moving down the chain
+  breaker:
+    window_s: 60                    # rolling window for the failure rate
+    failure_rate: 0.5               # open at this rate…
+    min_calls: 8                    # …once the window holds at least this many calls
+    consecutive: 5                  # or after this many failures in a row
+    half_open_s: 30                 # first probe delay; doubles up to 10 minutes
+  compute_wait_max_s: 240           # longest wait for a waking GPU node before falling back

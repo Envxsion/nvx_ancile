@@ -1,0 +1,49 @@
+{"query": "ZX-4410 priming bleed valve", "relevant": ["pump-zx4410"], "type": "keyword"}
+{"query": "E-22 fault code", "relevant": ["pump-zx4420"], "type": "keyword"}
+{"query": "what does E-17 mean", "relevant": ["pump-zx4410"], "type": "keyword"}
+{"query": "KP-90 diaphragm replacement interval", "relevant": ["pump-kp90"], "type": "keyword"}
+{"query": "RT-AX58 rescue mode", "relevant": ["router-ax58"], "type": "keyword"}
+{"query": "RT-AX86 Smart Connect", "relevant": ["router-ax86"], "type": "keyword"}
+{"query": "802.1Q tag size", "relevant": ["net-vlan"], "type": "keyword"}
+{"query": "wg-quick UDP 51820", "relevant": ["net-wireguard"], "type": "keyword"}
+{"query": "Northwind Q2 share buyback", "relevant": ["fin-northwind-q2"], "type": "keyword"}
+{"query": "Northwind interim dividend 14 pence", "relevant": ["fin-northwind-q3"], "type": "keyword"}
+{"query": "form TE-12", "relevant": ["pol-travel"], "type": "keyword"}
+{"query": "HR-7 notice period", "relevant": ["pol-leave"], "type": "keyword"}
+{"query": "SEV2 postmortem deadline", "relevant": ["pol-incidents"], "type": "keyword"}
+{"query": "MDM enrolment", "relevant": ["pol-laptop"], "type": "keyword"}
+{"query": "GDPR Article 17", "relevant": ["law-gdpr17"], "type": "keyword"}
+{"query": "HIPAA minimum necessary", "relevant": ["law-hipaa"], "type": "keyword"}
+{"query": "exit code 137 OOMKilled", "relevant": ["sw-crashloop"], "type": "keyword"}
+{"query": "hnsw.ef_search", "relevant": ["sw-hnsw"], "type": "keyword"}
+{"query": "autovacuum_vacuum_scale_factor", "relevant": ["sw-vacuum"], "type": "keyword"}
+{"query": "asyncio.TaskGroup sibling tasks", "relevant": ["sw-asyncio"], "type": "keyword"}
+{"query": "Note G Bernoulli numbers", "relevant": ["hist-lovelace"], "type": "keyword"}
+{"query": "A-0 system 1952", "relevant": ["hist-hopper"], "type": "keyword"}
+{"query": "Bombe Hut 8", "relevant": ["hist-turing"], "type": "keyword"}
+{"query": "George Antheil", "relevant": ["hist-lamarr"], "type": "keyword"}
+{"query": "MOXIE Perseverance", "relevant": ["space-moxie"], "type": "keyword"}
+{"query": "heliopause 2012", "relevant": ["space-voyager"], "type": "keyword"}
+{"query": "tipo 00 hydration", "relevant": ["food-pizza"], "type": "keyword"}
+{"query": "katsuobushi kombu", "relevant": ["food-miso"], "type": "keyword"}
+{"query": "Karl von Frisch", "relevant": ["nat-bees"], "type": "keyword"}
+{"query": "zooxanthellae", "relevant": ["nat-coral"], "type": "keyword"}
+{"query": "why is my pump making a rattling noise like gravel", "relevant": ["pump-cavitation"], "type": "semantic"}
+{"query": "how much painkiller can I take without harming my liver", "relevant": ["med-paracetamol"], "type": "semantic"}
+{"query": "anti-inflammatory tablets should be taken with food", "relevant": ["med-ibuprofen"], "type": "semantic"}
+{"query": "seeing zigzag lines before a headache", "relevant": ["med-migraine"], "type": "semantic"}
+{"query": "when can I play football again after knee ligament surgery", "relevant": ["med-acl"], "type": "semantic"}
+{"query": "comparing companies that carry different amounts of debt", "relevant": ["fin-ebitda"], "type": "semantic"}
+{"query": "retirement account where withdrawals are not taxed", "relevant": ["fin-roth"], "type": "semantic"}
+{"query": "compiler rejects two mutable references at once", "relevant": ["sw-rust"], "type": "semantic"}
+{"query": "how do some birds fly without making a sound", "relevant": ["nat-owls"], "type": "semantic"}
+{"query": "butterflies that spend the winter in Mexico", "relevant": ["nat-monarch"], "type": "semantic"}
+{"query": "telescope with gold coated mirror segments for infrared", "relevant": ["space-jwst"], "type": "semantic"}
+{"query": "how often does the space station circle the planet", "relevant": ["space-iss"], "type": "semantic"}
+{"query": "rolled eggs with soft curds and no browning", "relevant": ["food-omelette"], "type": "semantic"}
+{"query": "feeding schedule for a wild yeast culture", "relevant": ["food-sourdough"], "type": "semantic"}
+{"query": "keep printers on a separate network using the same switch", "relevant": ["net-vlan"], "type": "semantic"}
+{"query": "which rules apply when booking flights for work", "relevant": ["pol-travel"], "type": "semantic"}
+{"query": "how to prime a centrifugal pump", "relevant": ["pump-zx4410", "pump-zx4420"], "type": "semantic"}
+{"query": "Northwind gross margin", "relevant": ["fin-northwind-q2", "fin-northwind-q3"], "type": "keyword"}
+{"query": "women who pioneered early computer programming", "relevant": ["hist-lovelace", "hist-hopper"], "type": "semantic"}

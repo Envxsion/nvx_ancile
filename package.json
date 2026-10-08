@@ -1,0 +1,42 @@
+{
+  "name": "nvx-ancile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NVX Ancile: a private AI operating system for serious knowledge work. A product from nvx.sh.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* --filter ./services/* run dev",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "pnpm -r run test && pnpm test:py",
+    "test:py": "node scripts/test-py.mjs",
+    "test:boot": "pnpm -r run test:boot",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "test:chaos": "playwright test -c tests/chaos/playwright.config.ts",
+    "test:load": "node tests/load/streams.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "start": "node scripts/boot.mjs",
+    "start:e2e": "node scripts/boot.mjs --e2e",
+    "stop": "node scripts/down.mjs",
+    "stop:e2e": "node scripts/down.mjs --e2e",
+    "seed": "node scripts/seed.mjs",
+    "up": "node scripts/boot.mjs",
+    "up:e2e": "node scripts/boot.mjs --e2e",
+    "down": "node scripts/down.mjs",
+    "up:docker": "docker compose up -d"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "^1.63.0",
+    "@vitest/coverage-v8": "3.2.7",
+    "typescript": "^5.9.3"
+  }
+}

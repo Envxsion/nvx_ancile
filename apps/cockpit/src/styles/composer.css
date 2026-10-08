@@ -1,0 +1,274 @@
+/* ---------------------------------------------------------------------------
+   Composer, refined: mention chips, uploads with live progress, a send key
+   that comes alive when there is something to send, menus with a heading.
+   Loaded after thread.css; tokens only.
+   ------------------------------------------------------------------------ */
+
+.composer {
+  /* One track that may shrink: the bar's chips give way instead of pushing Send out. */
+  grid-template-columns: minmax(0, 1fr);
+  transition:
+    box-shadow var(--d-short) var(--ease),
+    transform var(--d-short) var(--ease-spring);
+}
+.composer[data-dragging] {
+  transform: scale(1.006);
+}
+
+.composer__menu {
+  padding: 5px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-3);
+  transform-origin: bottom left;
+}
+.composer__menu-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+}
+.composer__menu [role='option'] {
+  transition:
+    background var(--d-instant) var(--ease),
+    box-shadow var(--d-instant) var(--ease);
+}
+.composer__cmd {
+  min-width: 7.5em;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+.composer__opt-hint,
+.composer__opt-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.composer__opt-hint {
+  font-size: var(--t-small);
+}
+
+.composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mention-chip {
+  --hue: var(--signal-ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  height: 26px;
+  padding: 0 3px 0 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--hue) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 34%, transparent);
+  color: var(--fg);
+  font-size: var(--t-small);
+  animation: pop var(--d-micro) var(--ease-spring);
+}
+.mention-chip[data-kind='source'] {
+  --hue: var(--gilt);
+}
+.mention-chip > svg {
+  color: var(--hue);
+}
+.mention-chip__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-chip {
+  --p: 0;
+  position: relative;
+  overflow: hidden;
+  max-width: 300px;
+  animation: pop var(--d-micro) var(--ease-spring);
+}
+.file-chip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: calc(var(--p) * 100%);
+  background: var(--signal);
+  transition: width var(--d-short) var(--ease);
+}
+.file-chip[data-state='done']::after {
+  width: 100%;
+  background: var(--ok);
+}
+.file-chip[data-state='failed'] {
+  box-shadow: inset 0 0 0 1px rgb(var(--fail-rgb) / 0.5);
+}
+.file-chip[data-state='failed']::after {
+  display: none;
+}
+.file-chip[data-state='waiting'] {
+  opacity: 0.72;
+}
+.file-chip__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.composer__attach[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The chip shows the model picked for this one message. */
+.composer__model[data-overridden] {
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--edge-2);
+}
+
+.send {
+  transition:
+    transform var(--d-micro) var(--ease-spring),
+    background var(--d-short) var(--ease),
+    box-shadow var(--d-short) var(--ease);
+}
+.send[data-ready] {
+  box-shadow:
+    var(--hi),
+    0 6px 18px -8px rgb(var(--signal-rgb) / 0.8);
+}
+.send[data-ready]:active {
+  transform: scale(0.92);
+}
+
+.composer__drop[data-blocked] {
+  box-shadow: inset 0 0 0 1.5px var(--hair-2);
+  color: var(--fg-3);
+}
+
+.composer__hint {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Home's notebook picker, at the start of the bar. */
+.scope-pick {
+  --hue: var(--fg-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.scope-pick:hover,
+.scope-pick[data-state='open'] {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.scope-pick[data-set] {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 40%, transparent);
+  background: color-mix(in srgb, var(--hue) 10%, transparent);
+}
+.scope-pick__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--hue);
+}
+.scope-pick__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The bar never pushes Send out of the box: chips give way first. */
+.composer__bar > .send,
+.composer__bar > .composer__attach {
+  flex: none;
+}
+.composer__bar > .composer__model,
+.composer__bar > .flow-chip,
+.composer__bar > .scope-pick {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.composer__model .hue-chip {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .composer__hint {
+    display: none;
+  }
+  .composer__bar .send {
+    margin-left: auto;
+  }
+}
+
+/* A flow answers this thread: the model chip is what answers when no flow does. */
+.composer__model[data-idle] .hue-chip {
+  opacity: 0.55;
+}
+
+/* --- A model, while a flow answers (thread/ModelChoice.tsx) --------------- */
+
+.model-choice {
+  width: min(520px, calc(100vw - 32px));
+}
+.model-choice__options {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.model-choice__option {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg);
+  text-align: left;
+  transition: background var(--d-short) var(--ease);
+}
+.model-choice__option:hover {
+  background: var(--wash-2);
+}
+.model-choice__option:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.model-choice__option > svg {
+  margin-top: 2px;
+  color: var(--fg-2);
+}
+.model-choice__option > span {
+  display: grid;
+  gap: 2px;
+  font-size: var(--t-small);
+}
+.model-choice__option strong {
+  font-size: var(--t-ui);
+  font-weight: 560;
+}

@@ -1,0 +1,493 @@
+/*
+ * ------------------------------------------------------------------
+ *  Title    |  Trust: fact-checks, evidence and why
+ *  Ref      |  DESIGN.md §10.6, §11.4 · DESIGN-UI.md (gilt rules)
+ *  ID       |  cockpit
+ * ------------------------------------------------------------------
+ *  Purpose  |  How an answer shows it held up. Verdict colours carry a
+ *           |  glyph and a word too; gilt is only ever the seal an
+ *           |  answer earned by having every claim verified.
+ *  How      |  Underlines settle in when claims arrive; the score ring
+ *           |  draws its arc; the seal turns in once. Reduced motion
+ *           |  (prefs.css) stills all of it.
+ * ------------------------------------------------------------------
+ */
+
+/* ---- Claims, inline --------------------------------------------------- */
+
+.md a[href^='#claim-'] {
+  color: inherit;
+  text-decoration: none;
+}
+.md .claim {
+  animation: claim-settle var(--d-medium) var(--ease-out) both;
+}
+@keyframes claim-settle {
+  from {
+    text-decoration-color: transparent;
+  }
+}
+.claim:focus-visible {
+  outline: none;
+  background: rgb(var(--signal-rgb) / 0.1);
+  box-shadow: 0 0 0 2px rgb(var(--signal-rgb) / 0.45);
+}
+.claim[data-verdict='contradicted']:hover {
+  background: rgb(var(--fail-rgb) / 0.08);
+}
+.claim[data-verdict='verified']:hover {
+  background: rgb(var(--ok-rgb) / 0.07);
+}
+.verdict[data-verdict='unverified'] {
+  color: var(--mute);
+}
+.verdict[data-verdict='contradicted'] {
+  color: var(--fail);
+}
+.verdict[data-verdict='not_checkable'] {
+  color: var(--mute-2);
+}
+
+/* ---- The score ring ---------------------------------------------------- */
+
+.score-ring {
+  flex: none;
+  fill: none;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+}
+.score-ring__track {
+  stroke: var(--hair-2);
+}
+.score-ring__arc {
+  stroke: currentColor;
+  transition: stroke-dashoffset 700ms var(--ease-out);
+  animation: ring-draw 900ms var(--ease-out) both;
+}
+@keyframes ring-draw {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+
+/* ---- The chip under an answer ----------------------------------------- */
+
+.fc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 6px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-small);
+  color: var(--fg-3);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  transition:
+    background-color var(--d-micro) var(--ease-out),
+    box-shadow var(--d-short) var(--ease-out),
+    transform var(--d-short) var(--ease-spring);
+}
+button.fc-chip:hover {
+  background: var(--chalk);
+  color: var(--fg-2);
+}
+button.fc-chip:active {
+  transform: scale(0.97);
+}
+.fc-chip[data-level='high'] {
+  color: var(--ok);
+}
+.fc-chip[data-level='mid'] {
+  color: var(--warn);
+}
+.fc-chip[data-level='low'] {
+  color: var(--fail);
+}
+.fc-chip[data-level] > span:last-child {
+  color: var(--fg-3);
+}
+.fc-chip[data-state='running'] {
+  color: var(--signal-ink);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(var(--signal-rgb) / 0.09) 50%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  animation: fc-shimmer 1.6s linear infinite;
+}
+.fc-chip[data-state='running'] .score-ring__arc {
+  animation: none;
+}
+.fc-chip[data-state='running'] > span:not(.mute) {
+  color: var(--fg-2);
+}
+@keyframes fc-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+.fc-chip[data-state='failed'] {
+  color: var(--warn);
+}
+.fc-chip[data-state='failed'] > span {
+  color: var(--fg-3);
+}
+/* Earned: every checkable claim verified. The one gilt thing on the answer. */
+.fc-chip[data-sealed] {
+  color: var(--fg-2);
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.4),
+    var(--gilt-glow);
+}
+.fc-chip__seal {
+  display: inline-grid;
+  animation: seal-in 700ms var(--ease-spring) 1;
+}
+
+.fc-card,
+.ev-card {
+  z-index: 95;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--lift-3);
+  box-shadow: var(--elev-3);
+  transform-origin: var(--radix-hover-card-content-transform-origin);
+  animation: tip-in var(--d-micro) var(--ease-out);
+}
+.fc-card {
+  width: min(340px, calc(100vw - 24px));
+}
+.fc-card__summary {
+  font-size: var(--t-ui);
+  line-height: 1.5;
+  color: var(--fg);
+}
+.fc-card__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fc-card__counts li {
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.fc-card__counts li[data-verdict='verified'] [data-num] {
+  color: var(--ok);
+}
+.fc-card__counts li[data-verdict='unverified'] [data-num] {
+  color: var(--mute);
+}
+.fc-card__counts li[data-verdict='contradicted'] [data-num] {
+  color: var(--fail);
+}
+.fc-card__how {
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--mute);
+}
+
+/* ---- The evidence card on a claim -------------------------------------- */
+
+.ev-card {
+  width: min(400px, calc(100vw - 24px));
+}
+.ev-card[data-verdict='contradicted'] {
+  box-shadow:
+    var(--elev-3),
+    inset 0 0 0 1px rgb(var(--fail-rgb) / 0.3);
+}
+.ev-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.ev-card__conf {
+  font-size: 11px;
+  color: var(--mute);
+}
+.ev-card__said {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--hair-2);
+}
+.ev-card__said p {
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.ev-card__why {
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--mute);
+}
+.ev-quotes {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+.ev-quote {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--hair-2);
+}
+.ev-quote[data-stance='supports'] {
+  border-left-color: rgb(var(--ok-rgb) / 0.7);
+}
+.ev-quote[data-stance='contradicts'] {
+  border-left-color: var(--fail);
+}
+.ev-quote__stance {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mute);
+}
+.ev-quote[data-stance='contradicts'] .ev-quote__stance {
+  color: var(--fail);
+}
+.ev-quote blockquote {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 160px;
+  overflow: auto;
+}
+.ev-quote__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--t-small);
+}
+.ev-quote cite {
+  font-style: normal;
+  color: var(--mute-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev-quote .link-btn {
+  margin-left: auto;
+  flex: none;
+}
+.ev-mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  color: inherit;
+  background: rgb(var(--signal-rgb) / 0.12);
+}
+.ev-quote[data-stance='contradicts'] .ev-mark {
+  background: rgb(var(--fail-rgb) / 0.12);
+}
+.ev-none {
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+
+/* ---- The Evidence panel ------------------------------------------------- */
+
+.evidence-panel {
+  display: grid;
+  gap: 14px;
+}
+.evidence-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.evidence-head[data-sealed] {
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.4),
+    var(--gilt-glow);
+}
+.evidence-head__score {
+  grid-row: span 2;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  color: var(--ok);
+}
+.evidence-head__seal {
+  display: inline-grid;
+  animation: seal-in 700ms var(--ease-spring) 1;
+}
+.evidence-head__pct {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.evidence-head__summary {
+  font-size: var(--t-ui);
+  line-height: 1.5;
+  color: var(--fg);
+}
+.evidence-head__by {
+  font-size: var(--t-small);
+}
+.evidence-failed {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  background: rgb(var(--warn-rgb) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.3);
+}
+.evidence-failed svg {
+  color: var(--warn);
+  flex: none;
+}
+.evidence-wait {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+.claim-card {
+  animation: card-rise var(--d-short) var(--ease-out) both;
+}
+.evidence li.claim-card:nth-child(2) {
+  animation-delay: 30ms;
+}
+.evidence li.claim-card:nth-child(3) {
+  animation-delay: 60ms;
+}
+.evidence li.claim-card:nth-child(n + 4) {
+  animation-delay: 90ms;
+}
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.claim-card[data-verdict='not_checkable'] {
+  opacity: 0.75;
+}
+.claim-card__conf {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.claim-card__score {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--mute-2);
+}
+
+/* ---- Grounded mode ----------------------------------------------------- */
+
+.grounded-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  transition: box-shadow var(--d-short) var(--ease-out);
+}
+.grounded-row > svg {
+  color: var(--mute);
+}
+.grounded-row[data-on] > svg {
+  color: var(--ok);
+}
+.grounded-row__text {
+  display: grid;
+  gap: 2px;
+  font-size: var(--t-small);
+  line-height: 1.4;
+}
+.grounded-row__title {
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+/* ---- Why: tools, fact-check, trace -------------------------------------- */
+
+.why__tools {
+  display: grid;
+  gap: 8px;
+}
+.why__tools li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.why__tools li > svg {
+  margin-top: 3px;
+  color: var(--mute);
+}
+.why__tools li[data-ok] > svg {
+  color: var(--ok);
+}
+.why__tools li[data-declined] > svg {
+  color: var(--warn);
+}
+.why__tool code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.why__decision {
+  font-size: var(--t-small);
+}
+.why__ranks {
+  font-size: 11px;
+}
+.why__error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warn);
+  font-size: var(--t-small);
+}
+.why__fc {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  text-align: left;
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--fg-2);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  transition: background-color var(--d-micro) var(--ease-out);
+}
+.why__fc:hover {
+  background: var(--chalk);
+}
+.why__fc svg {
+  margin-top: 2px;
+  color: var(--ok);
+}
+.why__file a {
+  color: inherit;
+  text-decoration: underline dotted var(--hair-2);
+  text-underline-offset: 3px;
+}
+.why__file a:hover {
+  color: var(--signal-ink);
+}
