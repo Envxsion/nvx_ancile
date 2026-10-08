@@ -297,8 +297,7 @@ class DeltaBatcher {
     if (this.ms === 0 || !this.started) {
       this.started = true;
       this.flushQuietly();
-    }
-    else this.timer ??= setTimeout(() => this.flushQuietly(), this.ms);
+    } else this.timer ??= setTimeout(() => this.flushQuietly(), this.ms);
   }
 
   /** A flush nobody awaits: a failed write loses a live delta, never the answer (parts are checkpointed). */
