@@ -216,6 +216,18 @@ describe('repositories', { timeout: 30_000 }, () => {
     await repos.remove(b.id);
     expect(repos.linkedId({ threadId: 'thr_1', notebookId: 'nbk_1' })).toBe(a.id);
   });
+
+  it('an @repo on the message beats the thread and notebook links, and an unknown one is ignored', async () => {
+    const a = await repos.add(work);
+    const other = join(dir, 'other');
+    execFileSync('git', ['init', '-q', '-b', 'main', other]);
+    const b = await repos.add(other);
+    await repos.link('thread', 'thr_2', a.id);
+    expect(repos.linkedId({ threadId: 'thr_2', repoId: b.id })).toBe(b.id);
+    expect((await repos.resolve(undefined, { threadId: 'thr_2', repoId: b.id })).id).toBe(b.id);
+    expect(repos.resourceName(undefined, { threadId: 'thr_2', repoId: b.id })).toBe(b.name);
+    expect(repos.linkedId({ threadId: 'thr_2', repoId: 'rep_gone' })).toBe(a.id);
+  });
 });
 
 describe('tools', { timeout: 30_000 }, () => {

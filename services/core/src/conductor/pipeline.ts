@@ -97,6 +97,8 @@ export interface TurnInput {
   taskClass: string;
   /** Sources the user @-mentioned: retrieval looks only at these. */
   sourceIds?: string[];
+  /** A repository the user @-mentioned: git tools on this turn act on it. */
+  repoId?: string;
   /** A re-run (Phase 5 replay): tools are answered from this record, never run. */
   replay?: ReplayInput;
   /** Parts the answer starts with (a re-run keeps the steps before its start). */
@@ -107,6 +109,10 @@ export interface TurnInput {
   flowReplay?: FlowReplay;
   /** Flows: answer through this flow version (route again). */
   routeAgain?: RouteAgain;
+  /** Extra instructions for this answer only, after the system prompt. */
+  instructions?: string;
+  /** The caller's own record for this answer, kept in its provenance. */
+  provenanceExtra?: Record<string, unknown>;
 }
 
 export interface QueuedCall {
@@ -215,6 +221,14 @@ export interface AnsweredTurn {
   threadId: string;
   workspaceId: string;
   notebookId: string | null;
+  /** The question it answers. */
+  userMessageId?: string;
+  /** The flow that answered, if one did. */
+  flowId?: string | null;
+  /** The model that answered (the first in its chain). */
+  modelId?: string | null;
+  /** What the caller who started the turn recorded for it (StartTurn.provenanceExtra). */
+  extra?: Record<string, unknown>;
 }
 
 const PRINCIPAL = 'agent:default';
@@ -332,6 +346,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       model_id: cp.answeredBy,
       usage: cp.answeredBy ? usage : null,
       provenance: {
+        ...cp.input.provenanceExtra,
         chain: cp.chain,
         attempts: cp.attempts,
         model_name: model?.display_name ?? null,
@@ -369,6 +384,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         threadId: cp.input.threadId,
         notebookId: cp.input.notebookId,
         workspaceId: cp.input.workspaceId,
+        repoId: cp.input.repoId ?? null,
       };
 
       const settle = async (call: QueuedCall, result: Extract<Part, { type: 'tool_result' }>) => {
@@ -922,7 +938,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             ? emptyNote((await deps.notebookTitle?.(cp.input.notebookId).catch(() => null)) ?? null)
             : '');
         const req: ModelRequest = {
-          system: [base, memory, cp.compaction?.note, sources].filter(Boolean).join('\n\n'),
+          system: [base, memory, cp.compaction?.note, sources, cp.input.instructions]
+            .filter(Boolean)
+            .join('\n\n'),
           messages: history,
           ...(tools.length && { tools }),
         };
@@ -1132,6 +1150,10 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
               threadId: cp.input.threadId,
               workspaceId: cp.input.workspaceId,
               notebookId: cp.input.notebookId,
+              userMessageId: cp.input.userMessageId,
+              flowId: cp.flow?.flow.id ?? null,
+              modelId: cp.answeredBy,
+              ...(cp.input.provenanceExtra && { extra: cp.input.provenanceExtra }),
             })
             .catch((err) => log.warn({ err }, 'the after-answer step failed; the answer is unaffected'));
         }

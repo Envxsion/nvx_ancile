@@ -39,6 +39,7 @@ import { useModels, useNotebooks, useSources } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import type { Hue } from '../lib/types';
+import { useRepos } from '../repos/data';
 import { useUploads } from '../sources/uploads';
 import { usePref } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -74,14 +75,14 @@ const TEST_DIRECTIVES: Slash[] = [
 ];
 
 export interface Mention {
-  kind: 'source' | 'model' | 'notebook' | 'flow';
+  kind: 'source' | 'model' | 'notebook' | 'flow' | 'repo';
   id: string;
   label: string;
   hue?: Hue | null;
 }
 
 export interface SendExtras {
-  mentions: { kind: 'source' | 'notebook'; id: string }[];
+  mentions: { kind: 'source' | 'notebook' | 'repo'; id: string }[];
   /** A model @-mentioned for this one message. */
   model: string | null;
   /** A flow @-mentioned for this one message (DESIGN §16.3). */
@@ -93,6 +94,7 @@ const MENTION_ICON: Record<Mention['kind'], IconName> = {
   model: 'model',
   notebook: 'notebook',
   flow: 'tree',
+  repo: 'branch',
 };
 
 const serverParent = (parentId: string | null) => parentId ?? '_';
@@ -150,6 +152,7 @@ export function Composer({
   const notebooks = useNotebooks().data;
   const sources = useSources(notebookId).data;
   const flows = useFlowList(prefs.menus).data;
+  const repos = useRepos().data;
   const allUploads = useUploads((s) => s.items);
   const addUploads = useUploads((s) => s.add);
   const cancelUpload = useUploads((s) => s.cancel);
@@ -210,8 +213,9 @@ export function Composer({
       .filter((m) => m.chat !== false && m.id !== model?.id)
       .map((m) => ({ kind: 'model' as const, id: m.id, label: m.name, hue: m.hue }));
     const fl = (flows ?? []).map((f) => ({ kind: 'flow' as const, id: f.id, label: f.name }));
-    return [...src, ...nbs, ...fl, ...mdl];
-  }, [isDemo, notebookId, sources, notebooks, models, model?.id, flows]);
+    const rp = (repos ?? []).map((r) => ({ kind: 'repo' as const, id: r.id, label: r.name }));
+    return [...src, ...nbs, ...fl, ...rp, ...mdl];
+  }, [isDemo, notebookId, sources, notebooks, models, model?.id, flows, repos]);
 
   // The latest values for the flush on unmount, without re-subscribing.
   const latest = useRef({ text, key, synced, threadId, parentId, sent: '' });
@@ -357,7 +361,13 @@ export function Composer({
         // One model at a time: a second model mention replaces the first.
         // One model and one flow at a time: a second mention of either replaces the first.
         setPicked((p) => [
-          ...p.filter((x) => !((item.kind === 'model' || item.kind === 'flow') && x.kind === item.kind)),
+          ...p.filter(
+            (x) =>
+              !(
+                (item.kind === 'model' || item.kind === 'flow' || item.kind === 'repo') &&
+                x.kind === item.kind
+              ),
+          ),
           item,
         ]);
       }
@@ -377,7 +387,8 @@ export function Composer({
     const extras: SendExtras = {
       mentions: picked
         .filter(
-          (p): p is Mention & { kind: 'source' | 'notebook' } => p.kind === 'source' || p.kind === 'notebook',
+          (p): p is Mention & { kind: 'source' | 'notebook' | 'repo' } =>
+            p.kind === 'source' || p.kind === 'notebook' || p.kind === 'repo',
         )
         .map((p) => ({ kind: p.kind, id: p.id })),
       model: picked.find((p) => p.kind === 'model')?.id ?? null,
@@ -538,7 +549,9 @@ export function Composer({
                   ? `Answer with ${p.label}`
                   : p.kind === 'flow'
                     ? `Through ${p.label}`
-                    : p.label}
+                    : p.kind === 'repo'
+                      ? `Git in ${p.label}`
+                      : p.label}
               </span>
               <button
                 type="button"

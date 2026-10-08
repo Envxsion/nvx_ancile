@@ -56,6 +56,8 @@ const EMPTY: Registry = { repos: [], links: { notebook: {}, thread: {} } };
 export interface RepoScope {
   threadId?: string | null;
   notebookId?: string | null;
+  /** An @repo on the message beats the thread's and notebook's links. */
+  repoId?: string | null;
 }
 
 const MAX_DIFF = 400 * 1024;
@@ -198,6 +200,7 @@ export class RepoService {
   /** The repository a thread works in: its own link, else its notebook's. Synchronous for permission resources. */
   linkedId(scope: RepoScope | undefined): string | null {
     if (!scope) return null;
+    if (scope.repoId && this.reg.repos.some((r) => r.id === scope.repoId)) return scope.repoId;
     const t = scope.threadId ? this.reg.links.thread[scope.threadId] : undefined;
     const n = scope.notebookId ? this.reg.links.notebook[scope.notebookId] : undefined;
     const id = t ?? n ?? null;

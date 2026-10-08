@@ -10,6 +10,8 @@ A notebook or a thread can work in a git repository on your computer. NVX Ancile
 
 A thread's own link wins over its notebook's. **Unlink** at the top of the panel removes the link; the repository stays in your list.
 
+For one message, type `@` and pick a repository: the chip reads **Git in <name>**, and every git tool in that answer acts on it, whatever the thread is linked to. The link itself does not change.
+
 ## What you see
 
 - **The status bar** shows the branch, commits to push (↑) and to pull (↓), and how many files changed (•). It follows you: switch branch in a terminal or your editor and it changes within a few seconds, with a notice.

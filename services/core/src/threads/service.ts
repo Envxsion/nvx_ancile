@@ -61,6 +61,16 @@ export interface StartTurn {
   flowReplay?: import('../flows/turn').FlowReplay | null;
   /** Flows: answer through this flow version (route again). */
   routeAgain?: import('../flows/turn').RouteAgain;
+  /**
+   * Answer beside the thread's own turn: the run is not tied to the thread,
+   * so several can run at once (answers compared side by side). The caller
+   * checks the thread is idle first; nothing else may use this.
+   */
+  detached?: boolean;
+  /** Extra instructions for this answer only, after the system prompt. */
+  instructions?: string;
+  /** The caller's own record for this answer, kept in its provenance. */
+  provenanceExtra?: Record<string, unknown>;
 }
 
 export interface StartedTurn {
@@ -122,8 +132,10 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
   const traceId = currentContext()?.traceId ?? newTraceId();
 
   // Fast refusal before writing anything; create() below is the atomic check.
-  const active = await runs.activeForThread(thread.id);
-  if (active.length) throw alreadyRunning(active[0]?.id);
+  if (!req.detached) {
+    const active = await runs.activeForThread(thread.id);
+    if (active.length) throw alreadyRunning(active[0]?.id);
+  }
 
   // A model chosen for this message beats any flow; the thread's model only
   // answers when no flow does (DESIGN.md §16.3).
@@ -163,6 +175,7 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
   }
 
   const sourceIds = (req.mentions ?? []).filter((m) => m.kind === 'source').map((m) => m.id);
+  const repoId = req.mentions?.find((m) => m.kind === 'repo')?.id;
   const assistantId = `msg_${ulid()}`;
   const runId = `run_${ulid()}`;
   await repo.insertMessage({
@@ -183,13 +196,14 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
       id: runId,
       kind: 'chat_turn',
       traceId,
-      threadId: thread.id,
+      threadId: req.detached ? null : thread.id,
       messageId: assistantId,
       checkpoint: initialCheckpoint({
         threadId: thread.id,
         workspaceId: thread.workspace_id,
         notebookId: thread.notebook_id ?? req.mentions?.find((m) => m.kind === 'notebook')?.id ?? null,
         ...(sourceIds.length && { sourceIds }),
+        ...(repoId && { repoId }),
         userMessageId: userId,
         assistantMessageId: assistantId,
         explicitModel: explicit,
@@ -201,6 +215,8 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
         ...(req.flowId && { flowId: req.flowId }),
         ...(req.flowReplay && { flowReplay: req.flowReplay }),
         ...(req.routeAgain && { routeAgain: req.routeAgain }),
+        ...(req.instructions && { instructions: req.instructions }),
+        ...(req.provenanceExtra && { provenanceExtra: req.provenanceExtra }),
       }),
     });
   } catch (err) {

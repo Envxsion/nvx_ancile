@@ -93,7 +93,7 @@ export async function sendMessage(opts: {
   /** Your default for plain chat: used only when no flow or thread model decides. */
   defaultModel?: string | null;
   /** @-mentions: sources narrow the search, a notebook grounds a loose thread. */
-  mentions?: { kind: 'source' | 'notebook'; id: string }[];
+  mentions?: { kind: 'source' | 'notebook' | 'repo'; id: string }[];
   /** Answer through this flow (`@flow`), for this one message. */
   flowId?: string | null;
 }): Promise<boolean> {

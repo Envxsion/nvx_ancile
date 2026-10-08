@@ -52,6 +52,8 @@ export interface ToolSpec {
 export interface ToolScope {
   threadId?: string | null;
   notebookId?: string | null;
+  /** A repository @-mentioned on this message: git tools act on it. */
+  repoId?: string | null;
   workspaceId?: string;
 }
 
