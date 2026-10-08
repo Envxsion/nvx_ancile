@@ -47,6 +47,8 @@ jobs:
           --health-cmd "pg_isready -U ancile" --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       DATABASE_URL: postgres://ancile:ancile@localhost:5433/ancile
+      # Core's store contract tests make their own database on this server.
+      CORE_TEST_DATABASE_URL: postgres://ancile:ancile@localhost:5433/ancile
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
