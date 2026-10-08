@@ -17,7 +17,7 @@ import type { Sql } from 'postgres';
 import { ulid } from 'ulid';
 import type { ControllerClient } from '../compute/controller';
 import type { EventBus } from '../events/bus';
-import type { ProController, ProDb, ProNotice, ProServices, ProSyncSource } from './types';
+import type { ProAnswers, ProController, ProDb, ProNotice, ProServices, ProSyncSource } from './types';
 
 export function proDb(sql: Sql): ProDb {
   const query = <T>(text: string, params: unknown[] = []) =>
@@ -67,6 +67,7 @@ export function proServices(deps: {
   hasFeature: (f: proContract.ProFeature) => boolean;
   owner: { userId: string; workspaceId: string };
   sync?: ProSyncSource;
+  answers?: ProAnswers;
 }): ProServices {
   return {
     db: proDb(deps.sql),
@@ -75,6 +76,7 @@ export function proServices(deps: {
     hasFeature: deps.hasFeature,
     owner: deps.owner,
     ...(deps.sync && { sync: deps.sync }),
+    ...(deps.answers && { answers: deps.answers }),
     now: () => new Date(),
   };
 }

@@ -16,5 +16,6 @@ export * from './ops';
 export * from './permissions';
 export * from './prefs';
 export * as pro from './pro';
+export * as proai from './proai';
 export * from './repos';
 export * as telemetry from './telemetry';

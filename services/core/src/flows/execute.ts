@@ -61,6 +61,21 @@ export interface ModelCallResult {
 
 export type Waitable<T> = { status: 'done'; value: T } | { status: 'waiting' };
 
+/** A router asking whether its route is already known (Pro: a router learned from your choices). */
+export interface RouteHintQuery {
+  flowId: string;
+  nodeId: string;
+  text: string;
+  labels: string[];
+}
+
+/** A confident answer to a RouteHintQuery: the router takes it without a model call. */
+export interface RouteHint {
+  label: string;
+  confidence: number;
+  reason: string;
+}
+
 export interface FlowRuntime {
   signal: AbortSignal;
   input: {
@@ -119,6 +134,8 @@ export interface FlowRuntime {
   /** Use the offline models for every call (dry run). */
   mock?: { models: ModelConfig[] };
   now?: () => number;
+  /** A route already known for this request; null to ask the router's model as usual. */
+  routeHint?(q: RouteHintQuery): Promise<RouteHint | null>;
 }
 
 /* ---- State (lives in the run checkpoint) ------------------------------------------- */
@@ -970,6 +987,15 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
         if (replay) {
           await decide(n, replay, 'The same route as the answer this one replaces.', null);
           return { kind: 'done', output: replay.join(', '), fire: replay };
+        }
+        if (!rt.mock && rt.routeHint) {
+          const hint = await rt
+            .routeHint({ flowId: state.flow.id, nodeId: n.id, text: rt.input.text, labels })
+            .catch(() => null);
+          if (hint && labels.includes(hint.label)) {
+            await decide(n, [hint.label], hint.reason, hint.confidence);
+            return { kind: 'done', output: hint.label, fire: [hint.label] };
+          }
         }
         const model = rt.mock ? (rt.mock.models[0] as ModelConfig) : rt.model(n.params.model);
         const src = rt.contextFor(model);

@@ -104,8 +104,132 @@ export interface ProSyncSource {
   apply(collection: string, items: { id: string; data: unknown; deleted: boolean }[]): Promise<number>;
 }
 
+/** A message as Pro's answer features see it: its text, never its raw parts. */
+export interface ProMessage {
+  id: string;
+  thread_id: string;
+  parent_id: string | null;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  text: string;
+  status: string;
+  model_id: string | null;
+  edit_of_id: string | null;
+  usage: { input_tokens: number; output_tokens: number; cost_usd: number } | null;
+  provenance: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ProModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  /** Can answer now (key present, switched on). */
+  ready: boolean;
+  problem: string | null;
+  price: { input_per_mtok: number; output_per_mtok: number };
+}
+
+export interface ProCompletion {
+  text: string;
+  model_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  ms: number;
+}
+
+/** What one off-the-record run of a flow produced (flows/try.ts runFlowOnce). */
+export type ProFlowOnce = import('../flows/try').FlowOnceResult;
+
+/**
+ * Threads, answers, models and flows, lent to Pro's answer features (Beam,
+ * Insights, the Flow lab). Every write goes through Core's own paths, so
+ * permissions, memory and the branch tree behave as for any answer.
+ */
+export interface ProAnswers {
+  threads: {
+    get(id: string): Promise<{
+      id: string;
+      title: string;
+      notebook_id: string | null;
+      active_head_id: string | null;
+    } | null>;
+    create(opts: { notebookId: string | null; title?: string }): Promise<{ id: string }>;
+    message(id: string): Promise<ProMessage | null>;
+    /** The messages from the root to this one, in order. */
+    path(messageId: string): Promise<ProMessage[]>;
+    /** An answer is being written in this thread now. */
+    busy(threadId: string): Promise<boolean>;
+    setHead(threadId: string, messageId: string): Promise<void>;
+  };
+  turns: {
+    /** Core's startTurn: the same checks, memory, grounding and branch tree as any answer. */
+    start(req: {
+      threadId: string;
+      user: { existingId: string } | { parentId: string | null; text: string };
+      model?: string | null;
+      flowId?: string;
+      detached?: boolean;
+      instructions?: string;
+      provenanceExtra?: Record<string, unknown>;
+    }): Promise<{ run_id: string; user_message_id: string; assistant_message_id: string }>;
+    /** Resolves with the run's final status. */
+    wait(runId: string, signal?: AbortSignal): Promise<{ status: string }>;
+  };
+  models: {
+    list(): ProModelInfo[];
+    /** The model a plain chat would use now, or null when none can answer. */
+    defaultChat(): string | null;
+    /** One answer, not streamed and not saved anywhere. Fallbacks apply. */
+    complete(
+      model: string | null,
+      req: { system?: string; prompt: string; maxOutputTokens?: number; temperature?: number },
+      signal?: AbortSignal,
+    ): Promise<ProCompletion>;
+  };
+  flows: {
+    get(id: string, version?: number | null): Promise<import('@nvx/contracts').Flow | null>;
+    list(): Promise<{ id: string; name: string; active: boolean; scope: string; scope_ref: string | null }[]>;
+    /** The flow that answers in this notebook (or the workspace) now. */
+    activeFor(notebookId: string | null): Promise<{ id: string; name: string } | null>;
+    runOnce(opts: {
+      flowId: string;
+      version?: number | null;
+      text: string;
+      threadId?: string | null;
+      headId?: string | null;
+      notebookId?: string | null;
+      mock?: boolean;
+      signal: AbortSignal;
+    }): Promise<ProFlowOnce>;
+    decisions(flowId: string, nodeId?: string): Promise<import('@nvx/contracts').RouteDecisionRecord[]>;
+  };
+  notebooks: {
+    list(): Promise<{ id: string; title: string }[]>;
+  };
+  /** A quick fact-check of an answer: confidence 0–1 (null: could not tell). */
+  factcheck(
+    answer: string,
+    opts: { question: string; notebookId: string | null; signal: AbortSignal },
+  ): Promise<{ confidence: number | null; summary: string }>;
+  /** Memory commits, newest first (Insights: how memory grows). */
+  memoryHistory(limit: number): Promise<{ at: string }[]>;
+}
+
+/** Points in Core's own work where Pro may take part. Each is optional and may not fail Core. */
+export interface ProHooks {
+  /** An answer was saved (Flow lab: a shadow flow answers the same question off the record). */
+  afterAnswer?(a: import('../conductor/pipeline').AnsweredTurn): Promise<void>;
+  /** A router asks whether its route is already known (Flow lab: learned from your choices). */
+  routeHint?(
+    q: import('../flows/execute').RouteHintQuery,
+  ): Promise<import('../flows/execute').RouteHint | null>;
+}
+
 /** What Core lends Pro beyond the licence (Phase 6 Pro features). */
 export interface ProServices {
+  /** Threads, turns, models and flows for Beam, Insights and the Flow lab. */
+  answers?: ProAnswers;
   db: ProDb;
   controller: ProController;
   notify(n: ProNotice): void;
@@ -166,6 +290,8 @@ export interface ProModule {
   routes?: ProRoute[];
   /** Teams replaces the single-owner identity while it is turned on. */
   identity?: IdentityProvider;
+  /** Where Pro takes part in answering (shadow flows, a router that learns). */
+  hooks?: ProHooks;
 }
 
 export type CreatePro = (host: ProHost) => ProModule | Promise<ProModule>;

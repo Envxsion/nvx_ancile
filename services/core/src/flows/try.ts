@@ -184,3 +184,109 @@ export function flowTryHandler(flows: FlowsService): RunHandler {
     },
   };
 }
+
+/** What one off-the-record run of a flow produced. */
+export interface FlowOnceResult {
+  answer: string;
+  cost_usd: number;
+  ms: number;
+  path: string[];
+  steps: FlowState['steps'];
+  /** A guard stopped it (steps, cost or time limit): the answer is what there was. */
+  stopped?: { code: string; message: string };
+  error?: { code: string; title: string; hint: string };
+}
+
+/**
+ * Run a flow once, off the record: nothing is written to a thread, no route
+ * decision is recorded and no run is created. Used to compare flows (a test
+ * set, a flow running in the shadow of another). Context is built as for a
+ * real send: the thread up to `headId`, then `text` as a new message.
+ */
+export async function runFlowOnce(
+  flows: FlowsService,
+  opts: {
+    flow: Pick<Flow, 'id' | 'name' | 'version' | 'scope'> & FlowGraph;
+    text: string;
+    workspaceId: string;
+    threadId?: string | null;
+    headId?: string | null;
+    notebookId?: string | null;
+    mock?: boolean;
+    signal: AbortSignal;
+  },
+): Promise<FlowOnceResult> {
+  const { repo, gateway, registry } = flows.deps;
+  const started = Date.now();
+  const threadId = opts.threadId ?? null;
+  const notebookId = opts.notebookId ?? null;
+  const messageId = `once_${started.toString(36)}`;
+  const all = threadId
+    ? withVirtual(await repo.messages(threadId), opts.headId ?? null, opts.text, threadId)
+    : withVirtual([], null, opts.text, 'once');
+  const grounding = notebookId
+    ? await flows
+        .retrievePassages({ workspaceId: opts.workspaceId, notebookId, query: opts.text, k: 8 })
+        .catch(() => '')
+    : '';
+  const state = tryState(opts.flow, undefined);
+  let answer = '';
+  const rt = makeTurnRuntime({
+    flows,
+    input: {
+      text: opts.text,
+      threadId,
+      notebookId,
+      notebookTitle: null,
+      workspaceId: opts.workspaceId,
+      messageId,
+      userMessageId: TRY_USER_ID,
+      hasAttachment: false,
+      branchDepth: all.length,
+    },
+    signal: opts.signal,
+    messages: async () => all,
+    compaction: null,
+    groundingBlock: grounding,
+    memory: async (model) =>
+      (await flows.deps.memory?.({ notebookId, model, query: opts.text }).catch(() => '')) ?? '',
+    emit: async () => undefined,
+    call: (chain, req, onDelta, o) => streamCall({ gateway, registry }, chain, req, opts.signal, onDelta, o),
+    speak: (delta) => {
+      answer += delta;
+    },
+    setAnswer: async (text) => {
+      answer = text;
+    },
+    save: async () => undefined,
+    ...(opts.mock && { mock: { models: mockModels() } }),
+  });
+  const quiet: FlowRuntime = {
+    ...rt,
+    recordDecision: undefined,
+    recordNodeRun: undefined,
+    routeHint: undefined,
+  };
+  const done = (extra: Partial<FlowOnceResult> = {}): FlowOnceResult => ({
+    answer: state.answer ?? answer,
+    cost_usd: Math.round(state.cost * 1e6) / 1e6,
+    ms: Date.now() - started,
+    path: state.path,
+    steps: state.steps,
+    ...(state.stopped && { stopped: state.stopped }),
+    ...extra,
+  });
+  try {
+    await executeFlow(state, quiet);
+    return done();
+  } catch (err) {
+    const e = err as { code?: string; title?: string; hint?: string; message?: string };
+    return done({
+      error: {
+        code: e.code ?? 'flow.failed',
+        title: e.title ?? 'The flow could not finish',
+        hint: e.hint ?? e.message ?? '',
+      },
+    });
+  }
+}

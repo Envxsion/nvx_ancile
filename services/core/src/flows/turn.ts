@@ -37,7 +37,14 @@ import { logFor } from '../obs/logger';
 import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type ThreadRecord, type ThreadRepo, textOf } from '../threads/repo';
 import type { ContextSources } from './context';
-import { type FlowRuntime, type FlowState, initialFlowState, type ModelCallResult } from './execute';
+import {
+  type FlowRuntime,
+  type FlowState,
+  initialFlowState,
+  type ModelCallResult,
+  type RouteHint,
+  type RouteHintQuery,
+} from './execute';
 import { buildGraph, flowEdges, reachable } from './graph';
 import type { FlowStore } from './store';
 
@@ -59,6 +66,8 @@ export interface FlowsDeps {
     model: ModelConfig | undefined;
     query: string;
   }) => Promise<string>;
+  /** Routes already known for a request (set once Pro has loaded; absent in the free build). */
+  routeHint?: (q: RouteHintQuery) => Promise<RouteHint | null>;
 }
 
 /** Answer through a flow version; optionally rerun from one step with another model. */
@@ -466,6 +475,8 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
     },
     ...(h.overrides && { overrides: h.overrides }),
     ...(h.mock && { mock: h.mock }),
+    // Read at call time: Pro, which provides it, loads after the flows service.
+    routeHint: async (q) => (flows.deps.routeHint ? flows.deps.routeHint(q) : null),
   };
 }
 
