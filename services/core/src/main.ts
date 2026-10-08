@@ -90,6 +90,7 @@ import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
 import { ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
+import { sqlSyncSource } from './pro/sync-source';
 import { GhCliClient, GitHubAccessor, GitHubRestClient, savedToken } from './repos/github';
 import { MCP_ADDED_SETTING, repoRoutes } from './repos/routes';
 import { RepoService } from './repos/service';
@@ -620,6 +621,7 @@ async function main() {
           events,
           hasFeature: hasProFeature,
           owner: { userId: owner.userId, workspaceId: owner.workspaceId },
+          sync: sqlSyncSource(sql, { userId: owner.userId, workspaceId: owner.workspaceId }),
         }),
       )
       .catch((err: unknown) =>
