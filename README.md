@@ -123,4 +123,4 @@ NVX Ancile is free software under the GNU General Public License v3.0: see [LICE
 
 ---
 
-<p align="center">A product from nvx.sh</p>
+<p align="center">An nvx.sh product</p>
