@@ -80,3 +80,58 @@ describe('shortcut nudge', () => {
     for (let i = 0; i < 5; i++) expect(noteClick('message.why')).toBe(false);
   });
 });
+
+describe('browser-safe keys', () => {
+  const OPERA_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 OPR/115.0.0.0';
+  const CHROME_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+  it('tells Opera from Chrome and Edge', async () => {
+    const { detectBrowser } = await import('../src/keys/browser');
+    expect(detectBrowser(OPERA_UA, [])).toBe('opera');
+    expect(detectBrowser(CHROME_UA, [{ brand: 'Opera' }])).toBe('opera');
+    expect(detectBrowser(CHROME_UA, [])).toBe('chrome');
+    expect(detectBrowser(`${CHROME_UA} Edg/130.0.0.0`, [])).toBe('edge');
+  });
+
+  it('auto is on in Opera only', async () => {
+    const { browserSafeOn } = await import('../src/keys/browser');
+    expect(browserSafeOn('auto', 'opera')).toBe(true);
+    expect(browserSafeOn('auto', 'chrome')).toBe(false);
+    expect(browserSafeOn('on', 'chrome')).toBe(true);
+    expect(browserSafeOn('off', 'opera')).toBe(false);
+  });
+
+  it('in Opera, no shortcut is left on a key Opera keeps, and nothing clashes', async () => {
+    const { BROWSER_SAFE, keptBy } = await import('../src/keys/browser');
+    const { effectiveBindings, findConflicts, normalise, setBrowserSafe } = await import(
+      '../src/keys/registry'
+    );
+    setBrowserSafe(BROWSER_SAFE);
+    try {
+      const kept = keptBy('opera');
+      const bindings = effectiveBindings();
+      const stuck = bindings.filter((b) => kept.has(normalise(b.keys).split(' ')[0] ?? ''));
+      expect(stuck.map((b) => `${b.id}=${b.keys}`)).toEqual([]);
+      expect(findConflicts(bindings)).toEqual([]);
+    } finally {
+      setBrowserSafe({});
+    }
+  });
+
+  it('a person’s own key wins over the browser-safe one', async () => {
+    const { BROWSER_SAFE } = await import('../src/keys/browser');
+    const { keysFor, setBrowserSafe, setOverrides } = await import('../src/keys/registry');
+    setBrowserSafe(BROWSER_SAFE);
+    try {
+      expect(keysFor('zoom.in')).toBe('alt+=');
+      setOverrides({ 'zoom.in': 'mod+shift+=' });
+      expect(keysFor('zoom.in')).toBe('mod+shift+=');
+    } finally {
+      setOverrides({});
+      setBrowserSafe({});
+    }
+    expect(keysFor('zoom.in')).toBe('mod+=');
+  });
+});

@@ -13,10 +13,18 @@
  */
 
 import { useContext, useEffect, useRef, useState } from 'react';
+import { detectBrowser } from '../../keys/browser';
 import { chordOf } from '../../keys/dispatch';
-import { BINDINGS, type BindingDef, findConflicts, type Group, normalise } from '../../keys/registry';
+import {
+  BINDINGS,
+  type BindingDef,
+  baseKeys,
+  findConflicts,
+  type Group,
+  normalise,
+} from '../../keys/registry';
 import { usePrefs } from '../../state/prefs';
-import { Range, Switch } from '../../ui/controls';
+import { Range, Segmented, Switch } from '../../ui/controls';
 import { Kbd } from '../../ui/primitives';
 import { Block, matches, Row, SearchContext, useSet } from './rows';
 
@@ -73,17 +81,17 @@ function BindingRow({ b }: { b: BindingDef }) {
   const set = useSet('keyboard');
   const [recording, setRecording] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
-  const current = overrides[b.id] ?? b.keys;
-  const changed = !!overrides[b.id] && normalise(overrides[b.id] ?? '') !== normalise(b.keys);
+  // The default here is the browser-safe key when that set is on.
+  const base = baseKeys(b.id) ?? b.keys;
+  const current = overrides[b.id] ?? base;
+  const changed = !!overrides[b.id] && normalise(overrides[b.id] ?? '') !== normalise(base);
 
   const conflicts = candidate
     ? findConflicts(
         BINDINGS.map((x) =>
           x.id === b.id
             ? { ...x, keys: candidate }
-            : overrides[x.id]
-              ? { ...x, keys: overrides[x.id] as string }
-              : x,
+            : { ...x, keys: overrides[x.id] ?? baseKeys(x.id) ?? x.keys },
         ),
       ).filter((c) => c.a === b.id || c.b === b.id)
     : [];
@@ -93,7 +101,7 @@ function BindingRow({ b }: { b: BindingDef }) {
 
   const save = (keys: string) => {
     const next = { ...overrides };
-    if (normalise(keys) === normalise(b.keys)) delete next[b.id];
+    if (normalise(keys) === normalise(base)) delete next[b.id];
     else next[b.id] = keys;
     set({ overrides: next });
     setCandidate(null);
@@ -132,7 +140,7 @@ function BindingRow({ b }: { b: BindingDef }) {
               Change
             </button>
             {changed ? (
-              <button type="button" className="link-btn link-btn--quiet" onClick={() => save(b.keys)}>
+              <button type="button" className="link-btn link-btn--quiet" onClick={() => save(base)}>
                 Reset
               </button>
             ) : null}
@@ -191,6 +199,28 @@ export function KeyboardGroup() {
             step={100}
             onChange={(sequenceMs) => set({ sequenceMs })}
             format={(v) => `${v} ms`}
+          />
+        </Row>
+        <Row
+          group="keyboard"
+          k="browserSafe"
+          label="Browser-safe keys"
+          desc={
+            detectBrowser() === 'opera'
+              ? 'Opera keeps some keys for itself (zoom, and single keys like / and X when its own shortcuts are on). On moves those few to keys it leaves alone. Auto turns it on here.'
+              : 'Some browsers, like Opera, keep keys for themselves. On moves those few to keys every browser leaves alone. Auto turns it on in Opera.'
+          }
+          keywords="opera browser zoom conflict"
+        >
+          <Segmented
+            label="Browser-safe keys"
+            value={k.browserSafe}
+            onChange={(browserSafe) => set({ browserSafe })}
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: 'on', label: 'On' },
+              { value: 'off', label: 'Off' },
+            ]}
           />
         </Row>
       </Block>

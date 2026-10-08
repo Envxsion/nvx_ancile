@@ -85,6 +85,8 @@ The setup screens walk you through:
 
 Not sure a shortcut works? Press `?`, then **Test a key**: it shows what the page received and what the key does. In a browser a few keys never reach the page (`Ctrl N`, `Ctrl T`, `Ctrl W`), and some extensions take others. Single-letter keys work when you are not typing: press `Esc` to leave the composer first.
 
+In Opera, **Browser-safe keys** (Settings → Keyboard) is on automatically: zoom moves to `Alt =`, `Alt -` and `Alt 0`, search to `g /`, and Run in the lab to `Shift X`, because Opera keeps the usual keys for itself. The shortcuts sheet marks any key your browser may keep.
+
 ## 5. Ask something grounded
 
 In your notebook, ask a question your sources can answer. The reply cites them like `[1]`. Click a citation and the source opens on the right, scrolled to the exact passage and highlighted.

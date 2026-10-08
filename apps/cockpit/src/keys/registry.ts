@@ -244,6 +244,26 @@ export function setOverrides(next: Record<string, string>): void {
   for (const fn of listeners) fn();
 }
 
+/**
+ * Defaults moved so the browser cannot swallow them (keys/browser.ts).
+ * They sit under a person's own keys and over the defaults.
+ */
+let safe: Record<string, string> = {};
+
+export function setBrowserSafe(next: Readonly<Record<string, string>>): void {
+  const clean: Record<string, string> = {};
+  for (const [id, keys] of Object.entries(next))
+    if (BINDINGS.some((b) => b.id === id)) clean[id] = normalise(keys);
+  if (JSON.stringify(clean) === JSON.stringify(safe)) return;
+  safe = clean;
+  for (const fn of listeners) fn();
+}
+
+/** The keys a binding has with no override: the browser-safe one, else the default. */
+export function baseKeys(id: string): string | undefined {
+  return safe[id] ?? BINDINGS.find((b) => b.id === id)?.keys;
+}
+
 export function onOverridesChange(fn: () => void): () => void {
   listeners.add(fn);
   return () => {
@@ -251,19 +271,23 @@ export function onOverridesChange(fn: () => void): () => void {
   };
 }
 
-/** The keys in force for a binding: the person's own, else the default. */
+/** The keys in force for a binding: the person's own, else browser-safe, else the default. */
 export function keysFor(id: string): string | undefined {
-  return overrides[id] ?? BINDINGS.find((b) => b.id === id)?.keys;
+  return overrides[id] ?? baseKeys(id);
 }
 
 /** The bindings with a person's overrides applied. */
 export function effectiveBindings(): BindingDef[] {
-  return BINDINGS.map((b) => (overrides[b.id] ? { ...b, keys: overrides[b.id] as string } : b));
+  return BINDINGS.map((b) => {
+    const keys = overrides[b.id] ?? safe[b.id];
+    return keys ? { ...b, keys } : b;
+  });
 }
 
 export function bindingById(id: string): BindingDef | undefined {
   const b = BINDINGS.find((x) => x.id === id);
-  return b && overrides[id] ? { ...b, keys: overrides[id] as string } : b;
+  const keys = overrides[id] ?? safe[id];
+  return b && keys ? { ...b, keys } : b;
 }
 
 /** A binding's keys as plain text for copy ("Ctrl K", or "⌘K" on a Mac), following rebinds. */

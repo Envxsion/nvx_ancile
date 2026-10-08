@@ -19,11 +19,20 @@ import { useMemo, useState } from 'react';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Kbd } from '../ui/primitives';
+import { browserSafeOn, detectBrowser, keptBy } from './browser';
 import { useLayer } from './dispatch';
 import { KeyTester } from './KeyTester';
-import { effectiveBindings, type Group } from './registry';
+import { effectiveBindings, type Group, normalise } from './registry';
 
 const GROUPS: Group[] = ['Everywhere', 'Go to', 'View', 'Thread', 'Lists', 'Branch tree', 'Flow editor'];
+
+const BROWSER_NAME: Record<string, string> = {
+  opera: 'Opera',
+  edge: 'Edge',
+  firefox: 'Firefox',
+  safari: 'Safari',
+  chrome: 'Chrome',
+};
 
 const single = (keys: string) => !keys.includes('+') && !keys.includes(' ') && keys !== 'escape';
 
@@ -32,6 +41,11 @@ export function ShortcutsOverlay() {
   const setOpen = useUi((s) => s.setShortcuts);
   const overrides = usePrefs((s) => s.prefs.keyboard.overrides);
   const singleKeys = usePrefs((s) => s.prefs.keyboard.singleKeys);
+  const browserSafe = usePrefs((s) => s.prefs.keyboard.browserSafe);
+  const browser = detectBrowser();
+  const kept = keptBy(browser);
+  const keeps = (keys: string) => kept.has(normalise(keys).split(' ')[0] ?? '');
+  const name = BROWSER_NAME[browser] ?? 'Your browser';
   const [q, setQ] = useState('');
   useLayer(open);
 
@@ -67,6 +81,9 @@ export function ShortcutsOverlay() {
             {singleKeys
               ? 'Single keys work whenever you are not typing. Press Esc to leave the composer, i to come back.'
               : 'Single-key shortcuts are off, so the struck-through keys do nothing. Turn them on in Settings.'}{' '}
+            {browserSafeOn(browserSafe, browser) && browser === 'opera'
+              ? 'Browser-safe keys are on, so nothing here clashes with Opera’s own.'
+              : null}{' '}
             <Link
               to="/settings/$group"
               params={{ group: 'keyboard' }}
@@ -97,6 +114,14 @@ export function ShortcutsOverlay() {
                           {overrides[b.id] ? (
                             <span className="shortcuts__mine" title="You set this key">
                               yours
+                            </span>
+                          ) : null}
+                          {keeps(b.keys) ? (
+                            <span
+                              className="shortcuts__kept"
+                              title={`${name} may keep this key for itself. Test it, or change it in Settings.`}
+                            >
+                              {name} may keep it
                             </span>
                           ) : null}
                         </dt>

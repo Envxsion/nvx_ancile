@@ -15,8 +15,9 @@
 import { setTheme } from '@nvx/aperture';
 import { useNavigate, useRouter } from '@tanstack/react-router';
 import { useEffect } from 'react';
+import { BROWSER_SAFE, browserSafeOn, detectBrowser } from '../keys/browser';
 import { useBinding } from '../keys/dispatch';
-import { setOverrides } from '../keys/registry';
+import { setBrowserSafe, setOverrides } from '../keys/registry';
 import { startTelemetry } from '../lib/telemetry';
 import { startFrameGovernor, startPrefs, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -43,6 +44,11 @@ export function Runtime() {
   useEffect(() => startTelemetry(), []);
   useEffect(() => startFrameGovernor(), []);
   useEffect(() => setOverrides(overrides), [overrides]);
+  const browserSafe = usePrefs((s) => s.prefs.keyboard.browserSafe);
+  useEffect(
+    () => setBrowserSafe(browserSafeOn(browserSafe, detectBrowser()) ? BROWSER_SAFE : {}),
+    [browserSafe],
+  );
 
   // The stored theme drives the document; the titlebar toggle writes the store.
   useEffect(() => {

@@ -85,6 +85,8 @@ export const KeyboardPrefs = z.object({
   sequenceMs: z.number().int().min(300).max(2000).default(800),
   /** binding id → key string, e.g. { "palette.open": "mod+p" }. */
   overrides: z.record(z.string(), z.string()).default({}),
+  /** Move the few defaults a browser keeps (Opera): auto turns it on where needed. */
+  browserSafe: z.enum(['auto', 'on', 'off']).default('auto'),
 });
 
 export const NotifyCategory = z.enum(['toast', 'centre', 'off']);

@@ -388,6 +388,14 @@
   margin: 0;
   font-size: var(--t-micro);
 }
+.shortcuts__kept {
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  font-size: var(--t-micro);
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.35);
+  white-space: nowrap;
+}
 .shortcuts__row[data-off] dd {
   opacity: 0.45;
   text-decoration: line-through;
