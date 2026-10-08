@@ -160,6 +160,9 @@ if (want('core')) {
     target: 'node22',
     sourcemap: true,
     logLevel: 'warning',
+    // A release: only the licence keys built in are trusted, and the edition
+    // is whatever was bundled here (services/core/src/build.ts).
+    define: { __ANCILE_RELEASE__: 'true' },
     // CommonJS dependencies inside the ESM bundle still call require().
     banner: {
       js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
@@ -179,6 +182,24 @@ if (want('core')) {
       },
     ],
   });
+  // The Pro edition: pro/ (the private submodule) becomes dist/pro.js, which
+  // Core loads from beside itself. A free build (no pro/, or NVX_TIER=free at
+  // build time) ships none of it.
+  const proEntry = join(ROOT, 'pro', 'core', 'index.ts');
+  if (existsSync(proEntry) && process.env.NVX_TIER !== 'free') {
+    console.log('Core: bundle Pro');
+    await esbuild.build({
+      entryPoints: [proEntry],
+      outfile: join(dir, 'dist', 'pro.js'),
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node22',
+      minify: true,
+      logLevel: 'warning',
+      define: { __ANCILE_RELEASE__: 'true' },
+    });
+  } else console.log('Core: free edition (no Pro bundled)');
   cpSync(join(ROOT, 'services', 'core', 'src', 'db', 'migrations'), join(dir, 'dist', 'migrations'), {
     recursive: true,
   });

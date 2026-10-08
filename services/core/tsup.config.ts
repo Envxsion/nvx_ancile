@@ -21,4 +21,6 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   noExternal: [/^@nvx\//],
+  // A release: licence keys and edition are fixed here (src/build.ts).
+  define: { __ANCILE_RELEASE__: 'true' },
 });

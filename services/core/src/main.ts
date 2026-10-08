@@ -24,6 +24,7 @@ import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
 import { AutomationRunner, PgAutomationStore, scheduledJobs } from './automations';
 import { automationRoutes } from './automations/routes';
+import { chosenTier, RELEASE_BUILD, trustedKeys } from './build';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes } from './compute/routes';
@@ -60,6 +61,7 @@ import { HttpEngine } from './lab/engine-client';
 import { LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
 import { labRoutes } from './lab/routes';
+import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
 import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
 import { logIngestRoutes, logRoutes } from './logs/routes';
@@ -606,12 +608,22 @@ async function main() {
     memorySearch: async (q, limit) => (await memory.search(q, limit)).items,
   });
   // Open core (DESIGN.md §9): Pro from pro/ when this checkout has it, the free build otherwise.
+  // A release build trusts only the keys built in, and its edition is what
+  // was bundled: NVX_LICENSE_KEYS and NVX_TIER are for development and tests.
+  if (RELEASE_BUILD && (env.NVX_LICENSE_KEYS || env.NVX_TIER))
+    log.warn({}, 'NVX_LICENSE_KEYS and NVX_TIER are ignored in a release build');
+  const licenceClock = new LicenceClock(settings);
+  await licenceClock.load().catch((err: unknown) => log.warn({ err }, 'the licence clock could not be read'));
   const pro = await loadPro({
-    tier: env.NVX_TIER,
+    tier: chosenTier(env.NVX_TIER),
+    clock: licenceClock,
     host: {
       settings,
       secrets,
-      keys: env.NVX_LICENSE_KEYS ? parseKeyMap(env.NVX_LICENSE_KEYS) : OFFICIAL_LICENSE_KEYS,
+      keys: trustedKeys(
+        OFFICIAL_LICENSE_KEYS,
+        env.NVX_LICENSE_KEYS ? parseKeyMap(env.NVX_LICENSE_KEYS) : null,
+      ),
       licenseUrl: env.NVX_LICENSE_URL,
       version: VERSION,
     },

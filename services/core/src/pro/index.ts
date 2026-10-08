@@ -19,6 +19,8 @@ import { existsSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AncileError } from '@nvx/contracts';
+import { RELEASE_BUILD } from '../build';
+import type { LicenceClock } from '../license/clock';
 import { FREE, verifyToken } from '../license/verify';
 import { logFor } from '../obs/logger';
 import { featureList, freeModule } from './free';
@@ -26,8 +28,15 @@ import type { CreatePro, ProHost, ProModule } from './types';
 
 const log = logFor('pro');
 
-/** pro/core/index.ts at the repository root. */
-export const PRO_ENTRY = fileURLToPath(new URL('../../../../pro/core/index.ts', import.meta.url));
+/**
+ * From source: pro/core/index.ts at the repository root. In a release
+ * bundle: pro.js next to Core's main.js, present only in the Pro edition.
+ */
+export const PRO_ENTRY = fileURLToPath(
+  RELEASE_BUILD
+    ? new URL('./pro.js', import.meta.url)
+    : new URL('../../../../pro/core/index.ts', import.meta.url),
+);
 
 export function proPresent(entry = PRO_ENTRY): boolean {
   return existsSync(entry);
@@ -49,6 +58,8 @@ export async function loadPro(opts: {
   > &
     Partial<ProHost>;
   entry?: string;
+  /** The time expiry is checked against (never earlier than anything seen). */
+  clock?: LicenceClock;
 }): Promise<ProModule | ReturnType<typeof freeModule>> {
   const entry = opts.entry ?? PRO_ENTRY;
   const free = () => freeModule(opts.host.settings);
@@ -56,14 +67,40 @@ export async function loadPro(opts: {
     if (opts.tier === 'pro') log.warn({ entry }, 'NVX_TIER=pro but pro/ is empty: running the free build');
     return free();
   }
+  const clock = opts.clock;
+  const licenceOrigin = (() => {
+    try {
+      return new URL(opts.host.licenseUrl).origin;
+    } catch {
+      return null;
+    }
+  })();
+  // Replies from nvx.sh carry the true time: it feeds the licence clock.
+  const timedFetch: typeof fetch = async (input, init) => {
+    const res = await fetch(input, init);
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (clock && licenceOrigin && url.startsWith(licenceOrigin)) clock.observeHeader(res.headers.get('date'));
+    return res;
+  };
   const host: ProHost = {
-    fetch,
+    fetch: timedFetch,
     AncileError,
     deviceLabel: deviceLabel(),
     log: logFor('pro'),
     freeStatus: FREE,
     featureList,
-    verify: (token, deviceId) => verifyToken(token, { keys: opts.host.keys, build: 'pro', deviceId }),
+    verify: (token, deviceId) => {
+      const r = verifyToken(token, {
+        keys: opts.host.keys,
+        build: 'pro',
+        deviceId,
+        ...(clock && { now: clock.now() }),
+      });
+      // A genuine token's issue time is a moment that has certainly passed.
+      if (clock && r.claims && r.failure !== 'bad_token' && r.failure !== 'unknown_kid')
+        clock.observe(r.claims.iat * 1000);
+      return r;
+    },
     ...opts.host,
   };
   try {
