@@ -24,6 +24,8 @@
  *           |      /tool <name> <json>   call a tool, then report on it
  *           |      /fail <500|timeout|auth|refusal>
  *           |      /slow                 one word every 150 ms
+ *           |      /ttft <ms>            wait before the first word, like a
+ *           |                            provider's time to first token (any line)
  *           |      /say <text>           answer exactly <text>
  *           |    Utility prompts (system line "Ancile task: <id>") are
  *           |    answered by offline-utility.ts for script and backup.
@@ -121,10 +123,17 @@ export class FakeProvider implements ModelClient {
 
   async *stream(model: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     this.calls.push({ model: model.id, req });
+    // Tests read recent calls; a running Core must not keep every request.
+    if (this.calls.length > 200) this.calls.splice(0, this.calls.length - 200);
     let b = model.provider_model;
     let delay = this.delay;
     const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
-    const prompt = textOf(lastUser).trim();
+    // `/ttft <ms>` on a line of its own: the provider's own wait before its
+    // first word (the load test measures NVX Ancile's overhead above it).
+    const raw = textOf(lastUser);
+    const ttftMs =
+      b === 'script' ? Math.min(10_000, Number(/(?:^|\n)\/ttft\s+(\d+)\s*(?:\n|$)/.exec(raw)?.[1] ?? 0)) : 0;
+    const prompt = raw.replace(/(?:^|\n)\/ttft\s+\d+\s*(?=\n|$)/, '').trim();
     const usage = {
       inputTokens: Math.ceil(req.messages.reduce((n, m) => n + textOf(m).length, 0) / 4),
       outputTokens: 0,
@@ -208,11 +217,24 @@ export class FakeProvider implements ModelClient {
       } else text = 'ok';
     }
 
+    if (ttftMs > 0) {
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ttftMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          resolve();
+        });
+      });
+      if (signal.aborted) return;
+    }
+
     let i = 0;
     for (const w of words(text)) {
       if (signal.aborted) return;
       if (i++ >= breakAfter) throw httpError(502, 'connection reset mid-stream');
-      if (delay) await new Promise((r) => setTimeout(r, delay));
+      // Typing speed between words; the first word comes at once, like a
+      // provider's time to first token, so overhead is measurable on its own.
+      if (delay && i > 1) await new Promise((r) => setTimeout(r, delay));
       usage.outputTokens += 1;
       yield { type: 'text', delta: w };
     }

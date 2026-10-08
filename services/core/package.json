@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
-    "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --sourcemap --clean && node -e \"require('fs').cpSync('src/db/migrations','dist/migrations',{recursive:true})\"",
+    "build": "tsup && node -e \"require('fs').cpSync('src/db/migrations','dist/migrations',{recursive:true})\"",
     "start": "node --enable-source-maps dist/main.js",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run --project \"unit*\"",

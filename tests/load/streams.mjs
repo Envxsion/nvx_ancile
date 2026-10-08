@@ -17,17 +17,35 @@
  *           |  to the end. Prints p50/p95/p99 and fails over budget.
  *  Note     |  Run against the test profile: `pnpm start:e2e`, then
  *           |  `pnpm test:load` (or LOAD_BASE, LOAD_N, LOAD_BUDGET_MS).
+ *           |  The budget is overhead above the provider (ROADMAP
+ *           |  Phase 6): the offline model waits LOAD_PROVIDER_MS
+ *           |  (default 400, a typical API's first token) before
+ *           |  its first word, and overhead is time to first word
+ *           |  minus that wait.
+ *           |  Messages arrive spread over LOAD_SPREAD_MS (default
+ *           |  2000) and each answer streams for a few seconds, so
+ *           |  all N are in flight together, as with N people
+ *           |  chatting. LOAD_SPREAD_MS=0 sends every message in the
+ *           |  same instant (a burst), and LOAD_PROVIDER_MS=0 shows
+ *           |  the raw cost with a provider that answers at once.
  * ------------------------------------------------------------------
  */
 
 const BASE = process.env.LOAD_BASE ?? 'http://localhost:7800/api/v1';
 const N = Number(process.env.LOAD_N ?? 50);
 const BUDGET = Number(process.env.LOAD_BUDGET_MS ?? 150);
+const PROVIDER_MS = Number(process.env.LOAD_PROVIDER_MS ?? 400);
+const SPREAD_MS = Number(process.env.LOAD_SPREAD_MS ?? 2000);
+// About 100 words at the offline model's typing speed: a few seconds each,
+// so the answers overlap.
+const WORDS = Array.from({ length: 100 }, (_, w) => `word${w}`).join(' ');
 
 const json = (r) =>
   r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(`${r.status} ${t.slice(0, 200)}`)));
 
 async function one(i) {
+  // Arrivals spread evenly over the window, in a shuffled order.
+  if (SPREAD_MS) await new Promise((r) => setTimeout(r, ((i * 7919) % N) * (SPREAD_MS / N)));
   const thread = await fetch(`${BASE}/threads`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -39,7 +57,12 @@ async function one(i) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       parent_id: null,
-      parts: [{ type: 'text', text: `/say answer number ${i} is here` }],
+      parts: [
+        {
+          type: 'text',
+          text: `/say answer number ${i} is here ${WORDS}${PROVIDER_MS ? `\n/ttft ${PROVIDER_MS}` : ''}`,
+        },
+      ],
     }),
   }).then(json);
   const accepted = performance.now() - t0;
@@ -81,7 +104,7 @@ const ttfts = ok.map((r) => r.ttft).filter((x) => x !== null);
 const fmt = (x) => `${Math.round(x)} ms`;
 
 console.log(
-  `\n${N} concurrent streams against ${BASE}, ${((performance.now() - started) / 1000).toFixed(1)} s`,
+  `\n${N} concurrent streams against ${BASE}, arriving over ${SPREAD_MS} ms, provider first token ${PROVIDER_MS} ms,${((performance.now() - started) / 1000).toFixed(1)} s`,
 );
 console.log(
   `  finished      ${ok.length}/${N}${failed.length ? `, ${failed.length} failed: ${failed[0].reason?.message}` : ''}`,
@@ -121,9 +144,13 @@ await Promise.all(
   ok.map((r) => fetch(`${BASE}/threads/${r.threadId}`, { method: 'DELETE' }).catch(() => {})),
 );
 
-const p95 = pct(ttfts, 95);
+const overheads = ttfts.map((t) => t - PROVIDER_MS);
+console.log(
+  `  overhead      p50 ${fmt(pct(overheads, 50))}  p95 ${fmt(pct(overheads, 95))}  (first word minus the provider's ${PROVIDER_MS} ms)`,
+);
+const p95 = pct(overheads, 95);
 if (failed.length || ttfts.length < ok.length || p95 > BUDGET) {
-  console.log(`\n  over budget: p95 first word ${fmt(p95)} (budget ${BUDGET} ms), ${failed.length} failed\n`);
+  console.log(`\n  over budget: p95 overhead ${fmt(p95)} (budget ${BUDGET} ms), ${failed.length} failed\n`);
   process.exit(1);
 }
 console.log(`\n  within budget (${BUDGET} ms)\n`);

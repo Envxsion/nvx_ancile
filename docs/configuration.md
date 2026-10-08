@@ -30,7 +30,7 @@ Both are validated by schemas in `packages/contracts/src/config.ts`, and by each
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `ancile` / (generated) / `ancile` | Used by the compose Postgres. |
 | `POSTGRES_PORT` | `5433` | Host port. 5433 avoids clashing with a local Postgres. |
 | `DATABASE_URL` | none (required) | Connection string used by every service. |
-| `DATABASE_POOL_MAX` | `10` | Pool size per service. |
+| `DATABASE_POOL_MAX` | `20` (Core) | Pool size per service. |
 
 ### Agent engine and integrations
 
@@ -228,7 +228,7 @@ ANCILE_APPROVAL_TTL_S=86400
 ANCILE_LAB_TIMEOUT_S=1800
 # Runs one Core executes at once (answers, fact-checks, lab runs). Most of a
 # run is waiting on a provider, so this can be generous.
-ANCILE_RUN_CONCURRENCY=32
+ANCILE_RUN_CONCURRENCY=64
 
 # --- Knowledge: sources, ingestion, search ---
 # Where originals and extracted text are kept (default <ANCILE_DATA_DIR>/knowledge).

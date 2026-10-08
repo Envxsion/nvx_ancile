@@ -281,6 +281,8 @@ class DeltaBatcher {
   private buf = '';
   private kind: 'text.delta' | 'reasoning.delta' = 'text.delta';
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** The first words of an answer go out at once: batching only helps after them. */
+  private started = false;
 
   constructor(
     private readonly emit: (e: RunEventInput) => Promise<unknown>,
@@ -292,7 +294,10 @@ class DeltaBatcher {
     if (kind !== this.kind) this.flushQuietly();
     this.kind = kind;
     this.buf += delta;
-    if (this.ms === 0) this.flushQuietly();
+    if (this.ms === 0 || !this.started) {
+      this.started = true;
+      this.flushQuietly();
+    }
     else this.timer ??= setTimeout(() => this.flushQuietly(), this.ms);
   }
 
@@ -307,6 +312,7 @@ class DeltaBatcher {
     if (!this.buf) return Promise.resolve();
     const delta = this.buf;
     this.buf = '';
+    this.started = true;
     return this.emit({ type: this.kind, message_id: this.messageId, delta });
   }
 }
@@ -372,6 +378,13 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const msgId = cp.input.assistantMessageId;
       const emit = (e: RunEventInput) => ctx.events.append(run.id, e);
       const deltas = new DeltaBatcher(emit, msgId, deps.deltaMs ?? 40);
+      // Retrieval, compaction, memory and the model round all read the same
+      // history before the first word; nothing in this step changes it.
+      let historyRead: ReturnType<typeof deps.repo.messages> | null = null;
+      const messages = () => {
+        historyRead ??= deps.repo.messages(cp.input.threadId);
+        return historyRead;
+      };
 
       await deps.repo.updateMessage(msgId, { status: 'streaming', run_id: run.id });
       // Anything a previous attempt streamed but never checkpointed is
@@ -571,7 +584,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         const notebookId = cp.input.notebookId;
         if (!notebookId || !deps.retriever) return;
         const started = Date.now();
-        const all = await deps.repo.messages(cp.input.threadId);
+        const all = await messages();
         const questions = historyFor(all, cp.input.userMessageId)
           .filter((m) => m.role === 'user')
           .map((m) => m.content);
@@ -607,7 +620,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const injectMemory = async (target: ModelConfig | undefined): Promise<string> => {
         if (!deps.memory || !target) return '';
         try {
-          const all = await deps.repo.messages(cp.input.threadId);
+          const all = await messages();
           const query =
             [...historyFor(all, cp.input.userMessageId)].reverse().find((m) => m.role === 'user')?.content ??
             '';
@@ -646,7 +659,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const compaction = async () => {
         cp.compactionChecked = true;
         if (!deps.branches) return;
-        const all = await deps.repo.messages(cp.input.threadId);
+        const all = await messages();
         const model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
         const prepared = await prepareTurnContext(
           {
@@ -912,7 +925,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       // ---- end Flows ----
 
       const modelRound = async () => {
-        const all = await deps.repo.messages(cp.input.threadId);
+        // A later round follows tool calls: read again so nothing is stale.
+        if (cp.rounds > 0) historyRead = null;
+        const all = await messages();
         const history = withPartial(
           historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough),
           cp.parts,
@@ -1041,16 +1056,12 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           await ctx.checkpoint(cp);
         }
 
-        if (!cp.retrieved) {
-          await retrieve();
-          await ctx.checkpoint(cp);
-        }
+        // Retrieval and the compaction check are reads, safe to repeat after a
+        // restart, so they share the checkpoint written once the route is known.
+        if (!cp.retrieved) await retrieve();
 
         // ---- Branching (DESIGN.md §8.4): compact past the critical line, then substitute.
-        if (!cp.compactionChecked) {
-          await compaction();
-          await ctx.checkpoint(cp);
-        }
+        if (!cp.compactionChecked) await compaction();
 
         // ---- Flows (Phase 5b): a flow answers instead of the single model round ----
         if (deps.flows && !cp.flowChecked) {
@@ -1064,6 +1075,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           cp.flow =
             thread && !messageModel
               ? await deps.flows.startState(thread, {
+                  resolved,
                   flowId: cp.input.flowId ?? null,
                   replay: cp.input.flowReplay ?? null,
                   routeAgain: cp.input.routeAgain ?? null,

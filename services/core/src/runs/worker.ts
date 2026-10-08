@@ -176,7 +176,7 @@ export class RunWorker {
   private async claimLoop(): Promise<void> {
     // Runs mostly wait on providers, so many can share one process; a
     // small limit queued the 50th answer behind 46 others (Phase 6 load).
-    const max = this.opts.concurrency ?? 32;
+    const max = this.opts.concurrency ?? 64;
     while (!this.stopped && this.active.size < max) {
       let run: RunRecord | null;
       try {

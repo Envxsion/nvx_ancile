@@ -437,7 +437,8 @@ function listenerOf(port) {
         [
           '-NoProfile',
           '-Command',
-          `(Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess`,
+          // No pipe: run() goes through cmd.exe on Windows, which would take `|` as its own.
+          `@(Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen -ErrorAction SilentlyContinue)[0].OwningProcess`,
         ],
         { timeout: 15_000 },
       )

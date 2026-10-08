@@ -165,7 +165,13 @@ export class FlowsService {
   /** The state a turn starts from, or null for a plain chat turn. */
   async startState(
     thread: ThreadRecord,
-    opts: { flowId?: string | null; replay?: FlowReplay | null; routeAgain?: RouteAgain | null },
+    opts: {
+      flowId?: string | null;
+      replay?: FlowReplay | null;
+      routeAgain?: RouteAgain | null;
+      /** What resolve() already answered for this thread and flowId, so it is not asked twice. */
+      resolved?: { flow: Flow | null } | null;
+    },
   ): Promise<FlowState | null> {
     const { store } = this.deps;
     let flow: Flow | undefined;
@@ -182,7 +188,7 @@ export class FlowsService {
           ? await store.getVersion(again.flowId, again.version)
           : await store.getLive(again.flowId);
     } else {
-      flow = (await this.resolve(thread, opts.flowId)).flow ?? undefined;
+      flow = (opts.resolved ?? (await this.resolve(thread, opts.flowId))).flow ?? undefined;
     }
     // The flow a regenerate asked for was deleted (or that version is gone):
     // answer the way the thread answers now, without the old route.

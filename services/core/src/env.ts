@@ -51,7 +51,7 @@ export const EnvSchema = z
     ANCILE_WORKSPACE_DIR: z.string().optional(),
 
     DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL'),
-    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
 
     KNOWLEDGE_URL: z.string().url().default('http://localhost:7710'),
     // Agent Engine (opencode fork), the lab lane. Optional: Ancile runs
@@ -83,7 +83,7 @@ export const EnvSchema = z
     ANCILE_LAB_TIMEOUT_S: z.coerce.number().int().min(60).default(1_800),
     // Runs one Core executes at once (answers, fact-checks, lab runs). Most of
     // a run is waiting on a provider, so this can be generous.
-    ANCILE_RUN_CONCURRENCY: z.coerce.number().int().min(1).max(512).default(32),
+    ANCILE_RUN_CONCURRENCY: z.coerce.number().int().min(1).max(512).default(64),
     // Extra origins (comma-separated) allowed to change things through /api/v1,
     // beyond the Cockpit's own (localhost:7701, ANCILE_PUBLIC_URL, the desktop app).
     ANCILE_ALLOWED_ORIGINS: z
