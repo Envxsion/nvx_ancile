@@ -201,6 +201,13 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `license.revoked` | 410 | "This licence was revoked." / Contact nvx.sh support. The key is forgotten on this computer. |
 | `license.rate_limited` | 429 | "Too many tries just now." / Wait a minute, then try again. |
 | `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). |
+| `pro.core_too_old` | 501 | "This part of Pro needs a newer NVX Ancile." / Update NVX Ancile, then try again. Pro is newer than the Core it runs in. |
+| `beam.members` | 400 | "Pick between 2 and 6 models or flows" (or "The same pick is in there twice") / Beam asks several at once, so it needs at least two, each once. |
+| `beam.not_ready` | 422 | "<Model> cannot answer." / Add its key or switch it on in Settings → Models, or pick another. Nothing was asked. |
+| `beam.no_fuser` | 422 | "No model can fuse the answers." / Add a key in Settings → Models, or turn fusing off. |
+| `beam.busy` | 409 | "An answer is still being written here." / Wait for it to finish, or stop it, then ask again. |
+| `flowlab.empty_set` | 422 | "This test set has no questions yet." / Add answers from your threads, or write questions, then run it. |
+| `flowlab.not_ready` | 422 | "<Model> cannot answer." / Add its key in Settings → Models, or run with stand-in models. |
 | `auth.sign_in_required` | 401 | "Sign in to this workspace first." / This workspace has a team: sign in with your account or your identity provider. Never returned by a single-person install. |
 | `auth.role_too_low` | 403 | "Your role in this workspace cannot do that." / Ask the workspace's owner or an admin. Viewers read; members write; admins manage people and settings. `error.context.need` names the role. |
 
