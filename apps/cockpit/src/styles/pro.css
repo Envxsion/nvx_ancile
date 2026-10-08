@@ -1,0 +1,16 @@
+/* --- Pro seam: the sign-in gate and "part of Pro" cards ---------------- */
+
+.signin-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--sp-6) var(--sp-4);
+  background: var(--void);
+  color: var(--fg);
+}
+
+.pro-upsell {
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6) 0;
+}

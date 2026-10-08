@@ -35,7 +35,8 @@ export type ProFeatureId = proContract.ProFeature;
 export interface ProSurface {
   id: string;
   feature: ProFeatureId;
-  place: 'admin' | 'settings';
+  /** admin and settings sections; gate: shown instead of the shell (sign-in). */
+  place: 'admin' | 'settings' | 'gate';
   label: string;
   icon: IconName;
 }
@@ -44,6 +45,7 @@ export const PRO_SURFACES: ProSurface[] = [
   { id: 'fleet', feature: 'fleet', place: 'admin', label: 'GPU fleet', icon: 'zap' },
   { id: 'team', feature: 'team', place: 'admin', label: 'Team', icon: 'user' },
   { id: 'sync', feature: 'sync', place: 'settings', label: 'Sync', icon: 'globe' },
+  { id: 'signin', feature: 'team', place: 'gate', label: 'Sign in', icon: 'lock' },
 ];
 
 /** What the Cockpit lends Pro's screens. */

@@ -15,6 +15,7 @@
 
 import { ApiError } from '@nvx/contracts';
 import type { z } from 'zod';
+import { useSignInGate } from '../pro/signin-state';
 import { useConnection } from './connection';
 
 export const API_BASE = '/api/v1';
@@ -101,6 +102,8 @@ async function request<T>(method: string, path: string, body?: unknown, schema?:
       throw new OfflineError(res.statusText);
     }
     useConnection.getState().ok();
+    // A team (Pro) with nobody signed in: show the sign-in screen, not a page of failures.
+    if (parsed.success && parsed.data.error.code === 'auth.sign_in_required') useSignInGate.getState().raise();
     throw new ApiCallError(
       res.status,
       parsed.success

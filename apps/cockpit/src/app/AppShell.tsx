@@ -31,6 +31,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
 import { Palette } from '../palette/Palette';
+import { SignInGate, useSignInGate } from '../pro/gate';
 import { ADMIN_SECTIONS } from '../routes/admin/sections';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
 import { Drawer } from '../shell/Drawer';
@@ -154,6 +155,17 @@ export function AppShell() {
   useBinding('thread.new', () => navigate({ to: '/' }));
   useBinding('go.admin', () => navigate({ to: '/admin/$section', params: { section: 'health' } }));
   useBinding('go.logs', () => navigate({ to: '/admin/$section', params: { section: 'logs' } }));
+  const signInNeeded = useSignInGate((s) => s.needed);
+
+  if (signInNeeded) {
+    return (
+      <>
+        <Runtime />
+        <SignInGate />
+        <Toaster />
+      </>
+    );
+  }
 
   if (pathname.startsWith('/setup')) {
     return (
