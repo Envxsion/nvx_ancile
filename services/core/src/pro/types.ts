@@ -280,6 +280,8 @@ export interface IdentityProvider {
   resolve(headers: Record<string, string>): Promise<Principal | null>;
   /** Paths (under /api/v1) reachable without a principal, e.g. sign-in. */
   open?: (path: string) => boolean;
+  /** Told about every change made (writes), after it is answered: a team's audit log. */
+  record?(principal: Principal, req: { method: string; path: string; status: number }): Promise<void>;
 }
 
 /** The private module's default export: `createPro(host)`. */

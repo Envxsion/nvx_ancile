@@ -99,7 +99,12 @@ export function identityMiddleware(current: () => IdentityProvider): MiddlewareH
     c.set('principal', principal);
     const write = !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method);
     if (write && !roleAllows(principal.role, 'member') && !identity.open?.(path)) throw roleTooLow('member');
-    return next();
+    await next();
+    // A team's audit log hears about every change; it never holds the answer up.
+    if (write && identity.record)
+      void identity
+        .record(principal, { method: c.req.method, path, status: c.res.status })
+        .catch(() => undefined);
   };
 }
 

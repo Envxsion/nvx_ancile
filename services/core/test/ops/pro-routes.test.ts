@@ -91,6 +91,27 @@ describe('Pro routes', () => {
     expect((await post(a, '/pro/team/sign-in')).status).toBe(201);
   });
 
+  it('tell a team’s audit log about every change, after answering, and not about reads', async () => {
+    const seen: string[] = [];
+    const team: IdentityProvider = {
+      ...asRole('member'),
+      record: async (p, r) => {
+        seen.push(`${p.name} ${r.method} ${r.path} ${r.status}`);
+      },
+    };
+    const read: ProRoute = {
+      method: 'GET',
+      path: '/team/members',
+      feature: 'team',
+      handler: async () => ({ body: [] }),
+    };
+    const a = app({ routes: [echo, read], licensed: true, identity: team });
+    await post(a, '/pro/fleet/echo/n1');
+    await a.request('/api/v1/pro/team/members');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toEqual(['Sam POST /pro/fleet/echo/n1 201']);
+  });
+
   it('rank roles', () => {
     expect(roleAllows('owner', 'admin')).toBe(true);
     expect(roleAllows('member', 'admin')).toBe(false);
