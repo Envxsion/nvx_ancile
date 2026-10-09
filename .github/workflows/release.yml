@@ -3,9 +3,8 @@ name: Release
 # A tag like v0.2.0 builds, tests and publishes a release. The free edition
 # is a public asset of this repository's GitHub release, and nvx.sh offers
 # it to the updater by pointing at that asset (external_url). The Pro edition
-# is built when PRO_REPO_TOKEN is set but is not published anywhere yet:
-# Pro is never at a public address, and where its installers will live is
-# still being decided.
+# is built when PRO_REPO_TOKEN is set and goes only to nvx.sh's private
+# Cloudflare R2 bucket; it is never at a public address.
 
 on:
   push:
