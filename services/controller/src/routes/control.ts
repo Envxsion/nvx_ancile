@@ -30,6 +30,8 @@ export interface ControlDeps extends ExecutorDeps {
   store: Store;
   costCapUsd: number;
   newId?: (prefix: 'opn' | 'rul') => string;
+  /** CONTROLLER_NODE_TOKEN: the key every node's vLLM requires, and the Controller sends. */
+  nodeToken?: string;
 }
 
 const ulidish = (prefix: string) =>
@@ -116,11 +118,25 @@ export function controlRoutes(deps: ControlDeps) {
         `The ${deps.provider.id} provider cannot create nodes`,
         'Create the machine yourself, then add it by its id or address.',
       );
+    // A node set up by infra/node/bootstrap.sh (it reads ANCILE_MODEL) serves
+    // only with a key: it gets the one the Controller sends, never another.
+    const bootstrapped = 'ANCILE_MODEL' in req.spec.env;
+    if (bootstrapped && !deps.nodeToken)
+      return apiError(
+        c,
+        422,
+        'node.needs_token',
+        'The Controller has no node key to give the new node',
+        'Set CONTROLLER_NODE_TOKEN in .env, restart the Controller, then create the node again.',
+      );
+    const spec = bootstrapped
+      ? { ...req.spec, env: { ...req.spec.env, ANCILE_NODE_API_KEY: deps.nodeToken as string } }
+      : req.spec;
     const known = await store.findOperationByKey(req.idempotency_key);
     if (known) return c.json({ operation_id: known.id, node_id: known.node_id, replayed: true }, 202);
     let seen: Awaited<ReturnType<typeof create>>;
     try {
-      seen = await create({ ...req.spec, name: req.name }, req.idempotency_key);
+      seen = await create({ ...spec, name: req.name }, req.idempotency_key);
     } catch (err) {
       if (err instanceof ProviderError)
         return apiError(

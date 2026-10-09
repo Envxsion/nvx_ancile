@@ -13,12 +13,13 @@ import { MemoryStore } from '../../src/store';
 const TOKEN = 't'.repeat(32);
 const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
 
-function app(provider: ComputeProvider) {
+function app(provider: ComputeProvider, nodeToken?: string) {
   const store = new MemoryStore();
   const a = createApp({
     store,
     provider,
     token: TOKEN,
+    ...(nodeToken && { nodeToken }),
     costCapUsd: 100,
     queueDeadlineS: 60,
     pollMs: 5,
@@ -87,6 +88,36 @@ describe('creating a node', () => {
     });
     expect(r.status).toBe(501);
     expect(((await r.json()) as { error: { code: string } }).error.code).toBe('provider.cannot_create');
+  });
+
+  it('gives a bootstrapped node the key the Controller sends, and refuses without one', async () => {
+    const seen: Record<string, string>[] = [];
+    const p = new FakeProvider(20);
+    const create = p.create.bind(p);
+    p.create = (spec: Parameters<typeof create>[0]) => {
+      seen.push(spec.env);
+      return create(spec);
+    };
+    const boot = body({
+      spec: {
+        gpu_type_id: 'NVIDIA RTX A6000',
+        image: 'runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04',
+        env: { ANCILE_MODEL: 'Qwen/Qwen2.5-0.5B-Instruct', ANCILE_NODE_API_KEY: 'chosen-by-caller' },
+      },
+    });
+    const without = await app(p).call('/control/v1/nodes/create', {
+      method: 'POST',
+      headers: auth,
+      body: boot,
+    });
+    expect(((await without.json()) as { error: { code: string } }).error.code).toBe('node.needs_token');
+    const r = await app(p, 'n'.repeat(32)).call('/control/v1/nodes/create', {
+      method: 'POST',
+      headers: auth,
+      body: boot,
+    });
+    expect(r.status).toBe(202);
+    expect(seen[0]?.ANCILE_NODE_API_KEY).toBe('n'.repeat(32));
   });
 
   it('sends RunPod the v2 create body', async () => {

@@ -237,6 +237,8 @@ async function main() {
               ANCILE_NODE_API_KEY: nodeKey,
               ANCILE_VLLM_ARGS: '--max-model-len 4096',
               ANCILE_NODE_SCRIPTS: scriptsUrl,
+              // Short, so the run can watch the watchdog stop the idle pod.
+              ANCILE_IDLE_MINUTES: '2',
             },
           }
         : {
@@ -302,6 +304,13 @@ async function main() {
     (e) => `${(e as { error?: { code?: string } }).error?.code ?? 'error'}`,
   );
   say(`  starting a running pod: ${again} (invalid_state or accepted are both fine)`);
+
+  if (bootstrap) {
+    // No Controller is reachable from the pod here, as when Ancile is closed:
+    // the watchdog alone should stop it after ANCILE_IDLE_MINUTES idle.
+    say('Waiting for the watchdog to stop the idle pod by itself (about 3 to 5 min).');
+    record('stops itself when idle, with no Controller (watchdog)', await waitState('stopped', 9));
+  }
 }
 
 main()

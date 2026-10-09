@@ -39,7 +39,7 @@ Ancile uses RunPod's REST **v2** API (`POST /v2/pods/{id}/action`). The v1 API i
 |---|---|---|
 | `pnpm test:runpod` | The key is accepted, and the pod list reads as v2 | Free |
 | `pnpm test:runpod --create` | Creates a pod with vLLM serving a small model, waits for an answer through the RunPod proxy, stops it, starts it again, gets a second answer, then terminates it | A few US cents |
-| `pnpm test:runpod --create --bootstrap` | The same, but the pod runs `infra/node/bootstrap.sh` from this repo's `main` branch (the setup above) | A few US cents |
+| `pnpm test:runpod --create --bootstrap` | The same, but the pod runs `infra/node/bootstrap.sh` from this repo's `main` branch (the setup above), and then waits for the watchdog to stop the idle pod by itself with no Controller in reach | A few US cents |
 
 Options: `--gpu "NVIDIA RTX A4000"`, `--secure` (community cloud by default), `--region EU-RO-1`, `--model Qwen/Qwen2.5-0.5B-Instruct`, `--max-usd-hour 0.40`, `--max-minutes 30` (50 with `--bootstrap`, which also gives the pod a 20 GB volume so the restart reuses vLLM and the weights). The pod it creates is terminated whatever happens: on success, on a failure, on Ctrl+C, and at the time cap. A pod over the price cap is terminated as soon as its price is known. With `--keep` it is stopped instead, so you can add it in Admin → Compute; terminate it in RunPod yourself when you are done.
 
