@@ -14,13 +14,13 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
 2. Create a **network volume** in the region you want, for the model weights.
 3. Create a pod from any CUDA image with the volume mounted at `/workspace`. Set its start command to the node bootstrap:
    ```bash
-   bash -c "curl -fsSL https://raw.githubusercontent.com/<you>/nvx_ancile/main/infra/node/bootstrap.sh | bash"
+   bash -c "curl -fsSL https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh | bash"
    ```
    Then set these env vars on the pod:
-   - `ANCILE_NODE_MODEL` (e.g. `Qwen/Qwen3-72B-Instruct-AWQ`)
+   - `ANCILE_MODEL` (e.g. `Qwen/Qwen3-32B-AWQ`)
    - `ANCILE_NODE_API_KEY` (a random string)
    - `CONTROLLER_NODE_TOKEN` (from your `.env`)
-   - `CONTROLLER_HEARTBEAT_URL`, if your Controller is reachable from the internet; otherwise the Controller polls instead
+   - `CONTROLLER_URL`, if your Controller is reachable from the internet; otherwise the Controller polls instead
 4. In Ancile, open Admin → Compute → **Add node**. Pick the pod and the models it serves, and set the hourly and storage rates if RunPod doesn't report them.
 5. Add a model with `via: controller` (Settings → Models does this for you), and put it in a routing chain.
 
@@ -30,6 +30,18 @@ The bootstrap:
 - runs a watchdog that stops the pod after a period of idleness, even if Ancile is offline
 
 Ancile uses RunPod's REST **v2** API (`POST /v2/pods/{id}/action`). The v1 API is retired on 15 November 2026.
+
+## Testing against RunPod
+
+`pnpm test:runpod` checks the real API with the key from `.env` (it never prints it):
+
+| Command | What it does | Cost |
+|---|---|---|
+| `pnpm test:runpod` | The key is accepted, and the pod list reads as v2 | Free |
+| `pnpm test:runpod --create` | Creates a pod with vLLM serving a small model, waits for an answer through the RunPod proxy, stops it, starts it again, gets a second answer, then terminates it | A few US cents |
+| `pnpm test:runpod --create --bootstrap` | The same, but the pod runs `infra/node/bootstrap.sh` from this repo's `main` branch (the setup above) | A few US cents |
+
+Options: `--gpu "NVIDIA RTX A4000"`, `--secure` (community cloud by default), `--region EU-RO-1`, `--model Qwen/Qwen2.5-0.5B-Instruct`, `--max-usd-hour 0.40`, `--max-minutes 30` (50 with `--bootstrap`, which also gives the pod a 20 GB volume so the restart reuses vLLM and the weights). The pod it creates is terminated whatever happens: on success, on a failure, on Ctrl+C, and at the time cap. A pod over the price cap is terminated as soon as its price is known. With `--keep` it is stopped instead, so you can add it in Admin → Compute; terminate it in RunPod yourself when you are done.
 
 ## Starting and stopping, with a confirmation chain
 

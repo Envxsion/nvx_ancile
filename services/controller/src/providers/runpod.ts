@@ -254,23 +254,25 @@ export class RunPodProvider implements ComputeProvider {
 
   /**
    * POST {base}/v2/pods: a new pod from an image or a template. RunPod's
-   * create body (Oct 2026 reference): name, imageName | templateId,
-   * gpuTypeIds[], gpuCount, cloudType (SECURE | COMMUNITY), dataCenterIds[],
-   * containerDiskInGb, volumeInGb, ports[], env{}. The answer is the pod.
+   * v2 create body (CreatePodRequest, checked 2026-10-09): name,
+   * image | templateId, gpu {id, count}, cloud (SECURE | COMMUNITY),
+   * disk (GB), mounts {persistent {size, path}}, ports[], env{},
+   * cmd[], dataCenterIds[]. v1's flat names (imageName, gpuTypeIds,
+   * containerDiskInGb, volumeInGb) are not part of v2. The answer is the pod.
    */
   async create(spec: CreateNodeSpec & { name: string }, idempotencyKey: string, signal?: AbortSignal) {
     const body: Json = {
       name: spec.name,
-      gpuTypeIds: [spec.gpu_type_id],
-      gpuCount: spec.gpu_count,
-      cloudType: spec.cloud === 'community' ? 'COMMUNITY' : 'SECURE',
-      containerDiskInGb: spec.container_disk_gb,
-      volumeInGb: spec.volume_gb,
+      gpu: { id: spec.gpu_type_id, count: spec.gpu_count },
+      cloud: spec.cloud === 'community' ? 'COMMUNITY' : 'SECURE',
+      disk: spec.container_disk_gb,
       ports: spec.ports,
       env: spec.env,
-      ...(spec.image && { imageName: spec.image }),
+      ...(spec.volume_gb > 0 && { mounts: { persistent: { size: spec.volume_gb, path: '/workspace' } } }),
+      ...(spec.image && { image: spec.image }),
       ...(spec.template_id && { templateId: spec.template_id }),
       ...(spec.region && { dataCenterIds: [spec.region] }),
+      ...(spec.command?.length && { cmd: spec.command }),
     };
     const res = await this.call('POST', '/v2/pods', body, 'start', signal, idempotencyKey);
     return mapPod((await res.json()) as Json);

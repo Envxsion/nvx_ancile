@@ -18,6 +18,8 @@
 #    CONTROLLER_URL          Controller base URL for heartbeats (optional)
 #    CONTROLLER_NODE_TOKEN   token for heartbeats (required with CONTROLLER_URL)
 #    HF_TOKEN                for gated models (optional)
+#    ANCILE_NODE_SCRIPTS     where to fetch healthcheck.sh and watchdog.sh when
+#                            this script was piped into bash (default: this repo)
 #    RUNPOD_POD_ID           set by RunPod
 #
 #  Logs: /var/log/ancile/*.log (JSON lines from this script; vLLM's own log).
@@ -34,6 +36,7 @@ VOLUME="${ANCILE_VOLUME:-/workspace}"
 LOG_DIR=/var/log/ancile
 STATE_DIR=/run/ancile            # tmpfs-like: gone when the pod stops, by design
 NODE_ID="${RUNPOD_POD_ID:-$(hostname)}"
+SCRIPTS_URL="${ANCILE_NODE_SCRIPTS:-https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node}"
 
 if [ -n "${CONTROLLER_URL:-}" ] && [ -z "${CONTROLLER_NODE_TOKEN:-}" ]; then
   echo "CONTROLLER_NODE_TOKEN is not set: heartbeats disabled, the Controller will poll RunPod instead." >&2
@@ -41,6 +44,19 @@ if [ -n "${CONTROLLER_URL:-}" ] && [ -z "${CONTROLLER_NODE_TOKEN:-}" ]; then
 fi
 
 mkdir -p "$LOG_DIR" "$STATE_DIR" "$VOLUME/hf-cache" "$VOLUME/venvs"
+
+# The helpers sit beside this script, unless it was piped in (curl … | bash),
+# when there is no "beside": fetch them next to the volume instead.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo /nonexistent)"
+if [ ! -f "$HERE/healthcheck.sh" ] || [ ! -f "$HERE/watchdog.sh" ]; then
+  HERE="$VOLUME/ancile-node"
+  mkdir -p "$HERE"
+  for f in healthcheck.sh watchdog.sh; do
+    curl -fsSL -m 30 "$SCRIPTS_URL/$f" -o "$HERE/$f" \
+      || { echo "could not fetch $f from $SCRIPTS_URL" >&2; exit 1; }
+  done
+  chmod +x "$HERE"/*.sh
+fi
 export HF_HOME="$VOLUME/hf-cache"
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
@@ -74,7 +90,9 @@ fi
 # --- 2. Weights on the volume (no-op when present) --------------------------
 heartbeat starting "fetching weights for $ANCILE_MODEL"
 log info "ensuring weights" "\"model\":\"$ANCILE_MODEL\""
-"$VENV/bin/huggingface-cli" download "$ANCILE_MODEL" >/dev/null 2>>"$LOG_DIR/bootstrap.log" \
+# huggingface_hub 1.x names its CLI `hf`; older releases `huggingface-cli`.
+HF_CLI="$VENV/bin/hf"; [ -x "$HF_CLI" ] || HF_CLI="$VENV/bin/huggingface-cli"
+"$HF_CLI" download "$ANCILE_MODEL" >/dev/null 2>>"$LOG_DIR/bootstrap.log" \
   || { log error "weight download failed; check HF_TOKEN for gated models and volume free space"; heartbeat error "weight download failed"; exit 1; }
 
 # --- 3. Serve (replace any server left from a previous run of this script) --
@@ -103,7 +121,7 @@ log info "vllm launched" "\"pid\":$(cat "$STATE_DIR/vllm.pid")"
 
 # --- 4. Wait for /v1/models, then report ready ------------------------------
 for i in $(seq 1 180); do   # up to 15 minutes for very large models
-  if "$(dirname "$0")/healthcheck.sh" >/dev/null 2>&1; then
+  if "$HERE/healthcheck.sh" >/dev/null 2>&1; then
     log info "ready" "\"waited_s\":$((i * 5))"
     heartbeat running "serving $ANCILE_SERVED_NAME"
     break
@@ -117,18 +135,18 @@ for i in $(seq 1 180); do   # up to 15 minutes for very large models
   sleep 5
 done
 
-if ! "$(dirname "$0")/healthcheck.sh" >/dev/null 2>&1; then
+if ! "$HERE/healthcheck.sh" >/dev/null 2>&1; then
   log error "not healthy after 15 minutes"
   heartbeat error "not healthy after 15 minutes"
   exit 1
 fi
 
 # --- 5. Backup idle watchdog + heartbeat loop --------------------------------
-nohup "$(dirname "$0")/watchdog.sh" >>"$LOG_DIR/watchdog.log" 2>&1 &
+nohup "$HERE/watchdog.sh" >>"$LOG_DIR/watchdog.log" 2>&1 &
 echo $! > "$STATE_DIR/watchdog.pid"
 
 while sleep 30; do
-  if "$(dirname "$0")/healthcheck.sh" >/dev/null 2>&1; then
+  if "$HERE/healthcheck.sh" >/dev/null 2>&1; then
     heartbeat running "serving $ANCILE_SERVED_NAME"
   else
     heartbeat error "health check failing"

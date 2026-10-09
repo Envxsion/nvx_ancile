@@ -13,7 +13,7 @@ A node is **ephemeral and stateless**. It serves models over an OpenAI-compatibl
 - **Image:** any CUDA 12 image with Python and curl, e.g. `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`.
 - **Network volume** mounted at `/workspace`, about 2× the model size.
 - **Expose HTTP port** `8000`. The Controller reaches it at `https://{podId}-8000.proxy.runpod.net/v1`.
-- **Start command:** `bash -c "curl -fsSL <raw url>/infra/node/bootstrap.sh -o /bootstrap.sh && …"`. Alternatively, copy `infra/node/` to the volume and run `bash /workspace/ancile-node/bootstrap.sh`.
+- **Start command:** `bash -c "curl -fsSL https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh | bash"`. Piped in like this, the script fetches `healthcheck.sh` and `watchdog.sh` to `/workspace/ancile-node/` itself. Alternatively, copy `infra/node/` to the volume and run `bash /workspace/ancile-node/bootstrap.sh`.
 - **Environment:** `ANCILE_MODEL`, `ANCILE_NODE_API_KEY`. Optionally `ANCILE_TOOL_PARSER`, `ANCILE_VLLM_ARGS`, `CONTROLLER_URL`, `CONTROLLER_NODE_TOKEN`, `HF_TOKEN`.
 
 Set the same `ANCILE_NODE_API_KEY` as the node's token in the Controller, so the data plane can authenticate to vLLM.

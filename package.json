@@ -22,6 +22,7 @@
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "test:chaos": "playwright test -c tests/chaos/playwright.config.ts",
     "test:load": "node tests/load/streams.mjs",
+    "test:runpod": "pnpm --filter @nvx/ancile-controller exec tsx scripts/live-runpod.ts",
     "doctor": "node scripts/doctor.mjs",
     "start": "node scripts/boot.mjs",
     "start:e2e": "node scripts/boot.mjs --e2e",

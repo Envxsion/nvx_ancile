@@ -120,7 +120,8 @@ describe('creating a node', () => {
         container_disk_gb: 40,
         volume_gb: 50,
         ports: ['8000/http'],
-        env: { MODEL: 'Qwen/Qwen2.5-Coder-32B-Instruct' },
+        env: { HF_HOME: '/workspace/hf' },
+        command: ['--model', 'Qwen/Qwen2.5-Coder-32B-Instruct', '--port', '8000'],
       },
       'create-key-0001',
     );
@@ -130,15 +131,15 @@ describe('creating a node', () => {
     );
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
       name: 'Coder',
-      gpuTypeIds: ['NVIDIA RTX A6000'],
-      gpuCount: 1,
-      cloudType: 'SECURE',
-      containerDiskInGb: 40,
-      volumeInGb: 50,
+      gpu: { id: 'NVIDIA RTX A6000', count: 1 },
+      cloud: 'SECURE',
+      disk: 40,
+      mounts: { persistent: { size: 50, path: '/workspace' } },
       ports: ['8000/http'],
-      env: { MODEL: 'Qwen/Qwen2.5-Coder-32B-Instruct' },
-      imageName: 'vllm/vllm-openai:latest',
+      env: { HF_HOME: '/workspace/hf' },
+      image: 'vllm/vllm-openai:latest',
       dataCenterIds: ['EU-RO-1'],
+      cmd: ['--model', 'Qwen/Qwen2.5-Coder-32B-Instruct', '--port', '8000'],
     });
     expect(node).toMatchObject({ ref: 'pod9', hourlyRate: 0.79, region: 'EU-RO-1' });
   });

@@ -89,13 +89,21 @@ export const CreateNodeSpec = z.object({
   region: z.string().min(1).max(60).optional(),
   cloud: z.enum(['secure', 'community']).default('secure'),
   container_disk_gb: z.number().int().min(5).max(2_000).default(40),
-  volume_gb: z.number().int().min(0).max(4_000).default(0),
+  /** A persistent volume at /workspace; 0 for none. RunPod's smallest is 10 GB. */
+  volume_gb: z
+    .number()
+    .int()
+    .max(4_000)
+    .refine((v) => v === 0 || v >= 10, 'A volume is 0 (none) or at least 10 GB.')
+    .default(0),
   /** "8000/http" style; the first http port serves the OpenAI-compatible API. */
   ports: z
     .array(z.string().regex(/^\d{2,5}\/(http|tcp)$/))
     .max(10)
     .default(['8000/http']),
   env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(4_000)).default({}),
+  /** Arguments for the image's entrypoint, e.g. vLLM's ["--model", "Qwen/…", "--port", "8000"]. */
+  command: z.array(z.string().max(1_000)).max(50).optional(),
 });
 export type CreateNodeSpec = z.infer<typeof CreateNodeSpec>;
 
