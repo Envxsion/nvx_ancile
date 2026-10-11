@@ -454,6 +454,7 @@ export function toPendingApproval(a: Approval): PendingApproval {
     resource: a.resource,
     tier: a.tier,
     argsPreview: typeof a.args_preview === 'string' ? a.args_preview : argsText(a.args_preview),
+    ...(a.args_editable && { args: a.args, argsEditable: true }),
     suggestions: a.suggestions,
     reason:
       a.tier === 'critical'

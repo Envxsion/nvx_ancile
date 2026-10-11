@@ -275,7 +275,8 @@ Under the answer, **What the lab changed** lists every file it added, changed or
         title: 'Using Claude Code in NVX Ancile',
         summary:
           'Your own Claude Code, its sessions kept here as threads, and its sign-in kept by Claude Code.',
-        keywords: 'claude code anthropic cli terminal sessions import sync sign in install update agent',
+        keywords:
+          'claude code anthropic cli terminal sessions import sync sign in install update agent live send stop slash commands model effort context usage queue approval edit branch fork citations',
         body: `NVX Ancile works with the Claude Code installed on this computer. Every Claude Code session comes in as a thread, in a notebook named after the folder it ran in, and keeps in step as Claude Code adds to it.
 
 **Install**
@@ -293,8 +294,28 @@ With **Bring Claude Code sessions in by themselves** on (the default), there is 
 
 A thread from Claude Code says so under its title. **Sync from Claude Code** (in that marker's menu, the thread's menu in the sidebar, or the palette) adds anything new at once.
 
+**Carry a session on here**
+Type in a Claude Code thread and send: the session carries on in your own Claude Code, in its own folder, with your CLAUDE.md files, skills, plugins and MCP servers. The answer streams in like any other, with each tool step as it happens. **Stop** (in place of Send while it works) is Claude Code's own interrupt; what it wrote so far is kept.
+
+A line above the composer says what the session is doing: **Claude Code ready in cyberfolio**, **Starting Claude Code…** or **Working…**, with the model and effort. The small meter is Claude Code's own count of its context; press it for the last turn's tokens and the cost, which is an estimate at API list prices, not your bill.
+
+Choose the **model** and **effort** for the next message with the two buttons in the composer's bar. A message you send while Claude Code works waits as **Queued** and goes when the turn ends.
+
+**Commands**
+Type **/** for Claude Code's own commands for this folder: built-ins, your skills, plugins, MCP prompts and custom commands, each with what it does. Keep typing to narrow the list, use the arrow keys, and press Tab or Enter. A command with set values (such as **/effort** or **/model**) offers them next. A few commands open the matching part of NVX Ancile instead of being sent: **/mcp** opens Plugins, **/permissions** opens Grants, **/context** and **/cost** open usage, **/branch** branches here, **/rewind** opens the branch tree, **/login** opens Claude Code sign-in. Commands that only work in a terminal say so and are not sent.
+
+**Approvals, with your changes**
+Every tool call Claude Code makes is checked by NVX Ancile first. When one asks, the approval can be changed before it runs: press **Edit before allowing**, change the command, the edit or the file, then **Allow once with changes**. NVX Ancile checks the changed call again; if it is refused, the dialog says why and stays open. Changes apply to that one call, so nothing is remembered while you edit.
+
+**Sources and citations**
+The notebook's sources are there for Claude Code to search. Narrow a message to one source with **@**. Where the answer uses a passage, it cites it, and the citation opens the exact passage, as in any other answer.
+
+**Branches**
+Rewinds you made in Claude Code come in as branches. Edit an earlier message, try an answer again, or branch from any message, and Claude Code forks the session there; switch between versions with the arrows under a message or the branch tree.
+
 **Good to know**
-- A session open in a terminal right now can be brought in, but continuing it here waits until that terminal closes.
+- If the session is open in Claude Code somewhere else, NVX Ancile will not write to it. Close it there, or press **Continue as a branch** to fork it and carry on here.
+- If NVX Ancile restarts during a turn, what Claude Code wrote is brought in from the session when it starts again.
 - Where Claude Code compacted a conversation, the thread shows **Conversation compacted here**.
 - Usage counts against the account Claude Code is signed in to, as it would in a terminal.`,
       },
@@ -762,6 +783,9 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'mcp.tier_not_allowed': 'mcp-servers',
   'claude_code.not_installed': 'claude-code',
   'claude_code.signed_out': 'claude-code',
+  'claude_code.session_busy': 'claude-code',
+  'claude_code.unverified': 'claude-code',
+  'claude_code.branch_unmapped': 'claude-code',
   'claude_code.version_old': 'claude-code',
   'claude_code.sdk_unavailable': 'claude-code',
   'claude_code.install_failed': 'claude-code',

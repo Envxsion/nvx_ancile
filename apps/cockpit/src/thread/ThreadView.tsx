@@ -14,10 +14,23 @@
  *           |  scrolled up to read.
  *           |  Scroll anchor = the first visible message id + offset,
  *           |  saved per thread. New text is announced politely.
+ *           |  A thread from Claude Code sends to its live session
+ *           |  (claudecode/live.ts) and shows Claude Code's state,
+ *           |  pickers and notices around the composer; a message
+ *           |  sent while a turn runs waits as the one queued.
  * ------------------------------------------------------------------
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
+import {
+  interruptClaudeCode,
+  refreshLive,
+  sendClaudeCode,
+  useClaudeCodeCommands,
+  useClaudeCodeLive,
+} from '../claudecode/live';
+import { patchCc, useCcThread } from '../claudecode/store';
 import { CcEventRow, ClaudeCodeMarker } from '../claudecode/ThreadMarker';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
@@ -34,7 +47,7 @@ import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { nextAnnouncement } from './announce';
-import { Composer, type SendExtras } from './Composer';
+import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { Message } from './Message';
 import { ToolCwd } from './ToolSteps';
@@ -177,6 +190,57 @@ export function ThreadView({ threadId }: { threadId: string }) {
 
   const busy = last?.status === 'streaming';
 
+  // A thread from Claude Code carries its session on.
+  const cc = demo ? null : (thread.data?.claudeCode ?? null);
+  const ccLive = useClaudeCodeLive(cc ? threadId : undefined);
+  const ccCommands = useClaudeCodeCommands(cc ? threadId : undefined);
+  const ccState = useCcThread(threadId);
+  const [replace, setReplace] = useState({ text: '', n: 0 });
+  const ccWorking = !!cc && (busy || last?.status === 'pending' || ccLive.data?.state === 'working');
+  const ccAct = useCcActions({
+    threadId,
+    notebookId: thread.data?.notebookId ?? null,
+    headId: last?.id ?? null,
+  });
+
+  // A turn starting or ending changes what the session reports.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read when a turn starts or ends
+  useEffect(() => {
+    if (cc) refreshLive(threadId);
+  }, [busy, cc, threadId]);
+
+  // The queued message goes as soon as the running turn ends.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires when the turn ends or a message is queued
+  useEffect(() => {
+    const q = ccState.queued;
+    if (!cc || ccWorking || !q) return;
+    patchCc(threadId, { queued: null });
+    void sendClaudeCode({
+      threadId,
+      parentId: last?.id ?? null,
+      text: q.text,
+      sourceIds: q.sourceIds,
+      model: ccState.model,
+      effort: ccState.effort,
+    }).then((ok) => {
+      if (!ok) setReplace((r) => ({ text: q.text, n: r.n + 1 }));
+    });
+  }, [ccWorking, ccState.queued]);
+
+  const claudeCode: ClaudeCodeComposer | undefined = useMemo(
+    () =>
+      cc
+        ? {
+            commands: ccCommands.data ?? [],
+            act: ccAct,
+            bar: <CcPickers threadId={threadId} live={ccLive.data} commands={ccCommands.data} />,
+            working: ccWorking,
+            onStop: () => void interruptClaudeCode(threadId),
+          }
+        : undefined,
+    [cc, ccCommands.data, ccAct, threadId, ccLive.data, ccWorking],
+  );
+
   const send = async (text: string, extras?: SendExtras): Promise<boolean> => {
     following.current = true;
     if (demo) {
@@ -196,6 +260,33 @@ export function ThreadView({ threadId }: { threadId: string }) {
         undo: () => setLocal((l) => l.filter((m) => m.id !== optimistic.id)),
       });
       return true;
+    }
+    if (cc) {
+      const sourceIds = extras?.mentions.filter((m) => m.kind === 'source').map((m) => m.id);
+      if (ccWorking) {
+        if (ccState.queued) {
+          notify({
+            level: 'info',
+            title: 'A message is already queued',
+            body: 'It sends when this turn ends. Remove it to queue a different one.',
+          });
+          return false;
+        }
+        patchCc(threadId, { queued: { text, ...(sourceIds?.length && { sourceIds }) } });
+        return true;
+      }
+      const ok = await sendClaudeCode({
+        threadId,
+        parentId: last?.id ?? null,
+        text,
+        model: ccState.model,
+        effort: ccState.effort,
+        sourceIds,
+        asBranch: ccState.forkNext,
+      });
+      if (ok && ccState.forkNext) patchCc(threadId, { forkNext: false });
+      if (ok) setAnnounce('Message sent to Claude Code.');
+      return ok;
     }
     if (busy) {
       notify({
@@ -326,6 +417,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
 
       <div className="thread__composer">
         <div className="thread__measure">
+          {cc ? <CcNotices threadId={threadId} /> : null}
           {demo ? null : (
             <ComposerHints
               threadId={threadId}
@@ -333,12 +425,17 @@ export function ThreadView({ threadId }: { threadId: string }) {
               fromClaudeCode={thread.data ? !!thread.data.claudeCode : null}
             />
           )}
+          {cc ? (
+            <CcLiveLine threadId={threadId} binding={cc} live={ccLive.data} last={lastTurn(messages)} />
+          ) : null}
           <Composer
             threadId={threadId}
             parentId={last?.id ?? null}
             onSend={send}
-            busy={busy}
+            busy={cc ? false : busy}
             notebookId={thread.data?.notebookId ?? null}
+            claudeCode={claudeCode}
+            replaceText={replace}
           />
         </div>
         {demo ? null : <BranchLayer threadId={threadId} />}

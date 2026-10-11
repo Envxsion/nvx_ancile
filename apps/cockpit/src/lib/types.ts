@@ -225,6 +225,10 @@ export interface PendingApproval {
   resource: string;
   tier: 'gated' | 'critical';
   argsPreview: string;
+  /** The full arguments, when the tool accepts changed ones (argsEditable). */
+  args?: unknown;
+  /** Approve once with changed arguments (a live Claude Code session's tool calls, today). */
+  argsEditable?: boolean;
   suggestions: string[];
   reason: string;
 }

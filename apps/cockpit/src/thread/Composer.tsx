@@ -17,9 +17,14 @@
  *           |  model answers this one message.
  *  Note     |  Which key sends is a setting (Settings → Composer).
  *           |  Esc leaves the composer for navigate mode, `i` returns.
+ *           |  In a Claude Code thread the "/" menu is Claude Code's
+ *           |  own list (claudecode/live.ts), grouped and with a
+ *           |  second level for a command's values; commands NVX
+ *           |  Ancile handles itself are done here, never sent.
  * ------------------------------------------------------------------
  */
 
+import type { ClaudeCodeCommand } from '@nvx/contracts';
 import {
   type ClipboardEvent,
   type CSSProperties,
@@ -32,6 +37,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { type AncileExtra, ccMenu, parseTyped } from '../claudecode/live';
 import * as demo from '../fixtures/demo';
 import { useBinding } from '../keys/dispatch';
 import { api } from '../lib/api';
@@ -84,6 +90,19 @@ export interface Mention {
   hue?: Hue | null;
 }
 
+/** What a Claude Code thread gives the composer (ThreadView). */
+export interface ClaudeCodeComposer {
+  /** Claude Code's own "/" list for the session's folder. */
+  commands: ClaudeCodeCommand[];
+  /** Do what NVX Ancile does for a command it handles (handled_by "ancile"). */
+  act: (command: ClaudeCodeCommand, arg: string | null) => void;
+  /** The model and effort pickers, in place of the model and flow chips. */
+  bar: ReactNode;
+  /** A turn is running: Send queues, and an empty composer offers Stop. */
+  working: boolean;
+  onStop: () => void;
+}
+
 export interface SendExtras {
   mentions: { kind: 'source' | 'notebook' | 'repo'; id: string }[];
   /** A model @-mentioned for this one message. */
@@ -115,6 +134,8 @@ export function Composer({
   notebookId = null,
   scope,
   placeholder,
+  claudeCode,
+  replaceText,
 }: {
   threadId: string;
   parentId: string | null;
@@ -127,6 +148,10 @@ export function Composer({
   /** Extra control at the start of the bar (Home's notebook picker). */
   scope?: ReactNode;
   placeholder?: string;
+  /** This thread carries a Claude Code session on. */
+  claudeCode?: ClaudeCodeComposer;
+  /** Put this text in the composer whenever `n` changes ("" clears it). */
+  replaceText?: { text: string; n: number };
 }) {
   const key = draftKey(threadId, parentId);
   const prefs = usePref('composer');
@@ -190,6 +215,17 @@ export function Composer({
   }, [nextModel, threadId]);
   const sendOnEnter = prefs.send === 'enter';
 
+  // NVX Ancile's own commands that still make sense next to Claude Code's.
+  const extras: AncileExtra[] = useMemo(
+    () => [
+      ...(notebookId
+        ? [{ name: 'sources', description: "Open this notebook's sources", run: 'sources' as const }]
+        : []),
+      { name: 'keys', description: 'Show keyboard shortcuts', run: 'shortcuts' as const },
+    ],
+    [notebookId],
+  );
+
   const commands = useMemo(() => {
     const base = SLASH.filter((s) => s.run !== 'sources' || notebookId);
     return model?.id === 'offline/test' ? [...base, ...TEST_DIRECTIVES] : base;
@@ -204,6 +240,8 @@ export function Composer({
             .map((s) => ({ kind: 'source' as const, id: s.id, label: s.title }))
         : [];
     // A notebook mention only means something in a thread that has none.
+    // Claude Code answers with its own model; only sources narrow a turn there.
+    if (claudeCode) return src;
     const nbs = notebookId
       ? []
       : (notebooks ?? []).map((n) => ({
@@ -218,7 +256,7 @@ export function Composer({
     const fl = (flows ?? []).map((f) => ({ kind: 'flow' as const, id: f.id, label: f.name }));
     const rp = (repos ?? []).map((r) => ({ kind: 'repo' as const, id: r.id, label: r.name }));
     return [...src, ...nbs, ...fl, ...rp, ...mdl];
-  }, [isDemo, notebookId, sources, notebooks, models, model?.id, flows, repos]);
+  }, [isDemo, notebookId, sources, notebooks, models, model?.id, flows, repos, claudeCode]);
 
   // The latest values for the flush on unmount, without re-subscribing.
   const latest = useRef({ text, key, synced, threadId, parentId, sent: '' });
@@ -317,6 +355,10 @@ export function Composer({
   // Menus: a slash command at the very start, an @ or ; token at the caret.
   const menu = useMemo(() => {
     if (dismissedMenu || !prefs.menus) return null;
+    if (claudeCode) {
+      const cc = ccMenu(text, claudeCode.commands, extras);
+      if (cc) return { kind: 'cc' as const, items: cc.items, level: cc.level, query: text };
+    }
     // "/fa" and "/fail " both offer the /fail variants; a second space means
     // the command is chosen and the rest is its argument.
     if (/^\/[^\n]*$/.test(text) && !/\s\S*\s/.test(text)) {
@@ -344,15 +386,55 @@ export function Composer({
       };
     }
     return null;
-  }, [text, dismissedMenu, mentions, commands, picked, prefs.menus, prefs.snippets]);
+  }, [text, dismissedMenu, mentions, commands, picked, prefs.menus, prefs.snippets, claudeCode, extras]);
 
   const menuOpen = !!menu && menu.items.length > 0;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight when the menu changes shape
   useEffect(() => setMenuIndex(0), [menu?.kind, menu?.items.length]);
 
-  const pick = (i: number) => {
+  // Keep the highlighted command in view in a long list.
+  useEffect(() => {
+    if (!menuOpen) return;
+    document.getElementById(`composer-opt-${menuIndex}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [menuIndex, menuOpen]);
+
+  const runExtra = (run: AncileExtra['run']) => {
+    if (run === 'sources') openDrawer('sources');
+    else setShortcuts(true);
+  };
+
+  const pick = (i: number, how: 'tab' | 'enter' = 'tab') => {
     if (!menu) return;
+    if (menu.kind === 'cc') {
+      const item = menu.items[i];
+      if (!item) return;
+      if (item.extra) {
+        clearDraft();
+        runExtra(item.extra.run);
+        return;
+      }
+      const c = item.command;
+      if (!c || !claudeCode) return;
+      if (item.arg !== undefined) {
+        // A value picked for a command NVX Ancile handles (/effort high): done here.
+        if (c.handled_by === 'ancile') {
+          clearDraft();
+          claudeCode.act(c, item.arg);
+        } else setText(`/${c.name} ${item.arg} `);
+      } else if (c.arguments.length > 0) {
+        setText(`/${c.name} `);
+      } else if (c.handled_by === 'ancile') {
+        clearDraft();
+        claudeCode.act(c, null);
+      } else if (how === 'enter' && !c.argument_hint) {
+        // Nothing more to type: Enter runs it, as in the terminal.
+        void send(`/${c.name}`);
+        return;
+      } else setText(`/${c.name} `);
+      ref.current?.focus();
+      return;
+    }
     if (menu.kind === 'slash') {
       const item = menu.items[i];
       if (item?.run) {
@@ -391,11 +473,36 @@ export function Composer({
 
   const uploading = uploads.some((u) => u.state === 'waiting' || u.state === 'sending');
 
-  const send = async () => {
-    const value = text.trim();
+  const clearDraft = () => {
+    setText('');
+    setPicked([]);
+    saveLocal(key, '');
+    if (synced) {
+      latest.current.sent = '';
+      void api.put(`/drafts/${threadId}/${serverParent(parentId)}`, { text: '' }).catch(() => undefined);
+    }
+  };
+
+  const send = async (override?: string) => {
+    const value = (override ?? text).trim();
     if (!value || sending) return;
+    // A command NVX Ancile does itself is never sent to Claude Code.
+    if (claudeCode && value.startsWith('/')) {
+      const typed = parseTyped(value, claudeCode.commands);
+      if (typed?.command.handled_by === 'ancile') {
+        clearDraft();
+        claudeCode.act(typed.command, typed.arg);
+        return;
+      }
+      const extra = typed ? undefined : extras.find((x) => value === `/${x.name}`);
+      if (extra) {
+        clearDraft();
+        runExtra(extra.run);
+        return;
+      }
+    }
     setSending(true);
-    const extras: SendExtras = {
+    const sendExtras: SendExtras = {
       mentions: picked
         .filter(
           (p): p is Mention & { kind: 'source' | 'notebook' | 'repo' } =>
@@ -405,16 +512,20 @@ export function Composer({
       model: picked.find((p) => p.kind === 'model')?.id ?? null,
       flowId: picked.find((p) => p.kind === 'flow')?.id ?? null,
     };
-    const ok = await Promise.resolve(onSend(value, extras)).finally(() => setSending(false));
+    const ok = await Promise.resolve(onSend(value, sendExtras)).finally(() => setSending(false));
     if (ok === false) return;
-    setText('');
-    setPicked([]);
-    saveLocal(key, '');
-    if (synced) {
-      latest.current.sent = '';
-      void api.put(`/drafts/${threadId}/${serverParent(parentId)}`, { text: '' }).catch(() => undefined);
-    }
+    clearDraft();
   };
+
+  // Something outside the composer put text back (a queued message) or sent it.
+  const replaced = useRef(replaceText?.n ?? 0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the signal changes only
+  useEffect(() => {
+    if (!replaceText || replaceText.n === replaced.current) return;
+    replaced.current = replaceText.n;
+    if (replaceText.text) setText(replaceText.text);
+    else clearDraft();
+  }, [replaceText?.n]);
 
   const onChange = (value: string) => {
     // A snippet trigger followed by a space becomes its text.
@@ -440,7 +551,7 @@ export function Composer({
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
-        pick(menuIndex);
+        pick(menuIndex, e.key === 'Enter' ? 'enter' : 'tab');
         return;
       }
       if (e.key === 'Escape') {
@@ -518,7 +629,18 @@ export function Composer({
           className="composer__menu m-glass"
           id="composer-menu"
           role="listbox"
-          aria-label={menu.kind === 'slash' ? 'Commands' : menu.kind === 'snippet' ? 'Snippets' : 'Mention'}
+          aria-label={
+            menu.kind === 'cc'
+              ? menu.level === 2
+                ? 'Values'
+                : 'Claude Code commands'
+              : menu.kind === 'slash'
+                ? 'Commands'
+                : menu.kind === 'snippet'
+                  ? 'Snippets'
+                  : 'Mention'
+          }
+          data-kind={menu.kind}
         >
           {menu.kind === 'mention' ? (
             <div className="composer__menu-head mute" aria-hidden="true">
@@ -527,31 +649,66 @@ export function Composer({
                 : 'Ground in a notebook, or ask another model'}
             </div>
           ) : null}
-          {menu.kind === 'slash'
-            ? menu.items.map((s, i) => (
-                <MenuOption key={s.cmd} i={i} active={i === menuIndex} onPick={pick}>
-                  <span className="composer__cmd" data-num>
-                    {s.cmd}
-                  </span>
-                  <span className="mute composer__opt-hint">{s.hint}</span>
-                </MenuOption>
-              ))
-            : menu.kind === 'snippet'
-              ? menu.items.map((s, i) => (
-                  <MenuOption key={s.trigger} i={i} active={i === menuIndex} onPick={pick}>
+          {menu.kind === 'cc'
+            ? menu.items.map((s, i) => {
+                // Headings while browsing; with a query the best match leads and the group is a tag.
+                const browsing = menu.level === 2 || menu.query === '/';
+                const head = browsing && s.group !== menu.items[i - 1]?.group ? s.group : null;
+                return (
+                  <CcOption
+                    key={`${s.group}-${s.label}`}
+                    head={head}
+                    i={i}
+                    active={i === menuIndex}
+                    onPick={pick}
+                  >
                     <span className="composer__cmd" data-num>
-                      {s.trigger}
+                      {s.label}
                     </span>
-                    <span className="mute composer__opt-hint">{s.text.slice(0, 80)}</span>
+                    {s.argHint ? (
+                      <span className="composer__arghint mute" data-num>
+                        {s.argHint}
+                      </span>
+                    ) : null}
+                    <span className="mute composer__opt-hint">{s.hint}</span>
+                    {s.tag ? (
+                      <span
+                        className="composer__tag"
+                        data-tone={s.tag === 'Terminal only' ? 'mute' : undefined}
+                      >
+                        {s.tag}
+                      </span>
+                    ) : !browsing ? (
+                      <span className="mute composer__kind">{s.group}</span>
+                    ) : null}
+                  </CcOption>
+                );
+              })
+            : menu.kind === 'slash'
+              ? menu.items.map((s, i) => (
+                  <MenuOption key={s.cmd} i={i} active={i === menuIndex} onPick={pick}>
+                    <span className="composer__cmd" data-num>
+                      {s.cmd}
+                    </span>
+                    <span className="mute composer__opt-hint">{s.hint}</span>
                   </MenuOption>
                 ))
-              : menu.items.map((m, i) => (
-                  <MenuOption key={`${m.kind}-${m.id}`} i={i} active={i === menuIndex} onPick={pick}>
-                    <Icon name={MENTION_ICON[m.kind]} size={13} />
-                    <span className="composer__opt-label">{m.label}</span>
-                    <span className="mute composer__kind">{m.kind}</span>
-                  </MenuOption>
-                ))}
+              : menu.kind === 'snippet'
+                ? menu.items.map((s, i) => (
+                    <MenuOption key={s.trigger} i={i} active={i === menuIndex} onPick={pick}>
+                      <span className="composer__cmd" data-num>
+                        {s.trigger}
+                      </span>
+                      <span className="mute composer__opt-hint">{s.text.slice(0, 80)}</span>
+                    </MenuOption>
+                  ))
+                : menu.items.map((m, i) => (
+                    <MenuOption key={`${m.kind}-${m.id}`} i={i} active={i === menuIndex} onPick={pick}>
+                      <Icon name={MENTION_ICON[m.kind]} size={13} />
+                      <span className="composer__opt-label">{m.label}</span>
+                      <span className="mute composer__kind">{m.kind}</span>
+                    </MenuOption>
+                  ))}
         </div>
       ) : null}
 
@@ -633,9 +790,13 @@ export function Composer({
         spellCheck={prefs.spellcheck}
         placeholder={
           placeholder ??
-          (notebookId
-            ? 'Ask this notebook. / for commands, @ to focus on a source'
-            : 'Ask anything. / for commands, @ to bring in a notebook')
+          (claudeCode
+            ? notebookId
+              ? 'Message Claude Code. / for its commands, @ to focus on a source'
+              : 'Message Claude Code. / for its commands'
+            : notebookId
+              ? 'Ask this notebook. / for commands, @ to focus on a source'
+              : 'Ask anything. / for commands, @ to bring in a notebook')
         }
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
@@ -667,42 +828,48 @@ export function Composer({
             />
           </label>
         </Tip>
-        <Tip
-          label={
-            modelPick
-              ? `${modelPick.label} answers this message${flowAnswers ? `, instead of ${flowAnswers.name}` : ''}`
-              : flowAnswers
-                ? `${flowAnswers.name} answers here. This model answers when no flow does`
-                : 'Change model'
-          }
-          binding="model.switch"
-        >
-          <button
-            type="button"
-            className="composer__model"
-            data-tour="model-chip"
-            data-overridden={modelPick ? true : undefined}
-            data-idle={!modelPick && flowAnswers ? true : undefined}
-            aria-label={
-              modelPick
-                ? `${modelPick.label} for this message. Change model`
-                : flowAnswers
-                  ? `${model?.name ?? 'No model'}, not used while ${flowAnswers.name} answers. Change model`
-                  : `${model?.name ?? 'No model'}. Change model`
-            }
-            onClick={() => openPalette('models')}
-          >
-            {modelPick ? (
-              <HueChip hue={modelPick.hue ?? model?.hue ?? 'chalk'}>{modelPick.label}</HueChip>
-            ) : model ? (
-              <HueChip hue={model.hue}>{model.name}</HueChip>
-            ) : (
-              'Choose a model'
-            )}
-          </button>
-        </Tip>
-        {synced ? <ModelChoiceDialog /> : null}
-        {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
+        {claudeCode ? (
+          claudeCode.bar
+        ) : (
+          <>
+            <Tip
+              label={
+                modelPick
+                  ? `${modelPick.label} answers this message${flowAnswers ? `, instead of ${flowAnswers.name}` : ''}`
+                  : flowAnswers
+                    ? `${flowAnswers.name} answers here. This model answers when no flow does`
+                    : 'Change model'
+              }
+              binding="model.switch"
+            >
+              <button
+                type="button"
+                className="composer__model"
+                data-tour="model-chip"
+                data-overridden={modelPick ? true : undefined}
+                data-idle={!modelPick && flowAnswers ? true : undefined}
+                aria-label={
+                  modelPick
+                    ? `${modelPick.label} for this message. Change model`
+                    : flowAnswers
+                      ? `${model?.name ?? 'No model'}, not used while ${flowAnswers.name} answers. Change model`
+                      : `${model?.name ?? 'No model'}. Change model`
+                }
+                onClick={() => openPalette('models')}
+              >
+                {modelPick ? (
+                  <HueChip hue={modelPick.hue ?? model?.hue ?? 'chalk'}>{modelPick.label}</HueChip>
+                ) : model ? (
+                  <HueChip hue={model.hue}>{model.name}</HueChip>
+                ) : (
+                  'Choose a model'
+                )}
+              </button>
+            </Tip>
+            {synced ? <ModelChoiceDialog /> : null}
+            {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
+          </>
+        )}
         <span className="composer__hint mute" aria-live="polite">
           {uploading ? (
             'Adding files. You can send now; they join the answer once read.'
@@ -716,16 +883,36 @@ export function Composer({
             </>
           )}
         </span>
-        <button
-          type="button"
-          className="send"
-          data-ready={canSend || undefined}
-          onClick={() => void send()}
-          disabled={!canSend}
-          aria-label={busy ? 'Wait for the answer to finish' : 'Send'}
-        >
-          <Icon name="send" size={16} />
-        </button>
+        {claudeCode?.working && !text.trim() ? (
+          <Tip label="Stop Claude Code. What it wrote so far is kept">
+            <button
+              type="button"
+              className="send send--stop"
+              data-ready
+              onClick={claudeCode.onStop}
+              aria-label="Stop"
+            >
+              <Icon name="stop" size={14} />
+            </button>
+          </Tip>
+        ) : (
+          <button
+            type="button"
+            className="send"
+            data-ready={canSend || undefined}
+            onClick={() => void send()}
+            disabled={!canSend}
+            aria-label={
+              busy
+                ? 'Wait for the answer to finish'
+                : claudeCode?.working
+                  ? 'Queue for after this turn'
+                  : 'Send'
+            }
+          >
+            <Icon name="send" size={16} />
+          </button>
+        )}
       </div>
 
       {dragging ? (
@@ -766,6 +953,34 @@ function MenuOption({
     >
       {children}
     </div>
+  );
+}
+
+/** A row of the Claude Code menu, under its group's heading when it starts one. */
+function CcOption({
+  head,
+  i,
+  active,
+  onPick,
+  children,
+}: {
+  head: string | null;
+  i: number;
+  active: boolean;
+  onPick: (i: number) => void;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      {head ? (
+        <div className="composer__menu-head composer__group mute" aria-hidden="true">
+          {head}
+        </div>
+      ) : null}
+      <MenuOption i={i} active={active} onPick={onPick}>
+        {children}
+      </MenuOption>
+    </>
   );
 }
 

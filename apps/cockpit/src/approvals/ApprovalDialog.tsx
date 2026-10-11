@@ -10,6 +10,11 @@
  *           |  pattern is pre-selected and editable) and how long it
  *           |  lasts. Critical: no remember option at all; the button
  *           |  says "Approve once" because that is all it can do.
+ *           |  A call whose arguments may change (args_editable) has
+ *           |  "Edit before allowing": the tool's own editor, then
+ *           |  "Allow once with changes" (scope once, updated_args).
+ *           |  Core decides again on the changed call; a refusal
+ *           |  shows here and the dialog stays open.
  *  Note     |  The answer goes to POST /approvals/:id; the run picks
  *           |  up in the thread at once. Core enforces the same rules
  *           |  (a critical approval cannot be remembered, a pattern
@@ -30,6 +35,7 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { TierBadge } from '../ui/primitives';
+import { ArgsEditor, sameArgs } from './EditArgs';
 import { usePermissionPreset } from './preset';
 
 const SCOPES = [
@@ -79,6 +85,13 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
   const [custom, setCustom] = useState(false);
   const [scope, setScope] = useState<(typeof SCOPES)[number]['id']>('once');
   const [ttl, setTtl] = useState('0');
+  // Edit before allowing: the changed arguments, and whether they parse.
+  const editable = !!approval.argsEditable && !demo;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<unknown>(approval.args);
+  const [draftValid, setDraftValid] = useState(true);
+  const [refusal, setRefusal] = useState<{ title: string; hint: string } | null>(null);
+  const changed = editing && draftValid && !sameArgs(draft, approval.args);
   useLayer(open);
   // Focus goes back where it was when the dialog opened, not to the page body.
   const returnTo = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
@@ -86,18 +99,25 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
   // State starts fresh per approval: AppShell keys this dialog by approval id.
   // (Resetting in an effect on open raced a quick first click.)
 
-  const decide = async (decision: 'approve' | 'deny') => {
-    const remembered = !critical && scope !== 'once';
+  const decide = async (decision: 'approve' | 'deny', withChanges = false) => {
+    const remembered = !critical && !editing && scope !== 'once';
     if (!demo) {
       setBusy(true);
+      setRefusal(null);
       try {
         await api.post(`/approvals/${approval.id}`, {
           decision,
-          scope: critical ? 'once' : scope,
+          scope: critical || editing ? 'once' : scope,
           ...(remembered && { pattern }),
           ...(remembered && ttl !== '0' && { ttl_seconds: Number(ttl) }),
+          ...(withChanges && { updated_args: draft }),
         });
       } catch (error) {
+        // Changed arguments refused: say why here, and keep the question open.
+        if (withChanges && error instanceof ApiCallError && error.status === 422) {
+          setRefusal({ title: error.body.error.title, hint: error.body.error.hint });
+          return;
+        }
         notify({
           level: 'error',
           title: error instanceof ApiCallError ? error.body.error.title : 'Your answer did not reach Core',
@@ -117,7 +137,11 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
     notify({
       level: decision === 'approve' ? 'success' : 'info',
       title:
-        decision === 'approve' ? 'Approved. The agent is carrying on.' : 'Declined. The agent has been told.',
+        decision === 'approve'
+          ? withChanges
+            ? 'Allowed with your changes. The agent is carrying on.'
+            : 'Approved. The agent is carrying on.'
+          : 'Declined. The agent has been told.',
       body: remembered
         ? `${decision === 'approve' ? 'Allowed' : 'Blocked'} ${SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}: ${pattern}`
         : undefined,
@@ -184,7 +208,45 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
               {approval.resource}
             </dd>
           </dl>
-          <pre className="approval__preview">{approval.argsPreview}</pre>
+          {editing ? (
+            <section className="approval__edit" aria-label="Edit before allowing">
+              <div className="approval__edit-head">
+                <span>Change what it will do</span>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(approval.args);
+                    setDraftValid(true);
+                    setRefusal(null);
+                  }}
+                >
+                  Discard changes
+                </button>
+              </div>
+              <ArgsEditor
+                tool={approval.tool}
+                original={approval.args}
+                value={draft}
+                onChange={(v, valid) => {
+                  setDraftValid(valid);
+                  if (valid) setDraft(v);
+                  setRefusal(null);
+                }}
+              />
+            </section>
+          ) : (
+            <pre className="approval__preview">{approval.argsPreview}</pre>
+          )}
+          {refusal ? (
+            <p className="approval__refusal" role="alert">
+              <Icon name="alert" size={14} />
+              <span>
+                <strong>{refusal.title}</strong> {refusal.hint}
+              </span>
+            </p>
+          ) : null}
 
           {critical ? (
             <p className="approval__critical">
@@ -193,10 +255,17 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
             </p>
           ) : (
             <>
-              <fieldset className="field">
+              {editing ? (
+                <p className="approval__critical approval__once">
+                  <Icon name="shield" size={14} />
+                  Changes apply to this call only, so remembering is off while you edit.
+                </p>
+              ) : null}
+              <fieldset className="field" disabled={editing}>
                 <legend>Allow</legend>
                 <RadioGroup.Root
                   className="choices"
+                  disabled={editing}
                   value={custom ? '__custom' : pattern}
                   onValueChange={(v) => {
                     if (v === '__custom') setCustom(true);
@@ -242,10 +311,11 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
               </fieldset>
 
               <div className="approval__row">
-                <fieldset className="field">
+                <fieldset className="field" disabled={editing}>
                   <legend>Remember</legend>
                   <RadioGroup.Root
                     className="segmented"
+                    disabled={editing}
                     value={scope}
                     onValueChange={(v) => setScope(v as typeof scope)}
                     aria-label="Remember this decision"
@@ -272,7 +342,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                     className="input"
                     value={ttl}
                     onChange={(e) => setTtl(e.target.value)}
-                    disabled={scope === 'once'}
+                    disabled={editing || scope === 'once'}
                   >
                     {EXPIRY.map((x) => (
                       <option key={x.id} value={x.id}>
@@ -286,23 +356,49 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
           )}
 
           <div className="dialog__actions">
+            {editable && !editing ? (
+              <button
+                type="button"
+                className="btn btn--ghost approval__edit-btn"
+                onClick={() => {
+                  setEditing(true);
+                  setScope('once');
+                }}
+                disabled={busy}
+              >
+                <Icon name="edit" size={13} />
+                Edit before allowing
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn--ghost"
               onClick={() => void decide('deny')}
               disabled={busy}
             >
-              {critical || scope === 'once' ? 'Decline' : 'Decline and remember'}
+              {critical || editing || scope === 'once' ? 'Decline' : 'Decline and remember'}
             </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => void decide('approve')}
-              disabled={busy}
-              data-autofocus
-            >
-              {critical || scope === 'once' ? 'Approve once' : 'Approve and remember'}
-            </button>
+            {editing ? (
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void decide('approve', true)}
+                disabled={busy || !changed}
+                title={!draftValid ? 'Fix the JSON first' : !changed ? 'Nothing changed yet' : undefined}
+              >
+                Allow once with changes
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void decide('approve')}
+                disabled={busy}
+                data-autofocus
+              >
+                {critical || scope === 'once' ? 'Approve once' : 'Approve and remember'}
+              </button>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

@@ -439,7 +439,11 @@ export const Message = memo(function Message({
 
       {streaming && !waiting ? (
         <div className="msg__live">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void stopMessage(m.id)}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => void stopMessage(m.id, threadId)}
+          >
             <Icon name="close" size={12} />
             Stop
           </button>

@@ -15,6 +15,8 @@
  */
 
 import type { Part } from '@nvx/contracts';
+import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
+import { useCcStore } from '../claudecode/store';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
@@ -52,6 +54,25 @@ function placeTurn(threadId: string, parentId: string | null, rows: MessageView[
 }
 
 const now = () => new Date().toISOString();
+
+/** The thread mirrors a Claude Code session: turns go to its live session, not to a model. */
+function claudeCodeThread(threadId: string): boolean {
+  return !!queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode;
+}
+
+/** A Claude Code turn from an earlier point: Claude Code forks the session there. */
+function sendFromHere(threadId: string, parentId: string | null, text: string): Promise<boolean> {
+  if (!parentId) {
+    notify({
+      level: 'info',
+      title: "The session's first message can't be changed here",
+      body: 'Branch from a later message instead, or start the session again in Claude Code.',
+    });
+    return Promise.resolve(false);
+  }
+  const chosen = useCcStore.getState().byThread[threadId];
+  return sendClaudeCode({ threadId, parentId, text, model: chosen?.model, effort: chosen?.effort });
+}
 
 function assistantRow(s: Started, parentId: string, modelId: string | null): MessageView {
   return {
@@ -135,6 +156,15 @@ export async function sendMessage(opts: {
 
 export async function regenerate(threadId: string, m: MessageView, model?: string): Promise<void> {
   if (!m.parentId) return;
+  if (claudeCodeThread(threadId)) {
+    // Ask Claude Code the same prompt again, from where it was first asked.
+    const t = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
+    const prompt = t?.messages.find((x) => x.id === m.parentId);
+    const text = prompt ? partsText(prompt) : '';
+    if (!prompt || !text.trim()) return;
+    await sendFromHere(threadId, prompt.parentId, text);
+    return;
+  }
   try {
     const s = await api.post<Started>(`/messages/${m.id}/regenerate`, model ? { model } : {});
     placeTurn(threadId, m.parentId, [assistantRow(s, m.parentId, model ?? null)]);
@@ -146,6 +176,7 @@ export async function regenerate(threadId: string, m: MessageView, model?: strin
 }
 
 export async function editMessage(threadId: string, m: MessageView, text: string): Promise<boolean> {
+  if (claudeCodeThread(threadId)) return sendFromHere(threadId, m.parentId, text);
   const parts: Part[] = [{ type: 'text', text }];
   try {
     const s = await api.post<Started>(`/messages/${m.id}/edit`, { parts });
@@ -209,7 +240,8 @@ export async function undoLab(runId: string): Promise<boolean> {
   }
 }
 
-export async function stopMessage(messageId: string): Promise<void> {
+export async function stopMessage(messageId: string, threadId?: string): Promise<void> {
+  if (threadId && claudeCodeThread(threadId)) return interruptClaudeCode(threadId);
   try {
     await api.post(`/messages/${messageId}/stop`);
   } catch (error) {
@@ -218,6 +250,10 @@ export async function stopMessage(messageId: string): Promise<void> {
 }
 
 /** Show another version (‹ 2 / 3 ›) by moving the thread's head to it. */
+function partsText(m: MessageView): string {
+  return (m.parts ?? []).flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
+}
+
 export async function showVersion(threadId: string, messageId: string): Promise<void> {
   try {
     await api.patch(`/threads/${threadId}`, { active_head_id: messageId });

@@ -19,6 +19,7 @@
 
 import { type Part, RunEvent, type RunStatus } from '@nvx/contracts';
 import { create } from 'zustand';
+import { noteRunWarning } from '../claudecode/store';
 import { finishTeam, isFlowEvent, pushFlowEvent } from '../thread/teamworkState';
 import { keys } from './data';
 import { queryClient } from './query';
@@ -179,6 +180,8 @@ export function attachRun(t: { runId: string; threadId: string; messageId: strin
       // Flow teamwork goes to its own store, batched per frame (Teamwork.tsx).
       if (isFlowEvent(e)) return pushFlowEvent(t.messageId, e);
       if (e.type === 'done') finishTeam(t.messageId, e.at);
+      // A restart during a Claude Code turn: the composer says what was brought in.
+      if (e.type === 'warning') noteRunWarning(t.threadId, e.code);
       useRuns.getState().apply(t.messageId, e);
       if (e.type === 'approval.required' || e.type === 'approval.resolved') {
         void queryClient.invalidateQueries({ queryKey: keys.approvals });

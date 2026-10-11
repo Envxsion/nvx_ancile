@@ -135,6 +135,108 @@
   color: var(--fail);
   background: rgb(var(--fail-rgb) / 0.08);
 }
+
+/* Edit before allowing (approvals/EditArgs.tsx). */
+.approval__edit {
+  display: grid;
+  gap: 10px;
+  max-height: min(52vh, 460px);
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--void);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.approval__edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  font-weight: 560;
+}
+.approval__edit-btn {
+  margin-right: auto;
+}
+.approval__once {
+  color: var(--fg-2);
+  background: var(--wash-2);
+}
+.approval__refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--fail-rgb) / 0.08);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
+.approval__refusal > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fail);
+}
+.approval__refusal strong {
+  color: var(--fg);
+}
+.approval fieldset:disabled {
+  opacity: 0.5;
+}
+.args-edit {
+  display: grid;
+  gap: 10px;
+}
+.args-edit__field {
+  display: grid;
+  gap: 4px;
+}
+.args-edit__label {
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+}
+.args-edit__area {
+  width: 100%;
+  min-height: 0;
+  resize: vertical;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.args-edit__fixed {
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+.args-edit__note {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--t-small);
+}
+.args-edit__group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.args-edit__group > legend {
+  padding: 0 4px;
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+}
+.args-edit__diff {
+  display: grid;
+  gap: 4px;
+}
+.args-edit__error {
+  margin: 0;
+  color: var(--fail);
+  font-size: var(--t-small);
+}
 .approval__row {
   display: grid;
   grid-template-columns: 1fr auto;
