@@ -9,7 +9,9 @@
 //  escalates them after the easing.
 // =============================================================================
 
-// Even hands-off, nothing an agent does may delete a whole directory tree.
+// Even hands-off, no agent deletes by wildcard ("docs/**", "*.md"): one named
+// file or empty folder at a time. Whole trees go through the shell, where
+// base.cedar makes rm -rf critical.
 @id("hands-off.no-recursive-delete")
 forbid (principal is Ancile::Agent, action == Ancile::Action::"fs.delete", resource)
-when { resource.path like "*/**" };
+when { resource.path like "*\**" };

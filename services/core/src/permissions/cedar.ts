@@ -123,6 +123,10 @@ function principalUid(principal: string): { type: string; id: string } {
   return { type: 'Ancile::User', id: principal };
 }
 
+/** The preset's policy file: preset ids use _ (hands_off), file names use - (preset-hands-off.cedar). */
+export const presetFile = (preset: string | undefined) =>
+  `preset-${(preset ?? 'balanced').replaceAll('_', '-')}.cedar`;
+
 export class CedarPolicy implements PolicyEvaluator {
   private constructor(
     private readonly cedar: Cedar,
@@ -135,7 +139,7 @@ export class CedarPolicy implements PolicyEvaluator {
     const cedar = await loadCedar();
     const policies: ParsedPolicy[] = [];
     const files = Object.entries(set.files)
-      .filter(([f]) => !f.startsWith('preset-') || f === `preset-${set.preset ?? 'balanced'}.cedar`)
+      .filter(([f]) => !f.startsWith('preset-') || f === presetFile(set.preset))
       .sort(([a], [b]) => a.localeCompare(b));
     for (const [file, text] of files) {
       const parts = cedar.policySetTextToParts(text);

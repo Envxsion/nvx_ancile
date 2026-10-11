@@ -74,6 +74,18 @@ describe('Cedar policies', () => {
     expect(p.policyIds.some((id) => id.startsWith('balanced.'))).toBe(false);
   });
 
+  it('loads the hands-off preset file (id hands_off, file preset-hands-off.cedar)', async () => {
+    const p = await CedarPolicy.load({ files: await files(), preset: 'hands_off' });
+    expect(p.policyIds).toContain('hands-off.no-recursive-delete');
+    const e = await loadCedarEvaluator({ files: await files(), preset: 'hands_off' });
+    expect(await e.forbids(req('fs.delete', 'fs:/workspace/project/**'))).toMatchObject({
+      forbidden: true,
+      policyId: 'hands-off.no-recursive-delete',
+    });
+    // One named file is not a wildcard: it asks, as critical, like every delete.
+    expect(await e.forbids(req('fs.delete', 'fs:/workspace/docs/a.md'))).toEqual({ forbidden: false });
+  });
+
   it('names the file when a policy does not parse', async () => {
     await expect(
       CedarPolicy.load({ files: { 'broken.cedar': 'permit (principal action resource);' } }),
