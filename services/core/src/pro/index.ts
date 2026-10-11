@@ -62,7 +62,16 @@ export async function loadPro(opts: {
   clock?: LicenceClock;
 }): Promise<ProModule | ReturnType<typeof freeModule>> {
   const entry = opts.entry ?? PRO_ENTRY;
-  const free = () => freeModule(opts.host.settings);
+  // The free build takes a key too (Pro then arrives as an update): it needs
+  // the licence server, the secret store and this computer's name.
+  const free = () =>
+    freeModule({
+      settings: opts.host.settings,
+      secrets: opts.host.secrets,
+      licenseUrl: opts.host.licenseUrl,
+      deviceLabel: opts.host.deviceLabel ?? deviceLabel(),
+      ...(opts.host.fetch && { fetch: opts.host.fetch }),
+    });
   if (opts.tier === 'free' || !proPresent(entry)) {
     if (opts.tier === 'pro') log.warn({ entry }, 'NVX_TIER=pro but pro/ is empty: running the free build');
     return free();

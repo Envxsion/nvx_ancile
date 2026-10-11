@@ -1686,10 +1686,17 @@ button.logline__row:hover {
 .edition__lapse[data-lapse='renewal_due'] {
   background: var(--wash);
 }
-.licence__free-build {
-  max-width: 68ch;
-  font-size: var(--t-small);
-  color: var(--fg-2);
+.edition__lapse[data-lapse='on-its-way'],
+.edition__lapse[data-lapse='ready'] {
+  background: var(--wash);
+}
+.licence__reinstall {
+  font-size: var(--t-micro);
+}
+.licence__reinstall a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .licence__seat {
   display: grid;

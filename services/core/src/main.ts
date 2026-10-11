@@ -124,7 +124,7 @@ import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
-import { updateInternalRoutes, updateRoutes } from './system/updates';
+import { UpdateOfferBox, updateInternalRoutes, updateRoutes } from './system/updates';
 import { flowShape, observeApi, observeRunEvents, serverEnv, usageOf } from './telemetry/collect';
 import { telemetryRoutes } from './telemetry/routes';
 import { Telemetry } from './telemetry/service';
@@ -814,6 +814,8 @@ async function main() {
     },
   });
   const licence = pro.license;
+  // The update the desktop host offers in its tray (Pro arrives and leaves by update).
+  const updateOffer = new UpdateOfferBox(() => pro.build === 'pro');
   await licence.start().catch((err: unknown) => log.warn({ err }, 'the licence could not be read'));
   // Pro's features read the licence each time they run, so a lapse locks them at once.
   const hasProFeature = (f: Parameters<typeof hasFeature>[1]) => hasFeature(licence.status(), f);
@@ -919,7 +921,7 @@ async function main() {
     internalRoutes: [
       logIngestRoutes({ pipeline: obs }),
       // The desktop host asks here before checking nvx.sh for updates.
-      updateInternalRoutes({ settings, pro: () => pro.build === 'pro' }),
+      updateInternalRoutes({ settings, offer: updateOffer }),
     ],
     ready: async () => {
       const db = await database.sql`select 1`.then(() => true).catch(() => false);
@@ -929,7 +931,7 @@ async function main() {
     runs: runStore,
     allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     routes: [
-      updateRoutes({ settings }),
+      updateRoutes({ settings, offer: updateOffer }),
       // Phase 5: operations
       logRoutes({ pipeline: obs }),
       traceRoutes({

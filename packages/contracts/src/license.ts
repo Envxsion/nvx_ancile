@@ -88,3 +88,37 @@ export const LicenseDetails = z.object({
   features: z.array(z.object({ id: ProFeature, title: z.string(), body: z.string(), unlocked: z.boolean() })),
 });
 export type LicenseDetails = z.infer<typeof LicenseDetails>;
+
+/**
+ * An update the desktop host found and offers in its tray menu (NVX
+ * licensing and updates v2 §7). Pro arrives and leaves only by update:
+ * - `pro`: a free install crossing to Pro (a key was turned on here)
+ * - `downgrade`: a Pro install whose licence ended 90 or more days ago, or
+ *   was revoked, going back to the free edition; the data stays
+ * - `update`: a newer build of the same edition
+ */
+export const UpdateOfferKind = z.enum(['update', 'pro', 'downgrade']);
+export type UpdateOfferKind = z.infer<typeof UpdateOfferKind>;
+
+/** What the host tells Core: POST /internal/v1/desktop/update-offer. */
+export const UpdateOfferReport = z
+  .object({
+    version: z.string().min(1).max(64),
+    edition: z.enum(['free', 'pro']),
+    downgrade: z.boolean().default(false),
+  })
+  .strict();
+export type UpdateOfferReport = z.infer<typeof UpdateOfferReport>;
+
+/** GET /api/v1/system/update-offer: the update waiting in the tray menu, if any. */
+export const UpdateOffer = z.object({
+  offer: z
+    .object({
+      version: z.string(),
+      edition: z.enum(['free', 'pro']),
+      kind: UpdateOfferKind,
+      found_at: z.string(),
+    })
+    .nullable(),
+});
+export type UpdateOffer = z.infer<typeof UpdateOffer>;

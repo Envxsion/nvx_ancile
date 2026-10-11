@@ -4,7 +4,9 @@
 // ------------------------------------------------------------------
 //  Purpose  |  NVX Ancile in the tray: whether it is ready, a way back
 //           |  to the window, the logs folder, and Quit (which stops
-//           |  every service cleanly).
+//           |  every service cleanly). With updates on: the update on
+//           |  offer (Pro arriving, Pro ended, or a newer version) and
+//           |  "Check for updates".
 // ------------------------------------------------------------------
 
 use crate::supervisor::Status;
@@ -26,7 +28,11 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(feature = "updater")]
     let menu = {
         let update = MenuItem::with_id(app, "update", "Up to date", false, None::<&str>)?;
-        let menu = Menu::with_items(app, &[&status, &update, &sep, &open, &logs, &sep, &quit])?;
+        let check = MenuItem::with_id(app, "check", "Check for updates", true, None::<&str>)?;
+        let menu = Menu::with_items(
+            app,
+            &[&status, &update, &check, &sep, &open, &logs, &sep, &quit],
+        )?;
         app.manage(crate::updates::TrayLine(update));
         menu
     };
@@ -47,6 +53,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             "quit" => app.exit(0),
             #[cfg(feature = "updater")]
             "update" => crate::updates::install(app.clone()),
+            #[cfg(feature = "updater")]
+            "check" => crate::updates::check_now(app.clone()),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

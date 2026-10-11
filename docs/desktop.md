@@ -104,9 +104,20 @@ Make the update key pair once with `pnpm --filter @nvx/ancile-desktop tauri sign
 
 ### How updates reach people
 
-Once its services are up, and then every 24 hours, the app asks
-`https://ancile.nvx.sh/api/updates/{target}/{arch}/{version}?edition=free|pro&channel=stable|beta`.
-The edition is what was installed (the Pro edition carries Pro beside Core); the channel is a setting (`PUT /api/v1/system/updates {"channel":"beta"}`, stable by default). A Pro install sends its licence token, so nvx.sh offers Pro builds only to a licence that is current; a lapsed one is offered the free build. Nothing installs on its own: an update appears in the tray menu as "Install NVX Ancile x.y.z and restart". With no network, or no answer, the app tries again the next day.
+Once its services are up, then every 6 hours, and whenever "Check for updates" is chosen in the tray menu, the app asks
+`https://ancile.nvx.sh/api/updates/{target}/{arch}/{version}?edition=free|pro&installed=free|pro&channel=stable|beta`.
+`installed` is this build (the Pro edition carries Pro beside Core). `edition` asks for Pro when Pro is installed or a licence token is held. The channel is a setting (`PUT /api/v1/system/updates {"channel":"beta"}`, stable by default). The token, when one is held, goes in the Authorization header: Core hands the host `license.token`, or else `license.last_token`, the last token this install was given, which survives a revocation (only "Move to another computer" clears it) because nvx.sh measures the 90 days from it and holds a Pro install that sends no token as a fresh reinstall.
+
+Pro arrives and leaves only by update; there is no separate Pro download to install over the free edition.
+
+- **Pro arrives.** The free edition takes a key in Admin → Licence: it claims a seat with nvx.sh and keeps the token (nothing is unlocked in the free build). The next check is answered with the Pro build of the same version or newer (`"edition": "pro"`); the tray line reads "Pro is ready. Install", and one click installs it and restarts.
+- **Pro lapses.** For under 90 days after a licence ends or is paused, or when the seat moved, nvx.sh answers 204: Pro stays installed, and its features stop when the held token expires. Admin → Licence offers renewal ("Pro licence lapsed: renew to keep updates").
+- **Pro leaves.** After 90 days, on revocation, or with an unreadable token, nvx.sh answers with the newest free build and `"downgrade": true`. The tray line reads "Pro ended: switching to the free edition (your data stays)" and one click installs it. Nothing is lost: Pro's tables stay on disk (migrations only add), Pro's screens give way to their upsell cards, and turning Pro on again brings everything back as it was.
+- **A 503, or no answer:** the app tries again at the next check.
+
+What the tray is offering is reported to Core (`POST /internal/v1/desktop/update-offer`, service token; `DELETE` when there is nothing), and Admin → Licence reads it from `GET /api/v1/system/update-offer` to say Pro is ready, or that Pro ended. Nothing installs on its own: every install is a click in the tray menu. A plain update reads "Install NVX Ancile x.y.z and restart".
+
+To reinstall Pro on a new computer, the Pro installer is at https://ancile.nvx.sh/pro/download (linked at the foot of Admin → Licence).
 
 Publishing: a version tag builds the installers. The free edition becomes a public asset of the GitHub release, then `apps/desktop/scripts/publish-release.mjs --github-release <tag>` tells nvx.sh about it (`POST /api/releases/publish` with `external_url`), so the updater can offer it. One updater bundle per platform is published: the Windows NSIS setup, the macOS `.app.tar.gz`, the Linux AppImage. A version is never replaced: publishing a different build under a published version fails the job. The Pro edition is never put on GitHub: `publish-release.mjs --edition pro --upload` sends it to nvx.sh's private storage (Cloudflare R2) through a one-hour upload link and then publishes it, and the updater gets a 15-minute download link only for a current licence. Until R2 is set up the script skips Pro rather than use smaller fallback storage.
 

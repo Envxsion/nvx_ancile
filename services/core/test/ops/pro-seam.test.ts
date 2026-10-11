@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe('pro seam', () => {
-  it('runs the free build when pro/ is empty, and says how to get Pro', async () => {
+  it('runs the free build when pro/ is empty, and it takes a key (Pro arrives as an update)', async () => {
     const m = await loadPro({
       tier: undefined,
       host: host(),
@@ -40,9 +40,8 @@ describe('pro seam', () => {
     expect(d.device_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(d.features.map((f) => f.id)).toEqual(['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights']);
     expect(d.features.every((f) => !f.unlocked)).toBe(true);
-    await expect(m.license.activate('NVX-ABCD-EFGH-JK23')).rejects.toMatchObject({
-      code: 'license.free_build',
-    });
+    // Anything but a claim key is refused before nvx.sh is asked.
+    await expect(m.license.activate('h.p.s')).rejects.toMatchObject({ code: 'license.invalid' });
   });
 
   it('loads pro/ through createPro, and NVX_TIER=free never looks', async () => {
