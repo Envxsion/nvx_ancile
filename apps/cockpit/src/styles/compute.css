@@ -382,6 +382,79 @@
   flex: none;
 }
 
+/* Rule dialog: empty fields, a day toggle group and a node picker. */
+.rule-dialog__form {
+  display: grid;
+  gap: 18px;
+}
+.rule-dialog .rule__num {
+  width: 14em;
+  max-width: 100%;
+}
+
+.daypick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--void-rgb) / 0.45);
+  box-shadow: var(--vault);
+  justify-self: start;
+}
+.daypick__day {
+  min-width: 40px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: calc(var(--r-sm) - 2px);
+  font-size: var(--t-small);
+  color: var(--mute);
+  transition:
+    color var(--d-micro) var(--ease-out),
+    background var(--d-micro) var(--ease-out),
+    transform var(--d-short) var(--ease-spring);
+}
+.daypick__day:hover {
+  color: var(--fg);
+}
+.daypick__day:active {
+  transform: scale(0.94);
+}
+.daypick__day[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--sheen), var(--lift-3);
+  box-shadow: var(--elev-1);
+}
+[data-theme='light'] .daypick {
+  background: var(--chalk);
+}
+[data-theme='light'] .daypick__day[aria-pressed='true'] {
+  background: var(--lift);
+}
+
+.rule-nodes {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.rule-nodes__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.rule-nodes__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
 /* --- Add node ----------------------------------------------------------- */
 
 .compute__bar-actions {

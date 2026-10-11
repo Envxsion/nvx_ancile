@@ -31,7 +31,8 @@ import { PRO_SURFACES, ProSurfaceView } from '../../pro/slot';
 import { useUi } from '../../state/ui';
 import { Icon, type IconName } from '../../ui/Icon';
 import { EmptyState, StatusDot } from '../../ui/primitives';
-import { LiveDecisions, LiveGrants, LiveModels, LiveRouting } from './live';
+import { LiveDecisions, LiveGrants, LiveModels } from './live';
+import { RoutingEditor } from './RoutingEditor';
 
 export interface AdminSection {
   id: string;
@@ -354,7 +355,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     label: 'Routing',
     icon: 'branch',
     group: 'Models',
-    render: LiveRouting,
+    render: RoutingEditor,
   },
   {
     id: 'plugins',

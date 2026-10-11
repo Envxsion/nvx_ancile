@@ -168,13 +168,21 @@ export const CostSummary = z.object({
 });
 export type CostSummary = z.infer<typeof CostSummary>;
 
+/** Days of the week, Monday first (the British week). */
+export const Weekday = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+export type Weekday = z.infer<typeof Weekday>;
+export const WEEKDAYS = Weekday.options;
+
+/** Which nodes a rule acts on: every node, or the chosen ones. */
+export const RuleNodes = z.array(z.string()).min(1).or(z.literal('*'));
+
 export const Rule = z.discriminatedUnion('kind', [
   z.object({
     id: z.string(),
     kind: z.literal('idle_timeout'),
     enabled: z.boolean(),
     config: z.object({
-      node_ids: z.array(z.string()).or(z.literal('*')),
+      node_ids: RuleNodes,
       idle_minutes: z.number().int().min(5),
     }),
   }),
@@ -183,10 +191,16 @@ export const Rule = z.discriminatedUnion('kind', [
     kind: z.literal('schedule'),
     enabled: z.boolean(),
     config: z.object({
-      node_ids: z.array(z.string()).or(z.literal('*')),
+      node_ids: RuleNodes,
       cron: z.string(),
       action: NodeAction,
       tz: z.string(),
+      /**
+       * Only on these days, in the rule's time zone, on top of the cron.
+       * Absent means every day the cron allows (rules saved before this
+       * field existed keep working unchanged).
+       */
+      weekdays: z.array(Weekday).min(1).optional(),
     }),
   }),
   z.object({
@@ -196,6 +210,8 @@ export const Rule = z.discriminatedUnion('kind', [
     config: z.object({
       monthly_usd: z.number().positive(),
       on_reach: z.enum(['stop_nodes', 'block_routing', 'notify_only']),
+      /** Which nodes "stop_nodes" stops. Absent means every node. Spend always counts every node. */
+      node_ids: RuleNodes.optional(),
     }),
   }),
 ]);

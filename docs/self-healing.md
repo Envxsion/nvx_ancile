@@ -12,7 +12,7 @@ Every external call goes through `packages/resilience` (TypeScript) or `ancile_k
 | Retry, exponential backoff with full jitter | 250 ms × 2ⁿ, capped at 8 s, 4 attempts, honours `Retry-After` | Giving up on a blip; thundering herds |
 | Circuit breaker per target | Opens at 50% failures over ≥ 8 calls in 60 s, or 5 in a row; first probe after 30 s, doubling to 10 min | Hammering something that's down; waiting on it every time |
 | Bulkhead | A concurrency cap per target | One slow provider starving the rest |
-| Fallback chain | Per task class, `config/routing.yaml` | One provider being a single point of failure |
+| Fallback chain | Per task class, `config/routing.yaml`, or your order from Admin → Routing | One provider being a single point of failure |
 | Idempotency keys | On every side-effecting call | Doing something twice after a retry |
 
 Breaker state is shared through Postgres, so Core and Knowledge agree about which provider is down.

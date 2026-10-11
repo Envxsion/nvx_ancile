@@ -81,6 +81,26 @@ POST /api/v1/approvals/apr_01J9ZT…
 
 `scope` is one of `once`, `thread`, `notebook`, `workspace` or `always`. Critical approvals accept only `once`; any other scope gets a 422 with code `permission.critical_not_rememberable`.
 
+### Edit and revoke grants
+
+```http
+PATCH  /api/v1/grants/gnt_01J9…          { "resource_pattern": "fs:/workspace/notes/*.md", "scope": "thread", "ttl_seconds": 3600 }
+DELETE /api/v1/grants/gnt_01J9…          → 204
+POST   /api/v1/grants/gnt_01J9…/restore  → the grant (within ten minutes of DELETE, else 410 permission.restore_expired)
+```
+
+Every PATCH field is optional (`PatchGrantRequest`); `ttl_seconds: null` never expires. A pattern may only narrow (422 `permission.pattern_too_broad`), and under Careful a scope may not widen past `thread` (422 `permission.scope_too_wide`).
+
+### Edit and remove models
+
+```http
+PATCH  /api/v1/models/<id>    { "display_name": "Pod coder", "context_window": 131072, "hue": "jade", "enabled": true }
+DELETE /api/v1/models/<id>    → 204 (added models only, else 409 model.not_custom)
+POST   /api/v1/models/restore { "id": "<id>" } → 201, the model (within ten minutes, else 410 model.restore_expired)
+```
+
+`PatchModelRequest` also takes `family`, `max_output`, `capabilities`, `price`, and for OpenAI-compatible models `base_url`, `api_key` (replace the key) or `secret` (a stored key's name; `null` for none). A model from `config/models.yaml` takes only `enabled` and `hue` (`hue: null` follows the family).
+
 ### Branch, compare, merge
 
 ```http
@@ -96,6 +116,23 @@ GET /api/v1/messages/msg_01J9ZR…/explain
 ```
 
 This returns the `Explain` schema: the answering model and every attempt, the memory pack (files, commits, entries), retrieved chunks with scores and whether each was cited, tool calls with their permission outcomes, compaction, usage, and fact-check.
+
+### Routing chains
+
+`GET /api/v1/routing` lists each editable task class as a `RoutingChain`: `configured` (your saved order, or the YAML's), `default` (the YAML's), `custom`, and `chain` (who routing tries right now, counting only models that can answer). Saving and resetting answer with the updated `RoutingChain`:
+
+```http
+PUT /api/v1/routing/chat.default
+Content-Type: application/json
+
+{ "chain": ["openai/gpt-5.5", "anthropic/claude-sonnet-5-5"] }
+```
+
+```http
+DELETE /api/v1/routing/chat.default      ← back to config/routing.yaml
+```
+
+A saved chain wins over `config/routing.yaml` in the gateway at once. Refused: an unknown task class (`routing.task_class_unknown`), an empty chain (`routing.chain_empty`), an id that is neither a model nor already listed for the class (`routing.model_unknown`), and an embedding or rerank model (`model.not_chat`).
 
 ### Compute (proxied to the Controller)
 

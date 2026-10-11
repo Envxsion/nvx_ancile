@@ -384,6 +384,28 @@ describe('routes', { timeout: 30_000 }, () => {
     expect(bad.status).toBe(400);
   });
 
+  it('removing stops tracking (links go, the folder stays), and adding the path back undoes it', async () => {
+    const a = app();
+    const added = (await (await a.request('/repos', json('POST', { path: work, name: 'mine' }))).json()) as {
+      id: string;
+      root: string;
+    };
+    await a.request('/repos/link', json('POST', { scope: 'thread', scope_ref: 'thr_9', repo_id: added.id }));
+    expect((await a.request(`/repos/${added.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect(((await (await a.request('/repos')).json()) as { items: unknown[] }).items).toHaveLength(0);
+    const linked = (await (await a.request('/repos/linked?thread_id=thr_9')).json()) as { repo: unknown };
+    expect(linked.repo).toBeNull();
+    // Only the record went: the working tree and its history are untouched.
+    expect(sh(work, 'log', '--oneline')).toContain('feat: first');
+    const again = await a.request(`/repos/${added.id}`, { method: 'DELETE' });
+    expect(again.status).toBe(404);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe('repo.not_found');
+    // Undo: the same path and name come back as the same repository.
+    const back = await a.request('/repos', json('POST', { path: added.root, name: 'mine' }));
+    expect(back.status).toBe(201);
+    expect(await back.json()).toMatchObject({ name: 'mine', root: added.root });
+  });
+
   it('the GitHub MCP preset says what to install when nothing can run the server', async () => {
     const res = await app().request(
       '/mcp/presets/github',

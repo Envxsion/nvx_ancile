@@ -35,6 +35,10 @@ export interface ModelView {
   custom?: boolean;
   /** Where an OpenAI-compatible model is served. */
   baseUrl?: string | null;
+  /** The hue you chose for its chip; absent follows the family. */
+  chosenHue?: Hue;
+  /** The name of the stored key it uses, if any. */
+  keyName?: string | null;
 }
 
 export interface NotebookView {

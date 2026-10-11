@@ -8,6 +8,10 @@ import { Tier } from './events';
 
 export const Capability = z.enum(['tools', 'vision', 'reasoning', 'json', 'audio', 'embeddings', 'rerank']);
 
+/** The identity-ramp hue a model's chip uses. Unset follows the model's family. */
+export const ModelHue = z.enum(['coral', 'amber', 'jade', 'cyan', 'azure', 'magenta', 'chalk']);
+export type ModelHue = z.infer<typeof ModelHue>;
+
 export const ModelConfig = z.object({
   id: z.string().regex(/^[a-z0-9-]+\/[A-Za-z0-9._:-]+$/, 'provider/model'),
   provider: z.string(),
@@ -29,6 +33,8 @@ export const ModelConfig = z.object({
   /** Any OpenAI-compatible endpoint: base_url + secret name. */
   base_url: z.string().url().optional(),
   secret: z.string().optional(),
+  /** The chip's hue; unset follows the family. */
+  hue: ModelHue.optional(),
 });
 export type ModelConfig = z.infer<typeof ModelConfig>;
 

@@ -37,7 +37,6 @@ export const PLANNED: [Method, string, number, string][] = [
   ['get', '/suggest', 2, 'Palette suggestions'],
   // Models and routing
   ['get', '/models/suggest', 5, 'Model suggestions'],
-  ['put', '/routing', 2, 'Editing routing'],
   // System
   ['post', '/system/services/:name/restart', 5, 'Restarting a service'],
   ['post', '/system/diagnostics', 5, 'Self-diagnostic'],

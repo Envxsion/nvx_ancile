@@ -12,10 +12,13 @@
  *           |  The runner passes the last fire time; any matching
  *           |  minute since then (capped at 24 h, so a long outage does
  *           |  not replay a week of schedules) fires once.
+ *  Note     |  `weekdays` (Monday first) narrows the cron further: a
+ *           |  minute fires only if it falls on a chosen day in the
+ *           |  rule's zone. Absent, every day the cron allows counts.
  * ------------------------------------------------------------------
  */
 
-import type { NodeAction, Rule } from '@nvx/contracts/controller';
+import type { NodeAction, Rule, Weekday } from '@nvx/contracts/controller';
 import { appliesTo, type NodeView, type RuleOutcome } from './types';
 
 type ScheduleRule = Extract<Rule, { kind: 'schedule' }>;
@@ -106,8 +109,12 @@ export function zonedParts(d: Date, tz: string) {
   };
 }
 
-export function cronMatches(cron: Cron, d: Date, tz: string): boolean {
+/** Weekday name → the cron day-of-week number (Sunday is 0). */
+const DOW_OF: Record<Weekday, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+export function cronMatches(cron: Cron, d: Date, tz: string, weekdays?: readonly Weekday[]): boolean {
   const p = zonedParts(d, tz);
+  if (weekdays && !weekdays.some((w) => DOW_OF[w] === p.dow)) return false;
   if (!cron.minute.values.has(p.minute) || !cron.hour.values.has(p.hour) || !cron.month.values.has(p.month))
     return false;
   const domOk = cron.dom.values.has(p.dom);
@@ -119,12 +126,18 @@ export function cronMatches(cron: Cron, d: Date, tz: string): boolean {
 const MAX_LOOKBACK_MS = 24 * 3_600_000;
 
 /** The latest matching minute in (since, now], or null. */
-export function lastMatch(cron: Cron, tz: string, since: Date | null, now: Date): Date | null {
+export function lastMatch(
+  cron: Cron,
+  tz: string,
+  since: Date | null,
+  now: Date,
+  weekdays?: readonly Weekday[],
+): Date | null {
   const floor = Math.max(since ? since.getTime() : now.getTime() - 60_000, now.getTime() - MAX_LOOKBACK_MS);
   let t = Math.floor(now.getTime() / 60_000) * 60_000;
   while (t > floor) {
     const d = new Date(t);
-    if (cronMatches(cron, d, tz)) return d;
+    if (cronMatches(cron, d, tz, weekdays)) return d;
     t -= 60_000;
   }
   return null;
@@ -153,7 +166,13 @@ export function evaluateSchedule(
     firedAt: Date | null;
   };
   if (!rule.enabled) return out;
-  const fired = lastMatch(parseCron(rule.config.cron), rule.config.tz, lastFiredAt, now);
+  const fired = lastMatch(
+    parseCron(rule.config.cron),
+    rule.config.tz,
+    lastFiredAt,
+    now,
+    rule.config.weekdays,
+  );
   if (!fired) return out;
   out.firedAt = fired;
   for (const node of nodes) {

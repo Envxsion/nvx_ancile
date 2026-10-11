@@ -214,12 +214,25 @@ export async function saveRule(rule: Omit<Rule, 'id'> & { id?: string }): Promis
   }
 }
 
-export async function deleteRule(id: string): Promise<void> {
+/** Remove a rule; the toast's Undo saves it again under the same id. */
+export async function deleteRule(rule: Rule, title: string): Promise<boolean> {
   try {
-    await api.del(`/compute/rules/${id}`);
+    await api.del(`/compute/rules/${rule.id}`);
     void queryClient.invalidateQueries({ queryKey: computeKeys.rules });
+    notify({
+      level: 'info',
+      title: `Removed the rule "${title}"`,
+      body: 'It no longer acts on your nodes.',
+      undo: () => {
+        void saveRule(rule).then((ok) => {
+          if (ok) notify({ level: 'success', title: `Restored the rule "${title}"` });
+        });
+      },
+    });
+    return true;
   } catch (error) {
     failed(error, 'Removing the rule');
+    return false;
   }
 }
 

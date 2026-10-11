@@ -10,6 +10,10 @@ A notebook or a thread can work in a git repository on your computer. NVX Ancile
 
 A thread's own link wins over its notebook's. **Unlink** at the top of the panel removes the link; the repository stays in your list.
 
+## Remove a repository
+
+Choose **⋯** beside a repository (in the list of your repositories, or at the top of the panel when it is linked), then **Remove repo** and confirm. NVX Ancile stops tracking it and drops every thread and notebook link to it (`DELETE /api/v1/repos/:id`). The folder on disk is never touched: its files, branches and history stay exactly as they were. **Undo** on the notice adds the same folder back under the same name and, from the panel, links it here again; links in other threads and notebooks have to be made again. A repository whose folder has moved shows **Remove repo** on its error, so you can add the new location.
+
 For one message, type `@` and pick a repository: the chip reads **Git in <name>**, and every git tool in that answer acts on it, whatever the thread is linked to. The link itself does not change.
 
 ## What you see

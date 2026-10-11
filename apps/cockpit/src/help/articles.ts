@@ -106,14 +106,19 @@ When a message starts a clearly different topic, a quiet chip offers to name the
         id: 'models',
         title: 'Adding models',
         summary: 'Paste a key, test it, and choose which model answers.',
-        keywords: 'api key provider anthropic openai google ollama openrouter model setup',
+        keywords:
+          'api key provider anthropic openai google ollama openrouter model setup routing chain fallback order',
         body: `Open **Settings → API keys** and press **Add API key** beside a provider. The key is checked with one tiny call before it is saved, so you know it works before you rely on it. Keys are encrypted on this computer and never shown again. Admin → Models lists every model and switches each one on or off.
 
 Ollama on this computer is found from the setup screen: press **Find it**. If it isn't installed, **Get Ollama** opens the download page, and NVX Ancile notices it by itself once it is running.
 
 Press **M** anywhere to change the model for the thread you are in. The next message uses it, and the conversation so far carries over.
 
-If a model fails or declines, NVX Ancile asks the next one in its chain without interrupting you. The answer says which model wrote it, and **Why** shows every attempt.`,
+If a model fails or declines, NVX Ancile asks the next one in its chain without interrupting you. The answer says which model wrote it, and **Why** shows every attempt.
+
+To change who answers first, open **Admin → Routing**. Drag a model by its grip, or use its **⋯** menu to move it up, move it down or remove it, and **Add model** to put another in the chain. Changes save at once. **Reset to default** brings back the original order, and you can undo it.
+
+In **Admin → Models**, each model's **⋯** menu can **Edit** it (its name, context window, chip colour, and for your own server its address and key), turn it on or off, or **Remove** a model you added. Removing asks first, and **Undo** on the notice brings it back, key and all, for ten minutes. Models from config/models.yaml take only their colour and on/off there.`,
       },
       {
         id: 'offline-model',
@@ -175,7 +180,9 @@ Each source shows what is happening to it: reading, cutting it into passages, in
 
 You can also paste a link, paste text, or add a past thread as a source, so a long conversation becomes something a later question can cite.
 
-If you add something that is already there, NVX Ancile offers to **merge** the two.`,
+If you add something that is already there, NVX Ancile offers to **merge** the two.
+
+A source's menu (**⋯**, or right-click) can **Rename** it, which changes its title in every notebook; **Remove from notebook**, which you can undo and which leaves it in your other notebooks; or **Delete source**, which takes it out of every notebook, search and answers after you confirm. A deleted source cannot be brought back from here, so add it again if you need it.`,
       },
       {
         id: 'context-levels',
@@ -277,7 +284,7 @@ Under the answer, **What the lab changed** lists every file it added, changed or
 
 While the AI waits, the mark in the top-left closes like a shield and the status bar counts the decisions waiting. You can leave and come back: the run waits for you, even across a restart.
 
-Admin → Grants lists everything you have allowed, and any grant can be revoked.`,
+Admin → Permissions lists everything you have allowed. A grant's **⋯** menu can **Edit** it, to narrow its pattern, change where it applies or set when it expires, or **Revoke** it. A pattern can only be narrowed there; to allow more, revoke it and answer the next request. Revoking asks first, and **Undo** on the notice puts it back for ten minutes.`,
       },
       {
         id: 'presets',
@@ -322,14 +329,17 @@ Until you connect a provider, two **sample** nodes show how it all works. They s
         id: 'compute-rules',
         title: 'Rules: idle stop, cap, schedule',
         summary: 'Keep GPU bills where you want them, automatically.',
-        keywords: 'rules idle timeout cost cap budget schedule nightly stop automatic',
+        keywords:
+          'rules idle timeout cost cap budget schedule nightly weekdays days nodes stop start automatic edit remove',
         body: `Three kinds of rule keep nodes in check. Each acts through the same confirmation chain as your own clicks, and is listed on the node it acted on.
 
-- **Stop idle nodes**: a running node that has answered nothing for the minutes you choose is stopped. Its disk is kept.
-- **Monthly cap**: when this month's spend reaches the amount, NVX Ancile either answers with your cloud models instead, stops the nodes, or just tells you. You are warned before you get there.
-- **Stop on a schedule**: every day at a time you choose, in your time zone. Handy for "never leave it running overnight".
+- **Stop idle nodes**: a running node that has answered nothing for the minutes you type is stopped. Its disk is kept.
+- **Monthly cap**: when this month's spend reaches the amount you type, NVX Ancile either answers with your cloud models instead, stops nodes, or just tells you. You are warned at 80%. Spend always counts every node.
+- **Schedule**: start or stop nodes at a time you type, on the days you pick (Mon to Sun), in your time zone. Leave every day on for a daily rule; pick Mon to Fri for "never leave it running overnight on a workday".
 
-Turn any rule off with its switch; change a number and it saves when you leave the field.`,
+Each rule acts on **All nodes** or on **Chosen nodes** you tick. For a monthly cap, the choice says which nodes "Stop nodes" stops.
+
+New rules start empty: type the number or time, and **Add rule** turns on once it reads. Turn a rule off with its switch. Use the ⋯ menu on a rule to edit or remove it; removing asks first, and the notice that follows has **Undo**.`,
       },
     ],
   },
@@ -418,7 +428,9 @@ Whatever you choose, something that came from a web page, a file or a tool's out
         keywords: 'memory edit file markdown conflict merge bullet',
         body: `In Admin → Memory, pick a file and choose **Edit**. Write each memory as one bullet with one idea. The comments at the end of learned lines (\`<!-- m:… -->\`) keep track of where each entry came from; leave them, or delete them if you like, it does no harm.
 
-**Review changes** (or **Ctrl S**) shows exactly what will change before it is committed. If NVX Ancile learned something in the same file while you were typing, the two are merged for you. If they touched the same lines, both versions are shown side by side so you can keep what you want.`,
+**Review changes** (or **Ctrl S**) shows exactly what will change before it is committed. If NVX Ancile learned something in the same file while you were typing, the two are merged for you. If they touched the same lines, both versions are shown side by side so you can keep what you want.
+
+To delete a whole file, choose **⋯** beside the file's views, then **Delete file**. The deletion is its own commit, so **Undo** on the notice (or **Revert** in History) brings it back. AGENTS.md, USER.md and the folder's guides cannot be deleted: every answer is built around them, so edit them instead.`,
       },
     ],
   },

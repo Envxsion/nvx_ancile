@@ -158,6 +158,8 @@ Example: adding a vLLM server you run yourself, without the Controller:
 
 `config/routing.yaml` maps task classes to fallback chains. See [self-healing.md](self-healing.md).
 
+You can change a chain without the file in **Admin → Routing**: drag models into order (or use each model's menu: **Move up**, **Move down**, **Remove from chain**), and **Add model** from your switched-on chat models. The order is saved in Core settings (`routing.chains` in `core.settings`) and wins over the YAML for that task class; **Reset to default** goes back to the file, with Undo. Flags in the YAML, such as `prefer_different_family`, still apply to a saved order. `embed` and `rerank` run in Knowledge on this computer and are not edited there.
+
 | Task class | Used for |
 |---|---|
 | `chat.default` | Normal turns |

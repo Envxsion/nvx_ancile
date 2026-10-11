@@ -86,7 +86,8 @@ export function toModelView(m: ModelInfo): ModelView {
     id: m.id,
     name: m.display_name,
     provider: PROVIDER_NAME[m.provider] ?? (m.provider.startsWith('endpoint-') ? 'Your server' : m.provider),
-    hue: hueFor(m.family),
+    hue: m.hue ?? hueFor(m.family),
+    ...(m.hue && { chosenHue: m.hue }),
     via: m.via,
     contextWindow: m.context_window,
     status: m.status,
@@ -94,7 +95,7 @@ export function toModelView(m: ModelInfo): ModelView {
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
-    ...(m.custom && { custom: true, baseUrl: m.base_url ?? null }),
+    ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
   };
 }
 

@@ -169,8 +169,21 @@ export async function linkRepo(scope: 'notebook' | 'thread', scopeRef: string, r
   await queryClient.invalidateQueries({ queryKey: ['repos', 'linked'] });
 }
 
-export async function addRepo(path: string): Promise<RepoInfo> {
-  const r = await api.post<RepoInfo>('/repos', { path });
+export async function addRepo(path: string, name?: string): Promise<RepoInfo> {
+  const r = await api.post<RepoInfo>('/repos', { path, ...(name && { name }) });
   await queryClient.invalidateQueries({ queryKey: repoKeys.all });
   return r;
+}
+
+/**
+ * Stop tracking a repository. Core forgets the record and every thread
+ * or notebook link to it; the folder on disk is never touched.
+ */
+export async function removeRepo(id: string): Promise<void> {
+  await api.del(`/repos/${id}`);
+  queryClient.removeQueries({ queryKey: repoKeys.repo(id) });
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: repoKeys.all }),
+    queryClient.invalidateQueries({ queryKey: ['repos', 'linked'] }),
+  ]);
 }

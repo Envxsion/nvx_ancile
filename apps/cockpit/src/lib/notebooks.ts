@@ -229,6 +229,50 @@ export async function removeSource(notebookId: string, s: SourceView): Promise<v
   }
 }
 
+/** Every cached list of sources: one source can sit in several notebooks. */
+function eachSourceList(update: (list: SourceView[]) => SourceView[]): void {
+  for (const [key, list] of queryClient.getQueriesData<SourceView[]>({ queryKey: ['sources'] }))
+    if (list) queryClient.setQueryData(key, update(list));
+}
+
+/** Rename a source everywhere it is used. The new title sticks: re-reading it never overwrites it. */
+export async function renameSource(sourceId: string, title: string): Promise<Source> {
+  const next = title.trim();
+  const before = queryClient.getQueriesData<SourceView[]>({ queryKey: ['sources'] });
+  eachSourceList((list) => list.map((x) => (x.id === sourceId ? { ...x, title: next } : x)));
+  try {
+    const s = await api.patch<Source>(`/sources/${sourceId}`, { title: next });
+    void queryClient.invalidateQueries({ queryKey: keys.source(sourceId) });
+    return s;
+  } catch (error) {
+    for (const [key, list] of before) queryClient.setQueryData(key, list);
+    report(error, 'Renaming the source');
+    throw error;
+  }
+}
+
+/**
+ * Delete a source from the workspace: it leaves every notebook, search
+ * and answers. Knowledge keeps the file aside, but nothing here brings it
+ * back, so the card asks first and offers no Undo.
+ * TODO(phase-5): a restore route over Knowledge's soft delete, then Undo.
+ */
+export async function deleteSource(s: SourceView): Promise<void> {
+  const before = queryClient.getQueriesData<SourceView[]>({ queryKey: ['sources'] });
+  eachSourceList((list) => list.filter((x) => x.id !== s.id));
+  try {
+    await api.del(`/sources/${s.id}`);
+    queryClient.removeQueries({ queryKey: keys.source(s.id) });
+    queryClient.removeQueries({ queryKey: keys.sourceContent(s.id) });
+    void queryClient.invalidateQueries({ queryKey: ['sources'] });
+    void refreshNotebooks();
+    notify({ level: 'success', title: 'Source deleted', body: s.title });
+  } catch (error) {
+    for (const [key, list] of before) queryClient.setQueryData(key, list);
+    report(error, 'Deleting the source');
+  }
+}
+
 export async function retrySource(notebookId: string, sourceId: string): Promise<void> {
   try {
     await api.post(`/sources/${sourceId}/retry`);

@@ -15,7 +15,7 @@
  */
 
 import { ApiError } from '@nvx/contracts';
-import { ComputeNode, CostSummary, Operation } from '@nvx/contracts/controller';
+import { ComputeNode, CostSummary, Operation, Rule } from '@nvx/contracts/controller';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
 import { FakeProvider } from '../../src/providers/fake';
@@ -152,6 +152,64 @@ describe('Controller contract v1', () => {
     });
     expect(bad.status).toBe(422);
     expect(ApiError.parse(await bad.json()).error.hint).toMatch(/minute/);
+  });
+
+  it('keeps weekdays and chosen nodes on a rule, and still accepts rules without them', async () => {
+    const post = (body: unknown) =>
+      call('/control/v1/rules', {
+        method: 'POST',
+        headers: auth({ 'content-type': 'application/json' }),
+        body: JSON.stringify(body),
+      });
+    const withDays = await post({
+      kind: 'schedule',
+      enabled: true,
+      config: {
+        node_ids: ['nod_a'],
+        cron: '0 19 * * *',
+        action: 'stop',
+        tz: 'UTC',
+        weekdays: ['mon', 'fri'],
+      },
+    });
+    expect(withDays.status).toBe(201);
+    const saved = Rule.parse(await withDays.json());
+    expect(saved.kind === 'schedule' && saved.config.weekdays).toEqual(['mon', 'fri']);
+    expect(saved.config.node_ids).toEqual(['nod_a']);
+
+    const legacy = await post({
+      kind: 'schedule',
+      enabled: true,
+      config: { node_ids: '*', cron: '0 23 * * *', action: 'stop', tz: 'UTC' },
+    });
+    expect(legacy.status).toBe(201);
+    const old = Rule.parse(await legacy.json());
+    expect(old.kind === 'schedule' && old.config.weekdays).toBeUndefined();
+
+    // Editing is saving again under the same id.
+    const edited = await post({ ...saved, config: { ...saved.config, weekdays: ['sat'] } });
+    expect(edited.status).toBe(201);
+    const list = (await (await call('/control/v1/rules', { headers: auth() })).json()) as { items: Rule[] };
+    const mine = list.items.find((r) => r.id === saved.id);
+    expect(mine?.kind === 'schedule' && mine.config.weekdays).toEqual(['sat']);
+
+    for (const bad of [
+      {
+        kind: 'schedule',
+        enabled: true,
+        config: { node_ids: '*', cron: '0 1 * * *', action: 'stop', tz: 'UTC', weekdays: ['monday'] },
+      },
+      {
+        kind: 'schedule',
+        enabled: true,
+        config: { node_ids: '*', cron: '0 1 * * *', action: 'stop', tz: 'UTC', weekdays: [] },
+      },
+      { kind: 'idle_timeout', enabled: true, config: { node_ids: [], idle_minutes: 30 } },
+    ])
+      expect((await post(bad)).status).toBe(422);
+
+    for (const r of [saved.id, old.id])
+      await call(`/control/v1/rules/${r}`, { method: 'DELETE', headers: auth() });
   });
 
   it('exposes route aliases as OpenAI models', async () => {

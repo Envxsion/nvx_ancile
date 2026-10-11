@@ -132,6 +132,81 @@ describe('adding models', () => {
     }
   });
 
+  it('edits an added model: name, context, hue, address and key, then undoes its removal with the key', async () => {
+    h = await harness({ catalogue: fixtures });
+    const base = 'https://pod-1-8000.proxy.runpod.net/v1';
+    const added = await h.call<ModelInfo>('POST', '/models', {
+      source: 'openai-compatible',
+      base_url: base,
+      api_key: 'sk-one',
+      provider_model: 'qwen3',
+      hue: 'jade',
+    });
+    const id = added.body.id;
+    expect(added.body.hue).toBe('jade');
+    const own = endpointSecret('endpoint-pod-1-8000-proxy-runpod-net');
+
+    const edited = await h.call<ModelInfo>('PATCH', `/models/${id}`, {
+      display_name: 'Qwen on the pod',
+      context_window: 131072,
+      hue: 'coral',
+      base_url: 'https://pod-2-8000.proxy.runpod.net/v1',
+    });
+    expect(edited.body).toMatchObject({
+      display_name: 'Qwen on the pod',
+      context_window: 131072,
+      hue: 'coral',
+      base_url: 'https://pod-2-8000.proxy.runpod.net/v1',
+    });
+    expect((await h.call<ModelInfo>('PATCH', `/models/${id}`, { hue: null })).body.hue).toBeUndefined();
+
+    // A key by name must exist; switching to it drops the endpoint's own.
+    const missing = await h.call<{ error: { code: string } }>('PATCH', `/models/${id}`, {
+      secret: 'NOT_STORED_KEY',
+    });
+    expect(missing.body.error.code).toBe('model.secret_missing');
+    await h.secrets.set('SHARED_POD_KEY', 'sk-shared');
+    const swapped = await h.call<ModelInfo>('PATCH', `/models/${id}`, { secret: 'SHARED_POD_KEY' });
+    expect(swapped.body).toMatchObject({ secret: 'SHARED_POD_KEY', status: 'ready' });
+    expect(await h.secrets.get(own)).toBeUndefined();
+    await h.call('PATCH', `/models/${id}`, { secret: null, api_key: 'sk-two' });
+    expect(await h.secrets.get(own)).toBe('sk-two');
+
+    // Remove, then undo: the model and its key come back.
+    expect((await h.call('DELETE', `/models/${id}`)).status).toBe(204);
+    expect(await h.secrets.get(own)).toBeUndefined();
+    const restored = await h.call<ModelInfo>('POST', '/models/restore', { id });
+    expect(restored.status).toBe(201);
+    expect(restored.body).toMatchObject({ id, display_name: 'Qwen on the pod', status: 'ready' });
+    expect(await h.secrets.get(own)).toBe('sk-two');
+    const twice = await h.call<{ error: { code: string } }>('POST', '/models/restore', { id });
+    expect(twice.status).toBe(410);
+    expect(twice.body.error.code).toBe('model.restore_expired');
+  });
+
+  it('gives a config model a hue but nothing else, and keeps endpoint fields to endpoints', async () => {
+    h = await harness({ catalogue: fixtures });
+    const configModel = h.registry.all().find((x) => !h.registry.isCustom(x.id));
+    if (!configModel) throw new Error('the harness has no config model');
+    const r = await h.call<ModelInfo>('PATCH', `/models/${configModel.id}`, { hue: 'magenta' });
+    expect(r.status).toBe(200);
+    expect(r.body.hue).toBe('magenta');
+    await h.registry.refresh();
+    expect(h.registry.info().find((m) => m.id === configModel.id)?.hue).toBe('magenta');
+    const cleared = await h.call<ModelInfo>('PATCH', `/models/${configModel.id}`, { hue: null });
+    expect(cleared.body.hue).toBeUndefined();
+
+    const added = await h.call<ModelInfo>('POST', '/models', {
+      source: 'anthropic',
+      provider_model: 'claude-haiku-9',
+    });
+    const r2 = await h.call<{ error: { code: string } }>('PATCH', `/models/${added.body.id}`, {
+      base_url: 'https://example.com/v1',
+    });
+    expect(r2.status).toBe(409);
+    expect(r2.body.error.code).toBe('model.not_endpoint');
+  });
+
   it('refuses an OpenAI-compatible model without its address', async () => {
     h = await harness({ catalogue: fixtures });
     const r = await h.call('POST', '/models', { source: 'openai-compatible', provider_model: 'x' });

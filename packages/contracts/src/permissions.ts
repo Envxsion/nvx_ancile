@@ -47,6 +47,19 @@ export const ApprovalDecisionRequest = z
   })
   .strict();
 
+/**
+ * PATCH /grants/:id. A new pattern must be no wider than the one granted;
+ * a scope must be one the preset allows. ttl_seconds null never expires.
+ */
+export const PatchGrantRequest = z
+  .object({
+    ttl_seconds: z.number().int().positive().nullable().optional(),
+    resource_pattern: z.string().min(1).max(1000).optional(),
+    scope: GrantScope.optional(),
+  })
+  .strict();
+export type PatchGrantRequest = z.infer<typeof PatchGrantRequest>;
+
 export const DecisionOutcome = z.enum(['auto', 'grant', 'approved', 'denied', 'policy_deny', 'expired']);
 
 export const Decision = z.object({

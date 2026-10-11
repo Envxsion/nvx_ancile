@@ -11,6 +11,8 @@
  *           |  (one token, the provider's cheapest configured model).
  *           |  The tester is injected so tests never touch a network.
  *           |  Ollama has no key: it passes when its server answers.
+ *           |  Routing chains are edited here too (Admin → Routing):
+ *           |  a saved order wins over config/routing.yaml until reset.
  * ------------------------------------------------------------------
  */
 
@@ -20,6 +22,9 @@ import {
   type ProviderId,
   ProviderTestRequest,
   type ProviderTestResponse,
+  PutRoutingRequest,
+  type RoutingChain,
+  type RoutingList,
   SetupCompleteRequest,
   type SetupStatus,
 } from '@nvx/contracts';
@@ -30,7 +35,7 @@ import type { AppEnv } from '../app';
 import { tracedFetch } from '../context';
 import type { CatalogueSource } from '../gateway/catalogue';
 import { DEFAULT_SECRET } from '../gateway/providers';
-import type { ModelRegistry } from '../gateway/registry';
+import { canChat, type ModelRegistry } from '../gateway/registry';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { SecretStore } from '../secrets';
@@ -200,16 +205,83 @@ export function setupRoutes(deps: SetupRouteDeps) {
 
   registerModelRoutes(r, { registry, secrets, ...(deps.catalogue && { catalogue: deps.catalogue }) });
 
-  r.get('/routing', async (c) => {
-    const classes = ['chat.default', 'chat.deep', 'utility'];
-    const items = classes.map((tc) => {
-      try {
-        return { task_class: tc, chain: registry.chain(tc).map((m) => m.id), ok: true };
-      } catch {
-        return { task_class: tc, chain: [], ok: false };
-      }
+  /** One class as Admin → Routing shows it: the saved or YAML order, and who can answer now. */
+  const routingOf = (tc: string): RoutingChain => {
+    const saved = registry.savedChain(tc);
+    const def = registry.defaultChain(tc);
+    let chain: string[] = [];
+    let ok = true;
+    try {
+      chain = registry.chain(tc).map((m) => m.id);
+    } catch {
+      ok = false;
+    }
+    return { task_class: tc, chain, ok, configured: saved ?? def, default: def, custom: saved !== undefined };
+  };
+
+  const knownClass = (tc: string): string => {
+    if (registry.taskClassNames().includes(tc)) return tc;
+    throw new AncileError({
+      code: 'routing.task_class_unknown',
+      title: `There is no task class called ${tc}`,
+      hint: 'Pick one of the task classes listed in Admin → Routing.',
+      status: 404,
+      errorClass: 'permanent',
     });
-    return c.json({ items });
+  };
+
+  r.get('/routing', (c) => {
+    const out: RoutingList = { items: registry.taskClassNames().map(routingOf) };
+    return c.json(out);
+  });
+
+  r.put('/routing/:task_class', async (c) => {
+    const tc = knownClass(c.req.param('task_class'));
+    const req = await body(c, PutRoutingRequest);
+    const ids = [...new Set(req.chain.map((id) => id.trim()))];
+    if (ids.length === 0) {
+      throw new AncileError({
+        code: 'routing.chain_empty',
+        title: 'A chain needs at least one model',
+        hint: 'Add a model before saving, or reset the chain to its default.',
+        status: 400,
+        errorClass: 'permanent',
+      });
+    }
+    // Ids the class already lists may stay even when no model has them yet (a YAML entry for a node not set up).
+    const listed = new Set([...registry.defaultChain(tc), ...(registry.savedChain(tc) ?? [])]);
+    for (const id of ids) {
+      const m = registry.get(id);
+      if (!m && listed.has(id)) continue;
+      if (!m) {
+        throw new AncileError({
+          code: 'routing.model_unknown',
+          title: `${id} isn't one of your models`,
+          hint: 'Add it in Admin → Models first, or pick a model from the list.',
+          status: 400,
+          errorClass: 'permanent',
+          context: { model: id },
+        });
+      }
+      if (!canChat(m)) {
+        throw new AncileError({
+          code: 'model.not_chat',
+          title: `${m.display_name} can't answer messages`,
+          hint: 'It is an embedding or rerank model; pick a chat model for this chain.',
+          status: 422,
+          errorClass: 'permanent',
+          context: { model: id },
+        });
+      }
+    }
+    await registry.saveChain(tc, ids);
+    return c.json(routingOf(tc));
+  });
+
+  r.delete('/routing/:task_class', async (c) => {
+    const tc = knownClass(c.req.param('task_class'));
+    await registry.saveChain(tc, null);
+    return c.json(routingOf(tc));
   });
 
   return r;

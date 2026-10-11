@@ -5,6 +5,7 @@
  * TODO(phase-2..5): grow with each route; every route gets a contract test.
  */
 import { z } from 'zod';
+import { ModelHue } from './config';
 import { RunStatus } from './events';
 import { Message, Part } from './messages';
 import { DecisionScope } from './permissions';
@@ -220,8 +221,38 @@ export const ModelInfo = z.object({
   custom: z.boolean().optional(),
   /** OpenAI-compatible endpoint models: where they are served. */
   base_url: z.string().nullable().optional(),
+  /** The chip's hue you chose; null or absent follows the family. */
+  hue: ModelHue.nullable().optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
+
+/* ---- Routing chains (Admin → Routing) ------------------------------------ */
+
+/** One task class's fallback chain: GET /routing items, and the answer to PUT and DELETE. */
+export const RoutingChain = z.object({
+  task_class: z.string(),
+  /** The models routing tries right now, in order: only those that can answer. */
+  chain: z.array(z.string()),
+  /** False when no model in the chain can answer yet. */
+  ok: z.boolean(),
+  /** The chain as set, ready or not: your saved order when you have one, otherwise config/routing.yaml. */
+  configured: z.array(z.string()),
+  /** The chain in config/routing.yaml; DELETE goes back to it. */
+  default: z.array(z.string()),
+  /** True when a chain saved in Admin → Routing wins over config/routing.yaml. */
+  custom: z.boolean(),
+});
+export type RoutingChain = z.infer<typeof RoutingChain>;
+
+export const RoutingList = z.object({ items: z.array(RoutingChain) });
+export type RoutingList = z.infer<typeof RoutingList>;
+
+/**
+ * PUT /routing/:task_class: save this order for the task class. Every id
+ * must be a known chat model; an empty chain is refused (`routing.chain_empty`).
+ */
+export const PutRoutingRequest = z.object({ chain: z.array(z.string().min(1).max(200)).max(32) }).strict();
+export type PutRoutingRequest = z.infer<typeof PutRoutingRequest>;
 
 /* ---- Adding models (Settings → Models, flow model picker) ------------------ */
 
@@ -245,11 +276,12 @@ export const AddModelRequest = z
     capabilities: z.array(z.enum(['tools', 'vision', 'reasoning', 'json', 'audio'])).optional(),
     price: z.object({ input_per_mtok: z.number().min(0), output_per_mtok: z.number().min(0) }).optional(),
     enabled: z.boolean().default(true),
+    hue: ModelHue.optional(),
   })
   .strict();
 export type AddModelRequest = z.infer<typeof AddModelRequest>;
 
-/** PATCH /models/:id for an added model; config models only take `enabled`. */
+/** PATCH /models/:id for an added model; config models only take `enabled` and `hue`. */
 export const PatchModelRequest = z
   .object({
     enabled: z.boolean().optional(),
@@ -262,6 +294,14 @@ export const PatchModelRequest = z
     base_url: z.string().url().optional(),
     /** Replace the endpoint's key (openai-compatible only). */
     api_key: z.string().min(1).max(4000).optional(),
+    /** Use a key already in the encrypted store, by name; null sends no key (openai-compatible only). */
+    secret: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9_]{1,79}$/, 'A key name, like MY_SERVER_KEY')
+      .nullable()
+      .optional(),
+    /** The chip's hue; null goes back to the family's. */
+    hue: ModelHue.nullable().optional(),
   })
   .strict();
 export type PatchModelRequest = z.infer<typeof PatchModelRequest>;

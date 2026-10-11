@@ -7,13 +7,15 @@
  *           |  At the cap: stop running nodes, block routing (Core
  *           |  receives 402 cost_cap and falls back to cloud models),
  *           |  or only notify, as the rule says.
+ *           |  "stop_nodes" stops only the rule's chosen nodes (all of
+ *           |  them when none are chosen); spend counts every node.
  *  Note     |  Warnings fire once per threshold per month; the runner
  *           |  passes in which thresholds have already been announced.
  * ------------------------------------------------------------------
  */
 
 import type { CostSummary, Rule } from '@nvx/contracts/controller';
-import type { NodeView, RuleOutcome } from './types';
+import { appliesTo, type NodeView, type RuleOutcome } from './types';
 
 type CapRule = Extract<Rule, { kind: 'cost_cap' }>;
 export const WARN_AT = 0.8;
@@ -34,7 +36,11 @@ export function evaluateCostCap(
     if (rule.config.on_reach === 'block_routing') out.blockRouting = true;
     if (rule.config.on_reach === 'stop_nodes') {
       for (const n of nodes) {
-        if ((n.state === 'running' || n.state === 'starting') && !n.hasLiveOperation) {
+        if (
+          (n.state === 'running' || n.state === 'starting') &&
+          !n.hasLiveOperation &&
+          appliesTo(rule.config.node_ids ?? '*', n.id)
+        ) {
           out.actions.push({
             nodeId: n.id,
             action: 'stop',

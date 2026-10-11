@@ -5,7 +5,33 @@
    ------------------------------------------------------------------------ */
 
 .row--health.row--model {
-  grid-template-columns: auto minmax(0, 1.3fr) minmax(0, 1fr) 128px 80px 28px;
+  grid-template-columns: auto minmax(0, 1.3fr) minmax(0, 1fr) 128px 28px;
+}
+/* The chip colour this model wears in pickers and the composer. */
+.model-hue {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--hue);
+}
+/* Edit a model */
+.edit-model__form {
+  display: grid;
+  gap: 14px;
+}
+.edit-model__hues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.edit-model__hues .btn[aria-checked='true'] {
+  box-shadow: inset 0 0 0 1px var(--fg-2);
+}
+.edit-model__switch {
+  grid-template-columns: 1fr auto;
+  align-items: center;
 }
 .row--model .row__meta {
   overflow: hidden;
@@ -183,7 +209,7 @@
 
 @media (max-width: 560px) {
   .row--health.row--model {
-    grid-template-columns: auto minmax(0, 1fr) auto 28px;
+    grid-template-columns: auto minmax(0, 1fr) 28px;
   }
   .row--model .row__meta,
   .row--model .row__num {
@@ -232,4 +258,100 @@
   color: var(--signal-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Admin → Routing: one card per task class, its chain as a list you drag by
+   the grip or rearrange from each model's menu. A model routing will skip
+   is muted, not coloured: skipping is normal, not a fault.
+   ------------------------------------------------------------------------ */
+
+.route-chains {
+  display: grid;
+  gap: 22px;
+}
+.route-chain {
+  display: grid;
+  gap: 10px;
+}
+.route-chain__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.route-chain__id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.route-chain__name {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 600;
+}
+.route-chain__purpose,
+.route-chain__now,
+.route-chain__empty {
+  margin: 0;
+  font-size: 12.5px;
+}
+.route-chain__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.route-chain__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.row.route-link {
+  grid-template-columns: 18px 18px minmax(0, 1fr) auto 28px;
+  position: relative;
+  background: var(--lift);
+}
+/* Lifted while dragged (RoutingEditor sets data-dragging). */
+.row.route-link[data-dragging] {
+  z-index: 1;
+  background: var(--lift-3);
+  box-shadow: var(--shadow-pop);
+}
+.route-link[data-status='skipped'] .row__title,
+.route-link[data-status='skipped'] .row__meta {
+  color: var(--mute-2);
+}
+.route-link__grip {
+  display: grid;
+  place-items: center;
+  color: var(--mute-2);
+  cursor: grab;
+  touch-action: none;
+}
+.route-link__grip:hover {
+  color: var(--fg-2);
+}
+.route-link__grip:active {
+  cursor: grabbing;
+}
+.route-link__num {
+  color: var(--mute);
+  font-size: 11.5px;
+  text-align: right;
+}
+.route-link .row__meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@media (max-width: 560px) {
+  .row.route-link {
+    grid-template-columns: 18px 18px minmax(0, 1fr) 28px;
+  }
+  .route-link .row__meta {
+    display: none;
+  }
 }

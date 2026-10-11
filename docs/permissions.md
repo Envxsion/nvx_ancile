@@ -104,5 +104,7 @@ Admin → Permissions has a **dry run** box. It answers "what would happen if an
 
 ## Admin views
 
-- **Grants:** every active grant with its pattern, scope, uses, last use and expiry. Revoke, extend or narrow it. A revocation takes effect on the very next check.
+- **Grants:** every active grant with its pattern, scope, uses, last use and expiry. Its "⋯" menu edits or revokes it. A revocation takes effect on the very next check.
+  - **Edit** narrows the pattern, changes where it applies, or sets a new expiry. A pattern can only narrow: the new one must sit inside the old (`fs:/workspace/**` → `fs:/workspace/docs/*.md` is fine; the reverse, or bringing in a `**` the old one lacked, is refused with `permission.pattern_too_broad`). To allow more, revoke and answer the next request. A new scope takes its thread or notebook from the approval the grant came from; under Careful a scope can narrow but never widen past one thread.
+  - **Revoke** asks first, then shows an Undo for ten minutes (`POST /grants/:id/restore`). After that the revocation stands and the agent asks again.
 - **Decisions:** the full history, filterable by tool, outcome, principal, thread or time, with links to each trace.

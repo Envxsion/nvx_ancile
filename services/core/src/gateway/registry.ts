@@ -12,13 +12,15 @@
  *  How      |  Config models, plus the offline test models when the
  *           |  dev stack asks for them. Enable overrides (set when a
  *           |  key passes its test in onboarding) live in settings, so
- *           |  the YAML a person wrote is never rewritten.
+ *           |  the YAML a person wrote is never rewritten. Chains saved
+ *           |  in Admin → Routing live there too and win over the YAML;
+ *           |  refresh() caches them, so chain() stays synchronous.
  *           |  RoutingClient sends `fake` models to the FakeProvider
  *           |  and everything else through the AI SDK.
  * ------------------------------------------------------------------
  */
 
-import { ModelConfig, type ModelInfo } from '@nvx/contracts';
+import { ModelConfig, type ModelHue, type ModelInfo } from '@nvx/contracts';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { OFFLINE_MODELS } from './fake';
@@ -46,6 +48,9 @@ export function secretFor(m: ModelConfig): string | null {
   return m.secret ?? DEFAULT_SECRET[m.provider] ?? null;
 }
 
+/** Classes Knowledge runs on this computer (fastembed); they are not edited in Admin → Routing. */
+const LOCAL_CLASSES = new Set(['embed', 'rerank']);
+
 /** The provider name for models discovered on your GPU nodes. */
 export const NODE_PROVIDER = 'node';
 
@@ -53,6 +58,10 @@ export class ModelRegistry {
   private readonly models: ModelConfig[];
   private secretNames = new Set<string>();
   private overrides: Record<string, boolean> = {};
+  /** Chip hues chosen for config models. */
+  private hues: Record<string, ModelHue> = {};
+  /** Chains saved in Admin → Routing, held here so chain() never reads the database. */
+  private savedChains: Record<string, string[]> = {};
   /** Ids of the models you added (Settings → Models), merged in on refresh. */
   private customIds = new Set<string>();
 
@@ -64,7 +73,39 @@ export class ModelRegistry {
   async refresh(): Promise<void> {
     this.secretNames = new Set(await this.opts.secrets.names());
     this.overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
+    this.hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
     this.mergeCustom((await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? []);
+    this.savedChains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
+  }
+
+  /** Task classes you can edit in Admin → Routing: the YAML's chat-shaped classes, plus the three every install has. */
+  taskClassNames(): string[] {
+    const names = new Set(['chat.default', 'chat.deep', 'utility']);
+    for (const tc of Object.keys(this.opts.taskClasses)) if (!LOCAL_CLASSES.has(tc)) names.add(tc);
+    return [...names];
+  }
+
+  /** The chain config/routing.yaml gives this class (its own entry only, no parent fallback). */
+  defaultChain(taskClass: string): string[] {
+    const spec = this.opts.taskClasses[taskClass];
+    return spec ? [...(Array.isArray(spec) ? spec : spec.chain)] : [];
+  }
+
+  /** Your saved order for this class, or undefined when the YAML applies. */
+  savedChain(taskClass: string): string[] | undefined {
+    const ids = this.savedChains[taskClass];
+    return ids ? [...ids] : undefined;
+  }
+
+  /** Save an order for a class (null goes back to the YAML), then reload so the next chain() sees it. */
+  async saveChain(taskClass: string, ids: string[] | null): Promise<void> {
+    const next = {
+      ...((await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {}),
+    };
+    if (ids) next[taskClass] = [...ids];
+    else delete next[taskClass];
+    await this.opts.settings.set(SETTING.routingChains, next);
+    await this.refresh();
   }
 
   /** Replace the added models with this set; anything that no longer parses is skipped. */
@@ -144,7 +185,17 @@ export class ModelRegistry {
       secret: secretFor(m),
       offline: m.provider === 'fake',
       ...(this.customIds.has(m.id) && { custom: true, base_url: m.base_url ?? null }),
+      ...((this.hues[m.id] ?? m.hue) && { hue: this.hues[m.id] ?? m.hue }),
     }));
+  }
+
+  /** Choose a config model's chip hue; null goes back to the family's. */
+  async setHue(id: string, hue: ModelHue | null): Promise<void> {
+    const next = { ...((await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {}) };
+    if (hue) next[id] = hue;
+    else delete next[id];
+    await this.opts.settings.set(SETTING.modelHue, next);
+    await this.refresh();
   }
 
   async setEnabled(updates: Record<string, boolean>): Promise<void> {
@@ -168,6 +219,11 @@ export class ModelRegistry {
         .map((m) => [m.id, { ...m, enabled: true }] as const),
     );
     const classes = { ...this.opts.taskClasses };
+    // A saved chain replaces the YAML's order; flags such as prefer_different_family stay.
+    for (const [tc, ids] of Object.entries(this.savedChains)) {
+      const spec = classes[tc];
+      classes[tc] = spec && !Array.isArray(spec) ? { ...spec, chain: ids } : ids;
+    }
     if (this.opts.offline) {
       for (const [tc, spec] of Object.entries(classes)) {
         if (!tc.startsWith('chat') && tc !== 'utility' && !tc.startsWith('factcheck')) continue;

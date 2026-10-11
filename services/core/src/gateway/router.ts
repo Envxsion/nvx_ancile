@@ -28,7 +28,7 @@ export class NoRouteError extends Error {
   readonly errorClass = 'permanent' as const;
   constructor(readonly taskClass: string) {
     super(
-      `No enabled model can handle "${taskClass}". Add one in Settings → Models, or check config/routing.yaml.`,
+      `No enabled model can handle "${taskClass}". Add one in Settings → Models, or check its chain in Admin → Routing.`,
     );
     this.name = 'NoRouteError';
   }

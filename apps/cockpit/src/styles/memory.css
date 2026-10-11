@@ -220,6 +220,9 @@
   margin: 4px 0 0;
   font-size: var(--t-small);
 }
+.mem-pane__modes {
+  margin-left: auto;
+}
 .mem-pane__modes .segmented__opt {
   display: inline-flex;
   align-items: center;

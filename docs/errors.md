@@ -36,8 +36,14 @@ Rules for new codes:
 | `model.not_configured` | 422 | "<Model> isn't set up." / Add a key in Settings → Models. |
 | `model.not_chat` | 422 | "<Model> can't answer messages." / It is an embedding or rerank model; pick a chat model in the model switcher. |
 | `model.exists` | 409 | "<id> is already in your models." / Edit the one you have, or remove it first. |
-| `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off. |
+| `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |
+| `routing.task_class_unknown` | 404 | "There is no task class called <class>." / Pick one of the task classes listed in Admin → Routing. |
+| `routing.chain_empty` | 400 | "A chain needs at least one model." / Add a model before saving, or reset the chain to its default. |
+| `routing.model_unknown` | 400 | "<id> isn't one of your models." / Add it in Admin → Models first, or pick a model from the list. |
+| `model.not_endpoint` | 409 | "<Model> is not on your own server." / Only OpenAI-compatible models have an address and a key to change in Admin → Models; provider keys live in Settings → Models. |
+| `model.secret_missing` | 422 | "No key called <name> is stored." / Check the name, or paste the key itself instead. |
+| `model.restore_expired` | 410 | "Too late to undo that removal." / Undo works for ten minutes, and not across a restart; add the model again from Admin → Models. |
 | `model.catalogue_failed` | 502 | "Could not list the models <source> offers." / For OpenRouter, check your connection (you can still add a model by its id); for a server, check the address, key, and that it answers GET /models. |
 
 ### Permissions
@@ -48,7 +54,8 @@ Rules for new codes:
 | `permission.denied` | 403 | "You declined this action." / (Given to the model as a tool result.) |
 | `permission.critical_not_rememberable` | 422 | "Critical actions can't be remembered." / Approve this once instead. |
 | `permission.scope_too_wide` | 422 | "Careful remembers answers for this thread only." / Choose "In this thread" or "Just this once", or switch to Balanced in Admin → Permissions. |
-| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked. |
+| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a grant would widen its pattern ("That pattern is wider than the one you granted"). |
+| `permission.restore_expired` | 410 | "Too late to undo that revocation." / Undo works for ten minutes after revoking; the agent will ask again next time. |
 
 ### Runs
 

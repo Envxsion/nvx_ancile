@@ -77,6 +77,41 @@ eachBackend('permission store', (backend) => {
     expect(await perms.revokeGrant(g.id)).toBe(false);
   });
 
+  it('edits a grant in place and takes a revocation back only within the window', async () => {
+    const g = await perms.createGrant({
+      userId: user,
+      principal: uid('agent'),
+      actionPattern: 'fs.write',
+      resourcePattern: 'file:/workspace/**',
+      effect: 'allow',
+      scope: 'always',
+      scopeRef: null,
+      expiresAt: null,
+      fromApprovalId: null,
+    });
+    const edited = await perms.updateGrant(g.id, {
+      resourcePattern: 'file:/workspace/notes/**',
+      scope: 'thread',
+      scopeRef: 'thr_x',
+    });
+    expect(edited).toMatchObject({
+      resource_pattern: 'file:/workspace/notes/**',
+      scope: 'thread',
+      scope_ref: 'thr_x',
+      expires_at: null,
+    });
+    const until = new Date(Date.now() + 60_000).toISOString();
+    expect((await perms.updateGrant(g.id, { expiresAt: until }))?.scope_ref).toBe('thr_x');
+    expect((await perms.updateGrant(g.id, { expiresAt: null }))?.expires_at).toBeNull();
+
+    expect(await perms.revokeGrant(g.id)).toBe(true);
+    expect(await perms.updateGrant(g.id, { scope: 'always' })).toBeUndefined();
+    expect((await perms.restoreGrant(g.id, 60_000))?.revoked_at).toBeNull();
+    expect(await perms.restoreGrant(g.id, 60_000)).toBeUndefined(); // not revoked any more
+    expect(await perms.revokeGrant(g.id)).toBe(true);
+    expect(await perms.restoreGrant(g.id, -1_000)).toBeUndefined(); // the window has passed
+  });
+
   it('asks once per call, resolves once, and lists what is pending', async () => {
     const runId = await run();
     const first = await perms.createApproval(approval(runId, 'call_same'));

@@ -1601,6 +1601,16 @@ li[data-done] .checklist__step {
 .source-card__main:disabled {
   cursor: default;
 }
+.source-card__rename {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 6px 4px 6px 6px;
+}
+.source-card__rename .input {
+  flex: 1;
+  min-width: 0;
+}
 .source-card__icon {
   display: grid;
   place-items: center;

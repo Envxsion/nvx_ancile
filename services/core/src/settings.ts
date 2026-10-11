@@ -48,10 +48,14 @@ export const SETTING = {
   preset: 'permissions.preset',
   /** { [modelId]: boolean } overrides on top of config/models.yaml */
   modelEnabled: 'models.enabled',
+  /** { [modelId]: hue } chip colours chosen for config models (added models keep theirs inline). */
+  modelHue: 'models.hue',
   /** auto_confident | propose_all | off; read by memory capture (Phase 4). */
   memoryCapture: 'memory.capture',
   /** Free text from onboarding, written into memory when Phase 4 lands. */
   memoryAbout: 'memory.about',
   /** Models you added in Settings → Models: ModelConfig[] (DESIGN §16.7). */
   customModels: 'models.custom',
+  /** { [taskClass]: modelId[] } chains saved in Admin → Routing; they win over config/routing.yaml. */
+  routingChains: 'routing.chains',
 } as const;

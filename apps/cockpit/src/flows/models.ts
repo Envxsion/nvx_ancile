@@ -60,7 +60,7 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         name: m.display_name,
         provider: m.provider,
         family: m.family,
-        hue: hueFor(m.family),
+        hue: m.hue ?? hueFor(m.family),
         via: m.via,
         window: m.context_window,
         maxOutput: m.max_output,

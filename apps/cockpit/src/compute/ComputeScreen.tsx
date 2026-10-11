@@ -12,7 +12,7 @@
  *  How      |  Cards per node with its rate, hours and spend this
  *           |  month, what it serves, and when it last answered. A
  *           |  cost band on top: spent, projected and the cap. Rules
- *           |  below, editable in place. Terminate asks you to type the
+ *           |  below (./Rules.tsx). Terminate asks you to type the
  *           |  node's name: it cannot be undone.
  *  Note     |  Sample nodes (no provider connected) say so on every
  *           |  card; everything still works against them.
@@ -24,7 +24,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError } from '../lib/api';
 import { relative, usd } from '../lib/format';
-import { Segmented, Switch, Ticker } from '../ui/controls';
+import { Ticker } from '../ui/controls';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
@@ -37,19 +37,16 @@ import {
   type ComputeNode,
   type CostSummary,
   chainOf,
-  deleteRule,
   forgetNode,
   nodeAction,
-  type Rule,
-  saveRule,
   useComputeStatus,
   useCosts,
   useLiveOps,
   useNodeOperations,
   useNodes,
-  useRules,
 } from './data';
 import { PodSetup } from './PodSetup';
+import { Rules } from './Rules';
 
 const STATE_WORD: Record<ComputeNode['observed_state'], string> = {
   creating: 'Being created',
@@ -307,191 +304,6 @@ function NodeCard({
         />
       </footer>
     </article>
-  );
-}
-
-/* ---- Rules ------------------------------------------------------------- */
-
-const DAILY = /^(\d{1,2}) (\d{1,2}) \* \* \*$/;
-
-function RuleRow({ rule }: { rule: Rule }) {
-  const toggle = (enabled: boolean) => void saveRule({ ...rule, enabled } as Rule);
-  let title: string;
-  let body: React.ReactNode;
-  if (rule.kind === 'idle_timeout') {
-    title = 'Stop idle nodes';
-    body = (
-      <label className="rule__field">
-        <span>after</span>
-        <input
-          className="input input--sm rule__num"
-          type="number"
-          min={5}
-          max={1440}
-          defaultValue={rule.config.idle_minutes}
-          aria-label="Idle minutes"
-          onBlur={(e) => {
-            const v = Math.max(5, Math.round(Number(e.target.value) || 30));
-            if (v !== rule.config.idle_minutes)
-              void saveRule({ ...rule, config: { ...rule.config, idle_minutes: v } });
-          }}
-        />
-        <span>minutes with no requests</span>
-      </label>
-    );
-  } else if (rule.kind === 'cost_cap') {
-    title = 'Monthly cap';
-    body = (
-      <div className="rule__field">
-        <span>$</span>
-        <input
-          className="input input--sm rule__num"
-          type="number"
-          min={1}
-          step={10}
-          defaultValue={rule.config.monthly_usd}
-          aria-label="Monthly cap in dollars"
-          onBlur={(e) => {
-            const v = Math.max(1, Number(e.target.value) || rule.config.monthly_usd);
-            if (v !== rule.config.monthly_usd)
-              void saveRule({ ...rule, config: { ...rule.config, monthly_usd: v } });
-          }}
-        />
-        <span>then</span>
-        <Segmented
-          size="sm"
-          label="When the cap is reached"
-          value={rule.config.on_reach}
-          onChange={(on_reach) => void saveRule({ ...rule, config: { ...rule.config, on_reach } })}
-          options={[
-            { value: 'block_routing', label: 'Use the cloud' },
-            { value: 'stop_nodes', label: 'Stop nodes' },
-            { value: 'notify_only', label: 'Just tell me' },
-          ]}
-        />
-      </div>
-    );
-  } else {
-    const m = DAILY.exec(rule.config.cron);
-    title = `${rule.config.action === 'stop' ? 'Stop' : ACTION_WORD[rule.config.action]} on a schedule`;
-    body = m ? (
-      <label className="rule__field">
-        <span>every day at</span>
-        <input
-          className="input input--sm"
-          type="time"
-          defaultValue={`${m[2]?.padStart(2, '0')}:${m[1]?.padStart(2, '0')}`}
-          aria-label="Time of day"
-          onBlur={(e) => {
-            const [h, min] = e.target.value.split(':').map(Number);
-            if (h === undefined || min === undefined || Number.isNaN(h) || Number.isNaN(min)) return;
-            const cron = `${min} ${h} * * *`;
-            if (cron !== rule.config.cron) void saveRule({ ...rule, config: { ...rule.config, cron } });
-          }}
-        />
-        <span className="mute">{rule.config.tz}</span>
-      </label>
-    ) : (
-      <span className="rule__field mute" data-num>
-        {rule.config.cron} ({rule.config.tz})
-      </span>
-    );
-  }
-  return (
-    <li className="rule" data-enabled={rule.enabled || undefined}>
-      <Switch checked={rule.enabled} onChange={toggle} label={`${title}: ${rule.enabled ? 'on' : 'off'}`} />
-      <div className="rule__main">
-        <span className="rule__title">{title}</span>
-        {body}
-      </div>
-      <button
-        type="button"
-        className="icon-btn icon-btn--sm"
-        aria-label={`Remove rule: ${title}`}
-        onClick={() => void deleteRule(rule.id)}
-      >
-        <Icon name="close" size={12} />
-      </button>
-    </li>
-  );
-}
-
-function Rules() {
-  const rules = useRules();
-  const items = rules.data ?? [];
-  const has = (k: Rule['kind']) => items.some((r) => r.kind === k);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return (
-    <section className="compute__section" aria-labelledby="rules-h">
-      <div className="compute__section-head">
-        <h3 id="rules-h" className="admin__h">
-          Rules
-        </h3>
-        <div className="compute__adds">
-          {!has('idle_timeout') ? (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() =>
-                void saveRule({
-                  kind: 'idle_timeout',
-                  enabled: true,
-                  config: { node_ids: '*', idle_minutes: 30 },
-                })
-              }
-            >
-              <Icon name="plus" size={13} />
-              Idle stop
-            </button>
-          ) : null}
-          {!has('cost_cap') ? (
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() =>
-                void saveRule({
-                  kind: 'cost_cap',
-                  enabled: true,
-                  config: { monthly_usd: 150, on_reach: 'block_routing' },
-                })
-              }
-            >
-              <Icon name="plus" size={13} />
-              Monthly cap
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() =>
-              void saveRule({
-                kind: 'schedule',
-                enabled: true,
-                config: { node_ids: '*', cron: '0 23 * * *', action: 'stop', tz },
-              })
-            }
-          >
-            <Icon name="plus" size={13} />
-            Nightly stop
-          </button>
-        </div>
-      </div>
-      <p className="mute compute__lede">
-        Rules act through the same confirmation chain as your own clicks, and every action they take is listed
-        on the node.
-      </p>
-      {rules.isPending ? (
-        <Skeleton lines={3} label="Loading rules" />
-      ) : items.length === 0 ? (
-        <p className="mute">No rules yet. An idle stop is the one most people want first.</p>
-      ) : (
-        <ul className="rules">
-          {items.map((r) => (
-            <RuleRow key={`${r.id}-${JSON.stringify(r.config)}`} rule={r} />
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 

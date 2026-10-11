@@ -10,23 +10,29 @@
  *           |  how much of it a question may use.
  *  How      |  Click opens the viewer. The context level is a sliding
  *           |  three-way control. Everything else is in the menu (or
- *           |  right-click).
+ *           |  right-click): rename edits the title in place; remove
+ *           |  takes it out of this notebook (with Undo); delete takes
+ *           |  it out of the workspace, after a confirm.
  * ------------------------------------------------------------------
  */
 
-import { type CSSProperties, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { Hint } from '../help/Hint';
 import { relative } from '../lib/format';
 import {
+  deleteSource,
   dismissDuplicate,
   mergeSources,
   refetchSource,
   removeSource,
+  renameSource,
   retrySource,
   setContextLevel,
 } from '../lib/notebooks';
 import type { SourceView } from '../lib/types';
 import { useUi } from '../state/ui';
+import { ConfirmDialog } from '../ui/Confirm';
 import { Segmented } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
@@ -65,6 +71,11 @@ export function SourceCard({
 }) {
   const openViewer = useUi((s) => s.openViewer);
   const [merging, setMerging] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const rename = useMutation({
+    mutationFn: (title: string) => renameSource(s.id, title),
+  });
   const working = WORKING.has(s.status);
   const failed = s.status === 'failed';
 
@@ -108,6 +119,11 @@ export function SourceCard({
         ]
       : []),
     {
+      label: 'Rename',
+      icon: 'edit',
+      onSelect: () => setRenaming(true),
+    },
+    {
       label: 'Copy its title',
       icon: 'copy',
       onSelect: () => void navigator.clipboard?.writeText(s.title),
@@ -115,9 +131,14 @@ export function SourceCard({
     { kind: 'separator' },
     {
       label: 'Remove from notebook',
+      icon: 'minus',
+      onSelect: () => void removeSource(notebookId, s),
+    },
+    {
+      label: 'Delete source',
       icon: 'trash',
       danger: true,
-      onSelect: () => void removeSource(notebookId, s),
+      onSelect: () => setConfirmDelete(true),
     },
   ];
 
@@ -129,33 +150,43 @@ export function SourceCard({
         data-compact={compact || undefined}
         style={s.progress != null ? ({ '--p': s.progress } as CSSProperties) : undefined}
       >
-        <button
-          type="button"
-          className="source-card__main"
-          onClick={() => !working && !failed && openViewer({ sourceId: s.id })}
-          disabled={working || failed}
-          aria-label={`${s.title}. ${s.detail}`}
-        >
-          <span className="source-card__icon" data-kind={s.kind}>
-            <Icon name={KIND_ICON[s.kind]} size={15} />
-          </span>
-          <span className="source-card__text">
-            <span className="source-card__title" dir="auto">
-              {s.title}
+        {renaming ? (
+          <RenameField
+            title={s.title}
+            onDone={(next) => {
+              setRenaming(false);
+              if (next) rename.mutate(next);
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="source-card__main"
+            onClick={() => !working && !failed && openViewer({ sourceId: s.id })}
+            disabled={working || failed}
+            aria-label={`${s.title}. ${s.detail}`}
+          >
+            <span className="source-card__icon" data-kind={s.kind}>
+              <Icon name={KIND_ICON[s.kind]} size={15} />
             </span>
-            <span className="source-card__meta">
-              <span>{fileKind(s)}</span>
-              <span aria-hidden="true">·</span>
-              <span className="source-card__detail">{s.detail}</span>
-              {s.createdAt && !working ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{relative(s.createdAt)}</span>
-                </>
-              ) : null}
+            <span className="source-card__text">
+              <span className="source-card__title" dir="auto">
+                {s.title}
+              </span>
+              <span className="source-card__meta">
+                <span>{fileKind(s)}</span>
+                <span aria-hidden="true">·</span>
+                <span className="source-card__detail">{s.detail}</span>
+                {s.createdAt && !working ? (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{relative(s.createdAt)}</span>
+                  </>
+                ) : null}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        )}
         <DropMenu
           items={items}
           trigger={
@@ -271,7 +302,51 @@ export function SourceCard({
             />
           </div>
         ) : null}
+        <ConfirmDialog
+          copy={
+            confirmDelete
+              ? {
+                  title: `Delete source ${s.title}?`,
+                  body: 'It leaves every notebook that uses it, and search and answers stop finding it. Answers that already cite it keep their citations. To keep it in other notebooks, choose Remove from notebook instead.',
+                  action: 'Delete source',
+                }
+              : null
+          }
+          onConfirm={() => void deleteSource(s)}
+          onClose={() => setConfirmDelete(false)}
+        />
       </article>
     </ContextMenu>
+  );
+}
+
+/** The title, editable in place. Enter or leaving the field saves; Escape keeps the old one. */
+function RenameField({ title, onDone }: { title: string; onDone: (next: string | null) => void }) {
+  const [value, setValue] = useState(title);
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  useEffect(() => ref.current?.select(), []);
+  const finish = (next: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(next?.trim() && next.trim() !== title ? next.trim() : null);
+  };
+  return (
+    <div className="source-card__rename">
+      <input
+        ref={ref}
+        className="input input--sm"
+        value={value}
+        maxLength={400}
+        aria-label="Source title"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => finish(value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') finish(value);
+          if (e.key === 'Escape') finish(null);
+          e.stopPropagation();
+        }}
+      />
+    </div>
   );
 }

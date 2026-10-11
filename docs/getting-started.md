@@ -97,6 +97,8 @@ Then try (with the reply selected, not the composer):
 - `w` to see why the AI said it: memory used, sources retrieved, the model and any fallbacks
 - `b` to branch the conversation from that message
 
+To tidy sources, use a source's **⋯** menu (or right-click it): **Rename** changes its title everywhere (`PATCH /api/v1/sources/:id`), **Remove from notebook** takes it out of this notebook only, with Undo, and **Delete source** takes it out of every notebook, search and answers after a confirm (`DELETE /api/v1/sources/:id`). Knowledge keeps a deleted source's file aside, but there is no way to restore it from the Cockpit yet.
+
 ## Route messages through a flow
 
 A flow decides which model answers: a router reads the request and sends it to a specialist, a manager hands parts to workers, and so on. Open a notebook's **Flow** tab, start from a template, and press **Try** to run it against a sample message without saving. See [flows](flows.md), and [models](models.md) for adding OpenRouter, your own server or a RunPod node.

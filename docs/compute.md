@@ -83,10 +83,16 @@ A stopped pod still costs storage. Ancile shows that separately so it isn't a su
 | Rule | Example | What happens |
 |---|---|---|
 | Idle timeout | Stop after 20 minutes with no requests | The Controller stops the node and you're notified. The in-pod watchdog is the backup. |
-| Schedule | Stop every node at 19:00 on weekdays | Cron in your time zone |
+| Schedule | Stop every node at 19:00, Mon to Fri | Cron in the rule's time zone, narrowed to the chosen weekdays |
 | Cost cap | $150 a month: stop nodes / block routing / notify only | At the cap, routing returns `402 cost_cap`, and Ancile falls back to cloud models |
 
 Rules run in the Controller, so they still apply when the Cockpit is closed.
+
+**Which nodes.** `node_ids` is `'*'` (every node) or a non-empty list of node ids. Idle timeouts and schedules act only on those nodes. A cost cap's spend always counts every node; its optional `node_ids` says which nodes `stop_nodes` stops (absent means all).
+
+**Which days.** A schedule's optional `weekdays` (`'mon'` to `'sun'`, at least one) limits it to those days, read in the rule's `tz`, on top of the cron. Absent means every day the cron allows, so rules saved before the field existed behave as before. The Cockpit writes `M H * * *` plus `weekdays`; a schedule with any other cron (set over the API) is shown as its cron and edited over the API only.
+
+**In the Cockpit.** Admin → Compute → Rules. New rules open a dialog with empty fields (minutes, amount or time, with a hint in the placeholder); **Add rule** stays off until the field reads. Each rule has a switch and a ⋯ menu with **Edit rule** and **Remove rule**. Removing asks first, and the notice that follows has **Undo**, which saves the rule again under the same id. Editing is a `POST /rules` with the rule's id: rules are upserted. Rule config is stored as JSON (`controller.rules.config`), so new fields need no migration.
 
 ## Requests while a node sleeps
 

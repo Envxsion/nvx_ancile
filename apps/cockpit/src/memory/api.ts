@@ -160,6 +160,40 @@ export function useRevert() {
   });
 }
 
+/** The files every answer is built around, and the folder's guides: Core refuses to delete them. */
+export const isProtectedFile = (path: string) =>
+  /^(agents|user)\.md$/i.test(path) || /(^|\/)(README|_template)\.md$/i.test(path);
+
+/**
+ * Delete a memory file. Core removes it in its own commit, so history
+ * keeps it and Undo reverts that commit, putting the file back.
+ */
+export function useDeleteFile() {
+  return useMutation({
+    mutationFn: (path: string) => api.del<{ version: string }>(`/memory/files/${enc(path)}`),
+    onSuccess: (r, path) => {
+      const ui = useMemoryUi.getState();
+      if (ui.path === path) ui.open(null);
+      queryClient.removeQueries({ queryKey: memoryKeys.file(path) });
+      void refreshMemory();
+      notify({
+        level: 'success',
+        title: `Deleted ${path}`,
+        body: 'History keeps it, so Undo brings it back.',
+        undo: () =>
+          void api
+            .post<{ version: string }>('/memory/revert', { sha: r.version })
+            .then(() => {
+              void refreshMemory();
+              useMemoryUi.getState().open(path);
+            })
+            .catch((e) => failed(e, 'Putting the file back')),
+      });
+    },
+    onError: (e) => failed(e, 'Deleting the file'),
+  });
+}
+
 export function useSetCapture() {
   return useMutation({
     mutationFn: (capture: MemorySettings['capture']) =>

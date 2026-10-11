@@ -5,8 +5,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  The admin views that have real data in Phase 2: health
  *           |  from the supervisor, remembered grants (with revoke),
- *           |  the decision log, models and their readiness, and the
- *           |  fallback chains routing resolves to right now.
+ *           |  the decision log, and models and their readiness. The
+ *           |  routing chain editor is RoutingEditor.tsx.
  *  How      |  Plain React Query reads; writes invalidate what they
  *           |  change. sections.tsx shows these when Core is running
  *           |  and the sample versions in demo mode.
@@ -15,14 +15,16 @@
 
 import type { Decision, Grant } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import type { CSSProperties } from 'react';
+import { GRANT_SCOPE_WORDS, GrantMenu } from '../../approvals/GrantMenu';
 import { PresetPicker } from '../../approvals/preset';
 import { ApiCallError, api } from '../../lib/api';
-import { keys, useModels, useSystemHealth } from '../../lib/data';
-import { relative } from '../../lib/format';
+import { useModels, useSystemHealth } from '../../lib/data';
+import { hueVar, relative } from '../../lib/format';
 import { shortResource } from '../../lib/mappers';
 import { queryClient } from '../../lib/query';
-import { startCoreHint } from '../../lib/runtime';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
+import { ModelMenu } from '../../models/EditModel';
 import { notify } from '../../state/notify';
 import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
@@ -92,7 +94,7 @@ export function LiveHealth() {
         <EmptyState
           icon="pulse"
           title={health.data?.summary ?? 'No health data yet'}
-          body={`${startCoreHint()} Then check again.`}
+          body="Start NVX Ancile with pnpm start, then check again."
         />
       ) : (
         <ul className="rows">
@@ -116,25 +118,10 @@ export function LiveHealth() {
   );
 }
 
-const SCOPE_WORDS: Record<Grant['scope'], string> = {
-  thread: 'In one thread',
-  notebook: 'In one notebook',
-  workspace: 'In your workspace',
-  always: 'Everywhere',
-};
-
 export function LiveGrants() {
   const grants = useQuery({
     queryKey: ['grants'],
     queryFn: () => api.get<{ items: Grant[] }>('/grants').then((r) => r.items),
-  });
-  const revoke = useMutation({
-    mutationFn: (id: string) => api.del(`/grants/${id}`),
-    onSuccess: () => {
-      notify({ level: 'success', title: 'Revoked', body: 'The agent will ask again next time.' });
-      return queryClient.invalidateQueries({ queryKey: ['grants'] });
-    },
-    onError: (e) => failed(e, 'Revoking'),
   });
   if (grants.isPending) return <Skeleton lines={4} label="Loading grants" />;
   if (grants.isError && !grants.data)
@@ -149,7 +136,7 @@ export function LiveGrants() {
         <EmptyState
           icon="shield"
           title="Nothing remembered yet"
-          body="When you approve an action and choose to remember it, it appears here with a revoke button."
+          body="When you approve an action and choose to remember it, it appears here, ready to narrow or revoke."
         />
       </>
     );
@@ -157,7 +144,7 @@ export function LiveGrants() {
     <>
       <PresetPicker />
       <p className="mute admin__lede">
-        What the agent may do without asking, because you said so. Revoke any of it.
+        What the agent may do without asking, because you said so. Narrow or revoke any of it from its menu.
       </p>
       <table className="table">
         <thead>
@@ -168,7 +155,7 @@ export function LiveGrants() {
             <th>Used</th>
             <th>Expires</th>
             <th>
-              <span className="sr-only">Revoke</span>
+              <span className="sr-only">Actions</span>
             </th>
           </tr>
         </thead>
@@ -182,22 +169,14 @@ export function LiveGrants() {
               <td data-num className="table__mono">
                 {g.resource_pattern}
               </td>
-              <td>{SCOPE_WORDS[g.scope]}</td>
+              <td>{GRANT_SCOPE_WORDS[g.scope]}</td>
               <td>
                 <span data-num>{g.uses}</span>
                 {g.last_used_at ? <span className="mute"> · {relative(g.last_used_at)}</span> : null}
               </td>
               <td>{g.expires_at ? relative(g.expires_at).replace(' ago', '') : 'Never'}</td>
               <td>
-                <button
-                  type="button"
-                  className="link-btn link-btn--danger"
-                  onClick={() => revoke.mutate(g.id)}
-                  disabled={revoke.isPending}
-                  aria-label={`Revoke ${g.action_pattern} on ${g.resource_pattern}`}
-                >
-                  Revoke
-                </button>
+                <GrantMenu grant={g} />
               </td>
             </tr>
           ))}
@@ -267,19 +246,6 @@ const STATUS_WORDS = { ready: 'Ready', needs_key: 'Needs its key', disabled: 'Of
 
 export function LiveModels() {
   const models = useModels({ all: true });
-  const toggle = useMutation({
-    mutationFn: (m: { id: string; enabled: boolean }) => api.put(`/models/${m.id}`, { enabled: m.enabled }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.models }),
-    onError: (e) => failed(e, 'Changing the model'),
-  });
-  const remove = useMutation({
-    mutationFn: (m: { id: string; name: string }) => api.del(`/models/${m.id}`).then(() => m),
-    onSuccess: (m) => {
-      void queryClient.invalidateQueries({ queryKey: keys.models });
-      notify({ level: 'info', title: `Removed ${m.name}` });
-    },
-    onError: (e) => failed(e, 'Removing the model'),
-  });
   const showAdd = useAddModel((s) => s.show);
   if (models.isPending) return <Skeleton lines={6} label="Loading models" />;
   if (models.isError && !models.data)
@@ -309,6 +275,11 @@ export function LiveModels() {
               label={STATUS_WORDS[m.status ?? 'ready']}
             />
             <span className="row__title">
+              <span
+                className="model-hue"
+                aria-hidden="true"
+                style={{ '--hue': hueVar(m.hue) } as CSSProperties}
+              />
               <span className="row__name" title={m.name}>
                 {m.name}
               </span>
@@ -321,65 +292,7 @@ export function LiveModels() {
             <span data-num className="mute row__num">
               {m.contextWindow.toLocaleString('en-GB')} tok
             </span>
-            {m.offline ? (
-              <span />
-            ) : (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => toggle.mutate({ id: m.id, enabled: m.status === 'disabled' })}
-                disabled={toggle.isPending}
-              >
-                {m.status === 'disabled' ? 'Turn on' : 'Turn off'}
-              </button>
-            )}
-            {m.custom ? (
-              <button
-                type="button"
-                className="icon-btn icon-btn--sm"
-                aria-label={`Remove ${m.name}`}
-                title="Remove this model"
-                onClick={() => remove.mutate({ id: m.id, name: m.name })}
-                disabled={remove.isPending}
-              >
-                <Icon name="trash" size={13} />
-              </button>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-export function LiveRouting() {
-  const routing = useQuery({
-    queryKey: ['routing'],
-    queryFn: () =>
-      api
-        .get<{ items: { task_class: string; chain: string[]; ok: boolean }[] }>('/routing')
-        .then((r) => r.items),
-  });
-  const models = useModels({ all: true }).data ?? [];
-  const name = (id: string) => models.find((m) => m.id === id)?.name ?? id;
-  if (routing.isPending) return <Skeleton lines={3} label="Loading routing" />;
-  if (routing.isError && !routing.data)
-    return <LoadFailed error={routing.error} what="Routing" onRetry={() => void routing.refetch()} />;
-  return (
-    <>
-      <p className="mute admin__lede">
-        Who answers each kind of task, in order, counting only models that can answer now. Edit
-        config/routing.yaml to change the chains.
-      </p>
-      <ul className="rows">
-        {(routing.data ?? []).map((r) => (
-          <li key={r.task_class} className="row" data-status={r.ok ? 'ok' : 'down'}>
-            <span className="row__title" data-num>
-              {r.task_class}
-            </span>
-            <span className="row__meta">
-              {r.ok ? r.chain.map(name).join(' → ') : 'No model can answer this yet'}
-            </span>
+            <ModelMenu model={m} />
           </li>
         ))}
       </ul>

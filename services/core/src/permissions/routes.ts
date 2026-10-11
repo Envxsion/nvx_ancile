@@ -18,6 +18,10 @@
  *           |       once can never leave an allow and a deny behind
  *           |    5. the decision is logged, the run's stream and every
  *           |       tab hear about it, and the run is queued to resume
+ *           |  Editing a grant may narrow its pattern (never widen it),
+ *           |  change its scope (Careful never widens past a thread)
+ *           |  or its expiry. A revocation can be taken back for ten
+ *           |  minutes (the Undo on the toast), and not after.
  * ------------------------------------------------------------------
  */
 
@@ -26,6 +30,7 @@ import {
   type Approval,
   ApprovalDecisionRequest,
   type GrantScope,
+  PatchGrantRequest,
   PermissionPreset,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
@@ -38,7 +43,7 @@ import { notFound } from '../obs/errors';
 import type { RunEventLog } from '../runs/events';
 import type { RunWorker } from '../runs/worker';
 import { matchResource } from './glob';
-import type { ApprovalRecord, PermissionStore } from './store';
+import type { ApprovalRecord, GrantPatch, PermissionStore } from './store';
 
 export interface PermissionRouteDeps {
   store: PermissionStore;
@@ -75,7 +80,22 @@ const approvalOut = (a: ApprovalRecord): Approval => ({
   expires_at: a.expires_at,
 });
 
-const ExtendGrant = z.object({ ttl_seconds: z.number().int().positive().nullable() }).strict();
+/** How long a revoked grant can be put back (the toast's Undo). */
+export const GRANT_RESTORE_WINDOW_MS = 10 * 60_000;
+
+const SCOPE_RANK: Record<GrantScope, number> = { thread: 0, notebook: 1, workspace: 2, always: 3 };
+
+/**
+ * An edited pattern may only narrow: everything it matches, the granted one
+ * matched too. It must read as a resource the old glob covers, and it may not
+ * bring in a `**` the old one did not have (fs:/a/* would match the text
+ * fs:/a/**, but the second reaches any depth).
+ */
+export function patternNarrows(granted: string, next: string): boolean {
+  if (next === granted) return true;
+  if (!matchResource(granted, next)) return false;
+  return !next.includes('**') || granted.includes('**');
+}
 
 /** The literal start of a glob, up to its first wildcard. */
 const literalPrefix = (pattern: string) => pattern.split('*')[0] ?? '';
@@ -234,18 +254,89 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
   r.get('/grants', async (c) => c.json({ items: await store.listGrants(), next_cursor: null }));
 
   r.patch('/grants/:id', async (c) => {
-    const req = await body(c, ExtendGrant);
-    const g = await store.extendGrant(
-      c.req.param('id'),
-      req.ttl_seconds === null ? null : new Date(Date.now() + req.ttl_seconds * 1000).toISOString(),
-    );
+    const id = c.req.param('id');
+    const req = await body(c, PatchGrantRequest);
+    const g = (await store.listGrants()).find((x) => x.id === id);
     if (!g) throw notFound('That grant');
-    return c.json(g);
+    const patch: GrantPatch = {};
+    if (req.ttl_seconds !== undefined)
+      patch.expiresAt =
+        req.ttl_seconds === null ? null : new Date(Date.now() + req.ttl_seconds * 1000).toISOString();
+    if (req.resource_pattern !== undefined && req.resource_pattern !== g.resource_pattern) {
+      if (!patternNarrows(g.resource_pattern, req.resource_pattern)) {
+        throw new AncileError({
+          code: 'permission.pattern_too_broad',
+          title: 'That pattern is wider than the one you granted',
+          hint: `An edit can only narrow a grant. Choose a pattern inside ${g.resource_pattern}, or revoke this one and answer the next request afresh.`,
+          status: 422,
+          errorClass: 'permanent',
+        });
+      }
+      patch.resourcePattern = req.resource_pattern;
+    }
+    if (req.scope !== undefined && req.scope !== g.scope) {
+      const wider = SCOPE_RANK[req.scope] > SCOPE_RANK[g.scope];
+      if (wider && req.scope !== 'thread' && (await deps.preset?.get()) === 'careful') {
+        throw new AncileError({
+          code: 'permission.scope_too_wide',
+          title: 'Careful remembers answers for this thread only',
+          hint: 'Keep the scope it has or narrow it, or switch to Balanced in Admin → Permissions.',
+          status: 422,
+          errorClass: 'permanent',
+        });
+      }
+      let scopeRef: string | null = null;
+      if (req.scope !== 'always') {
+        const a = g.created_from_approval_id
+          ? await store.getApproval(g.created_from_approval_id)
+          : undefined;
+        const refs = a ? await deps.scopeRefs(a) : null;
+        scopeRef =
+          req.scope === 'thread'
+            ? (refs?.threadId ?? null)
+            : req.scope === 'notebook'
+              ? (refs?.notebookId ?? null)
+              : (refs?.workspaceId ?? null);
+        if (!scopeRef) {
+          throw new AncileError({
+            code: 'request.invalid',
+            title:
+              req.scope === 'notebook'
+                ? 'The thread this came from is not in a notebook'
+                : 'NVX Ancile no longer knows where this grant came from',
+            hint: 'Choose another scope, or revoke this grant and answer the next request afresh.',
+            status: 422,
+            errorClass: 'permanent',
+          });
+        }
+      }
+      patch.scope = req.scope;
+      patch.scopeRef = scopeRef;
+    }
+    if (!Object.keys(patch).length) return c.json(g);
+    const out = await store.updateGrant(id, patch);
+    if (!out) throw notFound('That grant');
+    return c.json(out);
   });
 
   r.delete('/grants/:id', async (c) => {
     if (!(await store.revokeGrant(c.req.param('id')))) throw notFound('That grant');
     return c.body(null, 204);
+  });
+
+  /** Undo a revocation, within GRANT_RESTORE_WINDOW_MS. */
+  r.post('/grants/:id/restore', async (c) => {
+    const g = await store.restoreGrant(c.req.param('id'), GRANT_RESTORE_WINDOW_MS);
+    if (!g) {
+      throw new AncileError({
+        code: 'permission.restore_expired',
+        title: 'Too late to undo that revocation',
+        hint: 'The agent will ask again next time; remember the answer then.',
+        status: 410,
+        errorClass: 'permanent',
+      });
+    }
+    return c.json(g);
   });
 
   r.get('/decisions', async (c) => {

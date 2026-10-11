@@ -63,6 +63,7 @@ Ancile-Proposal: mpr_01J9Z3
 
 - **History:** Admin → Memory shows each file's history, a diff between any two versions, and **Revert**, which makes a new commit.
 - **Conflicts:** if Ancile commits while you're editing a file, your save is merged automatically when the edits don't overlap. When they do, you see both versions side by side. See the [memory conflict runbook](runbooks/memory-conflict.md).
+- **Deleting a file:** **⋯ → Delete file** in Admin → Memory removes it in its own commit (`DELETE /api/v1/memory/files/<path>`, through the memory module like every other write). History keeps it, so **Undo** on the notice reverts that commit and the file comes back. AGENTS.md, USER.md and the folder's guides (`README.md`, `_template.md`) can't be deleted (`memory.protected`).
 - **Backup:** set `remote` in `config/memory.yaml` (or `ANCILE_MEMORY_REMOTE`) to push to a private git remote on a schedule.
 
 ## Editing by hand

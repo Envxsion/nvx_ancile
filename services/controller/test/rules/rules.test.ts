@@ -116,6 +116,42 @@ describe('schedule rule', () => {
     const again = evaluateSchedule(rule, [node()], out.firedAt, new Date(now.getTime() + 30_000));
     expect(again.firedAt).toBeNull();
   });
+
+  // 2026-10-07 is a Wednesday.
+  it('fires only on the chosen weekdays, in the rule time zone', () => {
+    const on = { ...rule, config: { ...rule.config, weekdays: ['mon', 'wed'] as ('mon' | 'wed')[] } };
+    expect(evaluateSchedule(on, [node()], ago(5), now).actions).toHaveLength(1);
+    const off = { ...rule, config: { ...rule.config, weekdays: ['thu' as const] } };
+    const out = evaluateSchedule(off, [node()], ago(5), now);
+    expect(out.firedAt).toBeNull();
+    expect(out.actions).toHaveLength(0);
+    // The day is read in the rule's zone, not UTC.
+    const mel = {
+      ...rule,
+      config: { ...rule.config, cron: '30 23 * * *', tz: 'Australia/Melbourne', weekdays: ['wed' as const] },
+    };
+    const wedNightMel = new Date('2026-10-07T12:30:00Z'); // 23:30 Wed in Melbourne (AEDT, +11)
+    expect(
+      evaluateSchedule(mel, [node()], new Date(wedNightMel.getTime() - 60_000), wedNightMel).firedAt,
+    ).not.toBeNull();
+    const thuNightMel = new Date('2026-10-08T12:30:00Z');
+    expect(
+      evaluateSchedule(mel, [node()], new Date(thuNightMel.getTime() - 60_000), thuNightMel).firedAt,
+    ).toBeNull();
+  });
+
+  it('with no weekdays, fires every day the cron allows', () => {
+    const thursday = new Date('2026-10-08T10:00:00Z');
+    expect(
+      evaluateSchedule(rule, [node()], new Date(thursday.getTime() - 60_000), thursday).firedAt,
+    ).not.toBeNull();
+  });
+
+  it('acts only on the chosen nodes', () => {
+    const chosen = { ...rule, config: { ...rule.config, node_ids: ['n2'] } };
+    const out = evaluateSchedule(chosen, [node(), node({ id: 'n2' })], ago(5), now);
+    expect(out.actions.map((a) => a.nodeId)).toEqual(['n2']);
+  });
 });
 
 describe('cost cap', () => {
@@ -148,5 +184,13 @@ describe('cost cap', () => {
     const notify = evaluateCostCap(rule('notify_only'), costs, [node()]);
     expect(notify.actions).toHaveLength(0);
     expect(notify.notices[0]?.body).toMatch(/only notifies/);
+  });
+
+  it('stops only the chosen nodes when the rule names some', () => {
+    const costs = { total_to_date: 120, projected_total: 150 };
+    const r = rule('stop_nodes');
+    const chosen = { ...r, config: { ...r.config, node_ids: ['n2'] } };
+    const out = evaluateCostCap(chosen, costs, [node(), node({ id: 'n2' })]);
+    expect(out.actions.map((a) => a.nodeId)).toEqual(['n2']);
   });
 });

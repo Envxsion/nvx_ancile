@@ -273,4 +273,19 @@ describe('deleting a memory file', () => {
     expect((await h.call('DELETE', '/memory/files/agents.MD')).status).toBeGreaterThanOrEqual(400);
     expect((await h.call('DELETE', '/memory/files/../escape.md')).status).toBeGreaterThanOrEqual(400);
   });
+
+  it('undo reverts the deleting commit, so the file comes back with its words and its history', async () => {
+    await h.call('PUT', '/memory/files/PROJECTS/undo-me.md', {
+      content: '# Undo me\n\n- Keep this line.\n',
+      base_sha: null,
+    });
+    const gone = await h.call<{ version: string }>('DELETE', '/memory/files/PROJECTS/undo-me.md');
+    expect(gone.status).toBe(200);
+    const hist = (await h.call<MemoryHistory>('GET', '/memory/history/PROJECTS/undo-me.md')).body.items;
+    expect(hist[0]?.summary).toContain('deleted by hand');
+    expect((await h.call('POST', '/memory/revert', { sha: gone.body.version })).status).toBe(200);
+    const back = await h.call<MemoryFileContent>('GET', '/memory/files/PROJECTS/undo-me.md');
+    expect(back.status).toBe(200);
+    expect(back.body.content).toContain('Keep this line.');
+  });
 });

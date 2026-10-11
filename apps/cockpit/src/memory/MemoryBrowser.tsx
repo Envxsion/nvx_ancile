@@ -17,9 +17,11 @@
 import type { MemoryEntryView, MemoryFileSummary, MemoryKind } from '@nvx/contracts';
 import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { relative } from '../lib/format';
+import { ConfirmDialog } from '../ui/Confirm';
 import { Icon, type IconName } from '../ui/Icon';
+import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
-import { useMemoryFile, useMemoryFiles, useMemoryUi } from './api';
+import { isProtectedFile, useDeleteFile, useMemoryFile, useMemoryFiles, useMemoryUi } from './api';
 import { FileHistory } from './History';
 import { MemoryEditor } from './MemoryEditor';
 
@@ -127,6 +129,8 @@ function FilePane({ path, summary }: { path: string; summary: MemoryFileSummary 
   const file = useMemoryFile(path);
   const [mode, setMode] = useState<Mode>('read');
   const [showOld, setShowOld] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const remove = useDeleteFile();
 
   const live = file.data?.entries.filter((e) => !e.superseded) ?? [];
   const old = file.data?.entries.filter((e) => e.superseded) ?? [];
@@ -169,7 +173,38 @@ function FilePane({ path, summary }: { path: string; summary: MemoryFileSummary 
             </button>
           ))}
         </div>
+        {isProtectedFile(path) ? null : (
+          <DropMenu
+            items={[
+              {
+                label: 'Delete file',
+                icon: 'trash',
+                danger: true,
+                disabled: remove.isPending,
+                onSelect: () => setConfirming(true),
+              },
+            ]}
+            trigger={
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={`More for ${path}`}>
+                <Icon name="more" size={14} />
+              </button>
+            }
+          />
+        )}
       </header>
+      <ConfirmDialog
+        copy={
+          confirming
+            ? {
+                title: `Delete ${path}?`,
+                body: 'NVX Ancile stops using what it holds. The deletion is its own commit, so the file stays in history and you can bring it back with Undo or from History.',
+                action: 'Delete file',
+              }
+            : null
+        }
+        onConfirm={() => remove.mutate(path)}
+        onClose={() => setConfirming(false)}
+      />
 
       {file.isPending ? <Skeleton lines={5} label="Loading the file" /> : null}
 

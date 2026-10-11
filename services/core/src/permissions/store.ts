@@ -60,6 +60,13 @@ export interface NewGrant {
   fromApprovalId: string | null;
 }
 
+export interface GrantPatch {
+  resourcePattern?: string;
+  scope?: GrantLike['scope'];
+  scopeRef?: string | null;
+  expiresAt?: string | null;
+}
+
 export interface NewDecision {
   userId: string;
   principal: string;
@@ -79,6 +86,10 @@ export interface PermissionStore extends GrantSource {
   listGrants(): Promise<Grant[]>;
   revokeGrant(id: string): Promise<boolean>;
   extendGrant(id: string, expiresAt: string | null): Promise<Grant | undefined>;
+  /** Change an active grant in place; absent fields stay as they are. */
+  updateGrant(id: string, patch: GrantPatch): Promise<Grant | undefined>;
+  /** Take back a revocation made within `withinMs`; older ones stay revoked. */
+  restoreGrant(id: string, withinMs: number): Promise<Grant | undefined>;
   recordGrantUse(id: string): Promise<void>;
 
   /** Idempotent on (run, call): asking again for the same call returns the first approval. */
@@ -267,6 +278,26 @@ export class PgPermissionStore implements PermissionStore {
     return rows[0] ? grantFromRow(rows[0]) : undefined;
   }
 
+  async updateGrant(id: string, p: GrantPatch) {
+    const rows = await this.sql<GrantRow[]>`
+      update core.grants set
+        resource_pattern = coalesce(${p.resourcePattern ?? null}::text, resource_pattern),
+        scope = coalesce(${p.scope ?? null}::text, scope),
+        scope_ref = case when ${'scopeRef' in p}::boolean then ${p.scopeRef ?? null}::text else scope_ref end,
+        expires_at = case when ${'expiresAt' in p}::boolean then ${p.expiresAt ?? null}::timestamptz else expires_at end
+      where id = ${id} and revoked_at is null returning *`;
+    return rows[0] ? grantFromRow(rows[0]) : undefined;
+  }
+
+  async restoreGrant(id: string, withinMs: number) {
+    const rows = await this.sql<GrantRow[]>`
+      update core.grants set revoked_at = null
+      where id = ${id} and revoked_at is not null
+        and revoked_at > now() - make_interval(secs => ${withinMs / 1000})
+      returning *`;
+    return rows[0] ? grantFromRow(rows[0]) : undefined;
+  }
+
   async recordGrantUse(id: string) {
     await this.sql`update core.grants set uses = uses + 1, last_used_at = now() where id = ${id}`;
   }
@@ -406,6 +437,25 @@ export class MemoryPermissionStore implements PermissionStore {
     const g = this.grants.get(id);
     if (!g || g.revoked_at) return undefined;
     g.expires_at = expiresAt;
+    const { userId: _u, ...out } = g;
+    return out;
+  }
+
+  async updateGrant(id: string, p: GrantPatch) {
+    const g = this.grants.get(id);
+    if (!g || g.revoked_at) return undefined;
+    if (p.resourcePattern !== undefined) g.resource_pattern = p.resourcePattern;
+    if (p.scope !== undefined) g.scope = p.scope;
+    if ('scopeRef' in p) g.scope_ref = p.scopeRef ?? null;
+    if ('expiresAt' in p) g.expires_at = p.expiresAt ?? null;
+    const { userId: _u, ...out } = g;
+    return out;
+  }
+
+  async restoreGrant(id: string, withinMs: number) {
+    const g = this.grants.get(id);
+    if (!g?.revoked_at || this.now() - Date.parse(g.revoked_at) > withinMs) return undefined;
+    g.revoked_at = null;
     const { userId: _u, ...out } = g;
     return out;
   }

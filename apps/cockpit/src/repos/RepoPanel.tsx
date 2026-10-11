@@ -24,13 +24,16 @@ import { relative } from '../lib/format';
 import { queryClient } from '../lib/query';
 import { reportFailure } from '../ops/common';
 import { notify } from '../state/notify';
+import { ConfirmDialog } from '../ui/Confirm';
 import { Check } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton, StatusDot } from '../ui/primitives';
 import {
   addRepo,
   linkRepo,
   refreshRepo,
+  removeRepo,
   repoAction,
   repoKeys,
   useGitHubAccess,
@@ -59,6 +62,73 @@ const LETTER: Record<string, string> = {
 const isStaged = (f: RepoFile) => f.staged !== '.' && f.staged !== '?' && f.staged !== 'U';
 const letterOf = (f: RepoFile) => (f.staged === '?' ? '?' : f.staged !== '.' ? f.staged : f.unstaged);
 
+/**
+ * Remove a repository, after a confirm that says the folder stays.
+ * Undo adds the same folder back under the same name, and links it to
+ * this thread or notebook again if it was linked here.
+ */
+function useRemoveRepo(relinkTo: { where: 'thread' | 'notebook'; at: string } | null) {
+  const [pending, setPending] = useState<RepoInfo | null>(null);
+  const remove = async (r: RepoInfo) => {
+    try {
+      await removeRepo(r.id);
+      notify({
+        level: 'success',
+        title: `Removed ${r.name}`,
+        body: 'NVX Ancile no longer tracks it. The folder is untouched.',
+        undo: () =>
+          void addRepo(r.root, r.name)
+            .then((back) => (relinkTo ? linkRepo(relinkTo.where, relinkTo.at, back.id) : undefined))
+            .catch((e) => reportFailure(e, 'Adding it back')),
+      });
+    } catch (e) {
+      reportFailure(e, 'Removing the repository');
+    }
+  };
+  const dialog = (
+    <ConfirmDialog
+      copy={
+        pending
+          ? {
+              title: `Remove repo ${pending.name}?`,
+              body: (
+                <>
+                  NVX Ancile stops tracking it and unlinks it from every thread and notebook. The folder{' '}
+                  <span data-num>{pending.root}</span> stays on disk with all its files and history.
+                </>
+              ),
+              action: 'Remove repo',
+            }
+          : null
+      }
+      onConfirm={() => pending && void remove(pending)}
+      onClose={() => setPending(null)}
+    />
+  );
+  return { ask: setPending, dialog };
+}
+
+function RepoMenu({ repo, onRemove }: { repo: RepoInfo; onRemove: () => void }) {
+  return (
+    <DropMenu
+      items={[
+        {
+          label: 'Copy folder path',
+          icon: 'copy',
+          onSelect: () => void navigator.clipboard?.writeText(repo.root),
+        },
+        { kind: 'separator' },
+        { label: 'Remove repo', icon: 'trash', danger: true, onSelect: onRemove },
+      ]}
+      trigger={
+        <button type="button" className="icon-btn icon-btn--xs" aria-label={`More for ${repo.name}`}>
+          <Icon name="more" size={14} />
+        </button>
+      }
+    />
+  );
+}
+
 export function RepoPanel() {
   const scope = useRepoScope();
   const linked = useLinkedRepo(scope);
@@ -83,6 +153,8 @@ function LinkRepo({ scope }: { scope: { threadId: string | null; notebookId: str
   const [busy, setBusy] = useState(false);
   const target = scope.threadId ? ('thread' as const) : ('notebook' as const);
   const ref = (scope.threadId ?? scope.notebookId) as string;
+  // Nothing is linked here, so Undo only adds the repository back.
+  const removing = useRemoveRepo(null);
 
   const link = async (r: RepoInfo, where: 'thread' | 'notebook') => {
     const at = where === 'thread' ? scope.threadId : scope.notebookId;
@@ -150,6 +222,7 @@ function LinkRepo({ scope }: { scope: { threadId: string | null; notebookId: str
                       Use in this notebook
                     </button>
                   ) : null}
+                  <RepoMenu repo={r} onRemove={() => removing.ask(r)} />
                 </span>
               </li>
             ))}
@@ -186,6 +259,7 @@ function LinkRepo({ scope }: { scope: { threadId: string | null; notebookId: str
           Any folder inside the repository works. Your git sign-in stays with git.
         </p>
       </section>
+      {removing.dialog}
     </div>
   );
 }
@@ -202,6 +276,9 @@ function Linked({
   const status = useRepoStatus(repo.id);
   const s = status.data ?? repo.status;
   const [busy, setBusy] = useState<string | null>(null);
+  const where = scope.threadId ? ('thread' as const) : ('notebook' as const);
+  const at = scope.threadId ?? scope.notebookId;
+  const removing = useRemoveRepo(at ? { where, at } : null);
 
   const run = async (label: string, op: Parameters<typeof repoAction>[1], done?: string) => {
     setBusy(label);
@@ -217,11 +294,15 @@ function Linked({
 
   if (!s)
     return (
-      <EmptyState
-        icon="alert"
-        title={`${repo.name} cannot be read`}
-        body={repo.error ?? 'The folder may have moved. Remove it and add it again.'}
-      />
+      <>
+        <EmptyState
+          icon="alert"
+          title={`${repo.name} cannot be read`}
+          body={repo.error ?? 'The folder may have moved. Remove it and add it again.'}
+          action={{ label: 'Remove repo', onClick: () => removing.ask(repo) }}
+        />
+        {removing.dialog}
+      </>
     );
 
   return (
@@ -233,18 +314,20 @@ function Linked({
             {repo.root}
           </span>
         </div>
-        <button
-          type="button"
-          className="link-btn link-btn--quiet"
-          onClick={() => {
-            const where = scope.threadId ? 'thread' : 'notebook';
-            const at = scope.threadId ?? scope.notebookId;
-            if (at) void linkRepo(where, at, null).catch((e) => reportFailure(e, 'Unlinking'));
-          }}
-        >
-          Unlink
-        </button>
+        <span className="repo__head-acts">
+          <button
+            type="button"
+            className="link-btn link-btn--quiet"
+            onClick={() => {
+              if (at) void linkRepo(where, at, null).catch((e) => reportFailure(e, 'Unlinking'));
+            }}
+          >
+            Unlink
+          </button>
+          <RepoMenu repo={repo} onRemove={() => removing.ask(repo)} />
+        </span>
       </header>
+      {removing.dialog}
 
       <BranchBar repoId={repo.id} status={s} busy={busy} run={run} />
       {s.operation ? (
