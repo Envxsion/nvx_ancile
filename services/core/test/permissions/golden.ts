@@ -162,9 +162,21 @@ export const GOLDEN: GoldenCase[] = [
   },
   {
     name: 'grants belong to their principal',
-    request: req('fs.read', 'fs:/workspace/docs/a.md', 'gated', { principal: 'external:claude-code' }),
+    request: req('fs.read', 'fs:/workspace/docs/a.md', 'gated', { principal: 'agent:reviewer' }),
     grants: [readDocs],
     expect: { outcome: 'ask' },
+  },
+  {
+    name: 'an app on /mcp cannot write, even with a grant for everything',
+    request: req('fs.write', 'fs:/workspace/docs/a.md', 'gated', { principal: 'mcp:cli_1' }),
+    grants: [grant({ principal: 'mcp:cli_1', actionPattern: '*', resourcePattern: '*' })],
+    expect: { outcome: 'deny', via: 'policy' },
+  },
+  {
+    name: 'an app on /mcp reads what it was granted',
+    request: req('knowledge.search', 'search:launch plan', 'gated', { principal: 'mcp:cli_1' }),
+    grants: [grant({ principal: 'mcp:cli_1', actionPattern: 'knowledge.search', resourcePattern: '*' })],
+    expect: { outcome: 'allow', via: 'grant' },
   },
   {
     name: 'URL credentials are stripped before matching',

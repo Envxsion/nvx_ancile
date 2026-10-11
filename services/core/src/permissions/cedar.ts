@@ -26,9 +26,25 @@ import type { Tier } from '@nvx/contracts';
 import type { PolicyEvaluator } from './decide';
 import { scheme } from './normalize';
 
-/** Writes, deletes and executions outside the workspace are always critical. */
+/**
+ * What an outside app (an MCP client of Ancile's /mcp, or an `external:`
+ * principal) may ever do, whatever it has been granted: read. Keep in step
+ * with `base.external-read-only` in config/policies/base.cedar.
+ */
+export const EXTERNAL_READ_ACTIONS = ['knowledge.search', 'notebooks.read', 'memory.read'] as const;
+
+export const isExternal = (principal: string) =>
+  principal.startsWith('mcp:') || principal.startsWith('external:');
+
+/** Writes, deletes and executions outside the workspace are always critical; outside apps only read. */
 export class BuiltinPolicy implements PolicyEvaluator {
-  async forbids() {
+  async forbids(req?: { principal: string; action: string }) {
+    if (
+      req &&
+      isExternal(req.principal) &&
+      !(EXTERNAL_READ_ACTIONS as readonly string[]).includes(req.action)
+    )
+      return { forbidden: true, policyId: 'base.external-read-only' };
     return { forbidden: false };
   }
 
@@ -95,6 +111,8 @@ export function resourceAttrs(
 function principalUid(principal: string): { type: string; id: string } {
   if (principal.startsWith('agent:')) return { type: 'Ancile::Agent', id: principal.slice(6) };
   if (principal.startsWith('external:')) return { type: 'Ancile::External', id: principal.slice(9) };
+  // Apps connected to Ancile's own MCP server are outside apps too.
+  if (principal.startsWith('mcp:')) return { type: 'Ancile::External', id: principal.slice(4) };
   return { type: 'Ancile::User', id: principal };
 }
 
@@ -189,9 +207,33 @@ export class CedarPolicy implements PolicyEvaluator {
   }
 }
 
+/**
+ * What a preset eases. Only Hands-off eases anything: writing a file inside
+ * the workspace no longer asks. Never for a destructive action, never outside
+ * the workspace, never for an outside app; base.cedar can still raise it
+ * (an unattended automation, for one, still asks every time).
+ */
+export const PRESET_AUTO: Record<string, readonly string[]> = { hands_off: ['fs.write'] };
+
+export function presetRelax(preset: string | null | undefined): PolicyEvaluator['relax'] {
+  const eased = PRESET_AUTO[preset ?? ''] ?? [];
+  return (req) =>
+    eased.includes(req.action) &&
+    req.toolTier === 'gated' &&
+    !req.destructive &&
+    !req.outsideRoot &&
+    req.resource.startsWith('fs:') &&
+    !isExternal(req.principal)
+      ? 'auto'
+      : null;
+}
+
 /** Cedar plus the built-in floor: a policy can only add strictness. */
 export class LayeredPolicy implements PolicyEvaluator {
-  constructor(private readonly layers: PolicyEvaluator[]) {}
+  constructor(
+    private readonly layers: PolicyEvaluator[],
+    readonly relax?: PolicyEvaluator['relax'],
+  ) {}
 
   async forbids(req: Parameters<PolicyEvaluator['forbids']>[0]) {
     for (const l of this.layers) {
@@ -213,6 +255,7 @@ export class LayeredPolicy implements PolicyEvaluator {
 }
 
 export async function loadCedarEvaluator(policies: CedarPolicySet): Promise<PolicyEvaluator> {
-  if (Object.keys(policies.files).length === 0) return new BuiltinPolicy();
-  return new LayeredPolicy([await CedarPolicy.load(policies), new BuiltinPolicy()]);
+  const relax = presetRelax(policies.preset);
+  if (Object.keys(policies.files).length === 0) return new LayeredPolicy([new BuiltinPolicy()], relax);
+  return new LayeredPolicy([await CedarPolicy.load(policies), new BuiltinPolicy()], relax);
 }

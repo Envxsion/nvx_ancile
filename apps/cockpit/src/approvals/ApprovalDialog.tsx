@@ -30,6 +30,7 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { TierBadge } from '../ui/primitives';
+import { usePermissionPreset } from './preset';
 
 const SCOPES = [
   { id: 'once', label: 'Just this once', hint: 'Ask again next time' },
@@ -62,8 +63,16 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
   const thread = threads.data?.find((t) => t.id === approval.threadId);
   const notebookId = thread?.notebookId ?? null;
   const notebookTitle = notebooks.data?.find((n) => n.id === notebookId)?.title;
+  // Careful remembers an answer for the thread at most (Core refuses wider).
+  const careful = usePermissionPreset().data === 'careful';
   const scopes = SCOPES.filter((s) =>
-    s.id === 'notebook' ? !!notebookId : s.id === 'thread' ? !!approval.threadId : true,
+    s.id === 'notebook'
+      ? !!notebookId && !careful
+      : s.id === 'thread'
+        ? !!approval.threadId
+        : s.id === 'always'
+          ? !careful
+          : true,
   );
   const [busy, setBusy] = useState(false);
   const [pattern, setPattern] = useState(approval.suggestions[0] ?? approval.resource);

@@ -1,9 +1,12 @@
 // =============================================================================
 //  Preset: Hands-off.
-//  Writes inside the workspace are automatic (tools.yaml tiers are lowered by
-//  the preset to auto for fs.write within the workspace root). Critical stays
-//  critical: deleting, sending, paying, terminating and writing outside the
-//  workspace still ask every time, because base.cedar escalates them.
+//  Writing a file inside the workspace does not ask. Cedar can only forbid or
+//  raise a tier, so that easing is not here: it is PRESET_AUTO in
+//  services/core/src/permissions/cedar.ts (fs.write, gated, not destructive,
+//  inside the workspace, never for an outside app). Critical stays critical:
+//  deleting, sending, paying, terminating, writing outside the workspace and
+//  anything an unattended automation does still ask, because base.cedar
+//  escalates them after the easing.
 // =============================================================================
 
 // Even hands-off, nothing an agent does may delete a whole directory tree.

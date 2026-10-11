@@ -46,8 +46,19 @@ describe('Cedar policies', () => {
       (await p.forbids(req('fs.write', 'fs:/workspace/a.md', false, 'external:claude-desktop'))).forbidden,
     ).toBe(true);
     expect(
-      (await p.forbids(req('ancile.search', 'search:q', false, 'external:claude-desktop'))).forbidden,
+      (await p.forbids(req('knowledge.search', 'search:q', false, 'external:claude-desktop'))).forbidden,
     ).toBe(false);
+  });
+
+  it('treats apps connected to /mcp as outside apps: they read, never write', async () => {
+    const p = await loadCedarEvaluator({ files: await files(), preset: 'balanced' });
+    for (const read of ['knowledge.search', 'notebooks.read', 'memory.read'])
+      expect((await p.forbids(req(read, 'workspace:wsp_1', false, 'mcp:cli_1'))).forbidden).toBe(false);
+    for (const write of ['fs.write', 'memory.write', 'shell.exec', 'repo.push', 'compute.start'])
+      expect(await p.forbids(req(write, 'workspace:wsp_1', false, 'mcp:cli_1'))).toMatchObject({
+        forbidden: true,
+        policyId: 'base.external-read-only',
+      });
   });
 
   it('escalates writes outside the workspace and dangerous shell to critical', async () => {

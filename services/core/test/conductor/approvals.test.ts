@@ -96,6 +96,28 @@ describe('answering approvals', () => {
     expect((await h.settle(sent.run_id)).status).toBe('succeeded');
   });
 
+  it('remembers answers for the thread at most under Careful', async () => {
+    h = await harness();
+    expect((await h.call('PUT', '/permissions/preset', { preset: 'careful' })).status).toBe(200);
+    expect((await h.call<{ preset: string }>('GET', '/permissions/preset')).body.preset).toBe('careful');
+    const { sent, approvalId } = await askToWrite('docs/careful.md');
+    for (const scope of ['notebook', 'always']) {
+      const r = await h.call<{ error: { code: string } }>('POST', `/approvals/${approvalId}`, {
+        decision: 'approve',
+        scope,
+        pattern: 'fs:/workspace/docs/careful.md',
+      });
+      expect(r.body.error.code).toBe('permission.scope_too_wide');
+    }
+    const ok = await h.call('POST', `/approvals/${approvalId}`, {
+      decision: 'approve',
+      scope: 'thread',
+      pattern: 'fs:/workspace/docs/careful.md',
+    });
+    expect(ok.status).toBe(200);
+    expect((await h.settle(sent.run_id)).status).toBe('succeeded');
+  });
+
   it('withdraws the question when Stop lands while it is being asked', async () => {
     h = await harness();
     const original = h.perms.createApproval.bind(h.perms);

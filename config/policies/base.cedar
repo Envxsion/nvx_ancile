@@ -28,12 +28,15 @@ when {
    resource.path like "*.pem")
 };
 
-// External MCP clients (Ancile as an MCP server) are read-only.
+// Outside apps (MCP clients of Ancile's /mcp, `mcp:<id>`, and `external:`
+// principals) only read, whatever they have been granted: a grant can narrow
+// what they read, never let them write. Keep in step with
+// EXTERNAL_READ_ACTIONS in services/core/src/permissions/cedar.ts.
 @id("base.external-read-only")
 forbid (principal is Ancile::External, action, resource)
 unless {
-  action in [Ancile::Action::"ancile.search", Ancile::Action::"ancile.read_source",
-             Ancile::Action::"ancile.list_notebooks", Ancile::Action::"ancile.memory_read"]
+  action in [Ancile::Action::"knowledge.search", Ancile::Action::"notebooks.read",
+             Ancile::Action::"memory.read"]
 };
 
 // Writing anywhere outside the workspace root is always critical.

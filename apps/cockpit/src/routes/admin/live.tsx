@@ -15,6 +15,7 @@
 
 import type { Decision, Grant } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { PresetPicker } from '../../approvals/preset';
 import { ApiCallError, api } from '../../lib/api';
 import { keys, useModels, useSystemHealth } from '../../lib/data';
 import { relative } from '../../lib/format';
@@ -142,14 +143,18 @@ export function LiveGrants() {
   const items = grants.data ?? [];
   if (items.length === 0)
     return (
-      <EmptyState
-        icon="shield"
-        title="Nothing remembered yet"
-        body="When you approve an action and choose to remember it, it appears here with a revoke button."
-      />
+      <>
+        <PresetPicker />
+        <EmptyState
+          icon="shield"
+          title="Nothing remembered yet"
+          body="When you approve an action and choose to remember it, it appears here with a revoke button."
+        />
+      </>
     );
   return (
     <>
+      <PresetPicker />
       <p className="mute admin__lede">
         What the agent may do without asking, because you said so. Revoke any of it.
       </p>

@@ -269,11 +269,13 @@ Admin → Grants lists everything you have allowed, and any grant can be revoked
         keywords: 'preset careful balanced hands off policy',
         body: `The preset you chose in setup decides the defaults:
 
-- **Careful** asks for everything that is not reading.
-- **Balanced** asks once for reversible actions and every time for risky ones.
-- **Hands-off** only asks for the risky ones.
+- **Careful** asks for everything that is not reading, every shell command and network write asks every time, and an answer is remembered for this thread at most.
+- **Balanced** asks once for reversible actions, until you remember the answer, and every time for risky ones.
+- **Hands-off** writes files in your workspace without asking, and still asks for the risky ones.
 
-Change it in Settings → Permissions. Policies an administrator writes in Cedar always win over the preset.`,
+Whatever the preset, deleting, sending, spending and writing outside your workspace ask every time.
+
+Change it in Admin → Permissions. Policies an administrator writes in Cedar always win over the preset.`,
       },
     ],
   },

@@ -21,7 +21,13 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type Approval, ApprovalDecisionRequest, type GrantScope } from '@nvx/contracts';
+import {
+  AncileError,
+  type Approval,
+  ApprovalDecisionRequest,
+  type GrantScope,
+  PermissionPreset,
+} from '@nvx/contracts';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app';
@@ -36,6 +42,8 @@ import type { ApprovalRecord, PermissionStore } from './store';
 
 export interface PermissionRouteDeps {
   store: PermissionStore;
+  /** The permission preset (Settings → Permissions); setting it reloads the policies. */
+  preset?: { get(): Promise<PermissionPreset>; set(next: PermissionPreset): Promise<void> };
   events: RunEventLog;
   bus?: EventBus;
   worker: Pick<RunWorker, 'resume'>;
@@ -103,11 +111,31 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     return c.json(approvalOut(a));
   });
 
+  r.get('/permissions/preset', async (c) => c.json({ preset: (await deps.preset?.get()) ?? 'balanced' }));
+
+  r.put('/permissions/preset', async (c) => {
+    const { preset } = await body(c, z.object({ preset: PermissionPreset }));
+    if (!deps.preset) throw notFound('Permission presets');
+    await deps.preset.set(preset);
+    return c.json({ preset });
+  });
+
   r.post('/approvals/:id', async (c) => {
     const a = await store.getApproval(c.req.param('id'));
     if (!a) throw notFound('That approval');
     const req = await body(c, ApprovalDecisionRequest);
     if (a.status !== 'pending') return c.json(approvalOut(a));
+
+    // Careful remembers an answer for the thread at most.
+    if (req.scope !== 'once' && req.scope !== 'thread' && (await deps.preset?.get()) === 'careful') {
+      throw new AncileError({
+        code: 'permission.scope_too_wide',
+        title: 'Careful remembers answers for this thread only',
+        hint: 'Choose "In this thread" or "Just this once", or switch to Balanced in Admin → Permissions.',
+        status: 422,
+        errorClass: 'permanent',
+      });
+    }
 
     if (a.tier === 'critical' && req.scope !== 'once') {
       throw new AncileError({

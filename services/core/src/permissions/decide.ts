@@ -42,6 +42,19 @@ export interface PolicyEvaluator {
     resource: string;
     outsideRoot: boolean;
   }): Promise<{ forbidden: boolean; policyId?: string }>;
+  /**
+   * The permission preset's one easing (Hands-off): a GATED, non-destructive
+   * action it names may run without asking. Applied before the destructive
+   * floor and before escalation, so nothing critical is ever eased.
+   */
+  relax?(req: {
+    principal: string;
+    action: string;
+    resource: string;
+    outsideRoot: boolean;
+    toolTier: Tier;
+    destructive: boolean;
+  }): Tier | null;
   /** Policies may raise a tier (e.g. writes outside the workspace → critical), never lower it. */
   escalation(req: {
     principal: string;
@@ -163,6 +176,7 @@ export async function decide(req: DecisionRequest, deps: DecideDeps): Promise<De
   }
 
   let tier = req.toolTier;
+  tier = deps.policy.relax?.({ ...pq, toolTier: tier, destructive: req.destructive === true }) ?? tier;
   if (req.destructive && tier === 'auto') tier = 'gated'; // floor: destructive is never AUTO
   const escalated = await deps.policy.escalation(pq);
   if (escalated) tier = maxTier(tier, escalated);

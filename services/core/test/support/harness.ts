@@ -328,6 +328,15 @@ export async function harness(opts: HarnessOptions = {}) {
       }),
       permissionRoutes({
         store: perms,
+        preset: (() => {
+          let now: 'careful' | 'balanced' | 'hands_off' = 'balanced';
+          return {
+            get: async () => now,
+            set: async (p: typeof now) => {
+              now = p;
+            },
+          };
+        })(),
         events,
         bus,
         worker: workerRef,

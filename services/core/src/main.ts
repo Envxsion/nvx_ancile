@@ -272,9 +272,14 @@ async function main() {
     files: config.policies,
     preset: (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced',
   });
+  const applyPreset = async (preset: string) => {
+    policy = await loadCedarEvaluator({ files: config.policies, preset });
+    log.info({ preset }, 'permission preset changed');
+  };
   const policyRef: PolicyEvaluator = {
     forbids: (r) => policy.forbids(r),
     escalation: (r) => policy.escalation(r),
+    relax: (r) => policy.relax?.(r) ?? null,
   };
   const gate = createGate({
     policy: policyRef,
@@ -813,6 +818,16 @@ async function main() {
       }),
       permissionRoutes({
         store: permissions,
+        preset: {
+          get: async () => {
+            const p = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
+            return p === 'careful' || p === 'hands_off' ? p : 'balanced';
+          },
+          set: async (preset) => {
+            await settings.set(SETTING.preset, preset);
+            await applyPreset(preset);
+          },
+        },
         events: runEvents,
         bus: events,
         worker,
@@ -833,10 +848,7 @@ async function main() {
         settings,
         ollamaUrl: env.OLLAMA_BASE_URL,
         tester: liveTester((m, key) => languageModelFor(m, { get: async () => key }, endpoints)),
-        onPreset: async (preset) => {
-          policy = await loadCedarEvaluator({ files: config.policies, preset });
-          log.info({ preset }, 'permission preset changed');
-        },
+        onPreset: applyPreset,
       }),
       stateRoutes(new PgStateStore(sql, owner.userId)),
       notificationRoutes(notifications),

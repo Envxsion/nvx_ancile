@@ -64,11 +64,19 @@ Approvals raised by unattended automations expire after `ANCILE_APPROVAL_TTL_AUT
 
 ## Presets
 
-Chosen in setup; change them in Settings → Permissions.
+Chosen in setup; change them in Admin → Permissions (the row above your remembered answers).
 
-- **Careful:** shell and network writes are critical, agents can't start GPU nodes, and grants default to thread scope.
-- **Balanced** (default): reads are automatic, workspace writes are gated with notebook scope, and anything destructive is critical.
-- **Hands-off:** workspace writes are automatic. Critical stays critical.
+- **Careful:** every shell command and every network write (POST, PUT, PATCH, DELETE) asks every time, and agents can't start GPU nodes.
+- **Balanced** (default): reads are automatic, writes ask until you remember an answer, and shell commands that look dangerous (sudo, rm, piping into a shell) ask every time.
+- **Hands-off:** writing a file inside the workspace no longer asks. Everything else is as Balanced, and an agent still can't delete a whole folder.
+
+Whatever the preset:
+- Critical stays critical. Deleting, sending, paying, terminating a node, writing outside the workspace and anything an unattended automation does ask every time.
+- The approval dialog starts at "Just this once"; remembering an answer for the thread, notebook or always is your choice each time.
+
+### Outside apps
+
+Apps connected to NVX Ancile's own MCP server (Admin → Plugins → Connected apps) only ever read. They can search your sources, list notebooks and search memory, and only what you ticked when you connected them. No grant, however broad, lets one write, run a command or start a node. Disconnecting an app revokes its grants at once.
 
 ## Policies {#policies}
 
