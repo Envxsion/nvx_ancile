@@ -105,13 +105,15 @@ jobs:
         run: E2E_BACKEND=1 pnpm test:e2e --project=chromium-dark
       - name: Every control on every route (desktop, phone, both themes)
         run: E2E_BACKEND=1 E2E_CRAWL=1 pnpm test:e2e crawl --project=chromium-dark --project=chromium-light --project=phone
-      - name: Chaos
-        run: E2E_BACKEND=1 pnpm test:chaos
+      # Load runs before Chaos, which restarts Postgres and Core: measured on a
+      # cold, just-restarted stack it reported 3 to 10 times the real overhead.
       - name: Load (50 concurrent streams)
-        # TODO(phase-6): p95 first-word overhead is ~430 ms at 50 streams
-        # against a 150 ms budget; reported, not yet blocking.
+        # TODO(phase-6): make blocking once CI shows p95 under the 150 ms
+        # budget with the warm-up and the fewer round trips before the first word.
         continue-on-error: true
         run: pnpm test:load
+      - name: Chaos
+        run: E2E_BACKEND=1 pnpm test:chaos
       - uses: actions/upload-artifact@v4
         if: always()
         with:

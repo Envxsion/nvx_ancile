@@ -79,6 +79,8 @@ export interface RunStore {
   get(id: string): Promise<RunRecord | undefined>;
   /** Claim one queued run for this worker; null when none. */
   claim(owner: string, leaseMs: number): Promise<RunRecord | null>;
+  /** Up to `n` queued runs in one statement, oldest first (a burst is not claimed one round trip at a time). */
+  claimMany?(owner: string, leaseMs: number, n: number): Promise<RunRecord[]>;
   renew(id: string, owner: string, leaseMs: number): Promise<boolean>;
   /**
    * Persist status, attempt, cursor, checkpoint and error, but only while the

@@ -25,7 +25,6 @@ import { canChat, type ModelRegistry } from '../gateway/registry';
 import { notFound } from '../obs/errors';
 import type { ReplayInput } from '../obs/replay';
 import type { RunStore } from '../runs/engine';
-import { alreadyRunning } from '../runs/store';
 import type { RunWorker } from '../runs/worker';
 import type { BranchStore } from './branches';
 import type { ThreadRecord, ThreadRepo } from './repo';
@@ -131,11 +130,9 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
   const thread = req.thread;
   const traceId = currentContext()?.traceId ?? newTraceId();
 
-  // Fast refusal before writing anything; create() below is the atomic check.
-  if (!req.detached) {
-    const active = await runs.activeForThread(thread.id);
-    if (active.length) throw alreadyRunning(active[0]?.id);
-  }
+  // One answer at a time per thread: runs.create() below is the atomic check
+  // (a unique index), and a refused send leaves nothing behind. No separate
+  // read first: it cost every message a round trip before its first word.
 
   // A model chosen for this message beats any flow; the thread's model only
   // answers when no flow does (DESIGN.md §16.3).
@@ -224,14 +221,21 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
     await repo.discardMessages(written);
     throw err;
   }
-  await repo.patchThread(thread.id, { active_head_id: assistantId, root_message_id: userId });
+  // The run is queued: start it now, while the thread is brought up to date.
+  // Nothing the run reads before its first word depends on these writes.
+  deps.worker.kick();
+  const title =
+    'parts' in req.user && thread.title_source === 'auto' && thread.title === 'New thread'
+      ? titleFrom(req.user.parts)
+      : null;
+  await repo.patchThread(thread.id, {
+    active_head_id: assistantId,
+    root_message_id: userId,
+    ...(title && { title }),
+  });
   // A name on the message this turn continues from moves to the new reply.
   const from = 'existingId' in req.user ? [userId] : req.user.parentId ? [req.user.parentId] : [];
   await deps.branches?.advance(thread.id, from, assistantId);
-  if (!('existingId' in req.user) && thread.title_source === 'auto' && thread.title === 'New thread') {
-    await repo.patchThread(thread.id, { title: titleFrom(req.user.parts) });
-  }
-  deps.worker.kick();
   if (!('existingId' in req.user) && !req.user.editOfId && deps.afterSend)
     void deps.afterSend(thread, userId).catch(() => undefined);
 

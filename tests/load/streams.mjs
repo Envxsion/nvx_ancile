@@ -28,6 +28,9 @@
  *           |  chatting. LOAD_SPREAD_MS=0 sends every message in the
  *           |  same instant (a burst), and LOAD_PROVIDER_MS=0 shows
  *           |  the raw cost with a provider that answers at once.
+ *           |  LOAD_WARMUP (default 5) answers run first and are not
+ *           |  counted: a freshly started stack (cold connections,
+ *           |  caches, JIT) is not what people use for hours.
  * ------------------------------------------------------------------
  */
 
@@ -36,6 +39,7 @@ const N = Number(process.env.LOAD_N ?? 50);
 const BUDGET = Number(process.env.LOAD_BUDGET_MS ?? 150);
 const PROVIDER_MS = Number(process.env.LOAD_PROVIDER_MS ?? 400);
 const SPREAD_MS = Number(process.env.LOAD_SPREAD_MS ?? 2000);
+const WARMUP = Number(process.env.LOAD_WARMUP ?? 5);
 // About 100 words at the offline model's typing speed: a few seconds each,
 // so the answers overlap.
 const WORDS = Array.from({ length: 100 }, (_, w) => `word${w}`).join(' ');
@@ -43,9 +47,9 @@ const WORDS = Array.from({ length: 100 }, (_, w) => `word${w}`).join(' ');
 const json = (r) =>
   r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(`${r.status} ${t.slice(0, 200)}`)));
 
-async function one(i) {
+async function one(i, spread = SPREAD_MS) {
   // Arrivals spread evenly over the window, in a shuffled order.
-  if (SPREAD_MS) await new Promise((r) => setTimeout(r, ((i * 7919) % N) * (SPREAD_MS / N)));
+  if (spread) await new Promise((r) => setTimeout(r, ((i * 7919) % N) * (spread / N)));
   const thread = await fetch(`${BASE}/threads`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -95,6 +99,11 @@ const pct = (xs, p) => {
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)];
 };
+
+if (WARMUP > 0) {
+  await Promise.allSettled(Array.from({ length: WARMUP }, (_, i) => one(N + i, 0)));
+  console.log(`Warmed up with ${WARMUP} answers (not counted).`);
+}
 
 const started = performance.now();
 const results = await Promise.allSettled(Array.from({ length: N }, (_, i) => one(i)));

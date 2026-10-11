@@ -30,7 +30,7 @@ Both are validated by schemas in `packages/contracts/src/config.ts`, and by each
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `ancile` / (generated) / `ancile` | Used by the compose Postgres. |
 | `POSTGRES_PORT` | `5433` | Host port. 5433 avoids clashing with a local Postgres. |
 | `DATABASE_URL` | none (required) | Connection string used by every service. |
-| `DATABASE_POOL_MAX` | `20` (Core) | Pool size per service. |
+| `DATABASE_POOL_MAX` | `40` (Core) | Pool size per service. Core's is larger: a burst of answers reads and writes in parallel. |
 
 ### Agent engine and integrations
 

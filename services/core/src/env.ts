@@ -54,7 +54,7 @@ export const EnvSchema = z
     ANCILE_COCKPIT_DIST: z.string().optional(),
 
     DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL'),
-    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(40),
 
     KNOWLEDGE_URL: z.string().url().default('http://localhost:7710'),
     // Agent Engine (opencode fork), the lab lane. Optional: Ancile runs

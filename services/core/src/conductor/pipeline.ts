@@ -377,6 +377,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const msgId = cp.input.assistantMessageId;
       const emit = (e: RunEventInput) => ctx.events.append(run.id, e);
       const deltas = new DeltaBatcher(emit, msgId, deps.deltaMs ?? 40);
+      // Bookkeeping writes that need not hold up the stream; awaited at the end of each round.
+      const pendingWrites: Promise<unknown>[] = [];
       // Retrieval, compaction, memory and the model round all read the same
       // history before the first word; nothing in this step changes it.
       let historyRead: ReturnType<typeof deps.repo.messages> | null = null;
@@ -385,6 +387,17 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         return historyRead;
       };
 
+      // Reads the first word waits on start now, beside the status write:
+      // the history, and (once per turn) the thread and the flow it resolves to.
+      void messages().catch(() => undefined);
+      const flowLookup =
+        deps.flows && !cp.flowChecked
+          ? deps.repo.getThread(cp.input.threadId).then(async (thread) => ({
+              thread,
+              resolved: thread ? await deps.flows?.resolve(thread, cp.input.flowId ?? null) : null,
+            }))
+          : null;
+      flowLookup?.catch(() => undefined);
       await deps.repo.updateMessage(msgId, { status: 'streaming', run_id: run.id });
       // Anything a previous attempt streamed but never checkpointed is
       // discarded; the client redraws from what is actually committed.
@@ -588,7 +601,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           .filter((m) => m.role === 'user')
           .map((m) => m.content);
         const query = queryFor(questions);
-        const title = (await deps.notebookTitle?.(notebookId).catch(() => null)) ?? null;
+        // The notebook's title is only for the answer's wording: read it beside the search.
+        const titleRead = deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null);
         try {
           const res = await deps.retriever.search({
             workspaceId: cp.input.workspaceId,
@@ -597,7 +611,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             k: DEFAULT_K,
             ...(cp.input.sourceIds?.length && { sourceIds: cp.input.sourceIds }),
           });
-          cp.grounding = groundingFrom(res, { query, notebookId, notebookTitle: title });
+          cp.grounding = groundingFrom(res, { query, notebookId, notebookTitle: (await titleRead) ?? null });
         } catch (err) {
           cp.grounding = null;
           cp.retrievalError = {
@@ -938,13 +952,15 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           description: t.description,
           inputSchema: t.inputSchema as Record<string, unknown>,
         }));
-        const base = await systemPrompt({
-          promptsDir: deps.promptsDir,
-          model: chain[0],
-          tools: tools.length > 0,
-        });
-        // ---- memory (Phase 4) ----
-        const memory = await injectMemory(chain[0]);
+        // ---- memory (Phase 4): read beside the system prompt ----
+        const [base, memory] = await Promise.all([
+          systemPrompt({
+            promptsDir: deps.promptsDir,
+            model: chain[0],
+            tools: tools.length > 0,
+          }),
+          injectMemory(chain[0]),
+        ]);
         // ---- end memory ----
         const sources =
           cp.grounding?.block ||
@@ -972,7 +988,12 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                   model_id: ev.modelId,
                   display_name: current?.display_name ?? ev.modelId,
                 });
-                await deps.repo.updateMessage(msgId, { model_id: ev.modelId });
+                // Recorded without holding up the first word; awaited before the step ends.
+                pendingWrites.push(
+                  deps.repo
+                    .updateMessage(msgId, { model_id: ev.modelId })
+                    .catch((err) => log.warn({ err }, 'could not record which model answered')),
+                );
               }
               break;
             case 'fallback':
@@ -1035,6 +1056,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           }
         }
         await deltas.flush();
+        await Promise.all(pendingWrites.splice(0));
         cp.rounds += 1;
         if (cp.queue.length === 0) cp.answered = true;
       };
@@ -1065,9 +1087,13 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         // ---- Flows (Phase 5b): a flow answers instead of the single model round ----
         if (deps.flows && !cp.flowChecked) {
           cp.flowChecked = true;
-          const thread = await deps.repo.getThread(cp.input.threadId);
+          const { thread, resolved: found } = await (flowLookup ??
+            deps.repo.getThread(cp.input.threadId).then(async (thread) => ({
+              thread,
+              resolved: thread ? await deps.flows?.resolve(thread, cp.input.flowId ?? null) : null,
+            })));
+          const resolved = found ?? null;
           const chosenForAnswer = !!(cp.input.flowId || cp.input.flowReplay || cp.input.routeAgain);
-          const resolved = thread ? await deps.flows.resolve(thread, cp.input.flowId ?? null) : null;
           // A model chosen for this message answers instead of any flow
           // (DESIGN.md §16.3): the flow is set aside, and the answer says so.
           const messageModel = cp.input.modelFrom === 'message' && !chosenForAnswer;

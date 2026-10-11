@@ -55,6 +55,19 @@ eachBackend('run store and event log', (backend) => {
     expect(await runs.renew(run.id, 'wkr_b', 30_000)).toBe(false);
   });
 
+  it('claims a burst several at a time, oldest first, each exactly once', async () => {
+    // Clear anything earlier tests left queued.
+    while ((await runs.claimMany?.('wkr_old', 30_000, 50))?.length);
+    const made = [];
+    for (let i = 0; i < 3; i++) made.push(await newRun());
+    const first = (await runs.claimMany?.('wkr_a', 30_000, 2)) ?? [];
+    const second = (await runs.claimMany?.('wkr_b', 30_000, 2)) ?? [];
+    expect(first.map((r) => r.id)).toEqual(made.slice(0, 2).map((r) => r.id));
+    expect(second.map((r) => r.id)).toEqual([made[2]?.id]);
+    expect([...first, ...second].every((r) => r.status === 'running')).toBe(true);
+    expect(await runs.claimMany?.('wkr_c', 30_000, 2)).toEqual([]);
+  });
+
   it('saves only while the stored run still matches, and clears the lease when it stops running', async () => {
     const run = await newRun();
     const claimed = await claimThis(run.id, 'wkr_a');

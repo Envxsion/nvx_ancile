@@ -47,6 +47,8 @@ import {
 import type { RunEventLog } from './events';
 import { canTransition, TERMINAL } from './machine';
 
+/** Runs claimed per statement when several are queued. */
+const CLAIM_BATCH = 8;
 const log = logFor('runs');
 
 const CRASHED: RunError = {
@@ -177,28 +179,38 @@ export class RunWorker {
     // Runs mostly wait on providers, so many can share one process; a
     // small limit queued the 50th answer behind 46 others (Phase 6 load).
     const max = this.opts.concurrency ?? 64;
+    const store = this.opts.store;
+    const lease = this.opts.leaseMs ?? LEASE_MS;
     while (!this.stopped && this.active.size < max) {
-      let run: RunRecord | null;
+      let batch: RunRecord[];
       try {
-        run = await this.opts.store.claim(this.owner, this.opts.leaseMs ?? LEASE_MS);
+        // A burst is claimed several at a time, not one round trip per run.
+        const room = Math.min(CLAIM_BATCH, max - this.active.size);
+        batch = store.claimMany
+          ? await store.claimMany(this.owner, lease, room)
+          : [await store.claim(this.owner, lease)].filter((r): r is RunRecord => !!r);
       } catch (err) {
         log.error({ err }, 'could not claim a run');
         return;
       }
-      if (!run) return;
-      const id = run.id;
-      const controller = new AbortController();
-      this.active.set(id, controller);
-      void this.execute(run, controller)
-        .catch((err) => log.error({ err, run_id: id }, 'run execution failed'))
-        .finally(() => {
-          // A run that lost its lease can be claimed again here while the
-          // old execution winds down: only remove our own entry.
-          if (this.active.get(id) === controller) this.active.delete(id);
-          this.notifyIdle();
-          this.kick();
-        });
+      if (!batch.length) return;
+      for (const run of batch) this.launch(run);
     }
+  }
+
+  private launch(run: RunRecord) {
+    const id = run.id;
+    const controller = new AbortController();
+    this.active.set(id, controller);
+    void this.execute(run, controller)
+      .catch((err) => log.error({ err, run_id: id }, 'run execution failed'))
+      .finally(() => {
+        // A run that lost its lease can be claimed again here while the
+        // old execution winds down: only remove our own entry.
+        if (this.active.get(id) === controller) this.active.delete(id);
+        this.notifyIdle();
+        this.kick();
+      });
   }
 
   /**

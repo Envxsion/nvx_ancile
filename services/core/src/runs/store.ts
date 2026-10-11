@@ -107,6 +107,18 @@ export class PgRunStore implements RunStore {
     return rows[0] ? fromRow(rows[0]) : null;
   }
 
+  async claimMany(owner: string, leaseMs: number, n: number): Promise<RunRecord[]> {
+    const rows = await this.sql<RunRow[]>`
+      update core.runs set status = 'running', lease_owner = ${owner},
+        lease_until = now() + ${leaseMs} * interval '1 millisecond', updated_at = now()
+      where id in (
+        select id from core.runs where status = 'queued'
+        order by created_at for update skip locked limit ${n}
+      )
+      returning *`;
+    return rows.map(fromRow).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+  }
+
   async renew(id: string, owner: string, leaseMs: number): Promise<boolean> {
     const rows = await this.sql`
       update core.runs set lease_until = now() + ${leaseMs} * interval '1 millisecond'
@@ -235,6 +247,16 @@ export class MemoryRunStore implements RunStore {
       return { ...r };
     }
     return null;
+  }
+
+  async claimMany(owner: string, leaseMs: number, n: number) {
+    const out: RunRecord[] = [];
+    for (let i = 0; i < n; i++) {
+      const r = await this.claim(owner, leaseMs);
+      if (!r) break;
+      out.push(r);
+    }
+    return out;
   }
 
   async renew(id: string, owner: string, leaseMs: number) {
