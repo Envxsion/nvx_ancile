@@ -10,8 +10,9 @@
  *           |  arguments become a resource URI. Ancile checks the
  *           |  permission on that URI before the handler ever runs, so
  *           |  the handler can assume it is allowed.
- *  Note     |  Enable in Settings → Tools, or set enabled: true for
- *           |  example-tool in config/mcp.yaml after `pnpm build`.
+ *  Note     |  `pnpm --filter @nvx/plugin-example-tool build`, then add
+ *           |  it in Admin → Plugins → Add server: Local command, command
+ *           |  `node`, argument the full path to dist/index.js.
  * ------------------------------------------------------------------
  */
 
@@ -62,12 +63,12 @@ const saveSnippet = defineTool({
   },
 });
 
+// Pinned to the MCP SDK Core uses (v1, ^1.32): its registerTool takes a whole
+// zod object as inputSchema, so toMcpRegistration() fits it with no casts.
 const server = new McpServer({ name: 'example-tool', version: '0.1.0' });
-for (const def of [wordCount, saveSnippet] as Array<Parameters<typeof toMcpRegistration>[0]>) {
-  const reg = toMcpRegistration(def);
-  // The SDK's registerTool accepts a zod object shape or schema depending on
-  // version; TODO(phase-2): pin once Core's MCP adapter settles on SDK v1.x vs v2.
-  server.registerTool(reg.name, reg.config as never, reg.handler as never);
-}
+const count = toMcpRegistration(wordCount);
+server.registerTool(count.name, count.config, count.handler);
+const save = toMcpRegistration(saveSnippet);
+server.registerTool(save.name, save.config, save.handler);
 
 await server.connect(new StdioServerTransport());

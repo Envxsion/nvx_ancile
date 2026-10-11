@@ -15,10 +15,16 @@
  * ------------------------------------------------------------------
  */
 
-import type { Tier } from '@nvx/contracts';
 import type { z } from 'zod';
 
 export const META_PREFIX = 'sh.nvx.ancile';
+
+/**
+ * How much a call needs a person: auto runs, gated asks the first time per
+ * pattern, critical asks every time. The same as Tier in packages/contracts
+ * (test/sdk.test.ts checks), spelled out so the published types stand alone.
+ */
+export type Tier = 'auto' | 'gated' | 'critical';
 
 export interface ToolContext {
   /** Present when Ancile invoked the tool; idempotency key for side effects. */

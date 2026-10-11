@@ -4,20 +4,56 @@
   "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Build NVX Ancile plugins: tools (as MCP servers with permission tiers), memory providers, and drawer/admin panels.",
+  "keywords": [
+    "nvx-ancile",
+    "mcp",
+    "model-context-protocol",
+    "plugin",
+    "sdk"
+  ],
+  "author": "nvx.sh",
   "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
   "exports": {
     ".": "./src/index.ts",
-    "./panel": "./src/panel.ts"
+    "./panel": "./src/panel.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./panel": {
+        "types": "./dist/panel.d.ts",
+        "import": "./dist/panel.js"
+      },
+      "./package.json": "./package.json"
+    }
   },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "tsup"
   },
   "dependencies": {
-    "@nvx/contracts": "workspace:*",
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@nvx/contracts": "workspace:*",
+    "tsup": "^8.5.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }

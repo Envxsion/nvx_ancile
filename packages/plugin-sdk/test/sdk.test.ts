@@ -1,6 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import type { PluginManifest as ContractManifest } from '@nvx/contracts/config';
+import type { Tier as ContractTier } from '@nvx/contracts/events';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
-import { annotationsFor, defineTool, toMcpRegistration, validateManifest } from '../src';
+import {
+  annotationsFor,
+  defineTool,
+  type PluginManifest,
+  type Tier,
+  toMcpRegistration,
+  validateManifest,
+} from '../src';
+
+describe('published types', () => {
+  it('match the contracts they stand in for', () => {
+    // A typecheck failure here means packages/contracts changed: update src/tool.ts or src/manifest.ts.
+    expectTypeOf<Tier>().toEqualTypeOf<ContractTier>();
+    expectTypeOf<PluginManifest>().toEqualTypeOf<ContractManifest>();
+  });
+});
 
 describe('defineTool', () => {
   it('refuses destructive AUTO tools', () => {

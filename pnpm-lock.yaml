@@ -170,13 +170,16 @@ importers:
 
   packages/plugin-sdk:
     dependencies:
-      '@nvx/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       zod:
         specifier: ^4.1.0
         version: 4.6.5
     devDependencies:
+      '@nvx/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.29)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -216,18 +219,21 @@ importers:
   plugins/example-tool:
     dependencies:
       '@modelcontextprotocol/sdk':
-        specifier: ^1.20.0
+        specifier: ^1.32.0
         version: 1.32.1(zod@4.6.5)
-      '@nvx/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
       zod:
         specifier: ^4.1.0
         version: 4.6.5
     devDependencies:
+      '@nvx/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
       '@types/node':
         specifier: ^22.15.0
         version: 22.20.5
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.29)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.1)
       tsx:
         specifier: ^4.20.0
         version: 4.23.15
