@@ -5,10 +5,12 @@
  * ------------------------------------------------------------------
  *  Purpose  |  One turn of the conversation, with everything you can
  *           |  do to it one hover (or one key) away.
- *  How      |  User turns sit on a lifted plate, right-weighted; the
- *           |  assistant writes on the page itself at reading measure,
- *           |  so the answer, not the chrome, is the loudest thing.
- *           |  The footer carries model, fallback, confidence, cost.
+ *  How      |  User turns sit on a quiet plate on the answer's left
+ *           |  edge; the assistant writes on the page itself at
+ *           |  reading measure, so the answer, not the chrome, is the
+ *           |  loudest thing. The footer is one muted line (time,
+ *           |  marks, confidence); tokens and cost come up when you
+ *           |  are on the turn. Each row pads itself (styles/thread.css).
  *  Note     |  Messages from Core render their parts (Parts.tsx);
  *           |  demo fixtures render hand-built blocks with claims.
  * ------------------------------------------------------------------
@@ -16,7 +18,7 @@
 
 import type { RetrievalTrace } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
-import { type CSSProperties, memo, type ReactNode, useState } from 'react';
+import { type CSSProperties, memo, type ReactNode, useMemo, useState } from 'react';
 import { WakingNotice } from '../compute/WakingNotice';
 import { useBinding } from '../keys/dispatch';
 import { useFactcheck, useProgress } from '../lib/factcheck';
@@ -37,6 +39,7 @@ import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
 import { Teamwork } from './Teamwork';
 import { useLiveTeam } from './teamworkState';
+import { displayUserParts } from './userText';
 
 function renderSpans(spans: Span[], citations: CitationView[] | undefined): ReactNode[] {
   return spans.map((s, i) => {
@@ -173,6 +176,12 @@ function ProvenanceMarks({ m }: { m: MessageView }) {
   );
 }
 
+/** What an answer cost, without rounding a real cost down to "$0.000". */
+export function costText(usdCost: number): string {
+  if (usdCost > 0 && usdCost < 0.001) return 'under $0.001';
+  return usd(usdCost, usdCost < 0.1 ? 3 : 2);
+}
+
 /** Your message folds past this many lines (or characters), with Show all. */
 export const USER_LINES = 12;
 const USER_CHARS = 1600;
@@ -230,6 +239,11 @@ export const Message = memo(function Message({
   // A long paste (a log, a file) starts at a dozen lines, the rest one click away.
   const [showAll, setShowAll] = useState(false);
   const userText = m.role === 'user' ? partsText(m.parts) : '';
+  // A pasted log in your message reads as the block it was, not as prose.
+  const shownParts = useMemo(
+    () => (m.role === 'user' && m.parts ? displayUserParts(m.parts) : m.parts),
+    [m.role, m.parts],
+  );
   const userLines = userText ? userText.split('\n').length : 0;
   const clampable = userLines > USER_LINES || userText.length > USER_CHARS;
   const clamped = clampable && !showAll;
@@ -372,11 +386,11 @@ export const Message = memo(function Message({
         dir="auto"
         data-clamped={clamped || undefined}
       >
-        {m.parts ? (
-          <CiteProvider parts={m.parts} trace={m.provenance?.retrieval}>
+        {shownParts ? (
+          <CiteProvider parts={shownParts} trace={m.provenance?.retrieval}>
             <ClaimsProvider messageId={m.id} claims={claims}>
               <Parts
-                parts={m.parts}
+                parts={shownParts}
                 streaming={streaming}
                 waiting={waiting}
                 claims={claims}
@@ -496,8 +510,8 @@ export const Message = memo(function Message({
             </span>
           ) : null}
           {m.usage && showCost ? (
-            <span className="mute" data-num>
-              {m.usage.tokens.toLocaleString('en-GB')} tok · {usd(m.usage.costUsd, 3)}
+            <span className="msg__usage" data-num>
+              {m.usage.tokens.toLocaleString('en-GB')} tokens · {costText(m.usage.costUsd)}
               {m.usage.ms !== undefined ? ` · ${(m.usage.ms / 1000).toFixed(1)} s` : null}
             </span>
           ) : null}

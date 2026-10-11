@@ -138,24 +138,24 @@ export function NoticeRow({ e }: { e: Extract<CcEvent, { kind: 'notification' }>
   const head = (
     <>
       <Icon name={NOTICE_ICONS[e.source]} size={12} className="cc-row__icon" />
-      <span className="cc-notice__title">{e.title}</span>
-      {e.from ? <span className="cc-notice__meta">{e.from}</span> : null}
-      {e.status ? <span className="cc-notice__meta">{e.status}</span> : null}
+      <span className="cc-note__title">{e.title}</span>
+      {e.from ? <span className="cc-note__meta">{e.from}</span> : null}
+      {e.status ? <span className="cc-note__meta">{e.status}</span> : null}
     </>
   );
   if (!e.body.trim())
     return (
-      <div className="cc-row cc-notice">
+      <div className="cc-row cc-note">
         <div className="cc-row__line">{head}</div>
       </div>
     );
   return (
-    <details className="cc-row cc-notice">
+    <details className="cc-row cc-note">
       <summary className="cc-row__line">
         {head}
         <Icon name="chevronRight" size={11} className="cc-chev cc-row__end" />
       </summary>
-      <div className="cc-notice__body">
+      <div className="cc-note__body">
         <Prose text={e.body} />
       </div>
     </details>

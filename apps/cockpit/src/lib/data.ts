@@ -26,6 +26,7 @@ import type {
 } from '@nvx/contracts';
 import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
+import { ccSummary, ccThread } from '../fixtures/claudeCode';
 import * as demo from '../fixtures/demo';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -112,7 +113,7 @@ export function useThreads() {
               `/threads?limit=100${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
             )
             .then((r) => ({ items: r.items.map(toThreadSummary), next: r.next_cursor ?? null })),
-        { items: demo.threads, next: null },
+        { items: [...demo.threads, ccSummary], next: null },
       ),
     getNextPageParam: (last) => last.next,
   });
@@ -180,6 +181,7 @@ export const threadQuery = (id: string) =>
 /** The one fully written demo thread, or an empty one with the right title. */
 function demoThread(id: string): ThreadView {
   if (id === demo.thread.id) return demo.thread;
+  if (id === ccThread.id) return ccThread;
   const summary = demo.threads.find((t) => t.id === id);
   return { id, title: summary?.title ?? 'New thread', notebookId: summary?.notebookId ?? null, messages: [] };
 }
