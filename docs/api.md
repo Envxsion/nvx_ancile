@@ -146,6 +146,26 @@ Idempotency-Key: 5f1c2e9a-…
 
 Follow the confirmation chain on `/api/v1/events` (`node.operation`) or `GET /api/v1/compute/operations/:id`.
 
+### Automations
+
+```http
+POST /api/v1/automations
+{ "kind": "ask_model", "title": "Morning brief", "cron": "0 8 * * 1-5",
+  "config": { "prompt": "What changed in my sources since yesterday?", "notebook_id": "nbk_01J9…", "model": null } }
+
+→ 201 AutomationView
+```
+
+Kinds: `ask_model` (`prompt`, `notebook_id?`, `model?`), `run_flow` (`flow_id`, `prompt`, `notebook_id?`), `recheck_sources` (`notebook_id`), `notify` (`title`, `body?`). The schemas are `CreateAutomationRequest` and `UpdateAutomationRequest` in `packages/contracts/src/ops.ts`.
+
+- `GET /automations` lists your own first, then the built-in jobs.
+- `PATCH /automations/:id` takes `enabled`, `cron`, `config`, and `title` for your own. A built-in job's `config` may only hold its `options`, and is merged into what it has.
+- `POST /automations/:id/reset` puts a built-in job back to `config/automations.yaml`.
+- `DELETE /automations/:id` deletes one of your own.
+- `POST /automations/:id/run` runs one now.
+
+A schedule that can't be read is `automation.bad_schedule`; one more often than every 5 minutes is `automation.too_often`. Changes are kept in Core's database, never written to the YAML file.
+
 ## Core ↔ Knowledge (`/kn/v1`)
 
 Internal, bearer `ANCILE_SERVICE_TOKEN`.

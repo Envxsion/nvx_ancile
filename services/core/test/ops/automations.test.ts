@@ -2,7 +2,7 @@
  * Phase 5: cron schedules, the automations runner, and the self-diagnostic.
  */
 import { describe, expect, it } from 'vitest';
-import { cronWords, nextRun, parseCron } from '../../src/automations/cron';
+import { cronWords, nextRun, parseCron, scheduleProblem } from '../../src/automations/cron';
 import { AutomationRunner, MemoryAutomationStore } from '../../src/automations/runner';
 import { type CheckSpec, DiagnosticRunner } from '../../src/diagnostics/runner';
 
@@ -40,6 +40,22 @@ describe('cron', () => {
     expect(cronWords('0 3 * * *')).toBe('Every day at 03:00');
     expect(cronWords('0 4 * * 1')).toBe('Every Monday at 04:00');
     expect(cronWords('5 4 1 * *')).toBe('5 4 1 * *');
+    expect(cronWords('0 */6 * * *')).toBe('Every 6 hours');
+    expect(cronWords('15 */2 * * *')).toBe('Every 2 hours at :15');
+    expect(cronWords('0 9 * * 1-5')).toBe('Every weekday at 09:00');
+    expect(cronWords('30 18 * * 4,1')).toBe('Every Monday and Thursday at 18:30');
+    expect(cronWords('0 10 * * 0,6')).toBe('Every Saturday and Sunday at 10:00');
+    expect(cronWords('0 7 * * 1,3,7')).toBe('Every Monday, Wednesday and Sunday at 07:00');
+  });
+
+  it('says why a schedule set from Admin cannot be used', () => {
+    const from = at('2026-10-08T10:00:00');
+    expect(scheduleProblem('0 9 * * 1-5', from)).toBeNull();
+    expect(scheduleProblem('*/5 * * * *', from)).toBeNull();
+    expect(scheduleProblem('0 25 * * *', from)).toMatch(/out of range/);
+    expect(scheduleProblem('0 9 31 2 *', from)).toMatch(/never comes round/);
+    expect(scheduleProblem('* * * * *', from)).toMatch(/more often than every 5 minutes/);
+    expect(scheduleProblem('0-3 9 * * *', from)).toMatch(/more often/);
   });
 });
 

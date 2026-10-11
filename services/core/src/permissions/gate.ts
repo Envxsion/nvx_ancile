@@ -29,6 +29,8 @@ export interface GateRequest {
   scope: { threadId?: string | null; notebookId?: string | null; workspaceId: string };
   runId: string | null;
   traceId: string;
+  /** Raised by an unattended automation (base.cedar escalates it). */
+  automation?: boolean;
 }
 
 export interface Gate {
@@ -46,6 +48,7 @@ export function createGate(deps: Omit<DecideDeps, 'grants'> & { store: Permissio
           toolTier: req.toolTier,
           destructive: req.destructive,
           scope: req.scope,
+          ...(req.automation && { automation: true }),
         },
         { ...deps, grants: deps.store },
       );

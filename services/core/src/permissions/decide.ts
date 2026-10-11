@@ -32,6 +32,8 @@ export interface DecisionRequest {
   toolTier: Tier;
   destructive?: boolean;
   scope: { threadId?: string | null; notebookId?: string | null; workspaceId: string };
+  /** Raised by an unattended automation: policies may escalate it (base.cedar). */
+  automation?: boolean;
 }
 
 export interface PolicyEvaluator {
@@ -61,6 +63,7 @@ export interface PolicyEvaluator {
     action: string;
     resource: string;
     outsideRoot: boolean;
+    automation?: boolean;
   }): Promise<Tier | null>;
 }
 
@@ -178,7 +181,7 @@ export async function decide(req: DecisionRequest, deps: DecideDeps): Promise<De
   let tier = req.toolTier;
   tier = deps.policy.relax?.({ ...pq, toolTier: tier, destructive: req.destructive === true }) ?? tier;
   if (req.destructive && tier === 'auto') tier = 'gated'; // floor: destructive is never AUTO
-  const escalated = await deps.policy.escalation(pq);
+  const escalated = await deps.policy.escalation({ ...pq, automation: req.automation === true });
   if (escalated) tier = maxTier(tier, escalated);
 
   if (tier === 'auto') return { outcome: 'allow', via: 'auto', tier, resource: r };

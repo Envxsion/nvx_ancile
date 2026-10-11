@@ -22,7 +22,14 @@ import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
-import { AutomationRunner, PgAutomationStore, scheduledJobs } from './automations';
+import {
+  AutomationRunner,
+  builtinOptions,
+  jobSetup,
+  PgAutomationStore,
+  scheduledJobs,
+  userJobs,
+} from './automations';
 import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { startComputeBridge } from './compute/bridge';
@@ -430,6 +437,7 @@ async function main() {
         userId: owner.userId,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
         approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
+        automationApprovalTtlMs: env.ANCILE_APPROVAL_TTL_AUTOMATION_S * 1000,
         retriever: knowledgeRetriever(kn),
         // Only a notebook in this workspace lends its title (an @-mentioned id is user input).
         notebookTitle: async (id) => {
@@ -579,6 +587,22 @@ async function main() {
       }),
     new PgDiagnosticStore(sql),
   );
+  const memoryRemote = process.env.ANCILE_MEMORY_REMOTE || config.memory?.remote?.url || undefined;
+  // A remote saved in Settings → API keys, kept to hand for the "Not set up" check (read again each minute).
+  let savedRemote: string | undefined;
+  const readSavedRemote = async () => {
+    savedRemote = (await secrets.get(MEMORY_REMOTE_SECRET).catch(() => undefined)) ?? undefined;
+  };
+  await readSavedRemote();
+  setInterval(() => void readSavedRemote(), 60_000).unref();
+  const retention = {
+    logsDays: env.ANCILE_LOG_RETENTION_DAYS,
+    spansDays: env.ANCILE_SPAN_RETENTION_DAYS,
+    runEventsDays: env.ANCILE_RUN_EVENT_RETENTION_DAYS,
+  };
+  const notebookInWorkspace = async (id: string) =>
+    (await notebooks.get(id))?.workspace_id === owner.workspaceId;
+  const flowExists = async (id: string) => !!(await flowStore.get(id));
   const automations = new AutomationRunner(
     config.automations?.jobs ?? {},
     scheduledJobs({
@@ -586,14 +610,27 @@ async function main() {
       obs: obsStore,
       kn,
       memoryDir: resolve(env.ANCILE_DATA_DIR, 'memory'),
-      memoryRemote: () => secrets.get(MEMORY_REMOTE_SECRET),
-      retention: {
-        logsDays: env.ANCILE_LOG_RETENTION_DAYS,
-        spansDays: env.ANCILE_SPAN_RETENTION_DAYS,
-        runEventsDays: env.ANCILE_RUN_EVENT_RETENTION_DAYS,
-      },
+      // Read when the backup runs: the env or config value, else the one saved in Settings → API keys.
+      memoryRemote: async () => memoryRemote ?? (await secrets.get(MEMORY_REMOTE_SECRET)),
+      retention,
     }),
     new PgAutomationStore(sql),
+    undefined,
+    {
+      setup: jobSetup({ memoryRemote: () => memoryRemote ?? savedRemote }),
+      options: builtinOptions(retention),
+      userHandlers: userJobs({
+        turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
+        workspaceId: owner.workspaceId,
+        kn,
+        bus: events,
+        flowExists,
+        notebookTitle: async (id) => {
+          const nb = await notebooks.get(id);
+          return nb && nb.workspace_id === owner.workspaceId ? nb.title : null;
+        },
+      }),
+    },
   );
   await automations.start().catch((err: unknown) => log.error({ err }, 'automations did not start'));
   const mcpClients = new PgMcpClientStore(sql);
@@ -767,7 +804,12 @@ async function main() {
       }),
       healthRoutes({ supervisor: () => supervisor }),
       diagnosticRoutes({ runner: diagnostics }),
-      automationRoutes({ runner: automations }),
+      automationRoutes({
+        runner: automations,
+        notebookExists: notebookInWorkspace,
+        flowExists,
+        registry,
+      }),
       mcpClientRoutes({
         clients: mcpClients,
         permissions,

@@ -189,23 +189,141 @@ export type DiagnosticRun = z.infer<typeof DiagnosticRun>;
 
 /* ---- Automations ----------------------------------------------------------- */
 
+/** Built-in jobs come from config/automations.yaml; your own are made in Admin → Automations. */
+export const AutomationOrigin = z.enum(['builtin', 'user']);
+export type AutomationOrigin = z.infer<typeof AutomationOrigin>;
+
+/**
+ * What your own automations can do. Each is built on something Core already
+ * does: a turn in a new thread, a flow answering a message, the stale-link
+ * check, a notification.
+ */
+export const UserAutomationKind = z.enum(['ask_model', 'run_flow', 'recheck_sources', 'notify']);
+export type UserAutomationKind = z.infer<typeof UserAutomationKind>;
+
+const AutomationPrompt = z.string().trim().min(1).max(8_000);
+
+/** Ask a model on a schedule: a new thread each run, with this message sent in it. */
+export const AskModelConfig = z
+  .object({
+    prompt: AutomationPrompt,
+    /** Ground the answer in this notebook's sources. */
+    notebook_id: z.string().min(1).nullable().default(null),
+    /** A chat model's id; null for the default model. */
+    model: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+export type AskModelConfig = z.infer<typeof AskModelConfig>;
+
+/** Run a flow on a schedule: like ask_model, answered through this flow. */
+export const RunFlowConfig = z
+  .object({
+    flow_id: z.string().min(1),
+    prompt: AutomationPrompt,
+    notebook_id: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+export type RunFlowConfig = z.infer<typeof RunFlowConfig>;
+
+/** Re-check one notebook's web sources for changes. */
+export const RecheckSourcesConfig = z.object({ notebook_id: z.string().min(1) }).strict();
+export type RecheckSourcesConfig = z.infer<typeof RecheckSourcesConfig>;
+
+/** A reminder in the notification centre. */
+export const NotifyConfig = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    body: z.string().trim().max(1_000).default(''),
+  })
+  .strict();
+export type NotifyConfig = z.infer<typeof NotifyConfig>;
+
+/** The config schema for each kind of automation you can make. */
+export const UserAutomationConfig = {
+  ask_model: AskModelConfig,
+  run_flow: RunFlowConfig,
+  recheck_sources: RecheckSourcesConfig,
+  notify: NotifyConfig,
+} as const satisfies Record<UserAutomationKind, z.ZodTypeAny>;
+
+/** One setting of a built-in job that can be changed from Admin. */
+export const AutomationOption = z.object({
+  key: z.string(),
+  label: z.string(),
+  hint: z.string().nullable(),
+  type: z.enum(['integer', 'boolean']),
+  min: z.number().nullable(),
+  max: z.number().nullable(),
+  /** Shown after the field: "days", "hours". */
+  unit: z.string().nullable(),
+  default: z.union([z.number(), z.boolean()]),
+});
+export type AutomationOption = z.infer<typeof AutomationOption>;
+
 export const AutomationView = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
+  origin: AutomationOrigin,
+  /** The built-in job's id, or what your own automation does (UserAutomationKind). */
+  kind: z.string(),
   /** Cron jobs run on a schedule; the others run on events (after a turn, on ingest). */
   trigger: z.enum(['schedule', 'event']),
   cron: z.string().nullable(),
   schedule_words: z.string().nullable(),
+  /** Built-in: the schedule in automations.yaml, for Reset to default. Null for your own. */
+  default_cron: z.string().nullable(),
+  /** Built-in: the schedule or settings were changed here (Reset to default undoes it). */
+  customised: z.boolean(),
+  config: z.record(z.string(), z.unknown()),
+  /** Built-in: the settings that can be changed (empty when there are none). */
+  options: z.array(AutomationOption),
+  /** Set when the job cannot run until something is configured; it is not run meanwhile. */
+  setup: z.object({ title: z.string(), hint: z.string() }).nullable(),
   enabled: z.boolean(),
   last_run_at: z.string().nullable(),
   last_status: z.enum(['succeeded', 'failed', 'skipped', 'running']).nullable(),
   last_error: z.string().nullable(),
+  /** What the last run did, in a sentence, and where to see it (a thread, a notebook). */
+  last_detail: z.string().nullable(),
+  last_href: z.string().nullable(),
   last_duration_ms: z.number().nullable(),
   next_run_at: z.string().nullable(),
   runs: z.number().int(),
 });
 export type AutomationView = z.infer<typeof AutomationView>;
+
+const AutomationTitle = z.string().trim().min(1).max(80);
+const AutomationCron = z.string().trim().min(1).max(120);
+const createBase = {
+  title: AutomationTitle,
+  cron: AutomationCron,
+  enabled: z.boolean().default(true),
+};
+
+/** POST /automations: one of your own. Core checks the schedule (automation.bad_schedule). */
+export const CreateAutomationRequest = z.discriminatedUnion('kind', [
+  z.object({ ...createBase, kind: z.literal('ask_model'), config: AskModelConfig }).strict(),
+  z.object({ ...createBase, kind: z.literal('run_flow'), config: RunFlowConfig }).strict(),
+  z.object({ ...createBase, kind: z.literal('recheck_sources'), config: RecheckSourcesConfig }).strict(),
+  z.object({ ...createBase, kind: z.literal('notify'), config: NotifyConfig }).strict(),
+]);
+export type CreateAutomationRequest = z.input<typeof CreateAutomationRequest>;
+
+/**
+ * PATCH /automations/:id. A built-in job takes enabled, cron and config (its
+ * options only, merged into what it has). Your own also take a title, and
+ * their config is replaced whole and checked against their kind.
+ */
+export const UpdateAutomationRequest = z
+  .object({
+    enabled: z.boolean().optional(),
+    title: AutomationTitle.optional(),
+    cron: AutomationCron.optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+export type UpdateAutomationRequest = z.infer<typeof UpdateAutomationRequest>;
 
 /* ---- Apps connected over MCP ----------------------------------------------- */
 

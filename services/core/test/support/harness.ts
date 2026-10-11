@@ -10,6 +10,14 @@ import { fileURLToPath } from 'node:url';
 import type { ModelConfig, RunEvent } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from '../../src/app';
+import { automationRoutes } from '../../src/automations/routes';
+import {
+  AutomationRunner,
+  type JobSpec,
+  MemoryAutomationStore,
+  type RunnerExtras,
+} from '../../src/automations/runner';
+import { userJobs } from '../../src/automations/userJobs';
 import { chatTurnHandler } from '../../src/conductor/pipeline';
 import { credentialRoutes } from '../../src/credentials/routes';
 import { MemoryEventBus } from '../../src/events/bus';
@@ -87,6 +95,13 @@ export interface HarnessOptions {
     env?: Record<string, string | undefined>;
     serviceCheck?: import('../../src/credentials/routes').ServiceCheck;
     runpod?: import('../../src/credentials/routes').CredentialRouteDeps['runpod'];
+  };
+  /** Automations: built-in jobs and their extras (setup, options, more handlers). */
+  automations?: {
+    jobs?: Record<string, JobSpec>;
+    handlers?: Record<string, import('../../src/automations/runner').JobHandler>;
+    extras?: RunnerExtras;
+    notebooks?: string[];
   };
 }
 
@@ -240,8 +255,37 @@ export async function harness(opts: HarnessOptions = {}) {
   const obsStore = new MemoryObsStore();
   const obs = new ObsPipeline(obsStore, { flushMs: 5 });
   const mcpClients = new MemoryMcpClientStore();
+  // Automations (opts.ops): the runner is never started; tests call tick() and runNow().
+  const automationStore = new MemoryAutomationStore();
+  const notebookIds = opts.automations?.notebooks ?? ['nbk_pumps'];
+  const automations = new AutomationRunner(
+    opts.automations?.jobs ?? {},
+    opts.automations?.handlers ?? {},
+    automationStore,
+    undefined,
+    {
+      ...opts.automations?.extras,
+      userHandlers: {
+        ...userJobs({
+          turn: { repo, runs, worker: workerRef, registry, branches },
+          workspaceId: WORKSPACE_ID,
+          bus,
+          flowExists: async (id) => !!(await flowStore.get(id)),
+          notebookTitle: async (id) => (notebookIds.includes(id) ? 'Pumps' : null),
+          ...(opts.kn && { kn: opts.kn as Pick<KnowledgeClient, 'get' | 'post'> }),
+        }),
+        ...opts.automations?.extras?.userHandlers,
+      },
+    },
+  );
   const opsRoutes = opts.ops
     ? [
+        automationRoutes({
+          runner: automations,
+          notebookExists: async (id) => notebookIds.includes(id),
+          flowExists: async (id) => !!(await flowStore.get(id)),
+          registry,
+        }),
         logRoutes({ pipeline: obs }),
         traceRoutes({
           store: obsStore,
@@ -453,6 +497,8 @@ export async function harness(opts: HarnessOptions = {}) {
     obs,
     obsStore,
     mcpClients,
+    automations,
+    automationStore,
     get worker() {
       return worker;
     },

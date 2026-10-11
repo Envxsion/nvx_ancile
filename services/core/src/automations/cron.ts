@@ -5,8 +5,9 @@
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  The five-field schedules the automations use, read in
- *           |  the server's local time: when is the next run, and how
- *           |  to say the schedule in words.
+ *           |  the server's local time: when is the next run, how to
+ *           |  say the schedule in words, and whether a schedule set
+ *           |  from Admin can be used at all.
  *  How      |  Each field becomes the set of values it allows (*, a,
  *           |  a-b, a-b/n, *\/n, lists). next() walks forward minute by
  *           |  minute, skipping whole hours and days that cannot
@@ -106,8 +107,49 @@ export function nextRun(c: Cron, after: Date): Date | null {
   return null;
 }
 
+/** The shortest gap allowed between two runs of a schedule set from Admin. */
+export const MIN_INTERVAL_MINUTES = 5;
+
+/**
+ * Why a schedule cannot be used, in a sentence, or null when it is fine:
+ * it must parse, run at least once in the next four years, and not run
+ * more often than every MIN_INTERVAL_MINUTES.
+ */
+export function scheduleProblem(source: string, now = new Date()): string | null {
+  let c: Cron;
+  try {
+    c = parseCron(source);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  const first = nextRun(c, now);
+  if (!first) return `"${source}" never comes round (check the day and month)`;
+  // The tightest gap: check a day's worth of consecutive runs.
+  let prev = first;
+  for (let i = 0; i < 300; i++) {
+    const next = nextRun(c, prev);
+    if (!next || next.getTime() - first.getTime() > 86_400_000 * 8) break;
+    if (next.getTime() - prev.getTime() < MIN_INTERVAL_MINUTES * 60_000)
+      return `"${source}" runs more often than every ${MIN_INTERVAL_MINUTES} minutes`;
+    prev = next;
+  }
+  return null;
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const two = (n: number) => String(n).padStart(2, '0');
+
+function dayList(w: string): string | null {
+  if (w === '1-5') return 'weekday';
+  if (w === '0,6' || w === '6,0') return 'Saturday and Sunday';
+  if (!/^[0-7](,[0-7])*$/.test(w)) return null;
+  // Monday first, Sunday last, the way a week reads.
+  const days = [...new Set(w.split(',').map((d) => Number(d) % 7))].sort(
+    (a, b) => ((a + 6) % 7) - ((b + 6) % 7),
+  );
+  const names = days.map((d) => DAYS[d] as string);
+  return names.length === 1 ? (names[0] as string) : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
 
 /** A schedule in plain words, for the common shapes; the cron text otherwise. */
 export function cronWords(source: string): string {
@@ -115,12 +157,19 @@ export function cronWords(source: string): string {
   if (parts.length !== 5) return source;
   const [mi, h, d, mo, w] = parts as [string, string, string, string, string];
   const every = /^\*\/(\d+)$/;
+  const num = /^\d+$/;
   if (d === '*' && mo === '*' && w === '*') {
     if (h === '*' && every.test(mi)) return `Every ${every.exec(mi)?.[1]} minutes`;
-    if (h === '*' && /^\d+$/.test(mi)) return mi === '0' ? 'Every hour' : `Every hour at :${two(Number(mi))}`;
-    if (/^\d+$/.test(h) && /^\d+$/.test(mi)) return `Every day at ${two(Number(h))}:${two(Number(mi))}`;
+    if (h === '*' && num.test(mi)) return mi === '0' ? 'Every hour' : `Every hour at :${two(Number(mi))}`;
+    if (every.test(h) && num.test(mi)) {
+      const n = every.exec(h)?.[1];
+      return `Every ${n} hours${mi === '0' ? '' : ` at :${two(Number(mi))}`}`;
+    }
+    if (num.test(h) && num.test(mi)) return `Every day at ${two(Number(h))}:${two(Number(mi))}`;
   }
-  if (d === '*' && mo === '*' && /^\d$/.test(w) && /^\d+$/.test(h) && /^\d+$/.test(mi))
-    return `Every ${DAYS[Number(w) % 7]} at ${two(Number(h))}:${two(Number(mi))}`;
+  if (d === '*' && mo === '*' && num.test(h) && num.test(mi)) {
+    const days = dayList(w);
+    if (days) return `Every ${days} at ${two(Number(h))}:${two(Number(mi))}`;
+  }
   return source;
 }

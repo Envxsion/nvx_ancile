@@ -48,7 +48,14 @@ export class BuiltinPolicy implements PolicyEvaluator {
     return { forbidden: false };
   }
 
-  async escalation(req: { action: string; outsideRoot: boolean; resource: string }): Promise<Tier | null> {
+  async escalation(req: {
+    action: string;
+    outsideRoot: boolean;
+    resource: string;
+    automation?: boolean;
+  }): Promise<Tier | null> {
+    // Keep in step with base.escalate-automations: nobody is watching an automation.
+    if (req.automation && req.action !== 'fs.read' && req.action !== 'fs.list') return 'critical';
     const writes = /\.(write|delete|move|exec|chmod)$/.test(req.action) || req.action.startsWith('shell.');
     if (req.resource.startsWith('fs:') && req.outsideRoot && writes) return 'critical';
     if (/\.(send|pay|terminate|push|publish)$/.test(req.action)) return 'critical';
@@ -199,6 +206,7 @@ export class CedarPolicy implements PolicyEvaluator {
     action: string;
     resource: string;
     outsideRoot: boolean;
+    automation?: boolean;
   }): Promise<Tier | null> {
     const r = this.authorize(this.escalateSet, req);
     if (r.decision !== 'allow') return null;

@@ -113,6 +113,8 @@ export interface TurnInput {
   instructions?: string;
   /** The caller's own record for this answer, kept in its provenance. */
   provenanceExtra?: Record<string, unknown>;
+  /** Started by an automation: tool calls are decided as unattended (base.cedar). */
+  automation?: boolean;
 }
 
 export interface QueuedCall {
@@ -199,6 +201,8 @@ export interface ConductorDeps {
   deltaMs?: number;
   /** How long a question waits for an answer before it expires (default 24 h). */
   approvalTtlMs?: number;
+  /** The same, for a question an automation raised (ANCILE_APPROVAL_TTL_AUTOMATION_S). */
+  automationApprovalTtlMs?: number;
   /** Finds passages in a notebook's sources; without it, turns are never grounded. */
   retriever?: Retriever;
   notebookTitle?: (id: string) => Promise<string | null>;
@@ -519,6 +523,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           scope,
           runId: run.id,
           traceId: run.traceId,
+          ...(cp.input.automation && { automation: true }),
         });
         if (decision.outcome === 'allow') {
           await runTool(call, spec);
@@ -554,7 +559,12 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             : argsPreview(call.args),
           tier: decision.tier,
           suggestions: decision.tier === 'critical' ? [] : decision.suggestions,
-          expiresAt: new Date(Date.now() + (deps.approvalTtlMs ?? APPROVAL_TTL_MS)).toISOString(),
+          expiresAt: new Date(
+            Date.now() +
+              ((cp.input.automation ? deps.automationApprovalTtlMs : undefined) ??
+                deps.approvalTtlMs ??
+                APPROVAL_TTL_MS),
+          ).toISOString(),
         });
         // Stop was pressed while asking: withdraw the question instead of pausing.
         if (ctx.signal.aborted) {

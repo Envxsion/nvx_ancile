@@ -8,13 +8,16 @@
  *           |  and model suggestions, stale-source checks, clean-up,
  *           |  memory backups.
  *  How      |  Scheduled jobs: runner.ts (a cron tick on Postgres rows,
- *           |  no extra queue). Event-driven jobs live with the
+ *           |  no extra queue); the built-ins in jobs.ts, your own
+ *           |  (ask a model, run a flow, re-check links, remind me) in
+ *           |  userJobs.ts. Event-driven jobs live with the
  *           |  features they serve (titles in threads, capture in
  *           |  memory, and so on).
  * ------------------------------------------------------------------
  */
 
-export { cronWords, nextRun, parseCron } from './cron';
-export { scheduledJobs } from './jobs';
+export { cronWords, nextRun, parseCron, scheduleProblem } from './cron';
+export { builtinOptions, jobSetup, scheduledJobs } from './jobs';
 export { automationRoutes } from './routes';
 export { AutomationRunner, CATALOGUE, MemoryAutomationStore, PgAutomationStore } from './runner';
+export { userJobs } from './userJobs';

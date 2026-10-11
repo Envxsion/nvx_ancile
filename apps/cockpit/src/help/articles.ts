@@ -484,8 +484,14 @@ For an answer, **Replay the run** steps through it like a recording: \`←\` and
         id: 'automations',
         title: 'Automations',
         summary: 'What NVX Ancile does on its own, and when.',
-        keywords: 'automations schedule cron cleanup backup stale links run now',
-        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes, model statistics) show when they last ran, how it went, and when they run next. **Run now** runs one straight away; the switch stops its schedule.
+        keywords: 'automations schedule cron cleanup backup stale links run now new edit reset reminder flow',
+        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes, model statistics) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
+
+**Edit** changes when a job runs (every few minutes or hours, daily, weekly on the days you pick, or a custom cron schedule) and, for some jobs, their settings, such as how long logs are kept. A changed job is marked **Changed** until you reset it.
+
+**New automation** makes your own: ask a model a question on a schedule (in a notebook if you like), run a flow, re-check a notebook's links, or send yourself a reminder. Answers land in a new thread each time; **Open** on the card takes you there. Nobody is watching when it runs, so anything it wants to change waits for your yes.
+
+A job that needs something first, like a git remote for memory backups, shows **Not set up** with what to do, and does not run until it is.
 
 The jobs that run on events, like naming a new thread or learning from a correction, are listed too, so nothing happens out of sight.`,
       },

@@ -70,6 +70,12 @@ export interface StartTurn {
   instructions?: string;
   /** The caller's own record for this answer, kept in its provenance. */
   provenanceExtra?: Record<string, unknown>;
+  /**
+   * Started by an automation, with nobody watching: its tool calls are
+   * decided with context.automation set, so base.cedar makes anything with
+   * side effects critical.
+   */
+  automation?: boolean;
 }
 
 export interface StartedTurn {
@@ -214,6 +220,7 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
         ...(req.routeAgain && { routeAgain: req.routeAgain }),
         ...(req.instructions && { instructions: req.instructions }),
         ...(req.provenanceExtra && { provenanceExtra: req.provenanceExtra }),
+        ...(req.automation && { automation: true }),
       }),
     });
   } catch (err) {

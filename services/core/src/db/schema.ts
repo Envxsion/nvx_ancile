@@ -535,6 +535,19 @@ export const automations = core.table('automations', {
   lastRunAt: ts('last_run_at'),
   lastStatus: text('last_status'),
   nextRunAt: ts('next_run_at'),
+  // 0007_obs
+  lastError: jsonb('last_error'),
+  lastDurationMs: integer('last_duration_ms'),
+  runs: integer('runs').notNull().default(0),
+  // 0011_automations: your own automations, and built-ins changed in Admin
+  origin: text('origin', { enum: ['builtin', 'user'] })
+    .notNull()
+    .default('builtin'),
+  title: text('title'),
+  customised: boolean('customised').notNull().default(false),
+  lastDetail: text('last_detail'),
+  lastHref: text('last_href'),
+  createdAt: created(),
 });
 
 /* ---- Observability (§11) ------------------------------------------------- */

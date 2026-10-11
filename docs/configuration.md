@@ -194,21 +194,34 @@ Both take `enabled` and per-tool `tools` overrides. See [plugins.md](plugins.md)
 
 Every job: `enabled`, optional `cron`, `config`.
 
+This file is the default. In **Admin → Automations** you can change a scheduled job's schedule and its settings, switch it off, or reset it to this file; those changes are kept in Core's database (`core.automations`), never written back here, because the file is read-only in the desktop app. A job you changed keeps your change when this file changes, until you reset it.
+
 | Job | Config |
 |---|---|
 | `auto_title` | `after_turns` |
 | `auto_tag_sources` | `max_tags` |
-| `stale_sources` | `url_stale_after_days`, weekly cron |
+| `stale_sources` | `force` (check every link, not only those due; changeable in Admin), weekly cron |
 | `tldr` | `min_turns` |
 | `draft_autosave` | `server_every_s` |
-| `cleanup` | `temp_max_age_h`, nightly cron |
-| `memory_backup` | hourly cron, pushes only if a remote is set |
+| `cleanup` | `logs_days`, `spans_days`, `run_events_days` (default to the retention variables below; changeable in Admin), `temp_max_age_h`, nightly cron |
+| `memory_backup` | hourly cron. Shown as "Not set up", and not run, until a remote is set (`remote` in `memory.yaml` or `ANCILE_MEMORY_REMOTE`) |
 | `duplicate_sources` | `near_dup_threshold` |
 | `branch_suggestions` | `drift_threshold` |
 | `model_suggestions` | `min_calls` |
 | `context_overflow_warn` | `warn_at`, `auto_compact_at` |
 | `memory_capture` | none |
 | `model_stats_rollup` | every 15 minutes |
+
+**Your own automations** are made in Admin → Automations → New automation and live only in the database:
+
+| Kind | What it does | Config |
+|---|---|---|
+| Ask a model (`ask_model`) | Sends your message in a new thread each run | `prompt`, `notebook_id` (optional), `model` (optional; the default model otherwise) |
+| Run a flow (`run_flow`) | The same, answered through a flow | `flow_id`, `prompt`, `notebook_id` (optional) |
+| Re-check links (`recheck_sources`) | Checks one notebook's web sources for changes | `notebook_id` |
+| Remind me (`notify`) | Puts a reminder in your notifications | `title`, `body` (optional) |
+
+They run through the same scheduler and history as the built-in jobs. Schedules are five-field cron in this computer's time, at most every 5 minutes. A run is unattended, so any tool call it makes with side effects is critical and waits for your yes (`base.escalate-automations` in `policies/base.cedar`); those approvals expire after `ANCILE_APPROVAL_TTL_AUTOMATION_S`.
 
 ### factcheck
 
@@ -313,7 +326,8 @@ ANCILE_RESTART_ADAPTER=
 ANCILE_DOCKER_PREFIX=nvx-ancile-
 
 # --- Memory backup (the "Back up memory" automation) ---
-# A git remote the memory folder is pushed to every hour. Empty: no backup.
+# A git remote the memory folder is pushed to every hour (or remote in
+# config/memory.yaml). Empty: no backup, and Admin shows it as "Not set up".
 ANCILE_MEMORY_REMOTE=
 
 # --- Editions and statistics ---
