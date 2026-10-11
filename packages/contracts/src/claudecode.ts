@@ -218,6 +218,12 @@ export const SendClaudeCodeRequest = z
     source_ids: z.array(z.string()).max(50).optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    /**
+     * "Continue as a branch": fork the session at the parent even when the
+     * parent is its latest message, so a session open in Claude Code
+     * somewhere else is never written to.
+     */
+    as_branch: z.boolean().optional(),
     idempotency_key: z.string().min(8).max(200),
   })
   .strict();

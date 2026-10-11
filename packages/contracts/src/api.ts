@@ -50,7 +50,16 @@ export const SendMessageResponse = z.object({
 
 export const Run = z.object({
   id: z.string(),
-  kind: z.enum(['chat_turn', 'agent', 'research', 'factcheck', 'automation', 'diagnostic', 'flow_try']),
+  kind: z.enum([
+    'chat_turn',
+    'agent',
+    'research',
+    'factcheck',
+    'automation',
+    'diagnostic',
+    'flow_try',
+    'claude_code',
+  ]),
   status: RunStatus,
   thread_id: z.string().nullable(),
   message_id: z.string().nullable(),
