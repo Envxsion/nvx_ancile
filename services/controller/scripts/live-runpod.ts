@@ -314,7 +314,12 @@ async function main() {
 }
 
 main()
-  .catch((e) => record('unexpected error', false, e instanceof Error ? e.message : String(e)))
+  .catch((e) => {
+    // A ProviderError carries RunPod's words and what to do about them.
+    const pe = e as { error?: { provider_message?: string; suggestion?: string } };
+    const why = pe.error?.provider_message ?? (e instanceof Error ? e.message : String(e));
+    record('stopped', false, pe.error?.suggestion ? `${why} ${pe.error.suggestion}` : why);
+  })
   .finally(async () => {
     await cleanUp();
     const minutes = (Date.now() - t0) / 60_000;

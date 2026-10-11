@@ -133,10 +133,17 @@ export function mapError(status: number | null, message: string, action: NodeAct
       'RunPod could not be reached. Check your connection; the action will be retried automatically.',
       true,
     );
-  if (status === 401 || status === 403)
+  if (status === 401)
     return e(
       'auth',
-      'RunPod rejected the API key. Create a key with pod read/write scope and set RUNPOD_API_KEY.',
+      'RunPod did not accept the API key. Check it in RunPod → Settings → API Keys, then connect it again in Admin → Compute.',
+      false,
+    );
+  // A read-only key can list pods but nothing else (checked live, 2026-10-11).
+  if (status === 403)
+    return e(
+      'auth',
+      'This RunPod key can only read. Create one with Read/Write access in RunPod → Settings → API Keys, then connect it again in Admin → Compute.',
       false,
     );
   if (status === 404)
@@ -274,8 +281,46 @@ export class RunPodProvider implements ComputeProvider {
       ...(spec.region && { dataCenterIds: [spec.region] }),
       ...(spec.command?.length && { cmd: spec.command }),
     };
-    const res = await this.call('POST', '/v2/pods', body, 'start', signal, idempotencyKey);
+    let res: Response;
+    try {
+      res = await this.call('POST', '/v2/pods', body, 'start', signal, idempotencyKey);
+    } catch (err) {
+      // RunPod answers a bare 403 "Access denied" when the account has no
+      // credit (checked live, 2026-10-11): say which it is.
+      if (err instanceof ProviderError && err.status === 403) {
+        const balance = await this.balance(signal);
+        if (balance !== null && balance <= 0)
+          throw new ProviderError(
+            {
+              code: 'billing',
+              provider_message: `RunPod refused to create the pod: your balance is $${balance.toFixed(2)}.`,
+              suggestion: 'Add credit in RunPod → Billing, then create the pod again.',
+            },
+            403,
+            false,
+          );
+      }
+      throw err;
+    }
     return mapPod((await res.json()) as Json);
+  }
+
+  /** The account's credit in USD, or null if RunPod does not say (v2 has no balance route yet). */
+  async balance(signal?: AbortSignal): Promise<number | null> {
+    try {
+      const res = await this.f(`${this.opts.baseUrl.replace(/\/$/, '')}/graphql`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.opts.apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'query { myself { clientBalance } }' }),
+        signal: signal ?? AbortSignal.timeout(this.opts.timeoutMs ?? 20_000),
+      });
+      if (!res.ok) return null;
+      const j = (await res.json()) as { data?: { myself?: { clientBalance?: number } } };
+      const b = j.data?.myself?.clientBalance;
+      return typeof b === 'number' ? b : null;
+    } catch {
+      return null;
+    }
   }
 
   async ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string }> {

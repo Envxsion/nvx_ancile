@@ -161,3 +161,38 @@ describe('v2 pod schema', () => {
     });
   });
 });
+
+describe('RunPod create refused', () => {
+  it('says the balance is empty when RunPod answers a bare 403 to a create', async () => {
+    const p = new RunPodProvider({
+      apiKey: 'k',
+      baseUrl: 'https://x',
+      fetch: fakeFetch([
+        json(403, {
+          title: 'Forbidden',
+          status: 403,
+          detail: 'Access to the requested resource was denied.',
+        }),
+        json(200, { data: { myself: { clientBalance: 0 } } }),
+      ]),
+    });
+    const err = await p
+      .create(
+        {
+          name: 'n',
+          gpu_type_id: 'NVIDIA RTX A4000',
+          gpu_count: 1,
+          cloud: 'community',
+          container_disk_gb: 30,
+          volume_gb: 0,
+          ports: ['8000/http'],
+          env: {},
+          image: 'i',
+        },
+        'idem-key-0001',
+      )
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.error).toMatchObject({ code: 'billing', suggestion: expect.stringContaining('Add credit') });
+  });
+});
