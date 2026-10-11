@@ -411,12 +411,15 @@ button.cc-session__title {
   color: var(--fg-2);
 }
 
+/* Where Claude Code compacted: a pause in the conversation. Its own
+   padding, never a sibling's margin. */
 .cc-compact {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 8px 0;
-  color: var(--fg-3);
+  margin: 0;
+  padding: 32px 0 12px;
+  color: var(--mute);
   font-size: var(--t-small);
 }
 .cc-compact::before,
@@ -431,8 +434,12 @@ button.cc-session__title {
 .cc-before {
   display: grid;
   justify-items: center;
-  margin: -2px 0 8px;
+  margin: 0;
+  padding: 0 0 8px;
   font-size: var(--t-small);
+}
+.cc-compact + .cc-before {
+  margin-top: -8px;
 }
 .cc-before > summary {
   display: inline-flex;
@@ -465,9 +472,11 @@ button.cc-session__title {
   box-shadow: inset 0 0 0 1px var(--hair);
 }
 
-/* Commands and notices: slim rows on the page, not bubbles. */
+/* Commands and notices: slim rows on the answer's left edge, the icon in
+   the same 16px column as a tool step's. Quieter than anything you read. */
 .cc-row {
   min-width: 0;
+  padding: 6px 0;
   font-size: var(--t-small);
   color: var(--fg-3);
 }
@@ -476,8 +485,8 @@ button.cc-session__title {
   align-items: center;
   gap: 8px;
   min-height: 28px;
-  margin: 0 -8px;
-  padding: 3px 8px;
+  margin: 0 -6px;
+  padding: 3px 6px;
   border-radius: var(--r-sm);
   list-style: none;
   white-space: nowrap;
@@ -495,39 +504,36 @@ details[open] > summary.cc-row__line {
 }
 .cc-row__icon {
   flex: none;
+  margin: 0 2px;
   color: var(--mute);
 }
 .cc-row__end {
   margin-left: auto;
 }
-/* A command is something you did: it sits on your side. */
-li[data-cc='command'] {
-  display: grid;
-  justify-items: end;
-}
-li[data-cc='command'] details[open].cc-cmd {
-  justify-self: stretch;
+/* A command you ran starts something new: a little more room above. */
+li[data-cc='command'] > .cc-row {
+  padding-top: 24px;
 }
 .cc-cmd__name {
   flex: none;
-  padding: 1px 6px;
+  padding: 0.1em 0.4em;
   border-radius: var(--r-xs);
   background: var(--chalk);
   font-family: var(--font-mono);
   font-size: 0.95em;
-  color: var(--fg);
+  font-stretch: 87.5%;
+  color: var(--fg-2);
 }
 .cc-cmd__args {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--mute);
-  font-family: var(--font-mono);
 }
 .cc-cmd__out {
   max-height: 320px;
   overflow: auto;
-  margin: 6px 0 2px;
+  margin: 4px 0 2px 24px;
   padding: 10px 12px;
   border-radius: var(--r-md);
   background: var(--void-deep);
@@ -539,33 +545,35 @@ li[data-cc='command'] details[open].cc-cmd {
   overflow-wrap: anywhere;
   color: var(--fg-3);
 }
-.cc-notice__title {
+.cc-note__title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--fg-2);
-  font-weight: 520;
+  color: var(--fg-3);
+  font-weight: 500;
 }
-.cc-notice__meta {
+.cc-note__meta {
   flex: none;
-  color: var(--mute);
+  color: var(--mute-2);
 }
-.cc-notice__meta::before {
+.cc-note__meta::before {
   content: '·';
   margin-right: 8px;
   color: var(--mute-2);
 }
-.cc-notice__body {
-  margin: 6px 0 4px 6px;
-  padding-left: 16px;
-  border-left: 1px solid var(--hair);
+.cc-note__body {
+  margin: 4px 0 4px 24px;
 }
+/* Where you stopped it: a mark under the answer, on the same edge. */
 .cc-stopped {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin: -4px 0 0;
-  font-size: var(--t-micro);
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 8px;
+  font-size: var(--t-small);
   color: var(--mute-2);
+}
+.cc-stopped > .icon {
+  margin: 0 3px;
 }

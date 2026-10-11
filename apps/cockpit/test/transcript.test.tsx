@@ -193,12 +193,12 @@ describe("Claude Code's events are quiet rows, not bubbles", () => {
   it('a notice is one line by source, with its body as markdown when opened', () => {
     const { container } = render(<CcEventRow e={ev('s3')} />);
     expect(screen.getByText('Background task finished')).toBeInTheDocument();
-    expect([...container.querySelectorAll('.cc-notice__meta')].map((n) => n.textContent)).toEqual([
+    expect([...container.querySelectorAll('.cc-note__meta')].map((n) => n.textContent)).toEqual([
       'pnpm build',
       'completed',
     ]);
-    expect(container.querySelector('details.cc-notice')).not.toHaveAttribute('open');
-    expect(container.querySelector('.cc-notice__body')?.textContent).toContain('The build passed.');
+    expect(container.querySelector('details.cc-note')).not.toHaveAttribute('open');
+    expect(container.querySelector('.cc-note__body')?.textContent).toContain('The build passed.');
   });
 
   it('an interruption is a tiny marker', () => {
