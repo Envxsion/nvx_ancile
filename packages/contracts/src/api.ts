@@ -346,6 +346,10 @@ export const Approval = z.object({
   resource: z.string(),
   tier: z.enum(['gated', 'critical']),
   args_preview: z.unknown(),
+  /** The full arguments, editable before approving (when args_editable). */
+  args: z.unknown().optional(),
+  /** Whether this tool accepts changed arguments on approval (absent: no). */
+  args_editable: z.boolean().optional(),
   suggestions: z.array(z.string()),
   status: z.enum(['pending', 'approved', 'denied', 'expired', 'cancelled']),
   created_at: z.string(),

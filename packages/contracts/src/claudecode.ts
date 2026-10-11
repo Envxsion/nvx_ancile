@@ -160,3 +160,85 @@ export const ClaudeCodeProject = z.object({
   notebook_id: z.string(),
 });
 export type ClaudeCodeProject = z.infer<typeof ClaudeCodeProject>;
+
+/* ---- Live sessions (phase 2) ------------------------------------------------ */
+
+/** Where a command comes from, so the composer can group and explain it. */
+export const ClaudeCodeCommandSource = z.enum(['builtin', 'skill', 'plugin', 'mcp', 'custom', 'ancile']);
+
+/**
+ * One entry in the composer's "/" list for a Claude Code thread:
+ * GET /claude-code/threads/:id/commands. Built from Claude Code's own
+ * list for that session (built-ins, skills, plugins, MCP prompts,
+ * custom commands), so new commands appear without an Ancile update.
+ */
+export const ClaudeCodeCommand = z.object({
+  /** Without the slash, e.g. "compact", "mcp", "review", "my-skill". */
+  name: z.string(),
+  description: z.string(),
+  /** e.g. "[instructions]" or "low|medium|high|xhigh|max". */
+  argument_hint: z.string().nullable(),
+  /** Known subcommands or values, for a second level of completion. */
+  arguments: z.array(z.object({ value: z.string(), description: z.string().nullable() })).default([]),
+  source: ClaudeCodeCommandSource,
+  /**
+   * "claude": sent to Claude Code as typed. "ancile": NVX Ancile does it
+   * better itself (e.g. /mcp opens the MCP screen, /branch branches the
+   * thread); `ancile_action` says what.
+   */
+  handled_by: z.enum(['claude', 'ancile']),
+  ancile_action: z
+    .enum([
+      'open_mcp',
+      'open_permissions',
+      'open_usage',
+      'branch',
+      'rewind',
+      'new_thread',
+      'open_threads',
+      'sign_in',
+      'open_memory',
+      'open_settings',
+      'set_model',
+      'set_effort',
+      'unsupported',
+    ])
+    .nullable()
+    .default(null),
+});
+export type ClaudeCodeCommand = z.infer<typeof ClaudeCodeCommand>;
+
+/** POST /claude-code/threads/:id/send — one turn in the live session. */
+export const SendClaudeCodeRequest = z
+  .object({
+    text: z.string().min(1).max(200_000),
+    /** The message this turn answers from; absent: the thread's active head. */
+    parent_id: z.string().nullable().optional(),
+    /** Source ids to ground this turn on (the notebook's sources by default). */
+    source_ids: z.array(z.string()).max(50).optional(),
+    model: z.string().nullable().optional(),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    idempotency_key: z.string().min(8).max(200),
+  })
+  .strict();
+export type SendClaudeCodeRequest = z.infer<typeof SendClaudeCodeRequest>;
+
+/** The answer: the run that streams the turn on the thread's usual event stream. */
+export const SendClaudeCodeResult = z.object({ run_id: z.string(), user_message_id: z.string() });
+
+/** GET /claude-code/threads/:id/live */
+export const ClaudeCodeLiveState = z.object({
+  /** idle: no process; starting; ready; working: a turn is running. */
+  state: z.enum(['idle', 'starting', 'ready', 'working']),
+  /** Another Claude Code process has the session open; Ancile will not write to it. */
+  locked_elsewhere: z.boolean(),
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  permission_mode: z.string().nullable(),
+  cwd: z.string().nullable(),
+  /** Claude Code's own count of its context, not Ancile's estimate. */
+  context: z
+    .object({ used_tokens: z.number().int(), max_tokens: z.number().int(), percent: z.number() })
+    .nullable(),
+});
+export type ClaudeCodeLiveState = z.infer<typeof ClaudeCodeLiveState>;

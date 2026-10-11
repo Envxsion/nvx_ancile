@@ -44,6 +44,13 @@ export const ApprovalDecisionRequest = z
     pattern: z.string().optional(),
     ttl_seconds: z.number().int().positive().optional(),
     reason: z.string().max(500).optional(),
+    /**
+     * Approve with changed arguments: the tool runs with these instead of the
+     * ones it asked for, and the permission is checked again on them. Only
+     * with decision "approve" and scope "once", and only when the approval
+     * says args_editable.
+     */
+    updated_args: z.unknown().optional(),
   })
   .strict();
 
