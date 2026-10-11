@@ -18,6 +18,7 @@
  */
 
 import type {
+  ClaudeCodeProject,
   ClaudeCodeSession,
   ClaudeCodeSettings,
   ClaudeCodeStatus,
@@ -38,6 +39,7 @@ export const CC_KEYS = {
   status: ['claude-code', 'status'] as const,
   sessions: ['claude-code', 'sessions'] as const,
   sessionList: (q: string) => ['claude-code', 'sessions', q] as const,
+  projects: ['claude-code', 'projects'] as const,
 };
 
 /* ---- Live install progress ---------------------------------------------- */
@@ -267,6 +269,46 @@ export async function syncThread(threadId: string): Promise<number | null> {
     reportFailure(error, 'Syncing from Claude Code');
     return null;
   }
+}
+
+/* ---- Folders -------------------------------------------------------------- */
+
+/** Which notebook each Claude Code folder lands in. */
+export function useClaudeCodeProjects(enabled = true) {
+  return useQuery({
+    queryKey: CC_KEYS.projects,
+    queryFn: () => api.get<{ items: ClaudeCodeProject[] }>('/claude-code/projects'),
+    enabled,
+    staleTime: 60_000,
+    select: (r) => r.items,
+  });
+}
+
+/**
+ * "Don't bring in this folder": it joins the excluded folders, and its
+ * threads are archived by Core. Answers whether it worked.
+ */
+export async function excludeFolder(cwd: string): Promise<boolean> {
+  try {
+    const settings = await api.post<ClaudeCodeSettings>('/claude-code/projects/exclude', { cwd });
+    queryClient.setQueryData<ClaudeCodeStatus | undefined>(CC_KEYS.status, (prev) =>
+      mergeSettings(prev, settings),
+    );
+    notify({ level: 'success', title: `Sessions from ${folderOf(cwd)} no longer come in` });
+    void queryClient.invalidateQueries({ queryKey: CC_KEYS.all });
+    void queryClient.invalidateQueries({ queryKey: keys.threads });
+    void queryClient.invalidateQueries({ queryKey: keys.notebooks });
+    return true;
+  } catch (error) {
+    reportFailure(error, 'Excluding the folder');
+    return false;
+  }
+}
+
+/** "/home/me/work/site" → "site". */
+export function folderOf(cwd: string): string {
+  const parts = cwd.replaceAll('\\', '/').split('/').filter(Boolean);
+  return parts[parts.length - 1] ?? cwd;
 }
 
 /* ---- Words -------------------------------------------------------------- */

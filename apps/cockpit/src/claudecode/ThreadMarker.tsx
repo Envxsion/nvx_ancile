@@ -104,7 +104,7 @@ export function WhatCameBefore({ summary }: { summary: string }) {
 export function CommandRow({ e }: { e: Extract<CcEvent, { kind: 'command' }> }) {
   const head = (
     <>
-      <Icon name="command" size={12} className="cc-row__icon" />
+      <Icon name="terminal" size={12} className="cc-row__icon" />
       {e.name ? <code className="cc-cmd__name">{e.name}</code> : <span>Command output</span>}
       {e.args ? <span className="cc-cmd__args">{e.args}</span> : null}
     </>

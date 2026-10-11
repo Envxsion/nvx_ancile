@@ -765,6 +765,7 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'claude_code.version_old': 'claude-code',
   'claude_code.sdk_unavailable': 'claude-code',
   'claude_code.install_failed': 'claude-code',
+  'claude_code.folder_excluded': 'claude-code',
 };
 
 /** Plain-text search over titles, summaries, keywords and bodies, best first. */

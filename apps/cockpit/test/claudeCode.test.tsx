@@ -20,6 +20,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 
 import {
   CC_KEYS,
+  excludeFolder,
   onClaudeCodeChanged,
   readSessionsDetail,
   signedInWords,
@@ -28,6 +29,7 @@ import {
   useInstallProgress,
 } from '../src/claudecode/api';
 import { ClaudeCodeGroup, NEVER_SEES, SIGN_IN_NOTE, stageOf } from '../src/claudecode/ClaudeCodeGroup';
+import { excludeCopy } from '../src/claudecode/ExcludeFolder';
 import { groupSessions, SessionsBrowser } from '../src/claudecode/SessionsDialog';
 import { ClaudeCodeMarker, CompactionDivider, markerText } from '../src/claudecode/ThreadMarker';
 import { ARTICLES, articleById, ERROR_ARTICLES } from '../src/help/articles';
@@ -549,13 +551,71 @@ describe('claude_code.changed', () => {
   });
 });
 
+/* ---- Folders that never come in ----------------------------------------- */
+
+describe("Don't bring in this folder", () => {
+  it('the confirm says what happens to what is already in', () => {
+    const c = excludeCopy('C:\\work\\nvx_folio');
+    expect(c.action).toBe("Don't bring in this folder");
+    expect(c.body).toBe(
+      "Sessions from nvx_folio stop coming in. Threads already brought in from it are archived, not deleted, unless you've written in them.",
+    );
+  });
+
+  it('posts the folder and takes the settings Core answers with', async () => {
+    queryClient.setQueryData(CC_KEYS.status, status());
+    mocked.post.mockResolvedValueOnce({
+      auto_install: true,
+      auto_import: true,
+      exclude_folders: ['~/.claude-mem', '/home/me/site'],
+      claude_telemetry: true,
+    });
+    expect(await excludeFolder('/home/me/site')).toBe(true);
+    expect(mocked.post).toHaveBeenCalledWith('/claude-code/projects/exclude', { cwd: '/home/me/site' });
+    expect(queryClient.getQueryData<ClaudeCodeStatus>(CC_KEYS.status)?.settings.exclude_folders).toContain(
+      '/home/me/site',
+    );
+    expect(useNotify.getState().toasts.at(-1)?.title).toBe('Sessions from site no longer come in');
+  });
+
+  it('Settings lists the excluded folders, and removing one patches the rest', async () => {
+    mocked.get.mockResolvedValue(
+      status({
+        settings: {
+          auto_install: true,
+          auto_import: true,
+          exclude_folders: ['~/.claude-mem', '/home/me/old'],
+          claude_telemetry: true,
+        },
+      }),
+    );
+    mocked.patch.mockResolvedValue({});
+    wrap(<ClaudeCodeGroup />);
+    const list = await screen.findByRole('list', { name: 'Excluded folders' });
+    expect(within(list).getByText('~/.claude-mem')).toBeInTheDocument();
+    fireEvent.click(within(list).getByRole('button', { name: 'Bring in /home/me/old again' }));
+    await waitFor(() =>
+      expect(mocked.patch).toHaveBeenCalledWith('/claude-code/settings', {
+        exclude_folders: ['~/.claude-mem'],
+      }),
+    );
+  });
+});
+
 /* ---- Help ---------------------------------------------------------------- */
 
 describe('the guide', () => {
   it('has the article, and every claude_code error points at it', () => {
     const a = articleById('claude-code')?.article;
     expect(a?.title).toBe('Using Claude Code in NVX Ancile');
-    for (const code of ['not_installed', 'signed_out', 'version_old', 'sdk_unavailable', 'install_failed'])
+    for (const code of [
+      'not_installed',
+      'signed_out',
+      'version_old',
+      'sdk_unavailable',
+      'install_failed',
+      'folder_excluded',
+    ])
       expect(ERROR_ARTICLES[`claude_code.${code}`]).toBe('claude-code');
     expect(a?.body).toContain('never sees your Claude sign-in');
     expect(ARTICLES.some((x) => x.body.toLowerCase().includes('claude subscription'))).toBe(false);

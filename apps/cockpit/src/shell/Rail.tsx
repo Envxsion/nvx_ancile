@@ -41,7 +41,7 @@ import type { Hue, NotebookView, ThreadSummary } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
-import { Icon } from '../ui/Icon';
+import { Icon, isIconName } from '../ui/Icon';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
 import { Kbd, Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
@@ -632,7 +632,11 @@ export function Rail() {
                         dir="auto"
                       >
                         {params.notebookId === n.id ? <ActivePlate /> : null}
-                        <span className="rail__swatch" aria-hidden="true" />
+                        {isIconName(n.icon) ? (
+                          <Icon name={n.icon} size={13} className="rail__glyph" />
+                        ) : (
+                          <span className="rail__swatch" aria-hidden="true" />
+                        )}
                         <span className="rail__label">{n.title}</span>
                         {n.pinned ? <Icon name="pin" size={11} className="gilt-ink" /> : null}
                         <span className="rail__meta" data-num title={`${n.sources} sources`}>

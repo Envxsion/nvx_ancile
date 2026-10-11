@@ -100,9 +100,13 @@ const PATHS = {
   zap: 'M9 2L3.5 9H8l-1 5 5.5-7H8l1-5Z',
   clock: 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM8 5v3.2l2 1.3',
   inbox: 'M2.5 9l1.5-5.5h8L13.5 9v4h-11zM2.5 9h3l1 1.5h3l1-1.5h3',
+  terminal: 'M2.5 3.5h11v9h-11zM5 6.5l2 1.5-2 1.5M8.5 10h2.5',
 } as const;
 
 export type IconName = keyof typeof PATHS;
+
+/** Whether a stored name (a notebook's icon) is one this set can draw. */
+export const isIconName = (v: unknown): v is IconName => typeof v === 'string' && Object.hasOwn(PATHS, v);
 
 export function Icon({
   name,

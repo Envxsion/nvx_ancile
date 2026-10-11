@@ -296,6 +296,43 @@ export function ClaudeCodeGroup() {
         </Block>
       ) : null}
 
+      {s ? (
+        <Block title="Excluded folders">
+          <div className="setting cc-excluded">
+            <div className="setting__words">
+              <p className="setting__desc">
+                Sessions from these folders never come in. "~" is your home folder.
+              </p>
+              {s.settings.exclude_folders.length ? (
+                <ul className="cc-excluded__list" aria-label="Excluded folders">
+                  {s.settings.exclude_folders.map((f) => (
+                    <li key={f}>
+                      <Icon name="folder" size={13} />
+                      <span className="cc-excluded__path" data-num title={f}>
+                        {f}
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--xs"
+                        aria-label={`Bring in ${f} again`}
+                        title="Bring its sessions in again"
+                        onClick={() =>
+                          patch.mutate({ exclude_folders: s.settings.exclude_folders.filter((x) => x !== f) })
+                        }
+                      >
+                        <Icon name="close" size={11} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="setting__desc mute">None. Every folder's sessions come in.</p>
+              )}
+            </div>
+          </div>
+        </Block>
+      ) : null}
+
       <Block title="Sessions">
         <div className="setting cc-sessions-row">
           <div className="setting__words">

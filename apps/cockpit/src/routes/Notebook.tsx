@@ -16,6 +16,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type CSSProperties, type DragEvent, useMemo, useState } from 'react';
+import { folderOf, useClaudeCodeProjects } from '../claudecode/api';
+import { useExcludeFolder } from '../claudecode/ExcludeFolder';
 import { UploadQueue } from '../drawer/SourcesPanel';
 import { useLayer } from '../keys/dispatch';
 import { api } from '../lib/api';
@@ -35,7 +37,7 @@ import { useUi } from '../state/ui';
 import { Composer, type SendExtras } from '../thread/Composer';
 import { useFlowList } from '../thread/flowActions';
 import { Ticker } from '../ui/controls';
-import { Icon } from '../ui/Icon';
+import { Icon, isIconName } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
@@ -69,6 +71,8 @@ export function NotebookScreen() {
   const [over, setOver] = useState(false);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const projects = useClaudeCodeProjects(!demo);
+  const exclude = useExcludeFolder();
   const nb = notebooks.data?.find((n) => n.id === notebookId);
 
   const own = useMemo(
@@ -138,6 +142,7 @@ export function NotebookScreen() {
     addUploads(nb.id, Array.from(e.dataTransfer.files));
   };
 
+  const folders = (projects.data ?? []).filter((p) => p.notebook_id === nb.id).map((p) => p.cwd);
   const more: MenuEntry[] = [
     { label: 'Rename', icon: 'edit', onSelect: () => setEditing(true) },
     {
@@ -154,6 +159,14 @@ export function NotebookScreen() {
       icon: 'pin',
       onSelect: () => void patchNotebook(nb.id, { pinned: !nb.pinned }),
     },
+    // Only a notebook a Claude Code folder lands in; one entry per folder when several do.
+    ...folders.map(
+      (cwd): MenuEntry => ({
+        label: folders.length > 1 ? `Don't bring in ${folderOf(cwd)}` : "Don't bring in this folder",
+        icon: 'archive',
+        onSelect: () => exclude.ask(cwd),
+      }),
+    ),
     { kind: 'separator' },
     {
       label: 'Delete notebook',
@@ -186,7 +199,11 @@ export function NotebookScreen() {
     >
       <div className="page__measure nbk__measure">
         <header className="nbk__head">
-          <span className="nbk__swatch" aria-hidden="true" />
+          {isIconName(nb.icon) ? (
+            <Icon name={nb.icon} size={18} className="nbk__glyph" />
+          ) : (
+            <span className="nbk__swatch" aria-hidden="true" />
+          )}
           <div className="nbk__titles">
             {editing ? (
               <TitleEdit
@@ -405,6 +422,7 @@ export function NotebookScreen() {
       ) : null}
 
       <AddSources notebookId={nb.id} open={adding} onOpenChange={setAdding} />
+      {exclude.dialog}
       <DeleteNotebookDialog
         open={deleting}
         onOpenChange={setDeleting}

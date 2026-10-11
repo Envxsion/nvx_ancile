@@ -45,6 +45,7 @@ import {
   useClaudeCodeStatus,
   useImportProgress,
 } from './api';
+import { useExcludeFolder } from './ExcludeFolder';
 import '../styles/claudecode.css';
 
 /* ---- Where it opens ------------------------------------------------------ */
@@ -327,6 +328,7 @@ export function SessionsBrowser({
   const titles = useRef(new Map<string, string>());
   const notebooks = useNotebooks().data ?? [];
   const sessions = useClaudeCodeSessions(term, true);
+  const exclude = useExcludeFolder();
 
   useEffect(() => {
     const t = setTimeout(() => setTerm(q.trim()), 220);
@@ -452,6 +454,15 @@ export function SessionsBrowser({
                           Import all from this folder
                         </button>
                       ) : null}
+                      {g.cwd ? (
+                        <button
+                          type="button"
+                          className="link-btn link-btn--quiet cc-group__exclude"
+                          onClick={() => exclude.ask(g.cwd)}
+                        >
+                          Don't bring in this folder
+                        </button>
+                      ) : null}
                     </header>
                     <ul className="cc-group__items">
                       {g.items.map((s) => (
@@ -468,6 +479,7 @@ export function SessionsBrowser({
                 );
               })
             )}
+            {exclude.dialog}
             {sessions.hasNextPage ? (
               <div className="cc-browser__more">
                 <button

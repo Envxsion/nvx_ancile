@@ -85,6 +85,11 @@
   height: 1px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--hue) 55%, transparent), transparent 70%);
 }
+.nbk__glyph {
+  flex: none;
+  margin-top: 12px;
+  color: var(--hue);
+}
 .nbk__swatch {
   width: 14px;
   height: 14px;

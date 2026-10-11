@@ -127,7 +127,7 @@ const ICONS: Record<Kind, IconName> = {
   notebook: 'edit',
   delete: 'trash',
   patch: 'edit',
-  shell: 'command',
+  shell: 'terminal',
   grep: 'search',
   glob: 'search',
   list: 'folder',

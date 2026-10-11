@@ -234,6 +234,11 @@ html[data-resizing] .shell {
 .rail__row:hover .rail__time {
   opacity: 0;
 }
+/* A notebook with its own glyph shows it in its hue where the swatch would be. */
+.rail__glyph {
+  flex: none;
+  color: var(--hue);
+}
 .rail__swatch {
   flex: none;
   width: 9px;
