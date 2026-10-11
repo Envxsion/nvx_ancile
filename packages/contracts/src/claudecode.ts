@@ -33,7 +33,7 @@ export const ClaudeCodeSettings = z.object({
    * Folders whose sessions are never brought in: other tools' automated
    * sessions, e.g. the claude-mem plugin's observer sessions. "~" is home.
    */
-  exclude_folders: z.array(z.string().min(1).max(500)).max(100).default(['~/.claude-mem']),
+  exclude_folders: z.array(z.string().min(1).max(500)).max(100).default(['~/.claude-mem', '<temp>']),
   /** Claude Code's own usage reporting to Anthropic (DISABLE_TELEMETRY when off). */
   claude_telemetry: z.boolean().default(true),
 });

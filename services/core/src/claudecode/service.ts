@@ -36,7 +36,7 @@
 
 import { existsSync, type FSWatcher, watch } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AncileError,
@@ -181,9 +181,15 @@ export function pickHue(key: string, used: (string | null | undefined)[]): strin
   return tied[stableHash(key) % tied.length] as string;
 }
 
-/** "~" (alone or before a slash) as the home folder. */
-export function expandHome(path: string, home: string): string {
-  return path.trim().replace(/^~(?=$|[\\/])/, home);
+/**
+ * "~" (alone or before a slash) as the home folder, and "<temp>" as the
+ * system temp folder, where throwaway sessions run.
+ */
+export function expandHome(path: string, home: string, temp: string = tmpdir()): string {
+  return path
+    .trim()
+    .replace(/^~(?=$|[\\/])/, home)
+    .replace(/^<temp>(?=$|[\\/])/, temp);
 }
 
 export class ClaudeCodeService {

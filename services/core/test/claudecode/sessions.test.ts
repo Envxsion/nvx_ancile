@@ -513,7 +513,7 @@ describe('routes', () => {
     expect(patched).toEqual({
       auto_install: true,
       auto_import: true,
-      exclude_folders: ['~/.claude-mem'],
+      exclude_folders: ['~/.claude-mem', '<temp>'],
       claude_telemetry: false,
     });
     expect(await svc.cliEnv()).toEqual({ DISABLE_TELEMETRY: '1' });
@@ -545,6 +545,9 @@ describe('excluded folders', () => {
   it('matches "~", case and slash direction on Windows, and whole folder names only', () => {
     expect(expandHome('~/.claude-mem', HOME)).toBe('C:\\Users\\p/.claude-mem');
     expect(cwdWithin(OBSERVER, expandHome('~/.claude-mem', HOME), 'win32')).toBe(true);
+    // "<temp>": throwaway sessions in the system temp folder.
+    expect(expandHome('<temp>', HOME, 'C:\\Temp')).toBe('C:\\Temp');
+    expect(cwdWithin('C:\\Temp\\ancile-x', expandHome('<temp>', HOME, 'C:\\Temp'), 'win32')).toBe(true);
     expect(cwdWithin('c:/users/P/.CLAUDE-MEM', 'C:\\Users\\p\\.claude-mem\\', 'win32')).toBe(true);
     expect(cwdWithin('C:\\Users\\p\\.claude-mem-other', 'C:\\Users\\p\\.claude-mem', 'win32')).toBe(false);
     expect(cwdWithin('/home/p/.claude-mem/x', '/home/p/.claude-mem', 'linux')).toBe(true);
@@ -638,6 +641,7 @@ describe('excluded folders', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { exclude_folders: string[] }).exclude_folders).toEqual([
       '~/.claude-mem',
+      '<temp>',
       'c:/code/TOY',
     ]);
     expect((await threads.getThread(id2))?.archived_at).toBeTruthy();
@@ -645,7 +649,7 @@ describe('excluded folders', () => {
       method: 'POST',
       body: JSON.stringify({ cwd: 'C:\\Code\\toy\\' }),
     });
-    expect(((await again.json()) as { exclude_folders: string[] }).exclude_folders).toHaveLength(2);
+    expect(((await again.json()) as { exclude_folders: string[] }).exclude_folders).toHaveLength(3);
     expect((await app.request('/claude-code/projects/exclude', { method: 'POST', body: '{}' })).status).toBe(
       400,
     );
