@@ -56,7 +56,12 @@ function status(p: Partial<ClaudeCodeStatus> = {}): ClaudeCodeStatus {
     install: { state: 'installed', error: null },
     sdk: { ready: true, version: '0.2.0', error: null },
     verification: { state: 'verified', error: null },
-    settings: { auto_install: true, auto_import: true, claude_telemetry: true },
+    settings: {
+      auto_install: true,
+      auto_import: true,
+      exclude_folders: ['~/.claude-mem'],
+      claude_telemetry: true,
+    },
     ...p,
   };
 }
@@ -210,7 +215,14 @@ describe('the status card offers the step that comes next', () => {
   it('the switches patch exactly one setting, with the owner wording', async () => {
     mocked.get.mockResolvedValue(status());
     mocked.patch.mockResolvedValue(
-      status({ settings: { auto_install: true, auto_import: false, claude_telemetry: true } }),
+      status({
+        settings: {
+          auto_install: true,
+          auto_import: false,
+          exclude_folders: ['~/.claude-mem'],
+          claude_telemetry: true,
+        },
+      }),
     );
     wrap(<ClaudeCodeGroup />);
     const sw = await screen.findByRole('switch', { name: 'Bring Claude Code sessions in by themselves' });

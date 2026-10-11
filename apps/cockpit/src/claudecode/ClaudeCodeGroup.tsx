@@ -16,7 +16,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodeSettings, ClaudeCodeStatus } from '@nvx/contracts';
+import type { ClaudeCodeStatus } from '@nvx/contracts';
 import { useContext, useEffect, useState } from 'react';
 import { LoadFailed } from '../ops/common';
 import { Block, matches, SearchContext } from '../routes/settings/rows';
@@ -42,23 +42,24 @@ export const NEVER_SEES = 'NVX Ancile never sees your Claude sign-in. Claude Cod
 export const SIGN_IN_NOTE =
   'A browser window opens from Claude Code itself. Sign in there, and this page updates when you are done.';
 
-const SWITCHES: { key: keyof ClaudeCodeSettings; label: string; desc: string }[] = [
-  {
-    key: 'auto_install',
-    label: "Install Claude Code when it's missing",
-    desc: "Uses Anthropic's official installer. Nothing else is installed.",
-  },
-  {
-    key: 'auto_import',
-    label: 'Bring Claude Code sessions in by themselves',
-    desc: 'Every session becomes a thread and stays in step. Off: only the sessions you import.',
-  },
-  {
-    key: 'claude_telemetry',
-    label: 'Let Claude Code send usage data to Anthropic',
-    desc: "Claude Code's own reporting, not NVX Ancile's. Off sets DISABLE_TELEMETRY for it.",
-  },
-];
+const SWITCHES: { key: 'auto_install' | 'auto_import' | 'claude_telemetry'; label: string; desc: string }[] =
+  [
+    {
+      key: 'auto_install',
+      label: "Install Claude Code when it's missing",
+      desc: "Uses Anthropic's official installer. Nothing else is installed.",
+    },
+    {
+      key: 'auto_import',
+      label: 'Bring Claude Code sessions in by themselves',
+      desc: 'Every session becomes a thread and stays in step. Off: only the sessions you import.',
+    },
+    {
+      key: 'claude_telemetry',
+      label: 'Let Claude Code send usage data to Anthropic',
+      desc: "Claude Code's own reporting, not NVX Ancile's. Off sets DISABLE_TELEMETRY for it.",
+    },
+  ];
 
 export type ClaudeCodeStage = 'installing' | 'install' | 'update' | 'sign-in' | 'signed-in';
 
