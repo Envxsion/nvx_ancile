@@ -20,11 +20,12 @@ import { createApp } from './app';
 import { migrate } from './db/migrate';
 import { EnvError, loadEnv } from './env';
 import { logger } from './logger';
-import { reconcile, register, seedSampleNodes } from './nodes';
+import { purgeSamples, reconcile, register, seedSampleNodes } from './nodes';
 import { recoverOperations } from './operations/executor';
 import { PgStore } from './pgstore';
 import { FAKE_SCHEME, FakeProvider } from './providers/fake';
 import { LocalNetworkProvider, parseLocalNodes } from './providers/local';
+import { NoProvider } from './providers/none';
 import { RunPodProvider } from './providers/runpod';
 import { providerSwitch, SwitchableProvider } from './providers/switch';
 import type { ComputeProvider } from './providers/types';
@@ -69,8 +70,13 @@ async function boot() {
   // Without a RunPod key the Controller shows sample nodes, here as on the
   // desktop: RunPod is connected later from Admin → Compute (Core gives the
   // key, which is held only in memory here).
-  const sampleMode =
-    env.CONTROLLER_PROVIDER === 'fake' || (env.CONTROLLER_PROVIDER === 'runpod' && !env.RUNPOD_API_KEY);
+  // Sample nodes only when asked for (CONTROLLER_PROVIDER=fake: tests and
+  // demos). A real install with no key manages nothing until RunPod is connected.
+  const sampleMode = env.CONTROLLER_PROVIDER === 'fake';
+  if (!sampleMode) {
+    const purged = await purgeSamples(store);
+    if (purged) logger.info({ purged }, 'removed sample nodes left by an earlier version');
+  }
 
   /** Sample nodes live in the provider's memory; put them back so the stored records have a machine behind them. */
   const samples = async () => {
@@ -95,6 +101,7 @@ async function boot() {
   let first: ComputeProvider;
   if (env.CONTROLLER_PROVIDER === 'local') first = new LocalNetworkProvider(localSpecs);
   else if (sampleMode) first = await samples();
+  else if (!env.RUNPOD_API_KEY) first = new NoProvider();
   else first = new RunPodProvider({ apiKey: env.RUNPOD_API_KEY, baseUrl: env.RUNPOD_API_BASE });
   const provider = new SwitchableProvider(first);
 
@@ -105,7 +112,7 @@ async function boot() {
       : providerSwitch({
           store,
           provider,
-          samples,
+          samples: sampleMode ? samples : async () => new NoProvider(),
           connect: (apiKey) => new RunPodProvider({ apiKey, baseUrl: env.RUNPOD_API_BASE }),
           onConnected: () => logger.info('RunPod connected'),
         });

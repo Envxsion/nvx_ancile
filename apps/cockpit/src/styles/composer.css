@@ -210,6 +210,9 @@
 }
 .composer__model .hue-chip {
   min-width: 0;
+  /* Room for the swatch's 3px ring, which overflow: hidden would cut off. */
+  padding: 3px;
+  margin: -3px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

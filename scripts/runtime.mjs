@@ -546,6 +546,8 @@ export function composeEnv(fileEnv) {
   // The cluster itself stays in the main data folder: one server, two databases.
   if ((process.env.ANCILE_PROFILE ?? env.ANCILE_PROFILE) === 'e2e') {
     env.ANCILE_PROFILE = 'e2e';
+    // The test stack drives sample GPU nodes; a real install never sees them.
+    env.CONTROLLER_PROVIDER ??= 'fake';
     // Its own ports (+100), so the test stack runs beside your everyday one.
     Object.assign(env, E2E_PORTS);
     env.ANCILE_PG_DIR = resolve(ROOT, env.ANCILE_DATA_DIR, 'pg');

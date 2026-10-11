@@ -69,8 +69,15 @@ export function providerSwitch(deps: {
 }) {
   return async (apiKey: string | null): Promise<ProviderStatus & { ok: boolean }> => {
     if (!apiKey) {
-      deps.provider.use(await deps.samples());
-      return { ok: true, kind: 'fake', connected: false, detail: 'Sample nodes: no provider is connected.' };
+      const idle = await deps.samples();
+      deps.provider.use(idle);
+      return {
+        ok: true,
+        kind: idle.id,
+        connected: false,
+        detail:
+          idle.id === 'fake' ? 'Sample nodes: no provider is connected.' : 'No GPU provider is connected.',
+      };
     }
     const next = deps.connect(apiKey);
     const ping = await next.ping();
@@ -78,11 +85,13 @@ export function providerSwitch(deps: {
       return {
         ok: false,
         kind: deps.provider.id,
-        connected: deps.provider.id !== 'fake',
+        connected: !['fake', 'none'].includes(deps.provider.id),
         detail: ping.detail,
       };
     for (const n of await deps.store.listNodes())
       if (n.provider === 'fake') await deps.store.deleteNode(n.id);
+    for (const r of await deps.store.listRules())
+      if (r.id.startsWith('rul_sample_')) await deps.store.deleteRule(r.id);
     deps.provider.use(next);
     deps.onConnected?.();
     return { ok: true, kind: next.id, connected: true, detail: ping.detail };

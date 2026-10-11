@@ -48,7 +48,14 @@ const opt = (name: string, fallback: string) => {
 
 const apiKey = process.env.RUNPOD_API_KEY || fromDotEnv('RUNPOD_API_KEY') || '';
 const baseUrl = process.env.RUNPOD_API_BASE || fromDotEnv('RUNPOD_API_BASE') || 'https://api.runpod.io';
-const gpu = opt('gpu', 'NVIDIA RTX A4000');
+// Tried in order until RunPod has one free; community first, then secure.
+const gpus = opt(
+  'gpu',
+  'NVIDIA RTX A4000,NVIDIA RTX A4500,NVIDIA RTX A5000,NVIDIA GeForce RTX 3090,NVIDIA RTX 4000 Ada Generation',
+)
+  .split(',')
+  .map((g) => g.trim())
+  .filter(Boolean);
 const cloud = flag('secure') ? 'secure' : 'community';
 const region = opt('region', '');
 const model = opt('model', 'Qwen/Qwen2.5-0.5B-Instruct');
@@ -219,50 +226,67 @@ async function main() {
 
   // 2. A whole pod life.
   say(
-    `Creating a ${cloud} pod: ${gpu}, ${bootstrap ? 'bootstrap.sh' : 'the vLLM image'} serving ${model}. Cap $${maxRate}/h, ${maxMinutes} min.`,
+    `Creating a pod (${gpus.length} GPU types to try, ${cloud} first): ${bootstrap ? 'bootstrap.sh' : 'the vLLM image'} serving ${model}. Cap $${maxRate}/h, ${maxMinutes} min.`,
   );
-  const pod = await rp.create(
-    {
-      name: `ancile-shakedown-${new Date().toISOString().slice(0, 16)}`,
-      gpu_type_id: gpu,
-      gpu_count: 1,
-      cloud,
-      ...(bootstrap
-        ? {
-            image: 'runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04',
-            command: ['bash', '-c', `curl -fsSL ${scriptsUrl}/bootstrap.sh | bash`],
-            env: {
-              ANCILE_MODEL: model,
-              ANCILE_SERVED_NAME: served,
-              ANCILE_NODE_API_KEY: nodeKey,
-              ANCILE_VLLM_ARGS: '--max-model-len 4096',
-              ANCILE_NODE_SCRIPTS: scriptsUrl,
-              // Short, so the run can watch the watchdog stop the idle pod.
-              ANCILE_IDLE_MINUTES: '2',
-            },
-          }
-        : {
-            image: 'vllm/vllm-openai:latest',
-            env: {},
-            command: [
-              '--model',
-              model,
-              '--port',
-              '8000',
-              '--served-model-name',
-              served,
-              '--max-model-len',
-              '4096',
-            ],
-          }),
-      container_disk_gb: 30,
-      // The bootstrap keeps vLLM and the weights on /workspace, so a restart reuses them.
-      volume_gb: bootstrap ? 20 : 0,
-      ports: ['8000/http'],
-      ...(region && { region }),
-    },
-    `shake-create-${randomUUID()}`,
-  );
+  const tryCreate = async (gpu: string, where: 'community' | 'secure') => {
+    try {
+      return await rp.create(
+        {
+          name: `ancile-shakedown-${new Date().toISOString().slice(0, 16)}`,
+          gpu_type_id: gpu,
+          gpu_count: 1,
+          cloud: where,
+          ...(bootstrap
+            ? {
+                image: 'runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04',
+                command: ['bash', '-c', `curl -fsSL ${scriptsUrl}/bootstrap.sh | bash`],
+                env: {
+                  ANCILE_MODEL: model,
+                  ANCILE_SERVED_NAME: served,
+                  ANCILE_NODE_API_KEY: nodeKey,
+                  ANCILE_VLLM_ARGS: '--max-model-len 4096',
+                  ANCILE_NODE_SCRIPTS: scriptsUrl,
+                  // Short, so the run can watch the watchdog stop the idle pod.
+                  ANCILE_IDLE_MINUTES: '2',
+                },
+              }
+            : {
+                image: 'vllm/vllm-openai:latest',
+                env: {},
+                command: [
+                  '--model',
+                  model,
+                  '--port',
+                  '8000',
+                  '--served-model-name',
+                  served,
+                  '--max-model-len',
+                  '4096',
+                ],
+              }),
+          container_disk_gb: 30,
+          // The bootstrap keeps vLLM and the weights on /workspace, so a restart reuses them.
+          volume_gb: bootstrap ? 20 : 0,
+          ports: ['8000/http'],
+          ...(region && { region }),
+        },
+        `shake-create-${randomUUID()}`,
+      );
+    } catch (e) {
+      if ((e as { error?: { code?: string } }).error?.code === 'capacity_unavailable') {
+        say(`  no ${where} ${gpu} free right now`);
+        return null;
+      }
+      throw e;
+    }
+  };
+  let pod: Awaited<ReturnType<typeof rp.create>> | null = null;
+  for (const where of cloud === 'secure' ? (['secure'] as const) : (['community', 'secure'] as const))
+    for (const gpu of gpus) if (!pod) pod = await tryCreate(gpu, where);
+  if (!pod) {
+    record('create', false, 'RunPod had none of these GPUs free in any cloud; try again later or pass --gpu');
+    return;
+  }
   podId = pod.ref;
   rate = pod.hourlyRate;
   record(

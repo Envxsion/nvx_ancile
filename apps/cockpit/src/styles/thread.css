@@ -351,6 +351,7 @@
 .composer__input {
   width: 100%;
   min-height: 24px;
+  overflow-y: hidden;
   padding: 4px 0;
   border: 0;
   resize: none;

@@ -38,7 +38,9 @@
   display: grid;
   gap: 14px;
   width: min(680px, calc(100vw - 24px));
-  max-height: min(760px, calc(100vh - 48px));
+  /* A tall dialog sits higher than the usual 12vh, and always ends inside the window. */
+  top: max(24px, 5vh);
+  max-height: min(760px, calc(100dvh - max(24px, 5vh) - 24px));
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 .add-model__pane {

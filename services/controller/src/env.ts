@@ -35,7 +35,8 @@ const Env = z.object({
   NODE_ENV: z.string().default('development'),
   RUNPOD_API_KEY: z.string().default(''),
   RUNPOD_API_BASE: z.string().url().default('https://api.runpod.io'),
-  CONTROLLER_COST_CAP_USD: z.coerce.number().positive().default(150),
+  /** A cap set where the Controller is deployed; 0 (the default) means only the rules you add. */
+  CONTROLLER_COST_CAP_USD: z.coerce.number().nonnegative().default(0),
   CONTROLLER_QUEUE_DEADLINE_S: z.coerce.number().int().positive().default(240),
   CONTROLLER_RULES_INTERVAL_S: z.coerce.number().int().min(5).default(30),
   ANCILE_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),

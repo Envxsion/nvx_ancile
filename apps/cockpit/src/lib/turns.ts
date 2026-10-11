@@ -16,6 +16,7 @@
 
 import type { Part } from '@nvx/contracts';
 import { helpDone } from '../help/store';
+import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
@@ -128,6 +129,7 @@ export async function sendMessage(opts: {
   attachRun({ runId: s.run_id, threadId: opts.threadId, messageId: s.assistant_message_id });
   void queryClient.invalidateQueries({ queryKey: keys.threads });
   helpDone('first-thread');
+  tourEvent('sent');
   return true;
 }
 

@@ -77,8 +77,8 @@ export async function evaluateAll(
     }
     merge(outcome, r);
   }
-  if (!rules.some((r: Rule) => r.kind === 'cost_cap')) {
-    // The env default cap always applies, as block_routing, even with no rules configured.
+  if (defaultCap > 0 && !rules.some((r: Rule) => r.kind === 'cost_cap')) {
+    // A cap set at deployment (CONTROLLER_COST_CAP_USD) applies when you have no cap rule.
     costs ??= costsFor(records, await store.intervals(), now, month, defaultCap);
     if (costs.total_to_date >= defaultCap) outcome.blockRouting = true;
   }

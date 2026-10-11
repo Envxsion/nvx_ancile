@@ -299,7 +299,13 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`;
+    // scrollHeight is rounded down while the line height is fractional, so a
+    // one-line box came out a pixel short and showed scroll arrows. Scroll
+    // only once the box reaches its cap.
+    const max = window.innerHeight * 0.4;
+    const want = el.scrollHeight + 2;
+    el.style.height = `${Math.min(want, max)}px`;
+    el.style.overflowY = want > max ? 'auto' : 'hidden';
   }, [text]);
 
   useBinding('composer.focus', () => ref.current?.focus());

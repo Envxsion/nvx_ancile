@@ -15,7 +15,8 @@
 
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { tourEvent } from '../help/tours';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Kbd } from '../ui/primitives';
@@ -48,6 +49,10 @@ export function ShortcutsOverlay() {
   const name = BROWSER_NAME[browser] ?? 'Your browser';
   const [q, setQ] = useState('');
   useLayer(open);
+  // The guide waits for this sheet in its keyboard step.
+  useEffect(() => {
+    if (open) tourEvent('shortcuts-opened');
+  }, [open]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: overrides is the signal that the keymap changed
   const bindings = useMemo(() => effectiveBindings(), [overrides]);

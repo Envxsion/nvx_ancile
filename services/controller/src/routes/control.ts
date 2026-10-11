@@ -67,14 +67,18 @@ export function controlRoutes(deps: ControlDeps) {
   // Which provider manages nodes; connecting RunPod from the app (docs/compute.md).
   app.get('/provider', async (c) => {
     const kind = deps.provider.id;
-    const ping =
-      kind === 'fake'
-        ? null
-        : await deps.provider.ping().catch((e: unknown) => ({ ok: false, detail: String(e) }));
+    const idle = kind === 'fake' || kind === 'none';
+    const ping = idle
+      ? null
+      : await deps.provider.ping().catch((e: unknown) => ({ ok: false, detail: String(e) }));
     const out: ProviderStatus = {
       kind,
-      connected: kind !== 'fake',
-      detail: ping ? ping.detail : 'Sample nodes: no provider is connected.',
+      connected: !idle,
+      detail: ping
+        ? ping.detail
+        : kind === 'fake'
+          ? 'Sample nodes: no provider is connected.'
+          : 'No GPU provider is connected.',
     };
     return c.json(out);
   });
@@ -112,7 +116,7 @@ export function controlRoutes(deps: ControlDeps) {
         'This Controller cannot change provider',
         'Its provider is set where it is deployed.',
       );
-    const real = (await store.listNodes()).filter((n) => n.provider !== 'fake');
+    const real = (await store.listNodes()).filter((n) => n.provider !== 'fake' && n.provider !== 'none');
     if (real.length)
       return apiError(
         c,
@@ -440,10 +444,13 @@ export function controlRoutes(deps: ControlDeps) {
     if (!/^\d{4}-\d{2}$/.test(month))
       return apiError(c, 422, 'request.invalid', 'month must be YYYY-MM', 'For example ?month=2026-10.');
     const nodes = await store.listNodes();
+    // The cap shown is the one you set (a cost_cap rule); else any deployment cap; 0 is none.
+    const capRule = (await store.listRules()).find((r) => r.kind === 'cost_cap' && r.enabled);
+    const ruleCap = Number((capRule?.config as { monthly_usd?: number } | undefined)?.monthly_usd);
     const summary = computeCosts({
       month,
       now: now(),
-      cap: deps.costCapUsd,
+      cap: Number.isFinite(ruleCap) && ruleCap > 0 ? ruleCap : deps.costCapUsd,
       intervals: await store.intervals(),
       nodes: nodes.map((n) => ({
         nodeId: n.id,

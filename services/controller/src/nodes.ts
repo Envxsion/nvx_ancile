@@ -126,6 +126,19 @@ const HOUR = 3_600_000;
  * cost cap, so Admin → Compute shows what it will look like with real GPUs.
  * Only on an empty store.
  */
+/**
+ * Sample nodes, their invented history and the rules seeded with them, left
+ * by an earlier version that showed samples in real installs: removed when
+ * the Controller is not running in sample mode.
+ */
+export async function purgeSamples(store: Store): Promise<number> {
+  let gone = 0;
+  for (const n of await store.listNodes())
+    if (n.provider === 'fake' && (await store.deleteNode(n.id))) gone++;
+  for (const r of await store.listRules()) if (r.id.startsWith('rul_sample_')) await store.deleteRule(r.id);
+  return gone;
+}
+
 export async function seedSampleNodes(store: Store, provider: FakeProvider, now = new Date()) {
   if ((await store.listNodes()).length > 0) return false;
   const samples = [

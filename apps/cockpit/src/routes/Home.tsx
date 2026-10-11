@@ -20,9 +20,10 @@ import { type CSSProperties, useState } from 'react';
 import { FirstSteps } from '../help/FirstSteps';
 import { useFirstSteps } from '../help/steps';
 import { api } from '../lib/api';
-import { useNotebooks, useThreads } from '../lib/data';
+import { keys, useNotebooks, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
+import { queryClient } from '../lib/query';
 import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue, NotebookView } from '../lib/types';
@@ -143,7 +144,10 @@ export function HomeScreen() {
     });
     if (!ok) {
       // Leave nothing behind: an empty thread in the rail would only confuse.
-      void api.del(`/threads/${threadId}`).catch(() => undefined);
+      void api
+        .del(`/threads/${threadId}`)
+        .catch(() => undefined)
+        .finally(() => queryClient.invalidateQueries({ queryKey: keys.threads }));
       return false;
     }
     await navigate({ to: '/t/$threadId', params: { threadId } });

@@ -30,7 +30,7 @@ import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton, StatusDot, Tip } from '../ui/primitives';
 import { ConfirmationChain } from './ConfirmationChain';
-import { ConnectRunPodDialog, useDisconnectRunPod } from './ConnectRunPod';
+import { ConnectRunPodDialog, useDisconnectRunPod, useProvider } from './ConnectRunPod';
 import {
   ACTION_WORD,
   addNode,
@@ -682,6 +682,7 @@ export function ComputeScreen() {
   const [adding, setAdding] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const disconnect = useDisconnectRunPod();
+  const provider = useProvider(!!status.data?.reachable);
   const [terminating, setTerminating] = useState<ComputeNode | null>(null);
   const costByNode = useMemo(
     () => new Map((costs.data?.nodes ?? []).map((c) => [c.node_id, c])),
@@ -711,7 +712,9 @@ export function ComputeScreen() {
   }
 
   const sample = Boolean(status.data?.sample);
-  const runpod = status.data?.provider === 'runpod';
+  // Nothing connected (a real install before Connect RunPod): connecting comes first.
+  const unconnected = provider.data ? !provider.data.connected && provider.data.kind === 'none' : false;
+  const runpod = status.data?.provider === 'runpod' || provider.data?.kind === 'runpod';
   const list = (nodes.data ?? []).filter((n) => n.observed_state !== 'terminated');
 
   return (
@@ -722,7 +725,7 @@ export function ComputeScreen() {
           wakes it when you ask it something.
         </p>
         <div className="compute__bar-actions">
-          {sample ? (
+          {sample || unconnected ? (
             <button type="button" className="btn btn--primary btn--sm" onClick={() => setConnecting(true)}>
               <Icon name="link" size={14} />
               Connect RunPod
@@ -777,12 +780,21 @@ export function ComputeScreen() {
         {nodes.isPending ? (
           <Skeleton lines={5} label="Loading nodes" />
         ) : list.length === 0 ? (
-          <EmptyState
-            icon="node"
-            title="No nodes yet"
-            body="Add a RunPod pod or a machine on your network. Its models then appear in the model switcher."
-            action={{ label: 'Add a node', onClick: () => setAdding(true) }}
-          />
+          unconnected ? (
+            <EmptyState
+              icon="node"
+              title="No GPU provider connected"
+              body="Connect RunPod with an API key, then add a pod or create one. GPU time is billed by RunPod, to you."
+              action={{ label: 'Connect RunPod', onClick: () => setConnecting(true) }}
+            />
+          ) : (
+            <EmptyState
+              icon="node"
+              title="No nodes yet"
+              body="Add a RunPod pod or a machine on your network. Its models then appear in the model switcher."
+              action={{ label: 'Add a node', onClick: () => setAdding(true) }}
+            />
+          )
         ) : (
           <div className="node-grid">
             {list.map((n) => (

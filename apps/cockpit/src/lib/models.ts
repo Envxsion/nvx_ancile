@@ -20,6 +20,7 @@
 
 import { useRouterState } from '@tanstack/react-router';
 import { helpDone } from '../help/store';
+import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
@@ -67,6 +68,7 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
   // Your default changes only from outside a thread (or in demo mode, where
   // a thread has nowhere to keep its own choice).
   helpDone('switch-model');
+  tourEvent('model-changed');
   if (!threadId || useUi.getState().demo) {
     useUi.getState().setModel(model.id);
     return;
