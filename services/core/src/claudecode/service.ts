@@ -18,7 +18,13 @@
  *           |  sessions, so requests are never held up; it resumes
  *           |  from what is stored (each session's last sync). A pass
  *           |  also rebuilds threads made by an older MAPPER_VERSION and
- *           |  colours folder notebooks. Excluded folders are never
+ *           |  gives folder notebooks their colour and icon. A session's
+ *           |  full history (every branch, everything before each
+ *           |  compaction) comes from its transcript file (transcript.ts),
+ *           |  falling back to the SDK's current chain when the file is
+ *           |  missing or the reader's checks fail. A session a live turn
+ *           |  is writing is left to that turn (claudecode/live.ts),
+ *           |  which syncs it when the turn ends. Excluded folders are never
  *           |  listed or imported; what came from them is archived at
  *           |  start and whenever the list changes.
  *  Note     |  Sessions are only ever read: a session open in a
@@ -29,6 +35,7 @@
  */
 
 import { existsSync, type FSWatcher, watch } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -49,15 +56,17 @@ import { logFor } from '../obs/logger';
 import type { SettingsStore } from '../settings';
 import { SETTING } from '../settings';
 import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
-import type { CcSessionInfo, SessionSource } from './bridge-protocol';
+import type { CcSessionInfo, CcSessionMessage, SessionSource } from './bridge-protocol';
 import { type ClaudeCli, MIN_VERSION } from './cli';
 import { ccErrors } from './errors';
 import type { ClaudeInstaller } from './install';
 import {
   addUsage,
+  applyToMirror,
   type CcProvenance,
   digestSubagent,
   MAPPER_VERSION,
+  type PlanResult,
   planSync,
   provenanceOf,
   type SubagentDigest,
@@ -65,6 +74,7 @@ import {
 } from './map';
 import { joinOutput } from './markup';
 import { type ClaudeCodeStore, cwdKey, cwdWithin, type SessionBinding } from './store';
+import { coversSdkChain, findTranscript, readTranscript, TRANSCRIPT_READER_VERSION } from './transcript';
 import type { ClaudeVerifier } from './verify';
 
 const log = logFor('claude-code');
@@ -100,6 +110,14 @@ export interface ClaudeCodeServiceDeps {
   signInPollMs?: number;
   /** The home folder "~" stands for in excluded folders. */
   home?: string;
+  /** Read full history from transcript files (default on; tests may turn it off). */
+  transcripts?: boolean;
+}
+
+/** A session's history: its chains (old branches first, the active one last). */
+export interface SessionHistory {
+  chains: CcSessionMessage[][];
+  via: 'transcript' | 'sdk';
 }
 
 export interface SessionFilter {
@@ -134,11 +152,10 @@ export function notebookNames(cwd: string): string[] {
 export const NOTEBOOK_HUES = ['azure', 'coral', 'jade', 'amber', 'cyan', 'magenta'] as const;
 
 /**
- * The Cockpit has no code or terminal glyph in its icon set yet, so a
- * folder's notebook gets none. TODO(phase-3): 'terminal' once the
- * Cockpit draws one.
+ * A folder's notebook shows the Cockpit's terminal glyph. Folder
+ * notebooks made before it had one get it on the next import pass.
  */
-export const FOLDER_NOTEBOOK_ICON: string | null = null;
+export const FOLDER_NOTEBOOK_ICON: string | null = 'terminal';
 
 /** FNV-1a, so a folder always breaks a tie the same way. */
 function stableHash(s: string): number {
@@ -181,6 +198,8 @@ export class ClaudeCodeService {
   private stopped = false;
   private signingIn: Promise<void> | null = null;
   private sdkKicked = false;
+  /** Sessions a live turn is writing: left to that turn (claudecode/live.ts). */
+  private liveGuard: (sessionId: string) => boolean = () => false;
   private readonly now: () => number;
   private readonly platform: NodeJS.Platform;
 
@@ -538,7 +557,69 @@ export class ClaudeCodeService {
     return run;
   }
 
-  /** Notebooks made for folders before they had colours get one. */
+  /** Let the live layer say which sessions it is writing now. */
+  setLiveGuard(fn: (sessionId: string) => boolean): void {
+    this.liveGuard = fn;
+  }
+
+  /** The verified Claude Code program, for live sessions. */
+  async cliPath(): Promise<{ path: string; version: string }> {
+    await this.requireVerified();
+    const cli = await this.deps.cli.status();
+    if (!cli.path || !cli.version) throw ccErrors.notInstalled();
+    return { path: cli.path, version: cli.version };
+  }
+
+  /** When the session's transcript was last written, from the file itself (null when not found). */
+  async transcriptModified(sessionId: string): Promise<number | null> {
+    const path = await findTranscript(await this.projectsDir(), sessionId);
+    if (!path) return null;
+    return (await stat(path).catch(() => null))?.mtimeMs ?? null;
+  }
+
+  /**
+   * A session's full history from its transcript file: every branch and
+   * everything before each compaction. Falls back to the SDK's current
+   * chain when the file is missing or the reader's checks fail (logged).
+   * `check`: also make sure the reader holds everything the SDK returns.
+   */
+  async history(sessionId: string, check = false): Promise<SessionHistory> {
+    const sdkChain = async () => {
+      try {
+        return await this.deps.source.sessionMessages(sessionId);
+      } catch (err) {
+        throw ccErrors.sdkUnavailable((err as Error).message);
+      }
+    };
+    if (this.deps.transcripts === false) return { chains: [await sdkChain()], via: 'sdk' };
+    const path = await findTranscript(await this.projectsDir(), sessionId);
+    if (!path) {
+      log.info({ session_id: sessionId }, 'no transcript file for a session; reading it through the SDK');
+      return { chains: [await sdkChain()], via: 'sdk' };
+    }
+    const r = await readTranscript(path, sessionId);
+    if (!r.ok) {
+      log.warn(
+        { session_id: sessionId, reason: r.reason, reader: TRANSCRIPT_READER_VERSION, stats: r.stats },
+        'the transcript reader could not read a session; using the SDK chain',
+      );
+      return { chains: [await sdkChain()], via: 'sdk' };
+    }
+    if (check) {
+      const sdk = await sdkChain();
+      if (!coversSdkChain(r.chains, sdk)) {
+        log.warn(
+          { session_id: sessionId, reader: TRANSCRIPT_READER_VERSION, stats: r.stats },
+          'the transcript reader missed messages the SDK has; using the SDK chain',
+        );
+        return { chains: [sdk], via: 'sdk' };
+      }
+    }
+    log.debug({ session_id: sessionId, reader: TRANSCRIPT_READER_VERSION, ...r.stats }, 'read a transcript');
+    return { chains: r.chains, via: 'transcript' };
+  }
+
+  /** Notebooks made for folders before they had colours (or the terminal icon) get them. */
   private backfillColours(): Promise<number> {
     const run = this.notebookLock.then(async () => {
       const ws = this.deps.workspaceId;
@@ -548,13 +629,17 @@ export class ClaudeCodeService {
       let n = 0;
       for (const p of projects) {
         const nb = books.find((b) => b.id === p.notebook_id);
-        if (!nb || nb.color || nb.archived_at) continue;
-        const color = pickHue(
-          p.cwd_key,
-          books.filter((b) => !b.archived_at && b.id !== nb.id).map((b) => b.color),
-        );
-        await this.deps.notebooks.patch(nb.id, { color });
+        if (!nb || nb.archived_at || (nb.color && (nb.icon || !FOLDER_NOTEBOOK_ICON))) continue;
+        const color =
+          nb.color ??
+          pickHue(
+            p.cwd_key,
+            books.filter((b) => !b.archived_at && b.id !== nb.id).map((b) => b.color),
+          );
+        const icon = nb.icon ?? FOLDER_NOTEBOOK_ICON;
+        await this.deps.notebooks.patch(nb.id, { color, ...(icon !== nb.icon && { icon }) });
         nb.color = color;
+        nb.icon = icon;
         n++;
       }
       return n;
@@ -642,20 +727,36 @@ export class ClaudeCodeService {
   syncSession(
     info: CcSessionInfo,
     notebookOverride?: string,
+    opts: { force?: boolean; threadId?: string } = {},
   ): Promise<{ thread_id: string; added: number; notebook_id: string | null }> {
-    return this.locked(info.sessionId, () => this.syncLocked(info, notebookOverride));
+    return this.locked(info.sessionId, () => this.syncLocked(info, notebookOverride, opts));
   }
 
-  private async syncLocked(info: CcSessionInfo, notebookOverride?: string) {
+  private async syncLocked(
+    info: CcSessionInfo,
+    notebookOverride?: string,
+    opts: { force?: boolean; threadId?: string } = {},
+  ) {
     const ws = this.deps.workspaceId;
     const { threads } = this.deps;
     const sessionId = info.sessionId;
     const binding = (await this.deps.store.sessions(ws)).find((b) => b.session_id === sessionId);
+    // A live turn is writing this session: it syncs when it ends, so nothing is written twice.
+    if (binding && !opts.force && this.liveGuard(sessionId)) {
+      const t = await threads.getThread(binding.thread_id);
+      return { thread_id: binding.thread_id, added: 0, notebook_id: t?.notebook_id ?? null };
+    }
     const title = titleOf(info);
     const cwd = info.cwd ?? null;
     const traceId = currentContext()?.traceId ?? newTraceId();
 
-    let thread: ThreadRecord | undefined = binding ? await threads.getThread(binding.thread_id) : undefined;
+    let thread: ThreadRecord | undefined = binding
+      ? await threads.getThread(binding.thread_id)
+      : opts.threadId
+        ? await threads.getThread(opts.threadId)
+        : undefined;
+    // A session forked from another one in Ancile shares its thread; only the thread's own session moves its head.
+    const primary = !thread || thread.settings.claude_code?.session_id === sessionId;
     let lastTitle = binding?.title ?? null;
     if (!thread) {
       const notebookId = notebookOverride ?? (await this.notebookFor(cwd));
@@ -676,16 +777,14 @@ export class ClaudeCodeService {
       lastTitle = title;
     }
 
-    let chain: Awaited<ReturnType<SessionSource['sessionMessages']>>;
-    try {
-      chain = await this.deps.source.sessionMessages(sessionId);
-    } catch (err) {
-      throw ccErrors.sdkUnavailable((err as Error).message);
-    }
+    const rebuilding = !!binding && binding.mapper_version < MAPPER_VERSION;
+    const history = await this.history(sessionId, !binding || rebuilding);
+    const chains = history.chains;
+    const any = chains.some((c) => c.length > 0);
     // Built by an older mapping: rebuild it, unless something was written in Ancile.
     let mapperVersion = binding?.mapper_version ?? MAPPER_VERSION;
     let fallbackHead = thread.active_head_id;
-    if (binding && mapperVersion < MAPPER_VERSION && chain.length > 0) {
+    if (binding && mapperVersion < MAPPER_VERSION && any) {
       const old = await threads.messages(thread.id);
       if (old.every((m) => !!m.provenance?.claude_code)) {
         await threads.discardMessages(old.map((m) => m.id));
@@ -703,10 +802,68 @@ export class ClaudeCodeService {
       mapperVersion = MAPPER_VERSION;
     }
     const mirror = await this.deps.store.mirror(thread.id);
-    const plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
     let added = 0;
     let firstRoot = null as string | null;
+    let plan: PlanResult = { planned: [], head: null, lastUuid: null };
+    // Old branches first, the active path last: each branch hangs off what is already there.
+    for (const chain of chains) {
+      plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
+      const r = await this.writePlan(thread, sessionId, plan, traceId);
+      added += r.added;
+      firstRoot ??= r.firstRoot;
+      applyToMirror(mirror, plan);
+    }
+    if (history.via === 'transcript' && chains.length > 1)
+      log.info(
+        { session_id: sessionId, thread_id: thread.id, branches: chains.length - 1 },
+        'brought in a session with its branches',
+      );
 
+    await this.attachSubagents(thread.id, sessionId);
+
+    // The title follows Claude Code's name for the session, unless it was renamed in Ancile.
+    const renamedHere = lastTitle !== null && thread.title !== lastTitle;
+    const nextTitle = !primary || renamedHere ? undefined : title !== thread.title ? title : undefined;
+    const syncedAt = new Date(this.now()).toISOString();
+    await threads.patchThread(thread.id, {
+      ...(primary && plan.head && { active_head_id: plan.head }),
+      ...(firstRoot && !thread.root_message_id ? { root_message_id: firstRoot } : {}),
+      ...(nextTitle && { title: nextTitle }),
+      ...(primary && {
+        settings: {
+          claude_code: {
+            session_id: sessionId,
+            cwd,
+            last_uuid: plan.lastUuid ?? thread.settings.claude_code?.last_uuid ?? null,
+            synced_at: syncedAt,
+          },
+        },
+      }),
+    });
+    const binding2: SessionBinding = {
+      session_id: sessionId,
+      thread_id: thread.id,
+      title: renamedHere ? lastTitle : title,
+      cwd,
+      last_modified: info.lastModified ?? 0,
+      synced_at: syncedAt,
+      mapper_version: mapperVersion,
+    };
+    await this.deps.store.putSession(ws, binding2);
+    if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
+    return { thread_id: thread.id, added, notebook_id: thread.notebook_id };
+  }
+
+  /** Write one plan: new messages in chunks, then the messages it extends. */
+  private async writePlan(
+    thread: ThreadRecord,
+    sessionId: string,
+    plan: PlanResult,
+    traceId: string,
+  ): Promise<{ added: number; firstRoot: string | null }> {
+    const { threads } = this.deps;
+    let added = 0;
+    let firstRoot = null as string | null;
     const fresh = plan.planned.filter((p) => !p.extends);
     let clock = this.now() - fresh.length;
     for (let i = 0; i < fresh.length; i += CHUNK) {
@@ -754,38 +911,7 @@ export class ClaudeCodeService {
       });
       added++;
     }
-
-    await this.attachSubagents(thread.id, sessionId);
-
-    // The title follows Claude Code's name for the session, unless it was renamed in Ancile.
-    const renamedHere = lastTitle !== null && thread.title !== lastTitle;
-    const nextTitle = renamedHere ? undefined : title !== thread.title ? title : undefined;
-    const syncedAt = new Date(this.now()).toISOString();
-    await threads.patchThread(thread.id, {
-      ...(plan.head && { active_head_id: plan.head }),
-      ...(firstRoot ? { root_message_id: firstRoot } : {}),
-      ...(nextTitle && { title: nextTitle }),
-      settings: {
-        claude_code: {
-          session_id: sessionId,
-          cwd,
-          last_uuid: plan.lastUuid ?? thread.settings.claude_code?.last_uuid ?? null,
-          synced_at: syncedAt,
-        },
-      },
-    });
-    const binding2: SessionBinding = {
-      session_id: sessionId,
-      thread_id: thread.id,
-      title: renamedHere ? lastTitle : title,
-      cwd,
-      last_modified: info.lastModified ?? 0,
-      synced_at: syncedAt,
-      mapper_version: mapperVersion,
-    };
-    await this.deps.store.putSession(ws, binding2);
-    if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
-    return { thread_id: thread.id, added, notebook_id: thread.notebook_id };
+    return { added, firstRoot };
   }
 
   /**

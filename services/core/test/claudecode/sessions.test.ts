@@ -666,7 +666,7 @@ describe('folder notebook colours', () => {
     const r = await svc.importSessions({ session_ids: ['a', 'b', 'c'] });
     const books = await Promise.all(r.imported.map((i) => notebooks.get(i.notebook_id as string)));
     expect(books.map((b) => b?.color)).toEqual(['coral', 'jade', 'amber']);
-    expect(books.map((b) => b?.icon)).toEqual([null, null, null]);
+    expect(books.map((b) => b?.icon)).toEqual(['terminal', 'terminal', 'terminal']);
   });
 
   it('uses the least used hue when all are taken, the same one for the same folder', () => {
@@ -689,7 +689,21 @@ describe('folder notebook colours', () => {
     svc.kick();
     await svc.idle();
     expect((await notebooks.get(made.id))?.color).toBe('azure');
+    expect((await notebooks.get(made.id))?.icon).toBe('terminal');
     expect((await notebooks.get(chosen.id))?.color).toBeNull();
+    expect((await notebooks.get(chosen.id))?.icon).toBeNull();
+  });
+
+  it('gives a coloured folder notebook without an icon the terminal icon, keeping its colour', async () => {
+    const store = new MemoryClaudeCodeStore(threads, 'win32');
+    svc = make({ store });
+    const made = await notebooks.create({ id: 'nbk_m2', workspace_id: WS, title: 'app', color: 'jade' });
+    await store.putProject(WS, 'C:\\Code\\app2', made.id, true);
+    svc.kick();
+    await svc.idle();
+    const nb = await notebooks.get(made.id);
+    expect(nb?.color).toBe('jade');
+    expect(nb?.icon).toBe('terminal');
   });
 });
 

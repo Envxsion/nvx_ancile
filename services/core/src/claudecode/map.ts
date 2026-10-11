@@ -55,9 +55,11 @@ const SUB_TURNS_CAP = 300;
  * Ancile) is rebuilt on the next auto-import pass.
  * 1: first release. 2: Claude Code's own markup (commands,
  * notifications, compaction summary, interruptions, reminders) mapped
- * instead of shown as the person's prompts.
+ * instead of shown as the person's prompts. 3: full history from the
+ * transcript file (transcript.ts): every branch and everything before
+ * each compaction, queued prompts included.
  */
-export const MAPPER_VERSION = 2;
+export const MAPPER_VERSION = 3;
 
 export const INTERRUPTED_TEXT = 'Stopped by you';
 
@@ -519,4 +521,30 @@ export function titleOf(info: { customTitle?: string; summary?: string; firstPro
   );
   const line = (pick ?? 'Claude Code session').trim().split(/\r?\n/)[0] ?? '';
   return line.length > 120 ? `${line.slice(0, 117)}...` : line || 'Claude Code session';
+}
+
+/**
+ * Fold a plan that was just written into the mirror, so the next chain
+ * (another branch of the same session) is planned against it without
+ * reading the thread again.
+ */
+export function applyToMirror(mirror: MirrorState, plan: PlanResult): void {
+  for (const p of plan.planned) {
+    const cur = mirror.messages.get(p.id);
+    for (const u of p.uuids) mirror.byUuid.set(u, p.id);
+    if (p.extends && cur) {
+      cur.lastUuid = p.uuids.at(-1) ?? cur.lastUuid;
+      cur.lastApiId = p.last_api_id ?? cur.lastApiId;
+      continue;
+    }
+    mirror.messages.set(p.id, {
+      role: p.role,
+      lastUuid: p.uuids.at(-1) ?? '',
+      hasChildren: false,
+      lastApiId: p.last_api_id,
+      kind: p.kind,
+    });
+    const parent = p.parent_id ? mirror.messages.get(p.parent_id) : undefined;
+    if (parent) parent.hasChildren = true;
+  }
 }
