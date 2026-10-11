@@ -307,6 +307,14 @@ export const GlobalEvent = z.discriminatedUnion('type', [
   }),
   z.object({
     ...base,
+    type: z.literal('claude_code.changed'),
+    /** What moved: install progress, sign-in, the session list, or a thread synced. */
+    what: z.enum(['install', 'auth', 'sessions', 'thread']),
+    thread_id: z.string().optional(),
+    detail: z.string().optional(),
+  }),
+  z.object({
+    ...base,
     type: z.literal('repo.changed'),
     repo_id: z.string(),
     branch: z.string().nullable(),
