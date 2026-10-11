@@ -2,7 +2,7 @@
 /**
  * ------------------------------------------------------------------
  *  Title    |  Third-party licences
- *  Ref      |  NOTICE.md · apps/desktop/scripts/bundle.mjs
+ *  Ref      |  apps/desktop/scripts/bundle.mjs
  *  ID       |  desktop
  * ------------------------------------------------------------------
  *  Purpose  |  Write THIRD_PARTY_LICENSES.txt for everything the
@@ -39,15 +39,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -840,9 +832,7 @@ export async function generate({ root, sidecars, opencode, out }) {
     .join('\n\n');
   writeFileSync(out, `${header}\n${body}\n`);
 
-  const notice = join(root, 'NOTICE.md');
-  if (existsSync(notice)) copyFileSync(notice, join(dirname(out), 'NOTICE.md'));
-  else warnings.push('NOTICE.md is not in this checkout, so it is not shipped beside the licences.');
+  // NOTICE.md is an internal record (gitignored); this file is what ships.
 
   return {
     out,
