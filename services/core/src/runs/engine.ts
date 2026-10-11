@@ -32,7 +32,8 @@ export type RunKind =
   | 'factcheck'
   | 'automation'
   | 'diagnostic'
-  | 'flow_try';
+  | 'flow_try'
+  | 'claude_code';
 
 export interface RunRecord {
   id: string;

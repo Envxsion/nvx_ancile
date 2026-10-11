@@ -1,0 +1,852 @@
+/**
+ * Live Claude Code turns against a fake bridge: scripted SDK messages and
+ * permission asks, memory stores, the real gate (built-in policy). No
+ * Claude Code, no Agent SDK, no network.
+ */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { RunEvent, SearchHit } from '@nvx/contracts';
+import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { AppEnv } from '../../src/app';
+import type {
+  CcSessionInfo,
+  LiveBridge,
+  LiveControlOp,
+  LiveEvent,
+  LiveOpenParams,
+  LivePermissionReply,
+} from '../../src/claudecode/bridge-protocol';
+import { type ClaudeCodeCheckpoint, ClaudeCodeLive, type LiveServiceView } from '../../src/claudecode/live';
+import { MAPPER_VERSION, planSync } from '../../src/claudecode/map';
+import { CLAUDE_CODE_PRINCIPAL } from '../../src/claudecode/permission-map';
+import { claudeCodeRoutes } from '../../src/claudecode/routes';
+import { MemoryClaudeCodeStore } from '../../src/claudecode/store';
+import { errorHandler } from '../../src/obs/errors';
+import { BuiltinPolicy } from '../../src/permissions/cedar';
+import { createGate } from '../../src/permissions/gate';
+import { permissionRoutes } from '../../src/permissions/routes';
+import { type ApprovalRecord, MemoryPermissionStore } from '../../src/permissions/store';
+import type { RunContext, RunOutcome, RunRecord } from '../../src/runs/engine';
+import { MemoryRunEventLog } from '../../src/runs/events';
+import { MemoryRunStore } from '../../src/runs/store';
+import { MemoryThreadRepo } from '../../src/threads/repo';
+
+const WS = 'wsp_01TESTWORKSPACE000000000000';
+const USER = 'usr_1';
+const CWD = join(tmpdir(), 'ancile-cc-live', 'app');
+const S = 'sess-original-0001';
+const F = 'sess-fork-0002';
+
+type Script = (b: FakeBridge, handle: string, text: string, uuid: string | undefined) => Promise<void> | void;
+
+class FakeBridge implements LiveBridge {
+  opened: LiveOpenParams[] = [];
+  closed: string[] = [];
+  sent: { handle: string; text: string; uuid?: string }[] = [];
+  replies: { handle: string; request_id: string; r: LivePermissionReply }[] = [];
+  controls: { handle: string; op: LiveControlOp; args?: Record<string, unknown> }[] = [];
+  interrupted: string[] = [];
+  script: Script = () => undefined;
+  controlAnswers: Partial<Record<LiveControlOp, unknown>> = {};
+  private listeners = new Set<(e: LiveEvent) => void>();
+  private n = 0;
+  keepAlive: () => boolean = () => false;
+
+  async open(p: LiveOpenParams) {
+    this.opened.push(p);
+    return { handle: `h${++this.n}` };
+  }
+  async send(handle: string, text: string, opts: { uuid?: string } = {}) {
+    this.sent.push({ handle, text, ...(opts.uuid && { uuid: opts.uuid }) });
+    setTimeout(() => void this.script(this, handle, text, opts.uuid), 0);
+  }
+  async interrupt(handle: string) {
+    this.interrupted.push(handle);
+    this.push({
+      event: 'session.message',
+      data: { handle, message: { type: 'result', subtype: 'error_during_execution', is_error: true } },
+    });
+  }
+  async control<T>(handle: string, op: LiveControlOp, args?: Record<string, unknown>) {
+    this.controls.push({ handle, op, ...(args && { args }) });
+    return (this.controlAnswers[op] ?? { ok: true }) as T;
+  }
+  async close(handle: string) {
+    this.closed.push(handle);
+  }
+  async reply(handle: string, requestId: string, r: LivePermissionReply) {
+    this.replies.push({ handle, request_id: requestId, r });
+  }
+  onEvent(fn: (e: LiveEvent) => void) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+  setKeepAlive(fn: () => boolean) {
+    this.keepAlive = fn;
+  }
+  push(e: LiveEvent) {
+    for (const fn of this.listeners) fn(e);
+  }
+  msg(handle: string, message: Record<string, unknown>) {
+    this.push({ event: 'session.message', data: { handle, message } });
+  }
+  ask(handle: string, id: string, tool: string, input: unknown, toolUseId: string) {
+    this.push({
+      event: 'session.permission',
+      data: { handle, request_id: id, tool_name: tool, input, tool_use_id: toolUseId, via: 'hook' },
+    });
+  }
+}
+
+const textAnswer =
+  (sessionId: string, uuid: string, text: string, cost = 0.02): Script =>
+  (b, h) => {
+    b.msg(h, {
+      type: 'system',
+      subtype: 'init',
+      session_id: sessionId,
+      model: 'claude-opus-5-5',
+      permissionMode: 'default',
+    });
+    b.msg(h, {
+      type: 'stream_event',
+      parent_tool_use_id: null,
+      session_id: sessionId,
+      event: { type: 'message_start', message: { id: `api-${uuid}`, model: 'claude-opus-5-5' } },
+    });
+    b.msg(h, {
+      type: 'stream_event',
+      parent_tool_use_id: null,
+      event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    });
+    const half = Math.ceil(text.length / 2);
+    for (const piece of [text.slice(0, half), text.slice(half)])
+      b.msg(h, {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: piece } },
+      });
+    b.msg(h, {
+      type: 'assistant',
+      uuid,
+      session_id: sessionId,
+      parent_tool_use_id: null,
+      message: {
+        id: `api-${uuid}`,
+        role: 'assistant',
+        model: 'claude-opus-5-5',
+        content: [{ type: 'text', text }],
+        usage: { input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 100 },
+      },
+    });
+    b.msg(h, {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      total_cost_usd: cost,
+      session_id: sessionId,
+    });
+  };
+
+let threads: MemoryThreadRepo;
+let store: MemoryClaudeCodeStore;
+let runs: MemoryRunStore;
+let events: MemoryRunEventLog;
+let perms: MemoryPermissionStore;
+let bridge: FakeBridge;
+let live: ClaudeCodeLive;
+let synced: string[];
+let modified: number | null;
+let now: number;
+const NOW = Date.UTC(2026, 9, 11, 9, 0, 0);
+
+const service: LiveServiceView = {
+  cliPath: async () => ({ path: 'C:\\claude.exe', version: '2.1.286' }),
+  cliEnv: async () => ({ DISABLE_TELEMETRY: '1' }),
+  syncSession: async (info) => {
+    synced.push(info.sessionId);
+    return { thread_id: 'x', added: 0, notebook_id: null };
+  },
+  transcriptModified: async () => modified,
+  setLiveGuard: () => undefined,
+};
+
+const info = (id: string): CcSessionInfo => ({ sessionId: id, summary: 't', lastModified: 1, cwd: CWD });
+
+function makeLive(extra: Partial<ConstructorParameters<typeof ClaudeCodeLive>[0]> = {}) {
+  return new ClaudeCodeLive({
+    workspaceId: WS,
+    userId: USER,
+    bridge,
+    service,
+    sessionInfo: async (id) => info(id),
+    threads,
+    store,
+    runs,
+    events,
+    worker: { kick: () => undefined },
+    permissions: perms,
+    gateFor: (root) => createGate({ policy: new BuiltinPolicy(), store: perms, workspaceRoot: root }),
+    mcp: { url: 'http://127.0.0.1:9/mcp/claude', secret: 's'.repeat(32) },
+    notebook: async () => ({ title: 'app', grounded: false }),
+    now: () => now,
+    stopGraceMs: 200,
+    folderExists: async () => true,
+    ...extra,
+  });
+}
+
+/** A thread brought in from Claude Code: a prompt and its answer. */
+async function seed() {
+  await threads.createThread({
+    id: 'thr_1',
+    workspace_id: WS,
+    title: 'Fix the login bug',
+    notebook_id: 'nbk_1',
+    settings: {
+      claude_code: { session_id: S, cwd: CWD, last_uuid: 'a1', synced_at: new Date(NOW).toISOString() },
+    },
+  });
+  await threads.insertMessages([
+    {
+      id: 'msg_u1',
+      thread_id: 'thr_1',
+      parent_id: null,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Fix the login bug' }],
+      status: 'complete',
+      trace_id: 't',
+      provenance: { claude_code: { session_id: S, uuid: 'u1', uuids: ['u1'] } },
+    },
+    {
+      id: 'msg_a1',
+      thread_id: 'thr_1',
+      parent_id: 'msg_u1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Fixed.' }],
+      status: 'complete',
+      trace_id: 't',
+      provenance: { claude_code: { session_id: S, uuid: 'a1', uuids: ['a1'] } },
+    },
+  ]);
+  await threads.patchThread('thr_1', { active_head_id: 'msg_a1', root_message_id: 'msg_u1' });
+  await store.putSession(WS, {
+    session_id: S,
+    thread_id: 'thr_1',
+    title: 'Fix the login bug',
+    cwd: CWD,
+    last_modified: 1,
+    synced_at: new Date(NOW).toISOString(),
+    mapper_version: MAPPER_VERSION,
+  });
+}
+
+/** Run a queued claude_code run's handler the way the worker would. */
+async function execute(
+  runId: string,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<RunOutcome> {
+  const run = (await runs.get(runId)) as NonNullable<Awaited<ReturnType<typeof runs.get>>>;
+  const ctx: RunContext = {
+    run,
+    events,
+    signal,
+    checkpoint: async () => undefined,
+    once: async (seq, kind, input, effect) => {
+      const out = await effect();
+      await runs.putStep({
+        runId,
+        seq,
+        kind,
+        idempotencyKey: `${runId}:${seq}`,
+        status: 'succeeded',
+        input,
+        output: out,
+      });
+      return out;
+    },
+  };
+  return live.handler().execute(ctx);
+}
+
+const until = async (pred: () => boolean | Promise<boolean>) => {
+  for (let i = 0; i < 400; i++) {
+    if (await pred()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error('condition never held');
+};
+
+const kinds = async (runId: string) => (await events.since(runId, 0)).map((e: RunEvent) => e.type);
+
+beforeEach(async () => {
+  now = NOW;
+  modified = null;
+  synced = [];
+  threads = new MemoryThreadRepo();
+  store = new MemoryClaudeCodeStore(threads);
+  runs = new MemoryRunStore();
+  events = new MemoryRunEventLog();
+  perms = new MemoryPermissionStore();
+  bridge = new FakeBridge();
+  live = makeLive();
+  await seed();
+});
+
+afterEach(() => live.stop());
+
+describe('sending a turn', () => {
+  it('streams like any answer and writes what an import would write', async () => {
+    bridge.script = textAnswer(S, 'a2', 'Hello world');
+    const sent = await live.send('thr_1', {
+      text: 'Thanks, now add a test',
+      idempotency_key: 'key-00000001',
+    });
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parent_id).toBe('msg_a1');
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ sessionId: S, fork: false, resumeAt: null, cwd: CWD });
+    // The same key again is the same turn.
+    expect(
+      await live.send('thr_1', { text: 'Thanks, now add a test', idempotency_key: 'key-00000001' }),
+    ).toEqual(sent);
+
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened[0]).toMatchObject({
+      resume: S,
+      cwd: CWD,
+      permission_mode: 'default',
+      path_to_cli: 'C:\\claude.exe',
+      env: { DISABLE_TELEMETRY: '1' },
+    });
+    expect(bridge.opened[0]?.fork).toBeUndefined();
+    expect(bridge.opened[0]?.append_system_prompt).toContain('NVX Ancile');
+    expect(bridge.opened[0]?.mcp_servers?.ancile?.headers?.authorization).toMatch(/^Bearer thr_1\./);
+    expect(bridge.sent[0]).toEqual({ handle: 'h1', text: 'Thanks, now add a test', uuid: cp.promptUuid });
+
+    const evs = await events.since(sent.run_id, 0);
+    const deltas = evs.flatMap((e) => (e.type === 'text.delta' ? [e.delta] : []));
+    expect(deltas.join('')).toBe('Hello world'); // streamed once, not again from the full block
+    expect(evs.map((e) => e.type)).toContain('usage');
+
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect(answer).toMatchObject({
+      status: 'complete',
+      parent_id: sent.user_message_id,
+      model_id: 'claude-code/claude-opus-5-5',
+    });
+    expect(answer?.parts).toEqual([{ type: 'text', text: 'Hello world' }]);
+    expect(answer?.provenance?.claude_code).toMatchObject({
+      session_id: S,
+      uuid: 'a2',
+      uuids: ['a2'],
+      cost_estimate: { usd: 0.02 },
+    });
+    expect(answer?.usage).toEqual({ input_tokens: 10, output_tokens: 4, cached_tokens: 100, cost_usd: 0.02 });
+    expect((await threads.getThread('thr_1'))?.active_head_id).toBe(cp.assistantMessageId);
+    expect(synced).toContain(S);
+
+    // A sync of the transcript afterwards adds nothing: every entry is already there.
+    const transcript = [
+      {
+        type: 'user' as const,
+        uuid: 'u1',
+        session_id: S,
+        message: { role: 'user', content: 'Fix the login bug' },
+        parent_tool_use_id: null,
+      },
+      {
+        type: 'assistant' as const,
+        uuid: 'a1',
+        session_id: S,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Fixed.' }] },
+        parent_tool_use_id: null,
+      },
+      {
+        type: 'user' as const,
+        uuid: cp.promptUuid,
+        session_id: S,
+        message: { role: 'user', content: 'Thanks, now add a test' },
+        parent_tool_use_id: null,
+      },
+      {
+        type: 'assistant' as const,
+        uuid: 'a2',
+        session_id: S,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello world' }] },
+        parent_tool_use_id: null,
+      },
+    ];
+    expect(planSync(transcript, await store.mirror('thr_1'), () => 'new', null).planned).toEqual([]);
+    // And the live answer is exactly what an import maps the same entries to.
+    const fresh = planSync(transcript.slice(3), { byUuid: new Map(), messages: new Map() }, () => 'x', null);
+    expect(fresh.planned[0]?.parts).toEqual(answer?.parts);
+  });
+
+  it('refuses a session written to by Claude Code elsewhere a moment ago, and offers a branch', async () => {
+    modified = NOW - 10_000;
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000002' }),
+    ).rejects.toMatchObject({
+      code: 'claude_code.session_busy',
+      status: 409,
+    });
+    const sent = await live.send('thr_1', {
+      text: 'Go on',
+      as_branch: true,
+      idempotency_key: 'key-00000003',
+    });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
+  });
+
+  it('branches from an earlier message by forking the session there, and binds the fork to the thread', async () => {
+    bridge.script = textAnswer(S, 'a2', 'First way');
+    const first = await live.send('thr_1', { text: 'Do it one way', idempotency_key: 'key-00000004' });
+    await execute(first.run_id);
+    await runs.save(
+      { ...((await runs.get(first.run_id)) as RunRecord), status: 'succeeded' },
+      { status: 'queued' },
+    );
+
+    bridge.script = textAnswer(F, 'b2', 'Second way');
+    const second = await live.send('thr_1', {
+      text: 'Do it another way',
+      parent_id: 'msg_a1',
+      idempotency_key: 'key-00000005',
+    });
+    const cp = (await runs.get(second.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
+    expect(await execute(second.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.at(-1)).toMatchObject({ resume: S, fork: true, resume_at: 'a1' });
+    expect(bridge.closed).toContain('h1'); // the handle on the original session made way
+
+    const user = await threads.getMessage(second.user_message_id);
+    expect(user?.parent_id).toBe('msg_a1');
+    expect((user?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe(F);
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect((answer?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe(F);
+    const bindings = await store.sessions(WS);
+    expect(bindings.map((b) => [b.session_id, b.thread_id]).sort()).toEqual([
+      [F, 'thr_1'],
+      [S, 'thr_1'],
+    ]);
+    // Both answers hang off the first answer: a branch in Ancile, a fork in Claude Code.
+    const kids = (await threads.messages('thr_1')).filter((m) => m.parent_id === 'msg_a1');
+    expect(kids).toHaveLength(2);
+  });
+
+  it('refuses to branch from a message that did not come from Claude Code', async () => {
+    await threads.insertMessage({
+      id: 'msg_note',
+      thread_id: 'thr_1',
+      parent_id: 'msg_a1',
+      role: 'user',
+      parts: [{ type: 'text', text: 'mine' }],
+      status: 'complete',
+      trace_id: 't',
+    });
+    await expect(
+      live.send('thr_1', { text: 'x', parent_id: 'msg_note', idempotency_key: 'key-00000006' }),
+    ).rejects.toMatchObject({ code: 'claude_code.branch_unmapped' });
+  });
+
+  it('stops when interrupted, keeping what streamed', async () => {
+    bridge.script = (b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.msg(h, {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: { type: 'message_start', message: { id: 'm9' } },
+      });
+      b.msg(h, {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Partly' } },
+      });
+      b.msg(h, {
+        type: 'assistant',
+        uuid: 'a9',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: { id: 'm9', role: 'assistant', content: [{ type: 'text', text: 'Partly' }] },
+      });
+    };
+    const sent = await live.send('thr_1', { text: 'Long job', idempotency_key: 'key-00000007' });
+    const run = execute(sent.run_id);
+    await until(async () => (await kinds(sent.run_id)).includes('text.delta'));
+    expect(await live.interrupt('thr_1')).toEqual({ interrupted: true });
+    expect(await run).toEqual({ kind: 'cancelled' });
+    expect(bridge.interrupted).toEqual(['h1']);
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect(answer?.status).toBe('stopped');
+    expect(answer?.parts).toEqual([{ type: 'text', text: 'Partly' }]);
+  });
+
+  it('stops when the run is cancelled', async () => {
+    bridge.script = (b, h) => b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+    const sent = await live.send('thr_1', { text: 'Long job', idempotency_key: 'key-00000008' });
+    const ac = new AbortController();
+    const run = execute(sent.run_id, ac.signal);
+    await until(() => bridge.sent.length > 0);
+    ac.abort(new Error('cancelled'));
+    expect(await run).toEqual({ kind: 'cancelled' });
+    expect(bridge.interrupted).toEqual(['h1']);
+  });
+});
+
+describe('permissions', () => {
+  const start = async (script: Script) => {
+    bridge.script = script;
+    const sent = await live.send('thr_1', { text: 'Work', idempotency_key: `key-${Math.random()}` });
+    const run = execute(sent.run_id);
+    return { sent, run };
+  };
+  const end: Script = (b, h) =>
+    b.msg(h, { type: 'result', subtype: 'success', is_error: false, session_id: S });
+
+  it('lets a read inside the session folder run, and asks for a shell command in Ancile', async () => {
+    const { sent, run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Read', { file_path: join(CWD, 'src', 'auth.ts') }, 'tu1');
+      b.ask(h, 'r2', 'Bash', { command: 'npm test' }, 'tu2');
+    });
+    await until(() => bridge.replies.length >= 1);
+    expect(bridge.replies[0]).toMatchObject({ request_id: 'r1', r: { behavior: 'allow' } });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    expect(a).toMatchObject({
+      principal: CLAUDE_CODE_PRINCIPAL,
+      tool: 'Bash',
+      action: 'shell.exec',
+      resource: 'shell:npm test',
+      tier: 'gated',
+      args: { command: 'npm test' },
+    });
+    expect(live.editable(a)).toBe(true);
+    expect(await kinds(sent.run_id)).toContain('approval.required');
+
+    // Approved with an edited command: checked again, then passed on as Claude Code's input.
+    const again = await live.recheck(a, { command: 'npm test -- --run' });
+    expect(again.outcome).toBe('ask');
+    expect(await live.resolved(a, 'approved', null, { command: 'npm test -- --run' })).toBe(true);
+    expect(bridge.replies.at(-1)).toMatchObject({
+      request_id: 'r2',
+      r: { behavior: 'allow', updated_input: { command: 'npm test -- --run' } },
+    });
+    expect(live.editable(a)).toBe(false);
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
+  it('denies with the reason, never asking twice, and makes a write outside the folder critical', async () => {
+    perms.createGrant({
+      userId: USER,
+      principal: CLAUDE_CODE_PRINCIPAL,
+      actionPattern: 'shell.exec',
+      resourcePattern: 'shell:rm *',
+      effect: 'deny',
+      scope: 'always',
+      scopeRef: null,
+      expiresAt: null,
+      fromApprovalId: null,
+    });
+    const outside = join(tmpdir(), 'elsewhere', 'notes.md');
+    const { run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Bash', { command: 'rm -rf build' }, 'tu1');
+      b.ask(h, 'r2', 'Write', { file_path: outside, content: 'x' }, 'tu2');
+    });
+    await until(() => bridge.replies.length >= 1);
+    expect(bridge.replies[0]).toMatchObject({
+      request_id: 'r1',
+      r: { behavior: 'deny', message: 'You chose to always deny this' },
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    expect(a).toMatchObject({ tool: 'Write', action: 'fs.write', tier: 'critical', suggestions: [] });
+    await live.resolved(a, 'denied', 'Not there');
+    expect(bridge.replies.at(-1)).toMatchObject({
+      request_id: 'r2',
+      r: { behavior: 'deny', message: 'Not there' },
+    });
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
+  it('maps MCP tools and Claude Code bookkeeping', async () => {
+    const { run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'TodoWrite', { todos: [] }, 'tu1');
+      b.ask(h, 'r2', 'mcp__ancile__search', { query: 'tokens' }, 'tu2');
+      b.ask(h, 'r3', 'mcp__github__create_issue', { title: 'x' }, 'tu3');
+    });
+    await until(() => bridge.replies.length >= 2);
+    expect(bridge.replies.map((r) => [r.request_id, r.r.behavior])).toEqual([
+      ['r1', 'allow'],
+      ['r2', 'allow'],
+    ]);
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    expect((await perms.pendingApprovals())[0]).toMatchObject({
+      action: 'mcp.github.create_issue',
+      resource: 'mcp:github/create_issue',
+    });
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
+  it('takes edited arguments through the approvals route only once and only where allowed', async () => {
+    const { run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Bash', { command: 'npm test' }, 'tu1');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route(
+      '/',
+      permissionRoutes({
+        store: perms,
+        events,
+        worker: { resume: async () => true },
+        userId: USER,
+        scopeRefs: async () => ({ threadId: 'thr_1', notebookId: null, workspaceId: WS }),
+        onResolved: (ap, status, reason, updated) => live.resolved(ap, status, reason, updated),
+        editable: (ap) => live.editable(ap),
+        recheck: (ap, args) => live.recheck(ap, args),
+      }),
+    );
+    const post = (b: unknown) =>
+      app.request(`/approvals/${a.id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(b),
+      });
+    const listed = (await (await app.request('/approvals')).json()) as {
+      items: { args_editable?: boolean; args?: unknown }[];
+    };
+    expect(listed.items[0]).toMatchObject({ args_editable: true, args: { command: 'npm test' } });
+    const wide = await post({ decision: 'approve', scope: 'thread', updated_args: { command: 'ls' } });
+    expect(wide.status).toBe(422);
+    expect(((await wide.json()) as { error: { code: string } }).error.code).toBe(
+      'permission.edit_needs_once',
+    );
+    const ok = await post({
+      decision: 'approve',
+      scope: 'once',
+      updated_args: { command: 'npm test -- --run' },
+    });
+    expect(ok.status).toBe(200);
+    expect(bridge.replies.at(-1)).toMatchObject({
+      r: { behavior: 'allow', updated_input: { command: 'npm test -- --run' } },
+    });
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
+  it('refuses edited arguments for a tool that cannot take them, and edits a policy denies', async () => {
+    const other = await perms.createApproval({
+      runId: 'run_x',
+      stepSeq: 1,
+      threadId: 'thr_1',
+      callId: 'c1',
+      principal: 'assistant',
+      tool: 'fs_write',
+      action: 'fs.write',
+      resource: 'fs:/workspace/a.md',
+      args: {},
+      argsPreview: {},
+      tier: 'gated',
+      suggestions: [],
+    });
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route(
+      '/',
+      permissionRoutes({
+        store: perms,
+        events,
+        worker: { resume: async () => true },
+        userId: USER,
+        scopeRefs: async () => ({ threadId: 'thr_1', notebookId: null, workspaceId: WS }),
+        editable: (ap) => ap.id === other.id,
+        recheck: async () => ({
+          outcome: 'deny',
+          via: 'policy',
+          tier: 'gated',
+          resource: 'x',
+          reason: 'no',
+          policyId: 'p.1',
+        }),
+      }),
+    );
+    const res = await app.request(`/approvals/${other.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approve', scope: 'once', updated_args: { path: '/etc' } }),
+    });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'permission.edited_args_denied',
+    );
+    expect((await perms.getApproval(other.id))?.status).toBe('pending');
+  });
+});
+
+describe('sources and citations', () => {
+  const hit = (n: number): SearchHit =>
+    ({
+      chunk_id: `chk_${n}`,
+      source_id: `src_${n}`,
+      source_title: `Source ${n}`,
+      text: `Passage ${n} about tokens.`,
+      char_start: n * 10,
+      char_end: n * 10 + 20,
+      page: null,
+      heading_path: [],
+      kind: 'chunk',
+      score: 1,
+      rerank_score: null,
+      ranks: {},
+    }) as unknown as SearchHit;
+
+  it('numbers passages across the turn and turns the markers used into citations', async () => {
+    bridge.script = async (b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      expect(live.passages('thr_1', [hit(1), hit(2)])?.map((p) => p.marker)).toEqual([1, 2]);
+      expect(live.passages('thr_1', [hit(2), hit(3)])?.map((p) => p.marker)).toEqual([2, 3]);
+      textAnswer(S, 'a5', 'Auth uses tokens [3]. Also see [9].')(b, h, '', undefined);
+    };
+    const sent = await live.send('thr_1', { text: 'How does auth work?', idempotency_key: 'key-00000009' });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect(answer?.parts[0]).toEqual({ type: 'text', text: 'Auth uses tokens [3]. Also see.' });
+    expect(answer?.parts[1]).toMatchObject({
+      type: 'citation_ref',
+      marker: 3,
+      chunk_id: 'chk_3',
+      source_id: 'src_3',
+    });
+    expect((answer?.provenance?.retrieval as { invalid_markers?: number } | undefined)?.invalid_markers).toBe(
+      1,
+    );
+    expect(await kinds(sent.run_id)).toContain('citation');
+    expect(live.passages('thr_1', [hit(1)])).toBeNull(); // no turn running
+  });
+
+  it('starts a fact-check after an answer in a grounded notebook', async () => {
+    const checked: string[] = [];
+    live.stop();
+    live = makeLive({
+      notebook: async () => ({ title: 'app', grounded: true }),
+      afterAnswer: async (a) => {
+        checked.push(a.messageId);
+      },
+    });
+    bridge.script = textAnswer(S, 'a6', 'Done.');
+    const sent = await live.send('thr_1', { text: 'x', idempotency_key: 'key-00000010' });
+    await execute(sent.run_id);
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(checked).toEqual([cp.assistantMessageId]);
+  });
+});
+
+describe('state and commands', () => {
+  it('reports the live state, with Claude Code’s own context count when a session is open', async () => {
+    expect(await live.state('thr_1')).toMatchObject({
+      state: 'idle',
+      locked_elsewhere: false,
+      cwd: CWD,
+      context: null,
+    });
+    modified = NOW - 5_000;
+    expect((await live.state('thr_1')).locked_elsewhere).toBe(true);
+    modified = null;
+    bridge.script = textAnswer(S, 'a7', 'ok');
+    const sent = await live.send('thr_1', { text: 'x', idempotency_key: 'key-00000011' });
+    await execute(sent.run_id);
+    bridge.controlAnswers.context_usage = { total_tokens: 50_000, max_tokens: 200_000, percentage: 25 };
+    expect(await live.state('thr_1')).toMatchObject({
+      state: 'ready',
+      model: 'claude-opus-5-5',
+      context: { used_tokens: 50_000, max_tokens: 200_000, percent: 25 },
+    });
+  });
+
+  it("merges Claude Code's own list with what NVX Ancile does itself, from a session that writes nothing", async () => {
+    bridge.controlAnswers.supported_commands = [
+      { name: 'mcp', description: 'Manage MCP servers', argumentHint: '', builtin: true },
+      { name: 'compact', description: 'Compact', argumentHint: '<instructions>', builtin: true },
+      { name: 'theme', description: 'Theme', argumentHint: '', builtin: true },
+      { name: 'model', description: 'Model', argumentHint: '', builtin: true },
+      { name: 'init', description: 'Write CLAUDE.md', argumentHint: '', builtin: true },
+      { name: 'my-skill', description: 'Mine', argumentHint: '<x>' },
+      { name: 'plug:thing', description: 'From a plugin', argumentHint: '' },
+      { name: 'memory', description: 'A user command called memory', argumentHint: '' },
+    ];
+    bridge.controlAnswers.supported_models = [{ value: 'opus', displayName: 'Opus' }];
+    bridge.controlAnswers.mcp_status = [{ name: 'github' }];
+    const items = await live.commands('thr_1');
+    const by = new Map(items.map((c) => [c.name, c]));
+    expect(by.get('mcp')).toMatchObject({
+      handled_by: 'ancile',
+      ancile_action: 'open_mcp',
+      source: 'builtin',
+    });
+    expect(by.get('mcp')?.arguments.map((a) => a.value)).toEqual([
+      'reconnect',
+      'enable',
+      'disable',
+      'github',
+    ]);
+    expect(by.get('compact')).toMatchObject({ handled_by: 'claude', argument_hint: '[instructions]' });
+    expect(by.get('theme')).toMatchObject({ handled_by: 'ancile', ancile_action: 'unsupported' });
+    expect(by.get('model')).toMatchObject({
+      ancile_action: 'set_model',
+      arguments: [{ value: 'opus', description: 'Opus' }],
+    });
+    expect(by.get('init')).toMatchObject({ handled_by: 'claude', ancile_action: null });
+    expect(by.get('my-skill')).toMatchObject({ handled_by: 'claude', source: 'skill', argument_hint: '<x>' });
+    expect(by.get('plug:thing')).toMatchObject({ source: 'plugin' });
+    expect(by.get('memory')).toMatchObject({ handled_by: 'claude', source: 'skill' }); // the person's own command wins
+    expect(by.get('branch')).toMatchObject({
+      handled_by: 'ancile',
+      ancile_action: 'branch',
+      source: 'ancile',
+    });
+    expect(by.get('effort')?.arguments.map((a) => a.value)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'auto',
+    ]);
+    expect(bridge.opened[0]).toMatchObject({ cwd: CWD, persist: false });
+    expect(bridge.opened[0]?.resume).toBeUndefined();
+    expect(bridge.closed).toEqual(['h1']);
+    await live.commands('thr_1');
+    expect(bridge.opened).toHaveLength(1); // cached per folder and version
+  });
+
+  it('answers the routes', async () => {
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => ({}) as never, live: () => live }));
+    const res = await app.request('/claude-code/threads/thr_1/live');
+    expect(res.status).toBe(200);
+    const bad = await app.request('/claude-code/threads/thr_1/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '' }),
+    });
+    expect(bad.status).toBe(400);
+    const stop = await app.request('/claude-code/threads/thr_1/interrupt', { method: 'POST' });
+    expect(stop.status).toBe(409);
+    expect(((await stop.json()) as { error: { code: string } }).error.code).toBe('claude_code.not_live');
+  });
+});

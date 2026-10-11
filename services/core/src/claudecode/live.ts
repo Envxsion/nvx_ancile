@@ -1,0 +1,1347 @@
+/**
+ * ------------------------------------------------------------------
+ *  Title    |  Live Claude Code sessions
+ *  Ref      |  docs/claude-code.md (Live sessions) · contracts claudecode.ts
+ *  ID       |  core
+ * ------------------------------------------------------------------
+ *  Purpose  |  Carry on a Claude Code session from its thread: send a
+ *           |  turn, watch it stream like any answer, approve its tool
+ *           |  calls in Ancile's own dialog, stop it, and keep every
+ *           |  branch, trace and citation.
+ *  How      |  The person's own installed Claude Code runs through the
+ *           |  Agent SDK in the Claude bridge (a separate MIT program;
+ *           |  Core never loads the SDK). One bridge session per thread,
+ *           |  resumed in the session's own folder. A turn is a run of
+ *           |  kind `claude_code`: the user message is written at once,
+ *           |  the run sends the prompt (a recorded step, never twice),
+ *           |  mirrors the SDK's messages into the run's event stream
+ *           |  (text.delta, reasoning.delta, tool.call, tool.result,
+ *           |  usage), and at the end writes the answer with the SAME
+ *           |  mapping an import uses (map.ts), keyed by the entry uuids
+ *           |  Claude Code writes to its transcript, so a later sync
+ *           |  adds nothing twice. Branching from an earlier message
+ *           |  forks the session at that message's entry
+ *           |  (resumeSessionAt); the fork is bound to the same thread.
+ *           |  Every tool call is asked about by the bridge, on its real
+ *           |  input, and decided by the gate as agent:claude-code
+ *           |  (permission-map.ts): allowed, denied, or an approval in
+ *           |  Ancile's dialog whose answer (with edited arguments, if
+ *           |  the person changed them) goes back to Claude Code. Ancile
+ *           |  never answers with Claude Code's own "always" choices.
+ *           |  The notebook's sources are offered as Ancile's MCP server
+ *           |  (mcp-server.ts); passages it returns become citations.
+ *  Note     |  A session written to by another process in the last
+ *           |  minute is not opened (claude_code.session_busy); a fork
+ *           |  is offered instead. Logs carry ids and counts, never
+ *           |  prompts, answers or tool input.
+ * ------------------------------------------------------------------
+ */
+
+import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
+import {
+  AncileError,
+  type ClaudeCodeCommand,
+  type ClaudeCodeLiveState,
+  type Part,
+  type RetrievalTrace,
+  type SearchHit,
+  type SendClaudeCodeRequest,
+  type Usage,
+} from '@nvx/contracts';
+import { ulid } from 'ulid';
+import { applyCitations } from '../conductor/citations';
+import { currentContext, newSpanId, newTraceId, type RequestContext } from '../context';
+import type { EventBus } from '../events/bus';
+import type { LabPasses } from '../lab/hosted';
+import { hostedTool } from '../lab/hosted';
+import { notFound } from '../obs/errors';
+import { logFor } from '../obs/logger';
+import { type SpanHandle, startSpan } from '../obs/spans';
+import type { Gate } from '../permissions/gate';
+import type { FsProbe } from '../permissions/normalize';
+import { APPROVAL_TTL_MS } from '../permissions/reconcile';
+import type { ApprovalRecord, PermissionStore } from '../permissions/store';
+import type { RunContext, RunHandler, RunOutcome, RunRecord, RunStore } from '../runs/engine';
+import { RunOwnershipLost, StepUncertain } from '../runs/engine';
+import type { RunEventInput, RunEventLog } from '../runs/events';
+import { alreadyRunning } from '../runs/store';
+import type { RunWorker } from '../runs/worker';
+import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
+import type { ToolRegistry } from '../tools/registry';
+import type {
+  CcSessionInfo,
+  CcSessionMessage,
+  LiveBridge,
+  LiveEvent,
+  LivePermissionAsk,
+  LivePermissionReply,
+} from './bridge-protocol';
+import { type CliCommand, mergeCommands } from './commands';
+import { ccErrors } from './errors';
+import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf } from './map';
+import { type Passage, threadToken } from './mcp-server';
+import {
+  ANCILE_MCP_SERVER,
+  CLAUDE_CODE_PRINCIPAL,
+  gateRoot,
+  type MappedTool,
+  mapTool,
+} from './permission-map';
+import type { ClaudeCodeStore } from './store';
+
+const log = logFor('claude-code-live');
+
+export const CC_MODEL_NAME = 'Claude Code';
+/** A transcript written to more recently than this, by someone else, is open elsewhere. */
+export const BUSY_WINDOW_MS = 60_000;
+/** How long one turn may take before it is stopped. */
+export const TURN_DEADLINE_MS = 60 * 60_000;
+/** Claude Code's command list is read again after this. */
+export const COMMANDS_TTL_MS = 10 * 60_000;
+const IDEMPOTENCY_MS = 10 * 60_000;
+const STOP_GRACE_MS = 15_000;
+const PREVIEW = 280;
+
+/** What a claude_code run carries through a restart. */
+export interface ClaudeCodeCheckpoint {
+  v: 1;
+  threadId: string;
+  workspaceId: string;
+  notebookId: string | null;
+  userMessageId: string;
+  assistantMessageId: string;
+  text: string;
+  /** The uuid the prompt is sent with; Claude Code writes its transcript entry under it. */
+  promptUuid: string;
+  /** The session the turn resumes (the one forked from, for a fork). */
+  sessionId: string;
+  /** Fork: the Claude Code entry the new session goes on from. */
+  resumeAt: string | null;
+  fork: boolean;
+  cwd: string;
+  model: string | null;
+  effort: string | null;
+  sourceIds: string[] | null;
+  /** The session the turn ended up in (a fork's new id). */
+  finalSessionId: string | null;
+}
+
+export interface LiveServiceView {
+  cliPath(): Promise<{ path: string; version: string }>;
+  cliEnv(): Promise<Record<string, string>>;
+  syncSession(
+    info: CcSessionInfo,
+    notebookOverride?: string,
+    opts?: { force?: boolean; threadId?: string },
+  ): Promise<{ thread_id: string; added: number; notebook_id: string | null }>;
+  transcriptModified(sessionId: string): Promise<number | null>;
+  setLiveGuard(fn: (sessionId: string) => boolean): void;
+}
+
+export interface LiveDeps {
+  workspaceId: string;
+  userId: string;
+  bridge: LiveBridge;
+  service: LiveServiceView;
+  sessionInfo(sessionId: string): Promise<CcSessionInfo | null>;
+  threads: ThreadRepo;
+  store: ClaudeCodeStore;
+  runs: RunStore;
+  events: RunEventLog;
+  worker: Pick<RunWorker, 'kick'>;
+  bus?: EventBus;
+  permissions: PermissionStore;
+  /** A gate whose root is the session's folder (writes outside it are critical). */
+  gateFor(root: string): Gate;
+  tools?: Pick<ToolRegistry, 'get'>;
+  passes?: LabPasses;
+  /** Ancile's MCP server for sessions (/mcp/claude), when it is served. */
+  mcp?: { url: string; secret: string } | null;
+  notebook(id: string): Promise<{ title: string; grounded: boolean } | null>;
+  /** After a finished answer in a notebook (fact-check in a grounded one). */
+  afterAnswer?(a: { messageId: string; notebookId: string; workspaceId: string }): Promise<void>;
+  approvalTtlMs?: number;
+  now?: () => number;
+  turnDeadlineMs?: number;
+  stopGraceMs?: number;
+  /** Does a folder exist (tests)? */
+  folderExists?: (cwd: string) => Promise<boolean>;
+}
+
+interface Turn {
+  cp: ClaudeCodeCheckpoint;
+  runId: string;
+  traceId: string;
+  parent: RequestContext;
+  entries: CcSessionMessage[];
+  /** Content block index → kind, for the stream message being read. */
+  blocks: Map<number, string>;
+  /** API messages whose text arrived as deltas (so the full block is not sent again). */
+  streamed: Set<string>;
+  streamingApi: string | null;
+  modelSpan: { api: string; span: SpanHandle } | null;
+  toolSpans: Map<string, { span: SpanHandle; asked?: number }>;
+  calls: Set<string>;
+  passages: Passage[];
+  result: Record<string, unknown> | null;
+  error: string | null;
+  stopped: boolean;
+  sessionId: string | null;
+  seq: number;
+  settle: (() => void) | null;
+}
+
+interface Live {
+  threadId: string;
+  workspaceId: string;
+  notebookId: string | null;
+  cwd: string;
+  handle: string | null;
+  /** The session the open handle is on (a fork's id once Claude Code says it). */
+  sessionId: string | null;
+  state: ClaudeCodeLiveState['state'];
+  model: string | null;
+  effort: string | null;
+  permissionMode: string | null;
+  /** Claude Code's running cost total for the open handle (to tell one turn's share). */
+  costSoFar: number;
+  turn: Turn | null;
+}
+
+interface WaitingAsk {
+  live: Live;
+  ask: LivePermissionAsk;
+  mapped: MappedTool;
+  askedAt: number;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const preview = (v: unknown): string => {
+  const s = typeof v === 'string' ? v : JSON.stringify(v ?? null);
+  return s.length > PREVIEW ? `${s.slice(0, PREVIEW)}…` : s;
+};
+const stripMarker = (u: string) => u.replace(/\+$/, '');
+
+/** realpath for the gate over posix-form real paths ("/C:/a/b"). */
+export function nativeProbe(): FsProbe {
+  return {
+    realpath: async (p: string) => {
+      const native = /^\/[a-zA-Z]:\//.test(p) ? p.slice(1) : p;
+      const real = (await realpath(native)).replace(/\\/g, '/');
+      return real.startsWith('/') ? real : `/${real}`;
+    },
+  };
+}
+
+/** The short, stable note appended to Claude Code's system prompt (kept stable for prompt caching). */
+export function appendPrompt(notebookTitle: string | null): string {
+  const where = notebookTitle ? `the notebook "${notebookTitle}"` : 'a thread';
+  return [
+    `You are running inside NVX Ancile, in ${where}.`,
+    "The notebook's sources are its primary sources: search them with mcp__ancile__search and read one with mcp__ancile__read_source.",
+    'When you use a passage, cite it by its [n] marker exactly as the search returned it.',
+  ].join(' ');
+}
+
+export class ClaudeCodeLive {
+  private readonly lives = new Map<string, Live>(); // by thread
+  private readonly byHandle = new Map<string, Live>();
+  private readonly waiting = new Map<string, WaitingAsk>(); // approval id → ask
+  private readonly sent = new Map<
+    string,
+    { at: number; result: { run_id: string; user_message_id: string } }
+  >();
+  private readonly commandCache = new Map<string, { at: number; items: ClaudeCodeCommand[] }>();
+  /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
+  private readonly ownWrites = new Map<string, number>();
+  private readonly now: () => number;
+  private readonly unsubscribe: () => void;
+
+  constructor(private readonly deps: LiveDeps) {
+    this.now = deps.now ?? Date.now;
+    this.unsubscribe = deps.bridge.onEvent((e) => {
+      void this.onEvent(e).catch((err: unknown) =>
+        log.error({ err: (err as Error).message, event: e.event }, 'a live Claude Code event failed'),
+      );
+    });
+    deps.bridge.setKeepAlive(() => this.byHandle.size > 0);
+    deps.service.setLiveGuard((id) => this.writing(id));
+  }
+
+  stop(): void {
+    this.unsubscribe();
+    for (const l of this.byHandle.values())
+      if (l.handle) void this.deps.bridge.close(l.handle).catch(() => undefined);
+    this.byHandle.clear();
+  }
+
+  /** Is a live turn writing this session now? */
+  writing(sessionId: string): boolean {
+    for (const l of this.lives.values())
+      if (
+        l.turn &&
+        (l.turn.cp.sessionId === sessionId || l.turn.sessionId === sessionId || l.sessionId === sessionId)
+      )
+        return true;
+    return false;
+  }
+
+  private live(thread: ThreadRecord): Live {
+    let l = this.lives.get(thread.id);
+    if (!l) {
+      l = {
+        threadId: thread.id,
+        workspaceId: thread.workspace_id,
+        notebookId: thread.notebook_id,
+        cwd: thread.settings.claude_code?.cwd ?? '',
+        handle: null,
+        sessionId: null,
+        state: 'idle',
+        model: null,
+        effort: null,
+        permissionMode: null,
+        costSoFar: 0,
+        turn: null,
+      };
+      this.lives.set(thread.id, l);
+    }
+    l.notebookId = thread.notebook_id;
+    return l;
+  }
+
+  private async thread(threadId: string): Promise<ThreadRecord> {
+    const t = await this.deps.threads.getThread(threadId);
+    if (!t || t.workspace_id !== this.deps.workspaceId) throw notFound('That thread');
+    if (!t.settings.claude_code?.session_id) throw ccErrors.notBound();
+    return t;
+  }
+
+  /** Another process wrote the session's transcript within the last minute. */
+  private async lockedElsewhere(sessionId: string): Promise<boolean> {
+    const mtime = await this.deps.service.transcriptModified(sessionId).catch(() => null);
+    if (mtime === null) return false;
+    const own = this.ownWrites.get(sessionId) ?? 0;
+    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000;
+  }
+
+  /* ---- send -------------------------------------------------------------- */
+
+  async send(
+    threadId: string,
+    req: SendClaudeCodeRequest,
+  ): Promise<{ run_id: string; user_message_id: string }> {
+    for (const [k, v] of this.sent) if (this.now() - v.at > IDEMPOTENCY_MS) this.sent.delete(k);
+    const key = `${threadId}:${req.idempotency_key}`;
+    const again = this.sent.get(key);
+    if (again) return again.result;
+
+    const thread = await this.thread(threadId);
+    const cc = thread.settings.claude_code;
+    if (!cc?.cwd) throw ccErrors.noFolder();
+    if (this.deps.folderExists && !(await this.deps.folderExists(cc.cwd))) throw ccErrors.noFolder();
+    await this.deps.service.cliPath(); // installed and verified, or a clear error
+    const active = (await this.deps.runs.activeForThread(thread.id))[0];
+    if (active) throw alreadyRunning(active.id);
+
+    // Bring in anything Claude Code wrote since the last sync, so the branch point is right.
+    const info = await this.deps.sessionInfo(cc.session_id).catch(() => null);
+    if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
+
+    const parentId = req.parent_id ?? (await this.deps.threads.getThread(thread.id))?.active_head_id ?? null;
+    const msgs = await this.deps.threads.messages(thread.id);
+    const parent = parentId ? msgs.find((m) => m.id === parentId) : undefined;
+    if (parentId && !parent) throw notFound('That message');
+    const pc = parent?.provenance?.claude_code as CcProvenance | undefined;
+    if (parent && !pc?.uuid) throw ccErrors.branchUnmapped();
+    const sessionId = pc?.session_id ?? cc.session_id;
+    const resumeAt = pc?.uuid ? stripMarker(pc.uuid) : null;
+    // Claude Code went on past the parent in the same session: carry on in a fork.
+    const goneOn =
+      !!parent &&
+      msgs.some(
+        (m) =>
+          m.parent_id === parent.id &&
+          (m.provenance?.claude_code as CcProvenance | undefined)?.session_id === sessionId,
+      );
+    const fork = !!parent && (goneOn || req.as_branch === true);
+    if (!fork && (await this.lockedElsewhere(sessionId))) throw ccErrors.sessionBusy(sessionId);
+    for (const other of this.lives.values())
+      if (other.threadId !== thread.id && other.handle && other.sessionId === sessionId && !fork)
+        throw ccErrors.sessionBusy(sessionId);
+
+    const traceId = currentContext()?.traceId ?? newTraceId();
+    const promptUuid = randomUUID();
+    const userId = `msg_${ulid()}`;
+    const assistantId = `msg_${ulid()}`;
+    const runId = `run_${ulid()}`;
+    await this.deps.threads.insertMessage({
+      id: userId,
+      thread_id: thread.id,
+      parent_id: parent?.id ?? null,
+      role: 'user',
+      parts: [{ type: 'text', text: req.text }],
+      status: 'complete',
+      trace_id: traceId,
+      provenance: {
+        claude_code: { session_id: sessionId, uuid: promptUuid, uuids: [promptUuid] } satisfies CcProvenance,
+      },
+    });
+    await this.deps.threads.insertMessage({
+      id: assistantId,
+      thread_id: thread.id,
+      parent_id: userId,
+      role: 'assistant',
+      parts: [],
+      status: 'pending',
+      run_id: runId,
+      trace_id: traceId,
+      provenance: { model_name: CC_MODEL_NAME },
+    });
+    const checkpoint: ClaudeCodeCheckpoint = {
+      v: 1,
+      threadId: thread.id,
+      workspaceId: thread.workspace_id,
+      notebookId: thread.notebook_id,
+      userMessageId: userId,
+      assistantMessageId: assistantId,
+      text: req.text,
+      promptUuid,
+      sessionId,
+      resumeAt: fork ? resumeAt : null,
+      fork,
+      cwd: cc.cwd,
+      model: req.model ?? null,
+      effort: req.effort ?? null,
+      sourceIds: req.source_ids?.length ? req.source_ids : null,
+      finalSessionId: null,
+    };
+    try {
+      await this.deps.runs.create({
+        id: runId,
+        kind: 'claude_code',
+        traceId,
+        threadId: thread.id,
+        messageId: assistantId,
+        checkpoint,
+      });
+    } catch (err) {
+      await this.deps.threads.discardMessages([assistantId, userId]);
+      throw err;
+    }
+    await this.deps.threads.patchThread(thread.id, { active_head_id: assistantId });
+    this.deps.worker.kick();
+    const result = { run_id: runId, user_message_id: userId };
+    this.sent.set(key, { at: this.now(), result });
+    log.info({ thread_id: thread.id, run_id: runId, fork }, 'a Claude Code turn was sent');
+    return result;
+  }
+
+  /* ---- the session behind a thread -------------------------------------- */
+
+  private async ensureHandle(l: Live, cp: ClaudeCodeCheckpoint): Promise<string> {
+    const want = cp.fork ? null : cp.sessionId;
+    if (l.handle && want && l.sessionId === want) {
+      if (cp.model && cp.model !== l.model) {
+        await this.deps.bridge.control(l.handle, 'set_model', { model: cp.model });
+        l.model = cp.model;
+      }
+      if (cp.effort && cp.effort !== l.effort) {
+        await this.deps.bridge.control(l.handle, 'set_effort', { effort: cp.effort });
+        l.effort = cp.effort;
+      }
+      return l.handle;
+    }
+    if (l.handle) await this.closeHandle(l);
+    const cli = await this.deps.service.cliPath();
+    const nb = l.notebookId ? await this.deps.notebook(l.notebookId) : null;
+    l.state = 'starting';
+    const { handle } = await this.deps.bridge.open({
+      resume: cp.sessionId,
+      ...(cp.fork && { fork: true, ...(cp.resumeAt && { resume_at: cp.resumeAt }) }),
+      cwd: cp.cwd,
+      ...(cp.model && { model: cp.model }),
+      ...(cp.effort && { effort: cp.effort }),
+      permission_mode: 'default',
+      append_system_prompt: appendPrompt(nb?.title ?? null),
+      ...(this.deps.mcp && {
+        mcp_servers: {
+          [ANCILE_MCP_SERVER]: {
+            type: 'http',
+            url: this.deps.mcp.url,
+            headers: { authorization: `Bearer ${threadToken(this.deps.mcp.secret, l.threadId)}` },
+          },
+        },
+      }),
+      env: await this.deps.service.cliEnv(),
+      path_to_cli: cli.path,
+    });
+    l.handle = handle;
+    l.sessionId = cp.fork ? null : cp.sessionId;
+    l.state = 'ready';
+    l.model = cp.model;
+    l.effort = cp.effort;
+    l.permissionMode = 'default';
+    l.costSoFar = 0;
+    this.byHandle.set(handle, l);
+    return handle;
+  }
+
+  private async closeHandle(l: Live) {
+    const h = l.handle;
+    if (!h) return;
+    l.handle = null;
+    l.sessionId = null;
+    l.state = 'idle';
+    this.byHandle.delete(h);
+    await this.deps.bridge.close(h).catch(() => undefined);
+  }
+
+  /* ---- the run ------------------------------------------------------------ */
+
+  handler(): RunHandler {
+    return {
+      execute: (ctx) => this.execute(ctx),
+      cancelled: async (run: RunRecord) => {
+        const cp = run.checkpoint as ClaudeCodeCheckpoint;
+        await this.deps.threads.updateMessage(cp.assistantMessageId, { status: 'stopped' });
+      },
+      failed: async (run: RunRecord, error) => {
+        const cp = run.checkpoint as ClaudeCodeCheckpoint;
+        await this.deps.threads.updateMessage(cp.assistantMessageId, {
+          status: 'error',
+          provenance: { model_name: CC_MODEL_NAME, error },
+        });
+      },
+    };
+  }
+
+  private async execute(ctx: RunContext): Promise<RunOutcome> {
+    const run = ctx.run;
+    const cp = structuredClone(run.checkpoint) as ClaudeCodeCheckpoint;
+    const emit = (e: RunEventInput) => ctx.events.append(run.id, e);
+    const thread = await this.deps.threads.getThread(cp.threadId);
+    if (!thread)
+      return {
+        kind: 'failed',
+        error: {
+          code: 'request.not_found',
+          title: "That thread doesn't exist",
+          hint: 'It may have been deleted.',
+        },
+      };
+    const l = this.live(thread);
+    if (l.turn)
+      return {
+        kind: 'failed',
+        error: {
+          code: 'run.already_running',
+          title: 'This thread is already answering',
+          hint: 'Wait for it, or stop it first.',
+        },
+      };
+
+    await this.deps.threads.updateMessage(cp.assistantMessageId, { status: 'streaming', run_id: run.id });
+    await emit({
+      type: 'model',
+      message_id: cp.assistantMessageId,
+      model_id: `claude-code/${cp.model ?? 'default'}`,
+      display_name: CC_MODEL_NAME,
+    });
+
+    // A restart after the prompt went out: Claude Code may have answered while
+    // nobody was listening. What it wrote comes in from its transcript.
+    if (run.attempt > 0 && (await this.deps.runs.step(run.id, 0))) return this.recover(cp, emit);
+
+    const turn: Turn = {
+      cp,
+      runId: run.id,
+      traceId: run.traceId,
+      parent: currentContext() ?? { traceId: run.traceId, spanId: newSpanId() },
+      entries: [],
+      blocks: new Map(),
+      streamed: new Set(),
+      streamingApi: null,
+      modelSpan: null,
+      toolSpans: new Map(),
+      calls: new Set(),
+      passages: [],
+      result: null,
+      error: null,
+      stopped: false,
+      sessionId: null,
+      seq: 1_000,
+      settle: null,
+    };
+    const done = new Promise<void>((r) => {
+      turn.settle = r;
+    });
+    l.turn = turn;
+    const onAbort = () => {
+      turn.stopped = true;
+      if (l.handle) void this.deps.bridge.interrupt(l.handle).catch(() => undefined);
+      // Claude Code answers an interrupt with a result; if it does not, stop waiting.
+      setTimeout(() => turn.settle?.(), this.deps.stopGraceMs ?? STOP_GRACE_MS).unref?.();
+    };
+    ctx.signal.addEventListener('abort', onAbort);
+    let deadline: NodeJS.Timeout | null = null;
+    try {
+      let handle: string;
+      try {
+        handle = await this.ensureHandle(l, cp);
+      } catch (err) {
+        const e =
+          err instanceof AncileError ? err : ccErrors.liveFailed((err as Error).message ?? String(err));
+        const error = { code: e.code, title: e.title, hint: e.hint };
+        await this.deps.threads.updateMessage(cp.assistantMessageId, {
+          status: 'error',
+          provenance: { model_name: CC_MODEL_NAME, error },
+        });
+        await emit({ type: 'error', ...error, attempts: [] });
+        return { kind: 'failed', error };
+      }
+      l.state = 'working';
+      try {
+        await ctx.once(0, 'claude_code_prompt', { promptUuid: cp.promptUuid }, async () => {
+          await this.deps.bridge.send(handle, cp.text, { uuid: cp.promptUuid });
+          return true;
+        });
+      } catch (err) {
+        if (!(err instanceof StepUncertain)) throw err;
+        const error = { code: err.code, title: err.title, hint: err.hint };
+        await this.deps.threads.updateMessage(cp.assistantMessageId, {
+          status: 'error',
+          provenance: { model_name: CC_MODEL_NAME, error },
+        });
+        await emit({ type: 'error', ...error, attempts: [] });
+        return { kind: 'failed', error };
+      }
+      deadline = setTimeout(() => {
+        turn.error = `The turn did not finish within ${Math.round((this.deps.turnDeadlineMs ?? TURN_DEADLINE_MS) / 60_000)} minutes`;
+        if (l.handle) void this.deps.bridge.interrupt(l.handle).catch(() => undefined);
+        turn.settle?.();
+      }, this.deps.turnDeadlineMs ?? TURN_DEADLINE_MS);
+      deadline.unref?.();
+      await done;
+      if (ctx.signal.reason instanceof RunOwnershipLost) throw ctx.signal.reason;
+      return await this.finish(l, turn, emit, ctx.signal.aborted || turn.stopped);
+    } finally {
+      if (deadline) clearTimeout(deadline);
+      ctx.signal.removeEventListener('abort', onAbort);
+      turn.modelSpan?.span.end('ok');
+      for (const t of turn.toolSpans.values()) t.span.end('unset');
+      l.turn = null;
+      if (l.state === 'working') l.state = l.handle ? 'ready' : 'idle';
+      const sid = turn.sessionId ?? cp.sessionId;
+      this.ownWrites.set(sid, this.now());
+      for (const [id, w] of this.waiting)
+        if (w.live === l) {
+          this.waiting.delete(id);
+          await this.deps.permissions.resolveApproval(id, { status: 'cancelled' }).catch(() => false);
+          await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
+        }
+    }
+  }
+
+  /** After a restart: whatever Claude Code wrote comes in from its transcript. */
+  private async recover(
+    cp: ClaudeCodeCheckpoint,
+    emit: (e: RunEventInput) => Promise<unknown>,
+  ): Promise<RunOutcome> {
+    log.warn(
+      { thread_id: cp.threadId },
+      'a Claude Code turn was cut off by a restart; reading its transcript',
+    );
+    await this.deps.threads.discardMessages([cp.assistantMessageId]);
+    await this.deps.threads.patchThread(cp.threadId, { active_head_id: cp.userMessageId });
+    const sid = cp.finalSessionId ?? cp.sessionId;
+    const info = await this.deps.sessionInfo(sid).catch(() => null);
+    if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
+    await emit({
+      type: 'warning',
+      code: 'claude_code.recovered',
+      message:
+        'NVX Ancile restarted during this turn. What Claude Code wrote was brought in from its session.',
+    });
+    return { kind: 'done' };
+  }
+
+  /** Write the answer with the import mapping, add citations, account for usage. */
+  private async finish(
+    l: Live,
+    turn: Turn,
+    emit: (e: RunEventInput) => Promise<unknown>,
+    stopped: boolean,
+  ): Promise<RunOutcome> {
+    const { cp } = turn;
+    const sessionId = turn.sessionId ?? l.sessionId ?? cp.sessionId;
+    cp.finalSessionId = sessionId;
+    const { threads } = this.deps;
+
+    // A fork is a session of its own, bound to the same thread.
+    if (sessionId !== cp.sessionId) {
+      const existing = (await this.deps.store.sessions(this.deps.workspaceId)).find(
+        (b) => b.session_id === sessionId,
+      );
+      if (!existing)
+        await this.deps.store.putSession(this.deps.workspaceId, {
+          session_id: sessionId,
+          thread_id: cp.threadId,
+          title: null,
+          cwd: cp.cwd,
+          last_modified: 0,
+          synced_at: new Date(this.now()).toISOString(),
+          mapper_version: MAPPER_VERSION,
+        });
+      await threads.updateMessage(cp.userMessageId, {
+        provenance: { claude_code: { session_id: sessionId, uuid: cp.promptUuid, uuids: [cp.promptUuid] } },
+      });
+    }
+
+    const mirror = await this.deps.store.mirror(cp.threadId);
+    const plan = planSync(turn.entries, mirror, () => `msg_${ulid()}`, cp.userMessageId);
+    // The first answer under the prompt is the message the run has been streaming into.
+    const first = plan.planned.find(
+      (p) => !p.extends && p.role === 'assistant' && p.parent_id === cp.userMessageId,
+    );
+    if (first) {
+      const old = first.id;
+      first.id = cp.assistantMessageId;
+      for (const p of plan.planned) if (p.parent_id === old) p.parent_id = cp.assistantMessageId;
+      if (plan.head === old) plan.head = cp.assistantMessageId;
+    }
+
+    const result = turn.result;
+    const total = typeof result?.total_cost_usd === 'number' ? result.total_cost_usd : null;
+    const turnCost = total !== null ? Math.max(0, total - l.costSoFar) : null;
+    if (total !== null) l.costSoFar = total;
+
+    let retrieval: Record<string, unknown> = {};
+    const status: 'complete' | 'stopped' | 'error' = stopped
+      ? 'stopped'
+      : turn.error && !result
+        ? 'error'
+        : result?.is_error === true && !stopped
+          ? 'error'
+          : 'complete';
+    const newRows: NewMessage[] = [];
+    let main: { parts: Part[]; usage: Usage | null } | null = null;
+    for (const p of plan.planned) {
+      if (p.extends) continue;
+      const ccProv = provenanceOf(sessionId, p);
+      if (p.id === cp.assistantMessageId) {
+        let parts = p.parts;
+        if (turn.passages.length) {
+          const trace: RetrievalTrace = {
+            query: '',
+            notebook_id: cp.notebookId ?? '',
+            mode: 'hybrid',
+            embedder: '',
+            ms: 0,
+            hits: turn.passages.map(({ marker, hit }) => ({
+              marker,
+              kind: hit.kind,
+              chunk_id: hit.chunk_id,
+              source_id: hit.source_id,
+              source_title: hit.source_title,
+              page: hit.page,
+              score: hit.score,
+              rerank_score: hit.rerank_score,
+              ranks: hit.ranks,
+              cited: false,
+            })),
+            invalid_markers: 0,
+            grounded: false,
+          };
+          const spans = new Map(
+            turn.passages.map(({ marker, hit }) => [
+              marker,
+              { char_start: hit.char_start, char_end: hit.char_end, text: hit.text },
+            ]),
+          );
+          const checked = applyCitations(parts, trace, spans);
+          parts = checked.parts;
+          retrieval = { retrieval: checked.trace };
+          for (const part of parts)
+            if (part.type === 'citation_ref')
+              await emit({ type: 'citation', message_id: cp.assistantMessageId, part });
+        }
+        const usage: Usage | null = p.usage
+          ? { ...p.usage, cost_usd: turnCost ?? 0 }
+          : turnCost !== null
+            ? { input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: turnCost }
+            : null;
+        main = { parts, usage };
+        await threads.updateMessage(cp.assistantMessageId, {
+          parts,
+          status,
+          model_id: p.model_id,
+          usage,
+          provenance: {
+            model_name: CC_MODEL_NAME,
+            claude_code: {
+              ...ccProv,
+              ...(turnCost !== null && {
+                cost_estimate: {
+                  usd: turnCost,
+                  note: "Claude Code's own estimate at API list prices; not what your account is billed.",
+                },
+              }),
+            },
+            ...retrieval,
+            ...(turn.error &&
+              status === 'error' && {
+                error: {
+                  code: 'claude_code.live_failed',
+                  title: ccErrors.liveFailed(turn.error).title,
+                  hint: ccErrors.liveFailed(turn.error).hint,
+                },
+              }),
+          },
+        });
+        continue;
+      }
+      newRows.push({
+        id: p.id,
+        thread_id: cp.threadId,
+        parent_id: p.parent_id,
+        role: p.role,
+        parts: p.parts,
+        status: 'complete',
+        model_id: p.model_id,
+        usage: p.usage,
+        provenance: { claude_code: ccProv },
+        created_at: p.created_at ?? new Date(this.now()).toISOString(),
+        trace_id: turn.traceId,
+      });
+    }
+    if (newRows.length) await threads.insertMessages(newRows);
+    if (!first) {
+      // Nothing to show under the prompt (a command Claude Code answered elsewhere, or a stop before any reply).
+      await threads.discardMessages([cp.assistantMessageId]);
+    }
+    await threads.patchThread(cp.threadId, {
+      active_head_id: plan.head ?? (first ? cp.assistantMessageId : cp.userMessageId),
+    });
+    if (main?.usage) await emit({ type: 'usage', message_id: cp.assistantMessageId, usage: main.usage });
+
+    // Anything else Claude Code wrote (a compaction, a hook's note) comes in by the usual sync; nothing twice.
+    const info = await this.deps.sessionInfo(sessionId).catch(() => null);
+    if (info)
+      await this.deps.service
+        .syncSession(info, undefined, { force: true, threadId: cp.threadId })
+        .catch((err: unknown) =>
+          log.warn({ err: (err as Error).message }, 'could not sync a session after a live turn'),
+        );
+
+    if (status === 'stopped') return { kind: 'cancelled' };
+    if (status === 'error') {
+      const e = ccErrors.liveFailed(turn.error ?? String(result?.subtype ?? 'error'));
+      const error = { code: e.code, title: e.title, hint: e.hint };
+      await emit({ type: 'error', ...error, attempts: [] });
+      return { kind: 'failed', error };
+    }
+    if (first && cp.notebookId && this.deps.afterAnswer) {
+      const nb = await this.deps.notebook(cp.notebookId).catch(() => null);
+      if (nb?.grounded)
+        await this.deps
+          .afterAnswer({
+            messageId: cp.assistantMessageId,
+            notebookId: cp.notebookId,
+            workspaceId: cp.workspaceId,
+          })
+          .catch((err: unknown) => log.warn({ err: (err as Error).message }, 'could not start a fact-check'));
+    }
+    return { kind: 'done' };
+  }
+
+  /* ---- events from the bridge -------------------------------------------- */
+
+  private async onEvent(e: LiveEvent): Promise<void> {
+    if (e.event === 'bridge.closed') {
+      for (const l of this.lives.values()) {
+        if (l.handle) this.byHandle.delete(l.handle);
+        l.handle = null;
+        l.sessionId = null;
+        l.state = 'idle';
+        if (l.turn && !l.turn.result) {
+          l.turn.error = 'The Claude bridge stopped';
+          l.turn.settle?.();
+        }
+      }
+      return;
+    }
+    const l = this.byHandle.get(e.data.handle);
+    if (!l) {
+      if (e.event === 'session.permission')
+        await this.deps.bridge
+          .reply(e.data.handle, e.data.request_id, {
+            behavior: 'deny',
+            message: 'NVX Ancile is not running this session',
+          })
+          .catch(() => undefined);
+      return;
+    }
+    if (e.event === 'session.state') {
+      if (e.data.session_id) l.sessionId = e.data.session_id;
+      if (e.data.state === 'closed') {
+        this.byHandle.delete(e.data.handle);
+        l.handle = null;
+        l.state = 'idle';
+        if (l.turn && !l.turn.result) {
+          l.turn.error = e.data.error ?? 'Claude Code closed the session';
+          l.turn.settle?.();
+        }
+      }
+      return;
+    }
+    if (e.event === 'session.permission') {
+      await this.onPermission(l, e.data);
+      return;
+    }
+    await this.onMessage(l, e.data.message);
+  }
+
+  private emitFor(t: Turn, e: RunEventInput) {
+    return this.deps.events.append(t.runId, e);
+  }
+
+  private async onMessage(l: Live, m: Record<string, unknown>): Promise<void> {
+    const sid = typeof m.session_id === 'string' && m.session_id ? m.session_id : null;
+    if (sid) {
+      l.sessionId = sid;
+      this.ownWrites.set(sid, this.now());
+    }
+    if (m.type === 'system' && m.subtype === 'init') {
+      if (typeof m.model === 'string') l.model = m.model;
+      if (typeof m.permissionMode === 'string') l.permissionMode = m.permissionMode;
+    }
+    const t = l.turn;
+    if (!t) return;
+    if (sid) t.sessionId = sid;
+    const top = m.parent_tool_use_id === null || m.parent_tool_use_id === undefined;
+    const msgId = t.cp.assistantMessageId;
+    switch (m.type) {
+      case 'stream_event': {
+        if (!top || !isObj(m.event)) return;
+        const ev = m.event;
+        if (ev.type === 'message_start' && isObj(ev.message)) {
+          const api = typeof ev.message.id === 'string' ? ev.message.id : null;
+          t.blocks.clear();
+          t.streamingApi = api;
+          if (api) this.modelSpan(t, api, typeof ev.message.model === 'string' ? ev.message.model : null);
+        } else if (
+          ev.type === 'content_block_start' &&
+          typeof ev.index === 'number' &&
+          isObj(ev.content_block)
+        ) {
+          t.blocks.set(ev.index, String(ev.content_block.type));
+        } else if (ev.type === 'content_block_delta' && isObj(ev.delta)) {
+          const d = ev.delta;
+          if (d.type === 'text_delta' && typeof d.text === 'string' && d.text) {
+            if (t.streamingApi) t.streamed.add(t.streamingApi);
+            await this.emitFor(t, { type: 'text.delta', message_id: msgId, delta: d.text });
+          } else if (d.type === 'thinking_delta' && typeof d.thinking === 'string' && d.thinking) {
+            if (t.streamingApi) t.streamed.add(t.streamingApi);
+            await this.emitFor(t, { type: 'reasoning.delta', message_id: msgId, delta: d.thinking });
+          }
+        }
+        return;
+      }
+      case 'assistant': {
+        if (!top) return;
+        const entry = this.entryOf(m);
+        if (!entry) return;
+        t.entries.push(entry);
+        const msg = isObj(m.message) ? m.message : {};
+        const api = typeof msg.id === 'string' ? msg.id : null;
+        if (api) this.modelSpan(t, api, typeof msg.model === 'string' ? msg.model : null, msg.usage);
+        const content = Array.isArray(msg.content) ? msg.content.filter(isObj) : [];
+        for (const b of content) {
+          if (b.type === 'text' && typeof b.text === 'string' && !(api && t.streamed.has(api)))
+            await this.emitFor(t, { type: 'text.delta', message_id: msgId, delta: b.text });
+          else if (b.type === 'thinking' && typeof b.thinking === 'string' && !(api && t.streamed.has(api)))
+            await this.emitFor(t, { type: 'reasoning.delta', message_id: msgId, delta: b.thinking });
+          else if (
+            (b.type === 'tool_use' || b.type === 'server_tool_use' || b.type === 'mcp_tool_use') &&
+            typeof b.id === 'string'
+          ) {
+            if (t.calls.has(b.id)) continue;
+            t.calls.add(b.id);
+            const name = String(b.name ?? 'tool');
+            const mapped = this.map(l, name, b.input);
+            await this.emitFor(t, {
+              type: 'tool.call',
+              call_id: b.id,
+              tool: name,
+              args_preview: b.input ?? {},
+              tier: mapped.tier,
+            });
+            const span = startSpan(
+              `tool ${name}`,
+              'internal',
+              { tool: name, call_id: b.id, action: mapped.action },
+              { parent: t.parent },
+            );
+            const known = t.toolSpans.get(b.id);
+            t.toolSpans.set(b.id, { span, ...(known?.asked !== undefined && { asked: known.asked }) });
+          }
+        }
+        return;
+      }
+      case 'user': {
+        if (!top || m.isReplay === true || m.uuid === t.cp.promptUuid) return;
+        const entry = this.entryOf(m);
+        if (!entry) return;
+        t.entries.push(entry);
+        const msg = isObj(m.message) ? m.message : {};
+        const content = Array.isArray(msg.content) ? msg.content.filter(isObj) : [];
+        for (const b of content) {
+          if (b.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
+          const ok = b.is_error !== true;
+          await this.emitFor(t, {
+            type: 'tool.result',
+            call_id: b.tool_use_id,
+            ok,
+            preview: preview(b.content),
+          });
+          const s = t.toolSpans.get(b.tool_use_id);
+          s?.span.end(ok ? 'ok' : 'error');
+          t.toolSpans.delete(b.tool_use_id);
+        }
+        return;
+      }
+      case 'result':
+        t.result = m;
+        t.modelSpan?.span.end('ok');
+        t.modelSpan = null;
+        t.settle?.();
+        return;
+      default:
+        return;
+    }
+  }
+
+  private modelSpan(t: Turn, api: string, model: string | null, usage?: unknown) {
+    if (t.modelSpan?.api !== api) {
+      t.modelSpan?.span.end('ok');
+      t.modelSpan = {
+        api,
+        span: startSpan(
+          `model claude-code/${model ?? 'default'}`,
+          'client',
+          { model: model ?? 'default', api_id: api },
+          { parent: t.parent },
+        ),
+      };
+    }
+    if (isObj(usage)) {
+      const n = (v: unknown) => (typeof v === 'number' ? v : 0);
+      t.modelSpan.span.set({
+        input_tokens: n(usage.input_tokens) + n(usage.cache_creation_input_tokens),
+        output_tokens: n(usage.output_tokens),
+        cached_tokens: n(usage.cache_read_input_tokens),
+      });
+    }
+  }
+
+  private entryOf(m: Record<string, unknown>): CcSessionMessage | null {
+    if (typeof m.uuid !== 'string' || (m.type !== 'user' && m.type !== 'assistant')) return null;
+    return {
+      type: m.type,
+      uuid: m.uuid,
+      session_id: typeof m.session_id === 'string' ? m.session_id : '',
+      message: m.message,
+      parent_tool_use_id: null,
+      timestamp: typeof m.timestamp === 'string' ? m.timestamp : new Date(this.now()).toISOString(),
+      ...(m.isCompactSummary === true && { isCompactSummary: true }),
+      ...(m.isSynthetic === true && { is_meta: true }),
+    };
+  }
+
+  private map(l: Live, name: string, input: unknown): MappedTool {
+    const tools = this.deps.tools;
+    return mapTool(name, input, {
+      cwd: l.cwd,
+      notebookId: l.notebookId,
+      workspaceId: l.workspaceId,
+      ...(tools && { hosted: (n: string) => hostedTool(tools, n) }),
+    });
+  }
+
+  /* ---- permissions --------------------------------------------------------- */
+
+  private async reply(l: Live, ask: LivePermissionAsk, r: LivePermissionReply) {
+    if (!l.handle) return;
+    await this.deps.bridge
+      .reply(ask.handle, ask.request_id, r)
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, 'could not give Claude Code its answer'),
+      );
+  }
+
+  private async onPermission(l: Live, ask: LivePermissionAsk): Promise<void> {
+    const t = l.turn;
+    if (!t) {
+      await this.reply(l, ask, { behavior: 'deny', message: 'No turn is running in NVX Ancile' });
+      return;
+    }
+    const mapped = this.map(l, ask.tool_name, ask.input);
+    const callId = ask.tool_use_id ?? ask.request_id;
+    const gate = this.deps.gateFor(gateRoot(l.cwd));
+    const decision = await gate.check({
+      userId: this.deps.userId,
+      principal: CLAUDE_CODE_PRINCIPAL,
+      action: mapped.action,
+      resource: mapped.resource,
+      toolTier: mapped.tier,
+      destructive: mapped.destructive,
+      scope: { threadId: l.threadId, notebookId: l.notebookId, workspaceId: l.workspaceId },
+      runId: t.runId,
+      traceId: t.traceId,
+    });
+    const span = t.toolSpans.get(callId)?.span;
+    span?.set({ decision: decision.outcome, tier: decision.tier, resource: decision.resource });
+    if (decision.outcome === 'allow') {
+      if (mapped.hosted) this.deps.passes?.grant(mapped.hosted);
+      await this.reply(l, ask, { behavior: 'allow' });
+      return;
+    }
+    if (decision.outcome === 'deny') {
+      const why =
+        decision.via === 'policy'
+          ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
+          : decision.reason;
+      await this.reply(l, ask, { behavior: 'deny', message: why });
+      return;
+    }
+    const approval = await this.deps.permissions.createApproval({
+      runId: t.runId,
+      stepSeq: t.seq++,
+      threadId: l.threadId,
+      callId,
+      principal: CLAUDE_CODE_PRINCIPAL,
+      tool: ask.tool_name,
+      action: mapped.action,
+      resource: decision.resource,
+      args: ask.input ?? {},
+      argsPreview: ask.input ?? {},
+      tier: decision.tier,
+      suggestions: decision.tier === 'critical' ? [] : decision.suggestions,
+      expiresAt: new Date(this.now() + (this.deps.approvalTtlMs ?? APPROVAL_TTL_MS)).toISOString(),
+    });
+    this.waiting.set(approval.id, { live: l, ask, mapped, askedAt: this.now() });
+    const ts = t.toolSpans.get(callId);
+    if (ts) ts.asked = this.now();
+    else
+      t.toolSpans.set(callId, {
+        span: startSpan(
+          `tool ${ask.tool_name}`,
+          'internal',
+          { tool: ask.tool_name, call_id: callId },
+          { parent: t.parent },
+        ),
+        asked: this.now(),
+      });
+    await this.emitFor(t, {
+      type: 'approval.required',
+      approval_id: approval.id,
+      tool: ask.tool_name,
+      action: mapped.action,
+      resource: decision.resource,
+      tier: decision.tier,
+      call_id: callId,
+      args_preview: approval.args_preview,
+      suggestions: approval.suggestions,
+    });
+    await this.deps.bus
+      ?.publish({
+        type: 'approval.requested',
+        approval_id: approval.id,
+        run_id: t.runId,
+        tool: ask.tool_name,
+        tier: decision.tier,
+      })
+      .catch(() => undefined);
+  }
+
+  /** Is this approval one a live session is waiting on (so its arguments may be edited)? */
+  editable(a: ApprovalRecord): boolean {
+    return a.principal === CLAUDE_CODE_PRINCIPAL && this.waiting.has(a.id);
+  }
+
+  /** Check edited arguments again before they are approved. */
+  async recheck(a: ApprovalRecord, args: unknown) {
+    const w = this.waiting.get(a.id);
+    if (!w) throw notFound('That approval');
+    const mapped = this.map(w.live, w.ask.tool_name, args);
+    return this.deps.gateFor(gateRoot(w.live.cwd)).check({
+      userId: this.deps.userId,
+      principal: CLAUDE_CODE_PRINCIPAL,
+      action: mapped.action,
+      resource: mapped.resource,
+      toolTier: mapped.tier,
+      destructive: mapped.destructive,
+      scope: { threadId: w.live.threadId, notebookId: w.live.notebookId, workspaceId: w.live.workspaceId },
+      runId: a.run_id,
+      traceId: currentContext()?.traceId ?? newTraceId(),
+    });
+  }
+
+  /** A person answered an approval (or it expired): tell Claude Code. */
+  async resolved(
+    a: ApprovalRecord,
+    status: 'approved' | 'denied' | 'expired' | 'cancelled',
+    reason?: string | null,
+    updatedArgs?: unknown,
+  ): Promise<boolean> {
+    const w = this.waiting.get(a.id);
+    if (!w) return false;
+    this.waiting.delete(a.id);
+    const t = w.live.turn;
+    const span = t?.toolSpans.get(a.call_id ?? '');
+    span?.span.set({
+      approval: status,
+      approval_wait_ms: this.now() - w.askedAt,
+      ...(updatedArgs !== undefined && { edited: true }),
+    });
+    if (status === 'approved') {
+      if (w.mapped.hosted) this.deps.passes?.grant(w.mapped.hosted);
+      await this.reply(w.live, w.ask, {
+        behavior: 'allow',
+        ...(isObj(updatedArgs) && { updated_input: updatedArgs }),
+      });
+      return true;
+    }
+    await this.reply(w.live, w.ask, {
+      behavior: 'deny',
+      message:
+        status === 'expired'
+          ? 'Nobody answered in time'
+          : status === 'cancelled'
+            ? 'The request was withdrawn'
+            : reason?.trim() || 'The user declined this.',
+    });
+    return true;
+  }
+
+  /* ---- interrupt, state, commands ------------------------------------------ */
+
+  async interrupt(threadId: string): Promise<{ interrupted: boolean }> {
+    const thread = await this.thread(threadId);
+    const l = this.lives.get(thread.id);
+    if (!l?.turn || !l.handle) throw ccErrors.notLive();
+    l.turn.stopped = true;
+    await this.deps.bridge.interrupt(l.handle);
+    return { interrupted: true };
+  }
+
+  /** Is a run of this thread the one a live turn is running? (Stop on the run interrupts it too.) */
+  runOf(threadId: string): string | null {
+    return this.lives.get(threadId)?.turn?.runId ?? null;
+  }
+
+  async state(threadId: string): Promise<ClaudeCodeLiveState> {
+    const thread = await this.thread(threadId);
+    const cc = thread.settings.claude_code;
+    const l = this.lives.get(thread.id);
+    let context: ClaudeCodeLiveState['context'] = null;
+    if (l?.handle) {
+      const u = await this.deps.bridge
+        .control<{ total_tokens: number; max_tokens: number; percentage: number }>(l.handle, 'context_usage')
+        .catch(() => null);
+      if (u && typeof u.max_tokens === 'number')
+        context = {
+          used_tokens: Math.round(u.total_tokens),
+          max_tokens: Math.round(u.max_tokens),
+          percent: u.percentage,
+        };
+    }
+    return {
+      state: l?.turn ? 'working' : (l?.state ?? 'idle'),
+      locked_elsewhere: cc?.session_id ? await this.lockedElsewhere(cc.session_id) : false,
+      model: l?.model ?? null,
+      effort: l?.effort ?? null,
+      permission_mode: l?.permissionMode ?? null,
+      cwd: cc?.cwd ?? null,
+      context,
+    };
+  }
+
+  /**
+   * The "/" list: Claude Code's own (read from a session opened without a
+   * prompt and without a transcript, so it spends nothing), merged with
+   * what NVX Ancile does itself. Cached per folder and Claude Code version.
+   */
+  async commands(threadId: string): Promise<ClaudeCodeCommand[]> {
+    const thread = await this.thread(threadId);
+    const cwd = thread.settings.claude_code?.cwd;
+    if (!cwd) throw ccErrors.noFolder();
+    const cli = await this.deps.service.cliPath();
+    const key = `${cli.version}|${cwd}`;
+    const hit = this.commandCache.get(key);
+    if (hit && this.now() - hit.at < COMMANDS_TTL_MS) return hit.items;
+    const open = this.lives.get(thread.id)?.handle ?? null;
+    let handle = open;
+    if (!handle)
+      handle = (
+        await this.deps.bridge.open({
+          cwd,
+          path_to_cli: cli.path,
+          persist: false,
+          permission_mode: 'default',
+          env: await this.deps.service.cliEnv(),
+        })
+      ).handle;
+    try {
+      const [list, models, mcp] = await Promise.all([
+        this.deps.bridge.control<CliCommand[]>(handle, 'supported_commands'),
+        this.deps.bridge
+          .control<{ value: string; displayName?: string }[]>(handle, 'supported_models')
+          .catch(() => []),
+        this.deps.bridge.control<{ name: string }[]>(handle, 'mcp_status').catch(() => []),
+      ]);
+      const items = mergeCommands(Array.isArray(list) ? list : [], {
+        models: Array.isArray(models) ? models : [],
+        mcp: Array.isArray(mcp) ? mcp.map((s) => s.name).filter((n) => typeof n === 'string') : [],
+      });
+      this.commandCache.set(key, { at: this.now(), items });
+      return items;
+    } finally {
+      if (!open) await this.deps.bridge.close(handle).catch(() => undefined);
+    }
+  }
+
+  /* ---- for the MCP server -------------------------------------------------- */
+
+  /** Number a search's passages on from the turn's earlier ones, and keep them for citations. */
+  passages(threadId: string, hits: SearchHit[]): Passage[] | null {
+    const t = this.lives.get(threadId)?.turn;
+    if (!t) return null;
+    const out: Passage[] = [];
+    for (const hit of hits) {
+      const known = t.passages.find((p) => p.hit.chunk_id === hit.chunk_id);
+      if (known) {
+        out.push(known);
+        continue;
+      }
+      const p = { marker: t.passages.length + 1, hit };
+      t.passages.push(p);
+      out.push(p);
+    }
+    return out;
+  }
+
+  traceOf(threadId: string): RequestContext | null {
+    return this.lives.get(threadId)?.turn?.parent ?? null;
+  }
+
+  sourceIdsOf(threadId: string): string[] | null {
+    return this.lives.get(threadId)?.turn?.cp.sourceIds ?? null;
+  }
+
+  /** For tests and the health view. */
+  get open(): number {
+    return this.byHandle.size;
+  }
+}

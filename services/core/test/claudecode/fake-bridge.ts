@@ -56,7 +56,7 @@ export function fakeLauncher(w: FakeWorld): BridgeLauncher & { close(): Promise<
         };
         if (req.op === 'hello')
           return ok({
-            protocol: 1,
+            protocol: Number(p.protocol ?? 1),
             bridge: 'fake',
             sdk: { ready: !w.sdkError, version: '0.3.296', error: w.sdkError ?? null },
           });

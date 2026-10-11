@@ -9,6 +9,7 @@
  *           |    /api/v1/*               the Cockpit's API (REST + SSE)
  *           |    /internal/v1/*          service-to-service (token)
  *           |    /mcp, /mcp/lab          MCP for apps, and for the lab
+ *           |    /mcp/claude             MCP for live Claude Code sessions
  *           |    /*                      the built Cockpit, SPA fallback
  *  How      |  createApp() takes its dependencies, so tests build an
  *           |  app with fakes and no network. /api/v1 sits behind the
@@ -77,6 +78,8 @@ export interface AppDeps {
   mcp?: (req: Request) => Promise<Response>;
   /** The hosted MCP tools, for the lab, at /mcp/lab (the lab's token, not the browser guard). */
   labMcp?: (req: Request) => Promise<Response>;
+  /** Ancile's MCP server for live Claude Code sessions, at /mcp/claude (a per-thread token, not the browser guard). */
+  claudeMcp?: (req: Request) => Promise<Response>;
   /** Phase 5: more service-token routes under /internal/v1 (log ingest). */
   internalRoutes?: Hono<AppEnv>[];
   /** Phase 6: every /api/v1 request, answered (anonymous usage statistics). */
@@ -213,6 +216,10 @@ export function createApp(deps: AppDeps) {
   if (deps.labMcp) {
     const handle = deps.labMcp;
     app.all('/mcp/lab', (c) => handle(c.req.raw));
+  }
+  if (deps.claudeMcp) {
+    const handle = deps.claudeMcp;
+    app.all('/mcp/claude', (c) => handle(c.req.raw));
   }
 
   if (deps.cockpitDist) {

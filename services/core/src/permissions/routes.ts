@@ -18,6 +18,11 @@
  *           |       once can never leave an allow and a deny behind
  *           |    5. the decision is logged, the run's stream and every
  *           |       tab hear about it, and the run is queued to resume
+ *           |  Approving once with changed arguments (updated_args) is
+ *           |  for an approval that says args_editable (a live Claude
+ *           |  Code session's tool call): the permission is decided
+ *           |  again on the new arguments first, a deny refuses it, and
+ *           |  the waiting tool runs with them.
  *           |  Editing a grant may narrow its pattern (never widen it),
  *           |  change its scope (Careful never widens past a thread)
  *           |  or its expiry. A revocation can be taken back for ten
@@ -42,6 +47,7 @@ import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { RunEventLog } from '../runs/events';
 import type { RunWorker } from '../runs/worker';
+import type { DecisionResult } from './decide';
 import { matchResource } from './glob';
 import type { ApprovalRecord, GrantPatch, PermissionStore } from './store';
 
@@ -53,19 +59,24 @@ export interface PermissionRouteDeps {
   bus?: EventBus;
   worker: Pick<RunWorker, 'resume'>;
   userId: string;
-  /** Relay an answer elsewhere (the lab's engine is waiting on it). */
+  /** Relay an answer elsewhere (the lab's engine or a Claude Code session is waiting on it). */
   onResolved?: (
     approval: ApprovalRecord,
     status: 'approved' | 'denied' | 'expired',
     reason: string | null,
+    updatedArgs?: unknown,
   ) => Promise<unknown>;
+  /** Does the tool waiting on this approval take changed arguments? */
+  editable?: (approval: ApprovalRecord) => boolean;
+  /** Decide again on changed arguments (the gate, on the real tool's mapping). */
+  recheck?: (approval: ApprovalRecord, args: unknown) => Promise<DecisionResult>;
   /** Scope refs for a remembered answer, read from the run's thread. */
   scopeRefs(
     approval: ApprovalRecord,
   ): Promise<{ threadId: string | null; notebookId: string | null; workspaceId: string }>;
 }
 
-const approvalOut = (a: ApprovalRecord): Approval => ({
+const approvalOut = (a: ApprovalRecord, editable = false): Approval => ({
   id: a.id,
   run_id: a.run_id,
   thread_id: a.thread_id,
@@ -74,6 +85,7 @@ const approvalOut = (a: ApprovalRecord): Approval => ({
   resource: a.resource,
   tier: a.tier,
   args_preview: a.args_preview,
+  ...(editable && { args: a.args, args_editable: true }),
   suggestions: a.suggestions,
   status: a.status,
   created_at: a.created_at,
@@ -120,15 +132,16 @@ export function patternAllowed(
 export function permissionRoutes(deps: PermissionRouteDeps) {
   const r = new Hono<AppEnv>();
   const { store } = deps;
+  const out = (a: ApprovalRecord) => approvalOut(a, a.status === 'pending' && !!deps.editable?.(a));
 
   r.get('/approvals', async (c) =>
-    c.json({ items: (await store.pendingApprovals()).map(approvalOut), next_cursor: null }),
+    c.json({ items: (await store.pendingApprovals()).map(out), next_cursor: null }),
   );
 
   r.get('/approvals/:id', async (c) => {
     const a = await store.getApproval(c.req.param('id'));
     if (!a) throw notFound('That approval');
-    return c.json(approvalOut(a));
+    return c.json(out(a));
   });
 
   r.get('/permissions/preset', async (c) => c.json({ preset: (await deps.preset?.get()) ?? 'balanced' }));
@@ -145,6 +158,38 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     if (!a) throw notFound('That approval');
     const req = await body(c, ApprovalDecisionRequest);
     if (a.status !== 'pending') return c.json(approvalOut(a));
+
+    // Approve once with changed arguments: only where the waiting tool takes them, and decided again.
+    if (req.updated_args !== undefined) {
+      if (req.decision !== 'approve' || req.scope !== 'once')
+        throw new AncileError({
+          code: 'permission.edit_needs_once',
+          title: 'Changed arguments can only be approved once',
+          hint: 'Choose "Just this once" to run it with your changes, or approve the original.',
+          status: 422,
+          errorClass: 'permanent',
+        });
+      if (!deps.editable?.(a) || !deps.recheck)
+        throw new AncileError({
+          code: 'permission.args_not_editable',
+          title: "This tool's arguments can't be changed",
+          hint: 'Approve or deny it as it is.',
+          status: 422,
+          errorClass: 'permanent',
+        });
+      const again = await deps.recheck(a, req.updated_args);
+      if (again.outcome === 'deny')
+        throw new AncileError({
+          code: 'permission.edited_args_denied',
+          title: 'Your changes are not allowed',
+          hint:
+            again.via === 'policy'
+              ? `A policy blocks the changed call (${again.policyId ?? 'policy'}). Undo the change, or deny it.`
+              : `${again.reason}. Undo the change, or deny it.`,
+          status: 422,
+          errorClass: 'permanent',
+        });
+    }
 
     // Careful remembers an answer for the thread at most.
     if (req.scope !== 'once' && req.scope !== 'thread' && (await deps.preset?.get()) === 'careful') {
@@ -246,7 +291,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     });
     await deps.events.append(a.run_id, { type: 'approval.resolved', approval_id: a.id, decision: status });
     await deps.bus?.publish({ type: 'approval.resolved', approval_id: a.id }).catch(() => undefined);
-    await deps.onResolved?.(a, status, req.reason ?? null);
+    await deps.onResolved?.(a, status, req.reason ?? null, req.updated_args);
     await deps.worker.resume(a.run_id);
     return c.json({ ...approvalOut({ ...a, status }), grant_id: grantId });
   });

@@ -245,7 +245,16 @@ export const runs = core.table(
   {
     id: text('id').primaryKey(),
     kind: text('kind', {
-      enum: ['chat_turn', 'agent', 'research', 'factcheck', 'automation', 'diagnostic', 'flow_try'],
+      enum: [
+        'chat_turn',
+        'agent',
+        'research',
+        'factcheck',
+        'automation',
+        'diagnostic',
+        'flow_try',
+        'claude_code',
+      ],
     }).notNull(),
     threadId: text('thread_id'),
     messageId: text('message_id'),

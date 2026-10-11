@@ -16,6 +16,7 @@
  * ------------------------------------------------------------------
  */
 
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -33,6 +34,8 @@ import {
 import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { createClaudeCode } from './claudecode';
+import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
+import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { claudeCodeRoutes } from './claudecode/routes';
 import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
@@ -332,6 +335,7 @@ async function main() {
   const notebooks = new PgNotebookRepo(sql);
   // Works with Claude Code (docs/claude-code.md): the person's own CLI, read
   // through the Claude bridge (a separate MIT program holding Anthropic's SDK).
+  const claudeCodeStore = new PgClaudeCodeStore(sql);
   const claudeCode = createClaudeCode({
     workspaceId: owner.workspaceId,
     dataDir: resolve(env.ANCILE_DATA_DIR),
@@ -340,7 +344,7 @@ async function main() {
     bus: events,
     threads,
     notebooks,
-    store: new PgClaudeCodeStore(sql),
+    store: claudeCodeStore,
   });
   const kn = knowledgeClient({ baseUrl: env.KNOWLEDGE_URL, serviceToken: env.ANCILE_SERVICE_TOKEN });
 
@@ -410,6 +414,97 @@ async function main() {
         })
       : null;
   const labSnapshots = resolve(env.ANCILE_DATA_DIR, 'lab-snapshots');
+  // Live Claude Code sessions (docs/claude-code.md): turns run in the person's own
+  // Claude Code through the bridge; Ancile's MCP server gives them the notebook's sources.
+  const claudePasses = new LabPasses();
+  const claudeSecret = randomBytes(32).toString('base64url');
+  const ccHost = env.ANCILE_HOST === '0.0.0.0' || env.ANCILE_HOST === '::' ? '127.0.0.1' : env.ANCILE_HOST;
+  const claudeMcp = new ClaudeMcpEndpoint({
+    secret: claudeSecret,
+    registry: tools,
+    gate,
+    passes: claudePasses,
+    userId: owner.userId,
+    workspaceId: owner.workspaceId,
+    version: VERSION,
+    thread: async (id) => {
+      const t = await threads.getThread(id);
+      if (!t || t.workspace_id !== owner.workspaceId) return null;
+      const nb = t.notebook_id ? await notebooks.get(t.notebook_id) : undefined;
+      return { notebookId: t.notebook_id, notebookTitle: nb?.title ?? null };
+    },
+    search: ({ notebookId, query, k, sourceIds }) =>
+      kn.post('/search', {
+        workspace_id: owner.workspaceId,
+        notebook_id: notebookId,
+        ...(sourceIds?.length && { source_ids: sourceIds }),
+        query,
+        k,
+        mode: 'hybrid',
+        rerank: true,
+      }),
+    notebookSources: async (id) =>
+      (
+        await kn.get<{ id: string; title: string }[]>(
+          `/notebooks/${encodeURIComponent(id)}/sources?workspace_id=${encodeURIComponent(owner.workspaceId)}`,
+        )
+      ).map((s) => ({ id: s.id, title: s.title })),
+    sourceContent: (id) =>
+      kn.get<{ markdown: string }>(
+        `/sources/${encodeURIComponent(id)}/content?workspace_id=${encodeURIComponent(owner.workspaceId)}`,
+      ),
+    memorySearch: async (q, limit) => (await memory.search(q, limit)).items,
+    passages: (threadId, hits) => claudeLive.passages(threadId, hits),
+    traceOf: (threadId) => claudeLive.traceOf(threadId),
+    sourceIdsOf: (threadId) => claudeLive.sourceIdsOf(threadId),
+  });
+  const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
+    workspaceId: owner.workspaceId,
+    userId: owner.userId,
+    bridge: claudeCode.bridge,
+    service: claudeCode.service,
+    sessionInfo: (id) => claudeCode.bridge.sessionInfo(id),
+    threads,
+    store: claudeCodeStore,
+    runs: runStore,
+    events: runEvents,
+    worker: { kick: () => worker.kick() },
+    bus: events,
+    permissions,
+    gateFor: (root) =>
+      createGate({ policy: policyRef, store: permissions, workspaceRoot: root, fs: nativeProbe() }),
+    tools,
+    passes: claudePasses,
+    mcp: {
+      url: `http://${ccHost.includes(':') ? `[${ccHost}]` : ccHost}:${env.ANCILE_PORT}/mcp/claude`,
+      secret: claudeSecret,
+    },
+    notebook: async (id) => {
+      const nb = await notebooks.get(id);
+      return nb && nb.workspace_id === owner.workspaceId
+        ? { title: nb.title, grounded: !!nb.grounded }
+        : null;
+    },
+    afterAnswer: async (a) => {
+      await startFactcheck(
+        { repo: threads, runs: runStore, store: factchecks, worker, familyOf },
+        a.messageId,
+        { workspaceId: a.workspaceId, notebookId: a.notebookId },
+      );
+    },
+    approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
+    folderExists: async (cwd) => existsSync(cwd),
+  });
+  /** An answered approval goes to whoever is waiting on it: the lab, or a live Claude Code turn. */
+  const relayAnswer = async (
+    a: Parameters<ClaudeCodeLive['resolved']>[0],
+    status: 'approved' | 'denied' | 'expired',
+    reason: string | null,
+    updatedArgs?: unknown,
+  ) => {
+    if (await claudeLive.resolved(a, status, reason, updatedArgs)) return true;
+    return mirror ? mirror.resolved(a, status, reason) : false;
+  };
   const factchecks = new PgFactcheckStore(sql);
   // ---- Flows (Phase 5b): graphs that decide how a message is answered ----
   const flowStore = new PgFlowStore(sql, owner.workspaceId);
@@ -458,7 +553,7 @@ async function main() {
         worker,
         userId: owner.userId,
         traceId: newTraceId,
-        ...(mirror && { onResolved: (a, status, reason) => mirror.resolved(a, status, reason) }),
+        onResolved: (a, status, reason) => relayAnswer(a, status, reason),
       }),
     onSettled: async (run) => {
       await withdrawApprovals({ permissions, bus: events }, run.id);
@@ -501,6 +596,7 @@ async function main() {
         },
       }),
       flow_try: flowTryHandler(flows),
+      claude_code: claudeLive.handler(),
       factcheck: factcheckHandler({
         gateway,
         registry,
@@ -819,6 +915,7 @@ async function main() {
       }),
     mcp: mcpServe,
     ...(labMcp && { labMcp: labMcp.handle }),
+    claudeMcp: claudeMcp.handle,
     internalRoutes: [
       logIngestRoutes({ pipeline: obs }),
       // The desktop host asks here before checking nvx.sh for updates.
@@ -921,7 +1018,9 @@ async function main() {
         bus: events,
         worker,
         userId: owner.userId,
-        ...(mirror && { onResolved: (a, status, reason) => mirror.resolved(a, status, reason) }),
+        onResolved: (a, status, reason, updatedArgs) => relayAnswer(a, status, reason, updatedArgs),
+        editable: (a) => claudeLive.editable(a),
+        recheck: (a, args) => claudeLive.recheck(a, args),
         scopeRefs: async (a) => {
           const t = a.thread_id ? await threads.getThread(a.thread_id) : undefined;
           return {
@@ -960,7 +1059,7 @@ async function main() {
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, servers: mcpServers }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
-      claudeCodeRoutes({ service: () => claudeCode.service }),
+      claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
       labRoutes({
         engine,
         repo: threads,
@@ -998,6 +1097,7 @@ async function main() {
     mirror?.stop();
     await labMcp?.close();
     repos.stop();
+    claudeLive.stop();
     claudeCode.stop();
     await mcp.stop();
     server.close();

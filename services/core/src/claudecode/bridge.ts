@@ -13,7 +13,10 @@
  *           |  environment (no Ancile secrets), waits for its ready
  *           |  line, connects to 127.0.0.1 with the token, and says
  *           |  hello. A crash is restarted on the next request, with
- *           |  backoff; five idle minutes stop it.
+ *           |  backoff; five idle minutes stop it, unless live sessions
+ *           |  are open. Pushed events (live sessions) go to whoever
+ *           |  listens (claudecode/live.ts); a bridge that goes away
+ *           |  is announced as bridge.closed.
  *  Note     |  Every request has a timeout (resilience withTimeout).
  * ------------------------------------------------------------------
  */
@@ -34,6 +37,11 @@ import {
   type BridgeSdkStatus,
   type CcSessionInfo,
   type CcSessionMessage,
+  type LiveBridge,
+  type LiveControlOp,
+  type LiveEvent,
+  type LiveOpenParams,
+  type LivePermissionReply,
   type Paging,
   type SessionSource,
 } from './bridge-protocol';
@@ -211,7 +219,9 @@ export interface BridgeClientOptions {
 const PAGE = 500;
 
 /** Core's connection to the bridge. Implements SessionSource. */
-export class BridgeClient implements SessionSource {
+export class BridgeClient implements SessionSource, LiveBridge {
+  private readonly listeners = new Set<(e: LiveEvent) => void>();
+  private keepAlive: () => boolean = () => false;
   private ws: WebSocket | null = null;
   private launched: LaunchedBridge | null = null;
   private starting: Promise<WebSocket> | null = null;
@@ -272,7 +282,7 @@ export class BridgeClient implements SessionSource {
       void b.exited.then(() => {
         if (this.launched === b) this.onClose(true);
       });
-      const hello = (await this.send('hello', { protocol: BRIDGE_PROTOCOL, client: 'ancile-core' })) as {
+      const hello = (await this.call('hello', { protocol: BRIDGE_PROTOCOL, client: 'ancile-core' })) as {
         protocol: number;
         sdk: BridgeSdkStatus;
       };
@@ -299,7 +309,11 @@ export class BridgeClient implements SessionSource {
     } catch {
       return;
     }
-    if (typeof m.id !== 'number') return; // pushed events: phase 2
+    if (typeof m.id !== 'number') {
+      const push = m as unknown as { event?: unknown; data?: unknown };
+      if (typeof push.event === 'string') this.emit({ event: push.event, data: push.data } as LiveEvent);
+      return;
+    }
     const p = this.pending.get(m.id);
     if (!p) return;
     this.pending.delete(m.id);
@@ -307,7 +321,27 @@ export class BridgeClient implements SessionSource {
     else p.reject(new BridgeError(m.error?.code ?? 'failed', m.error?.message ?? 'The Claude bridge failed'));
   }
 
+  private emit(e: LiveEvent) {
+    for (const fn of this.listeners) {
+      try {
+        fn(e);
+      } catch (err) {
+        log.warn({ err: (err as Error).message, event: e.event }, 'a bridge event listener failed');
+      }
+    }
+  }
+
+  onEvent(fn: (e: LiveEvent) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  setKeepAlive(fn: () => boolean): void {
+    this.keepAlive = fn;
+  }
+
   private onClose(crashed = false) {
+    const had = !!this.ws;
     if (crashed) {
       this.failures++;
       this.retryAt = this.now() + Math.min(60_000, 1000 * 2 ** (this.failures - 1));
@@ -317,9 +351,10 @@ export class BridgeClient implements SessionSource {
     this.launched = null;
     for (const [, p] of this.pending) p.reject(new BridgeError('closed', 'The Claude bridge closed'));
     this.pending.clear();
+    if (had) this.emit({ event: 'bridge.closed', data: {} });
   }
 
-  private send(op: string, params: Record<string, unknown>): Promise<unknown> {
+  private call(op: string, params: Record<string, unknown>): Promise<unknown> {
     const ws = this.ws;
     if (!ws) return Promise.reject(new BridgeError('closed', 'The Claude bridge is not running'));
     const id = this.nextId++;
@@ -340,7 +375,7 @@ export class BridgeClient implements SessionSource {
     await this.connect();
     this.touch();
     try {
-      return (await withTimeout(() => this.send(op, params), {
+      return (await withTimeout(() => this.call(op, params), {
         ms: timeoutMs ?? this.opts.requestTimeoutMs ?? 180_000,
       })) as T;
     } finally {
@@ -352,7 +387,7 @@ export class BridgeClient implements SessionSource {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(
       () => {
-        if (this.pending.size === 0) {
+        if (this.pending.size === 0 && !this.keepAlive()) {
           log.info({}, 'Claude bridge idle: stopping it');
           this.stop();
         } else this.touch();
@@ -377,6 +412,37 @@ export class BridgeClient implements SessionSource {
     b?.stop();
     for (const [, p] of this.pending) p.reject(new BridgeError('closed', 'The Claude bridge stopped'));
     this.pending.clear();
+    if (ws) this.emit({ event: 'bridge.closed', data: {} });
+  }
+
+  /* ---- live sessions (protocol 2) ---------------------------------------- */
+
+  open(p: LiveOpenParams): Promise<{ handle: string }> {
+    return this.request('session.open', { ...p }, 120_000);
+  }
+
+  async send(
+    handle: string,
+    text: string,
+    opts: { uuid?: string; images?: { mime: string; data: string }[] } = {},
+  ) {
+    await this.request('session.send', { handle, text, ...opts }, 60_000);
+  }
+
+  async interrupt(handle: string) {
+    await this.request('session.interrupt', { handle }, 30_000);
+  }
+
+  control<T = unknown>(handle: string, op: LiveControlOp, args: Record<string, unknown> = {}): Promise<T> {
+    return this.request<T>('session.control', { handle, op, args }, 60_000);
+  }
+
+  async close(handle: string) {
+    await this.request('session.close', { handle }, 30_000);
+  }
+
+  async reply(handle: string, requestId: string, r: LivePermissionReply) {
+    await this.request('session.permission_reply', { handle, request_id: requestId, ...r }, 30_000);
   }
 
   async sdkStatus(load = false): Promise<BridgeSdkStatus> {

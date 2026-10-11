@@ -88,6 +88,48 @@ export const ccErrors = {
       status: 409,
       errorClass: 'permanent',
     }),
+  sessionBusy: (sessionId: string) =>
+    new AncileError({
+      code: 'claude_code.session_busy',
+      title: 'This session is open in Claude Code somewhere else',
+      hint: 'Close it there (or wait a minute after its last reply), or press Continue as a branch to carry on in a fork of it.',
+      status: 409,
+      errorClass: 'transient',
+      detail: `session ${sessionId}`,
+    }),
+  branchUnmapped: () =>
+    new AncileError({
+      code: 'claude_code.branch_unmapped',
+      title: 'That message is not part of the Claude Code session',
+      hint: 'Send from a message that came from Claude Code, or from the latest message in the thread.',
+      status: 409,
+      errorClass: 'permanent',
+    }),
+  noFolder: () =>
+    new AncileError({
+      code: 'claude_code.no_folder',
+      title: "This session's folder is not on this computer",
+      hint: 'Claude Code runs a session in its own folder. Restore the folder, or start a new session in Claude Code.',
+      status: 409,
+      errorClass: 'permanent',
+    }),
+  liveFailed: (said: string) =>
+    new AncileError({
+      code: 'claude_code.live_failed',
+      title: 'Claude Code stopped before it answered',
+      hint: 'Try again. If it keeps happening, run the same session in a terminal to see why.',
+      status: 502,
+      errorClass: 'transient',
+      detail: said.slice(0, 500),
+    }),
+  notLive: () =>
+    new AncileError({
+      code: 'claude_code.not_live',
+      title: 'Nothing is running in this Claude Code thread',
+      hint: 'There is nothing to stop.',
+      status: 409,
+      errorClass: 'permanent',
+    }),
   cliFailed: (what: string, said: string) =>
     new AncileError({
       code: 'claude_code.cli_failed',
