@@ -56,6 +56,9 @@ Rules for new codes:
 | `permission.scope_too_wide` | 422 | "Careful remembers answers for this thread only." / Choose "In this thread" or "Just this once", or switch to Balanced in Admin → Permissions. |
 | `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a grant would widen its pattern ("That pattern is wider than the one you granted"). |
 | `permission.restore_expired` | 410 | "Too late to undo that revocation." / Undo works for ten minutes after revoking; the agent will ask again next time. |
+| `permission.edit_needs_once` | 422 | "Changed arguments can only be approved once." / Choose "Just this once" to run it with your changes, or approve the original. |
+| `permission.args_not_editable` | 422 | "This tool's arguments can't be changed." / Approve or deny it as it is. |
+| `permission.edited_args_denied` | 422 | "Your changes are not allowed." / Names the policy or your deny; undo the change, or deny it. The approval stays open. |
 
 ### Runs
 
@@ -288,3 +291,9 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `claude_code.folder_excluded` | 409 | "Sessions from that folder are not brought in." / It is in Excluded folders in Settings → Claude Code. Remove it there to bring its sessions in. |
 | `claude_code.not_bound` | 409 | "This thread did not come from Claude Code." / Only threads brought in from Claude Code can be synced. |
 | `claude_code.cli_failed` | 502 | "Claude Code could not <do that>." with its words / Run the same command in a terminal to see why, then try again. |
+| `claude_code.session_busy` | 409 | "This session is open in Claude Code somewhere else." / Close it there (or wait a minute after its last reply), or press Continue as a branch to carry on in a fork of it. |
+| `claude_code.branch_unmapped` | 409 | "That message is not part of the Claude Code session." / Send from a message that came from Claude Code, or from the latest message in the thread. |
+| `claude_code.no_folder` | 409 | "This session's folder is not on this computer." / Claude Code runs a session in its own folder. Restore the folder, or start a new session in Claude Code. |
+| `claude_code.live_failed` | 502 | "Claude Code stopped before it answered." with its words / Try again. If it keeps happening, run the same session in a terminal to see why. |
+| `claude_code.not_live` | 409 | "Nothing is running in this Claude Code thread." / There is nothing to stop. |
+| `claude_code.recovered` | (warning) | A run event, not an error: NVX Ancile restarted during a turn; what Claude Code wrote was brought in from its session. |

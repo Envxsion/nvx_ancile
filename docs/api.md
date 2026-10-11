@@ -81,6 +81,15 @@ POST /api/v1/approvals/apr_01J9ZT…
 
 `scope` is one of `once`, `thread`, `notebook`, `workspace` or `always`. Critical approvals accept only `once`; any other scope gets a 422 with code `permission.critical_not_rememberable`.
 
+An approval whose tool takes changed arguments says `args_editable: true` and carries the full `args` (today: a live Claude Code session's tool calls). Approve it once with your changes:
+
+```http
+POST /api/v1/approvals/apr_01J9ZT…
+{ "decision": "approve", "scope": "once", "updated_args": { "command": "npm test -- --run" } }
+```
+
+The permission is decided again on the changed arguments first: a deny refuses the answer (422 `permission.edited_args_denied`, the approval stays open); anything else runs the tool with them. `updated_args` with any other scope or with `deny` is 422 `permission.edit_needs_once`; on an approval that is not `args_editable` it is 422 `permission.args_not_editable`.
+
 ### Edit and revoke grants
 
 ```http
@@ -242,6 +251,23 @@ Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudeco
 | `POST /claude-code/threads/:id/sync` | `{thread_id, session_id, added, gone}`: pull what is new; `gone` when the transcript is no longer on this computer (the thread stays) |
 | `GET /claude-code/projects` · `PUT /claude-code/projects {cwd, notebook_id}` · `DELETE /claude-code/projects?cwd=` | Folder → notebook bindings (`{items: ClaudeCodeProject[]}`) |
 | `POST /claude-code/projects/exclude {cwd}` | "Don't bring in this folder": adds it to `exclude_folders` (unless already covered) and puts away what came from it; answers `ClaudeCodeSettings` |
+| `POST /claude-code/threads/:id/send` (`SendClaudeCodeRequest`) | 202 `SendClaudeCodeResult {run_id, user_message_id}`. One turn in the thread's live session: the user message is written at once (its parent is `parent_id`, else the active head), and a run of kind `claude_code` streams the answer on `/runs/:run_id/stream` like any other. A `parent_id` the session already went on from, or `as_branch: true`, forks the session there. `idempotency_key` makes a repeat the same turn. 409 `claude_code.session_busy` when Claude Code wrote the session from somewhere else in the last minute (send again with `as_branch`), `claude_code.branch_unmapped` when the parent did not come from Claude Code, `run.already_running` while a turn runs |
+| `POST /claude-code/threads/:id/interrupt` | `{interrupted: true}`: stops the running turn (Claude Code's own interrupt); the run ends `cancelled` and keeps what streamed. Cancelling the run does the same. 409 `claude_code.not_live` when nothing runs |
+| `GET /claude-code/threads/:id/live` | `ClaudeCodeLiveState`: `idle`, `starting`, `ready` or `working`; `locked_elsewhere`; the model, effort and permission mode Claude Code reports; the folder; `context` (Claude Code's own count) while a session is open |
+| `GET /claude-code/threads/:id/commands` | `ClaudeCodeCommand[]`: Claude Code's own "/" list for the session's folder (read from a session that sends nothing and writes no transcript; cached 10 minutes per folder and Claude Code version), merged with what NVX Ancile does itself (docs/claude-code.md, Commands) |
+
+A turn's run events: `model` (display name "Claude Code"), `text.delta` and `reasoning.delta` as Claude Code streams, `tool.call` (with the tier the call maps to) and `tool.result` for each tool, `approval.required` when a call needs you, `citation` for each source passage the answer cites, `usage`, then `run.status` and `done` from the run itself. A restart during a turn ends it with a `warning` (`claude_code.recovered`) and brings in what Claude Code wrote from its session.
+
+### MCP for live sessions
+
+`/mcp/claude` (Streamable HTTP, stateless, outside the browser guard) is NVX Ancile's MCP server for the Claude Code sessions it runs, configured as the server `ancile` in each session. Its bearer token is `<thread id>.<HMAC of the thread id under a per-boot secret>`, so a call always knows its thread and cannot claim another; every call is checked by the gate as `agent:claude-code`.
+
+| Tool | What it does |
+|---|---|
+| `search {query, k?}` | Hybrid search over the thread's notebook (the send's `source_ids`, when given). Passages come back as `[n] title · page · heading (source <id>, chunk <id>)`, numbered on from the turn's earlier searches; markers the answer uses become `citation_ref` parts |
+| `read_source {source_id, offset?, limit?}` | A source of the notebook as Markdown, 20,000 characters at a time (up to 60,000); a source from another notebook is refused |
+| `memory_search {query, limit?}` | What NVX Ancile remembers |
+| every hosted MCP tool | Each server Core connects to (Admin → MCP servers), checked on its own action, resource and tier with the real arguments; an "ask" runs only on the pass your approval of that call left |
 
 ### Core ↔ Claude bridge
 
@@ -250,12 +276,12 @@ Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a
 | Message | Shape |
 |---|---|
 | Request | `{id, op, params?, trace_id?}` |
-| Reply | `{id, ok: true, result}` or `{id, ok: false, error: {code, message}}`; codes `bad_request`, `unknown_op`, `protocol_mismatch`, `hello_first`, `sdk_unavailable`, `failed` |
-| Push (phase 2) | `{event, data}` with no id |
+| Reply | `{id, ok: true, result}` or `{id, ok: false, error: {code, message}}`; codes `bad_request`, `unknown_op`, `protocol_mismatch`, `hello_first`, `sdk_unavailable`, `unknown_handle`, `failed` |
+| Push (protocol 2) | `{event, data}` with no id, on the connection that opened the session |
 
 | Op | Params → result |
 |---|---|
-| `hello` (first) | `{protocol: 1, client}` → `{protocol, bridge, sdk}` |
+| `hello` (first) | `{protocol: 1 or 2, client}` → `{protocol, bridge, sdk}`. Core speaks 2; protocol 1 gets only the reading ops |
 | `status.sdk` | `{load?}` → `{ready, version, error, loading}`; `load` fetches the SDK when missing |
 | `sessions.list` | `{dir?, limit?, offset?}` → session infos |
 | `sessions.info` | `{session_id, dir?}` → a session info or null |
@@ -263,5 +289,20 @@ Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a
 | `subagents.list` | `{session_id, dir?}` → agent ids |
 | `subagents.messages` | `{session_id, agent_id, dir?, limit?, offset?}` → transcript entries |
 
-Phase 2 adds `session.start`, `session.send`, `session.interrupt` and `session.control`, with pushed session events, on the same socket.
+Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-input mode, one per handle, with `pathToClaudeCodeExecutable` (the located, verified Claude Code), the session's folder, `includePartialMessages`, `permissionMode: default`, the setting sources the terminal loads (user, project, local) and file checkpointing. It never sets `bypassPermissions`. A handle closes after ten idle minutes, on `session.close`, or when the connection that opened it closes.
+
+| Op | Params → result |
+|---|---|
+| `session.open` | `{cwd, path_to_cli, resume?, fork?, resume_at?, model?, effort?, permission_mode?, append_system_prompt?, mcp_servers? ({name: {type: 'http', url, headers?}}), env?, persist?}` → `{handle}`. `persist: false` writes no transcript (the command list) |
+| `session.send` | `{handle, text, uuid?, images?: [{mime, data}]}` → `{accepted}`; `uuid` becomes the prompt's transcript entry id |
+| `session.interrupt` | `{handle}` → `{interrupted}` |
+| `session.control` | `{handle, op, args}`: `set_model {model}`, `set_permission_mode {mode: default, plan or acceptEdits}`, `set_max_thinking_tokens {tokens}`, `set_effort {effort}`, `supported_commands`, `supported_models`, `context_usage` (→ `{total_tokens, max_tokens, percentage, model}`), `rewind_files {user_message_id, dry_run?}`, `mcp_status`, `mcp_reconnect {server}`, `mcp_toggle {server, enabled}` |
+| `session.close` | `{handle}` → `{closed}` |
+| `session.permission_reply` | `{handle, request_id, behavior: allow or deny, updated_input?, message?}` → `{delivered}` |
+
+| Push | Data |
+|---|---|
+| `session.message` | `{handle, message}`: the SDK message as it is |
+| `session.permission` | `{handle, request_id, tool_name, input, tool_use_id, agent_id?, suggestions?, decision_reason?, via: hook or can_use_tool}`: a tool call waiting for Core. Every call passes a PreToolUse hook on its real input; `canUseTool` reuses the answer the hook got for the same call. No answer within 30 minutes is a deny, "No answer from NVX Ancile" |
+| `session.state` | `{handle, state: starting, ready, working or closed, session_id?, error?}` |
 
