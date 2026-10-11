@@ -124,7 +124,7 @@ function principalUid(principal: string): { type: string; id: string } {
 }
 
 /** The preset's policy file: preset ids use _ (hands_off), file names use - (preset-hands-off.cedar). */
-export const presetFile = (preset: string | undefined) =>
+export const presetFile = (preset: string | null | undefined) =>
   `preset-${(preset ?? 'balanced').replaceAll('_', '-')}.cedar`;
 
 export class CedarPolicy implements PolicyEvaluator {
