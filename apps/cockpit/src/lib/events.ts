@@ -6,8 +6,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  One resumable stream per tab for everything that is not
  *           |  a single run: approvals waiting anywhere, threads that
- *           |  started or finished answering, health changes, and
- *           |  notifications from any service.
+ *           |  started or finished answering, health and MCP server
+ *           |  changes, and notifications from any service.
  *  How      |  Events invalidate the queries they make stale, so the
  *           |  screens stay plain React Query consumers. Notifications
  *           |  become toasts. The last seq survives reconnects.
@@ -19,6 +19,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { onMemoryProposal } from '../memory/api';
 import { decisionChime } from '../notify/chime';
+import { onMcpServerChanged } from '../ops/mcp';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { useMemoryTray } from '../thread/MemoryTray';
@@ -68,6 +69,9 @@ export function useGlobalEvents(): void {
             break;
           case 'health.changed':
             void queryClient.invalidateQueries({ queryKey: ['system-health'] });
+            break;
+          case 'mcp.server_changed':
+            onMcpServerChanged(e, queryClient);
             break;
           case 'source.progress': {
             // Move the bar now; refetch the lists when a source settles.

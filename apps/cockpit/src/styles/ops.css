@@ -1273,6 +1273,314 @@ button.logline__row:hover {
 .tool-card__src {
   font-size: 11px;
 }
+
+/* MCP servers NVX Ancile uses: one card per server, its tools open under it. */
+.mcp-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-1);
+  animation: rise var(--d-short) var(--ease-out) both;
+}
+.mcp[data-status='disabled'] .mcp__names,
+.mcp[data-status='disabled'] .mcp__foot {
+  opacity: 0.72;
+}
+.mcp__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.mcp__names {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.mcp__names strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mcp__where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11.5px;
+}
+.mcp__where > span {
+  flex: none;
+}
+.mcp__where code {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-3);
+}
+/* "From config file" and "Changed": quiet outlined tags, like .auto__tag. */
+.mcp__badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  color: var(--fg-3);
+}
+.mcp__state {
+  flex: none;
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.mcp__state[data-status='connected'] {
+  color: var(--ok);
+}
+.mcp__state[data-status='error'] {
+  color: var(--fail);
+}
+.mcp__state[data-status='connecting'] {
+  color: var(--warn);
+}
+.mcp__note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--chalk);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  animation: rise var(--d-short) var(--ease-out);
+}
+.mcp__note--fail {
+  background: rgb(var(--fail-rgb) / 0.08);
+  color: var(--fg);
+}
+.mcp__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mcp__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.mcp__since {
+  margin-right: 4px;
+  font-size: 11.5px;
+}
+.mcp__disclose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.mcp__disclose:hover:not(:disabled) {
+  color: var(--fg);
+}
+.mcp__disclose:disabled {
+  cursor: default;
+  color: var(--mute);
+}
+.mcp__disclose:disabled .mcp__chev {
+  visibility: hidden;
+}
+.mcp__chev {
+  transition: rotate var(--d-micro) var(--ease);
+}
+.mcp__disclose[aria-expanded='true'] .mcp__chev {
+  rotate: 90deg;
+}
+.mcp__count {
+  font-weight: 400;
+}
+.mcp__tools {
+  display: grid;
+  gap: 8px;
+  animation: rise var(--d-short) var(--ease-out);
+}
+.mcp-tools {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.mcp-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.mcp-tool + .mcp-tool {
+  border-top: 1px solid var(--hair);
+}
+.mcp-tool .tier,
+.mcp-tool__text {
+  transition: opacity var(--d-micro) var(--ease);
+}
+.mcp-tool[data-off] .mcp-tool__text,
+.mcp-tool[data-off] .tier {
+  opacity: 0.5;
+}
+.mcp-tool__text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.mcp-tool__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mcp-tool__flag {
+  font-size: 11px;
+}
+.mcp-tool__text p {
+  margin: 0;
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+.mcp-tool__ctl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mcp-tool__tier {
+  width: 13.5rem;
+}
+
+/* The add/edit dialog. */
+.dialog.mcp-dialog {
+  top: max(24px, 6vh);
+  width: min(600px, calc(100vw - 24px));
+  max-height: calc(100dvh - max(24px, 6vh) - 24px);
+}
+.mcp-quick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: var(--t-small);
+}
+.mcp-quick__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.mcp-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.mcp-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.mcp-form__back {
+  margin-right: auto;
+}
+.mcp-pairs {
+  gap: 8px;
+}
+.mcp-pairs legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
+  align-items: center;
+  gap: 8px;
+  animation: rise var(--d-short) var(--ease-out);
+}
+.mcp-pair__key {
+  overflow: hidden;
+  padding-left: 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-pair__saved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mcp-pair__saved > .input {
+  flex: 1;
+  min-width: 0;
+}
+.mcp-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--t-small);
+  color: var(--ok);
+}
+.mcp-pairs__add {
+  justify-self: start;
+}
+.mcp-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+@media (max-width: 640px) {
+  .mcp-tool {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mcp-tool__ctl {
+    flex-wrap: wrap;
+  }
+  .mcp-tool__tier {
+    flex: 1;
+    width: auto;
+    min-width: 10rem;
+  }
+  .mcp-pair {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .mcp-pair > :nth-child(2) {
+    grid-row: 2;
+    grid-column: 1;
+  }
+  .mcp-pair > :last-child {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}
 .connect-app fieldset {
   display: grid;
   gap: 8px;
@@ -1504,6 +1812,10 @@ button.logline__row:hover {
   .svc,
   .auto,
   .app-card,
+  .mcp,
+  .mcp__tools,
+  .mcp__note,
+  .mcp-pair,
   .feature,
   .wf-row,
   .wf-row__bar,

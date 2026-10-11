@@ -507,6 +507,23 @@ Every call the app makes is checked like the assistant's own and recorded in **D
 For apps that only start commands, run the stdio bridge with your token in \`ANCILE_MCP_TOKEN\`.`,
       },
       {
+        id: 'mcp-servers',
+        title: 'Giving the assistant more tools',
+        summary: 'Add MCP servers, keep their keys secret, and choose how each tool asks.',
+        keywords:
+          'mcp server add tool plugin github stdio http remote command secret header environment tier test connection remove',
+        body: `An MCP server gives the assistant more tools: a search engine, a database, your issue tracker. In **Admin → Plugins → Add server**, give it a short name and choose how it connects:
+
+- **Local command**: NVX Ancile starts the server on this computer, for example \`npx\` with one argument per line. Plain settings go in environment variables.
+- **Remote**: NVX Ancile connects to the server's address over HTTP. Plain settings go in headers.
+
+Keys and tokens go in **secrets**: environment variables for a local command, request headers such as \`Authorization\` for a remote one. They are stored encrypted and afterwards show only as **Saved**. **Replace** sets a new value; removing the row deletes it. **Quick start: GitHub** adds the official GitHub server in one step.
+
+Each server shows whether it is connected, and what went wrong in words when it is not. **Test connection** tries again now. Open its tools to see how each one asks (**Auto**, **Asks once**, **Asks every time**), change it, or switch a tool off. A changed tool is marked **Changed**; **Server's default** puts it back. A tool that changes things cannot be set to Auto.
+
+Servers set in \`config/mcp.yaml\` are marked **From config file**: change those in the file. Their tool settings can still be changed here. **Remove server** stops its tools at once and deletes its secrets.`,
+      },
+      {
         id: 'licence',
         title: 'Free and Pro',
         summary: 'Everything you need is free; Pro adds scale.',
@@ -711,6 +728,10 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'extract.scanned_pdf': 'source-failed',
   'extract.fetch_failed': 'source-failed',
   'embed.unavailable': 'source-failed',
+  'mcp.name_taken': 'mcp-servers',
+  'mcp.read_only': 'mcp-servers',
+  'mcp.secret_missing': 'mcp-servers',
+  'mcp.tier_not_allowed': 'mcp-servers',
 };
 
 /** Plain-text search over titles, summaries, keywords and bodies, best first. */

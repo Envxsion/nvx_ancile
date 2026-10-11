@@ -7,12 +7,13 @@
  *  Purpose  |  Both directions of MCP in one place. Apps that use NVX
  *           |  Ancile: connect one (pick what it may do, take its token
  *           |  and config once), see when it was last used, disconnect
- *           |  it. Tools NVX Ancile can use: every tool with the tier it
- *           |  asks at, and the MCP servers it connects to, with a test.
+ *           |  it. Tools NVX Ancile can use: the MCP servers it connects
+ *           |  to (add, edit, test, per-tool settings: McpServers.tsx),
+ *           |  then every tool with the tier it asks at.
  * ------------------------------------------------------------------
  */
 
-import type { McpClientView } from '@nvx/contracts';
+import type { McpClientView, Tier } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -22,8 +23,9 @@ import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { Check } from '../ui/controls';
 import { Icon } from '../ui/Icon';
-import { EmptyState, Skeleton, StatusDot, TierBadge } from '../ui/primitives';
+import { EmptyState, Skeleton, TierBadge } from '../ui/primitives';
 import { CopyButton, LoadFailed, reportFailure } from './common';
+import { McpServersSection } from './McpServers';
 
 interface ServerInfo {
   url: string;
@@ -33,18 +35,9 @@ interface ToolRow {
   name: string;
   description: string;
   action: string;
-  tier: 'auto' | 'gated' | 'critical';
+  tier: Tier;
   destructive: boolean;
   source: { kind: string; server?: string } | string;
-}
-interface McpServer {
-  server: string;
-  transport: 'stdio' | 'http';
-  enabled: boolean;
-  connected: boolean;
-  tools: number;
-  lastError: string | null;
-  connectedAt: string | null;
 }
 
 const sourceWords = (s: ToolRow['source']) => {
@@ -68,10 +61,6 @@ export function PluginsScreen() {
     queryKey: ['ops', 'tools'],
     queryFn: () => api.get<{ items: ToolRow[] }>('/tools').then((r) => r.items),
   });
-  const servers = useQuery({
-    queryKey: ['ops', 'mcp-servers'],
-    queryFn: () => api.get<{ items: McpServer[] }>('/mcp/servers').then((r) => r.items),
-  });
   const [connecting, setConnecting] = useState(false);
   const disconnect = useMutation({
     mutationFn: (id: string) => api.del(`/mcp/clients/${id}`),
@@ -84,11 +73,6 @@ export function PluginsScreen() {
       return queryClient.invalidateQueries({ queryKey: ['ops', 'mcp-clients'] });
     },
     onError: (e) => reportFailure(e, 'Disconnecting'),
-  });
-  const test = useMutation({
-    mutationFn: (name: string) => api.post(`/mcp/servers/${encodeURIComponent(name)}/test`, {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ops', 'mcp-servers'] }),
-    onError: (e) => reportFailure(e, 'The test'),
   });
 
   return (
@@ -161,45 +145,7 @@ export function PluginsScreen() {
         )}
       </section>
 
-      <section className="plug-section">
-        <div className="plug-section__head">
-          <h2 className="admin__h">MCP servers NVX Ancile uses</h2>
-          {(servers.data ?? []).some((s) => s.server === 'github') ? null : <GitHubPreset />}
-        </div>
-        {servers.isPending ? (
-          <Skeleton lines={2} label="Loading servers" />
-        ) : (servers.data ?? []).length === 0 ? (
-          <p className="mute">
-            None yet. Add GitHub with the button above, or add servers in config/mcp.yaml; they connect when
-            Core starts.
-          </p>
-        ) : (
-          <ul className="rows">
-            {(servers.data ?? []).map((s) => {
-              const state = !s.enabled ? 'Off' : s.connected ? 'Connected' : 'Not connected';
-              return (
-                <li key={s.server} className="row row--health">
-                  <StatusDot status={!s.enabled ? 'idle' : s.connected ? 'ok' : 'down'} label={state} />
-                  <span className="row__title">{s.server}</span>
-                  <span className="row__meta mute">
-                    {s.lastError ?? `${s.tools} ${s.tools === 1 ? 'tool' : 'tools'} over ${s.transport}`}
-                  </span>
-                  <span className="mute">{state}</span>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => test.mutate(s.server)}
-                    disabled={!s.enabled}
-                    data-busy={(test.isPending && test.variables === s.server) || undefined}
-                  >
-                    Test
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      <McpServersSection />
 
       <section className="plug-section">
         <h2 className="admin__h">Tools the assistant can use</h2>
@@ -338,91 +284,5 @@ function ConnectApp({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-/**
- * The official GitHub MCP server in one click: issues, pull requests,
- * code search and more as tools, under your grants like any other. It
- * runs with your gh sign-in or a token you paste (kept encrypted), in
- * Docker or as the github-mcp-server binary, whichever is installed.
- */
-function GitHubPreset() {
-  const [open, setOpen] = useState(false);
-  const [token, setToken] = useState('');
-  const [readOnly, setReadOnly] = useState(true);
-  const add = useMutation({
-    mutationFn: () =>
-      api.post<{ runner: string; health: { connected: boolean; tools: number; lastError: string | null } }>(
-        '/mcp/presets/github',
-        { ...(token.trim() && { token: token.trim() }), read_only: readOnly },
-      ),
-    onSuccess: (r) => {
-      setOpen(false);
-      setToken('');
-      notify(
-        r.health.connected
-          ? {
-              level: 'success',
-              title: `GitHub added with ${r.health.tools} tools`,
-              body: `Running through ${r.runner}.`,
-            }
-          : {
-              level: 'warn',
-              title: 'GitHub was added but is not connected yet',
-              body: r.health.lastError ?? undefined,
-            },
-      );
-      void queryClient.invalidateQueries({ queryKey: ['ops', 'mcp-servers'] });
-      return queryClient.invalidateQueries({ queryKey: ['ops', 'tools'] });
-    },
-    onError: (e) => reportFailure(e, 'Adding GitHub'),
-  });
-  if (!open)
-    return (
-      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={13} />
-        Add GitHub
-      </button>
-    );
-  return (
-    <form
-      className="mcp-preset"
-      onSubmit={(e) => {
-        e.preventDefault();
-        add.mutate();
-      }}
-    >
-      <p className="mute">
-        The official GitHub MCP server. Leave the token empty to use your GitHub CLI sign-in (
-        <code>gh auth login</code>).
-      </p>
-      <input
-        className="input input--sm"
-        type="password"
-        autoComplete="off"
-        value={token}
-        onChange={(e) => setToken(e.target.value)}
-        placeholder="github_pat_… (optional)"
-        aria-label="GitHub token for the MCP server"
-      />
-      <span className="mcp-preset__row mcp-preset__row--start">
-        <Check checked={readOnly} onChange={setReadOnly} label="Read-only tools" /> Read-only tools (it can
-        look, not change)
-      </span>
-      <div className="mcp-preset__row">
-        <button type="button" className="btn btn--quiet btn--sm" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="btn btn--primary btn--sm"
-          disabled={add.isPending}
-          data-busy={add.isPending || undefined}
-        >
-          Add GitHub
-        </button>
-      </div>
-    </form>
   );
 }

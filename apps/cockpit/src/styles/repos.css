@@ -362,27 +362,6 @@
   color: var(--warn);
 }
 
-/* GitHub MCP preset (Admin → Plugins) */
-.mcp-preset {
-  display: grid;
-  gap: 8px;
-  width: min(380px, 100%);
-  font-size: var(--t-small);
-}
-.mcp-preset p {
-  margin: 0;
-}
-.mcp-preset__row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--fg-2);
-}
-.mcp-preset__row--start {
-  justify-content: flex-start;
-}
-
 @media (max-width: 520px) {
   .repo__add {
     flex-direction: column;
