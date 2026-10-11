@@ -104,6 +104,11 @@ export const CreateNodeSpec = z.object({
   env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(4_000)).default({}),
   /** Arguments for the image's entrypoint, e.g. vLLM's ["--model", "Qwen/…", "--port", "8000"]. */
   command: z.array(z.string().max(1_000)).max(50).optional(),
+  /**
+   * Replaces the image's own entrypoint, e.g. ["bash", "-c", "…"] to run the
+   * node bootstrap inside the vLLM image. Absent: the image's entrypoint.
+   */
+  entrypoint: z.array(z.string().max(2_000)).max(10).optional(),
 });
 export type CreateNodeSpec = z.infer<typeof CreateNodeSpec>;
 
@@ -131,6 +136,14 @@ export const ConnectProviderRequest = z.object({
   kind: z.literal('runpod'),
   api_key: z.string().trim().min(8).max(400),
 });
+
+/** The node bootstrap on this repository's main branch (infra/node/bootstrap.sh). */
+export const NODE_BOOTSTRAP_URL =
+  'https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh';
+/** The image Ancile starts vLLM nodes from; the bootstrap uses its vLLM. */
+export const NODE_IMAGE = 'vllm/vllm-openai:v0.11.0';
+/** Fetches and runs the bootstrap: curl when the image has it, Python otherwise. */
+export const NODE_START_SCRIPT = `(curl -fsSL ${NODE_BOOTSTRAP_URL} || python3 -c 'import sys,urllib.request; sys.stdout.write(urllib.request.urlopen(sys.argv[1]).read().decode())' ${NODE_BOOTSTRAP_URL}) | bash`;
 
 /**
  * GET /control/v1/node-setup: what a pod set up by hand needs (start

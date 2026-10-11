@@ -17,6 +17,7 @@ import {
   ActionRequest,
   ConnectProviderRequest,
   CreateNodeRequest,
+  NODE_START_SCRIPT,
   type NodeSetup,
   type ProviderStatus,
   Rule,
@@ -41,10 +42,6 @@ export interface ControlDeps extends ExecutorDeps {
   /** CONTROLLER_NODE_TOKEN: the key every node's vLLM requires, and the Controller sends. */
   nodeToken?: string;
 }
-
-/** The node bootstrap on this repository's main branch (infra/node/bootstrap.sh). */
-export const BOOTSTRAP_URL =
-  'https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh';
 
 const ulidish = (prefix: string) =>
   `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 26).toUpperCase()}`;
@@ -134,7 +131,7 @@ export function controlRoutes(deps: ControlDeps) {
   app.get('/node-setup', (c) => {
     const token = deps.nodeToken ?? null;
     const out: NodeSetup = {
-      start_command: `bash -c "curl -fsSL ${BOOTSTRAP_URL} | bash"`,
+      start_command: `bash -c "${NODE_START_SCRIPT}"`,
       env: {
         ANCILE_MODEL: '<Hugging Face model id>',
         ...(token && { ANCILE_NODE_API_KEY: token, CONTROLLER_NODE_TOKEN: token }),

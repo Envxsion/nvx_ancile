@@ -6,13 +6,16 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
 
 ## Setting up RunPod
 
-1. Create an API key in RunPod (Settings → API Keys) with read and write access to pods. In NVX Ancile, open Admin → Compute and choose **Connect RunPod**, then paste it. The Controller checks it with RunPod before anything changes, and NVX Ancile keeps it encrypted on this computer. Until then you see sample nodes, which cost nothing. **Disconnect RunPod** (the ⋯ menu) removes the key, once no real node is left.
+1. Create an API key in RunPod (Settings → API Keys) with read and write access to pods. In NVX Ancile, open Admin → Compute and choose **Connect RunPod**, then paste it. The Controller checks it with RunPod before anything changes, and NVX Ancile keeps it encrypted on this computer. Until then Compute is empty: there are no sample nodes or invented prices. **Disconnect RunPod** (the ⋯ menu) removes the key, once no real node is left.
 
    On a server, `RUNPOD_API_KEY` in `.env` does the same, with `CONTROLLER_URL=http://localhost:7720`.
 2. Create a **network volume** in the region you want, for the model weights.
-3. Create a pod from any CUDA image with the volume mounted at `/workspace`. Set its start command to the node bootstrap:
+3. Create a pod with the volume mounted at `/workspace` and HTTP port `8000`, running the node bootstrap. Admin → Compute → *Setting the pod up yourself?* shows the command and environment with your key filled in, ready to copy.
+   - From a CUDA image with Python (for example `runpod/pytorch`), set it as the start command. The bootstrap installs vLLM on the volume once.
+   - From `vllm/vllm-openai:v0.11.0` (what the app uses), set it as the container **entrypoint** instead, because that image's own entrypoint is `vllm serve`. Nothing is installed, so the first start takes minutes, not tens of minutes.
+
    ```bash
-   bash -c "curl -fsSL https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh | bash"
+   bash -c "(curl -fsSL https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh || python3 -c …) | bash"
    ```
    Then set these env vars on the pod:
    - `ANCILE_MODEL` (e.g. `Qwen/Qwen3-32B-AWQ`)
@@ -26,7 +29,7 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
 5. Add a model with `via: controller` (Settings → Models does this for you), and put it in a routing chain.
 
 The bootstrap:
-- installs and starts vLLM with an OpenAI-compatible API on the pod
+- uses the image's vLLM, or installs a pinned one, and starts it with an OpenAI-compatible API on the pod
 - verifies `/v1/models` before reporting ready
 - runs a watchdog that stops the pod after a period of idleness, even if Ancile is offline
 
@@ -40,9 +43,9 @@ Ancile uses RunPod's REST **v2** API (`POST /v2/pods/{id}/action`). The v1 API i
 |---|---|---|
 | `pnpm test:runpod` | The key is accepted, and the pod list reads as v2 | Free |
 | `pnpm test:runpod --create` | Creates a pod with vLLM serving a small model, waits for an answer through the RunPod proxy, stops it, starts it again, gets a second answer, then terminates it | A few US cents |
-| `pnpm test:runpod --create --bootstrap` | The same, but the pod runs `infra/node/bootstrap.sh` from this repo's `main` branch (the setup above), and then waits for the watchdog to stop the idle pod by itself with no Controller in reach | A few US cents |
+| `pnpm test:runpod --create --bootstrap` | The same, but the pod runs this checkout's `infra/node/` scripts in the vLLM image (the setup above; `--scripts-url URL` fetches them instead), shows the node's own log if vLLM never answers, and then waits for the watchdog to stop the idle pod by itself with no Controller in reach | A few US cents |
 
-Options: `--gpu "NVIDIA RTX A4000"`, `--secure` (community cloud by default), `--region EU-RO-1`, `--model Qwen/Qwen2.5-0.5B-Instruct`, `--max-usd-hour 0.40`, `--max-minutes 30` (50 with `--bootstrap`, which also gives the pod a 20 GB volume so the restart reuses vLLM and the weights). The pod it creates is terminated whatever happens: on success, on a failure, on Ctrl+C, and at the time cap. A pod over the price cap is terminated as soon as its price is known. With `--keep` it is stopped instead, so you can add it in Admin → Compute; terminate it in RunPod yourself when you are done.
+Options: `--gpu "NVIDIA RTX A4000"`, `--secure` (community cloud by default), `--region EU-RO-1`, `--model Qwen/Qwen2.5-0.5B-Instruct`, `--max-usd-hour 0.40`, `--image REF` (with `--bootstrap`; a CUDA image without vLLM tests the install path), `--max-minutes 30` (50 with `--bootstrap`, which also gives the pod a 20 GB volume so the restart reuses vLLM and the weights). The pod it creates is terminated whatever happens: on success, on a failure, on Ctrl+C, and at the time cap. A pod over the price cap is terminated as soon as its price is known. With `--keep` it is stopped instead, so you can add it in Admin → Compute; terminate it in RunPod yourself when you are done.
 
 ## Starting and stopping, with a confirmation chain
 

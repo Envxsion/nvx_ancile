@@ -162,6 +162,39 @@ describe('v2 pod schema', () => {
   });
 });
 
+describe('RunPod create body', () => {
+  it('sends an entrypoint override and arguments under their v2 names', async () => {
+    const calls: Call[] = [];
+    const p = new RunPodProvider({
+      apiKey: 'k',
+      baseUrl: 'https://x',
+      fetch: fakeFetch([json(200, { id: 'pod1', desiredStatus: 'RUNNING' })], calls),
+    });
+    await p.create(
+      {
+        name: 'n',
+        gpu_type_id: 'NVIDIA RTX A4000',
+        gpu_count: 1,
+        cloud: 'community',
+        container_disk_gb: 30,
+        volume_gb: 20,
+        ports: ['8000/http'],
+        env: { ANCILE_MODEL: 'm' },
+        image: 'vllm/vllm-openai:v0.11.0',
+        entrypoint: ['bash', '-c', 'echo hi'],
+      },
+      'idem-key-0002',
+    );
+    const body = JSON.parse(String(calls[0]?.init.body));
+    expect(body).toMatchObject({
+      image: 'vllm/vllm-openai:v0.11.0',
+      entrypoint: ['bash', '-c', 'echo hi'],
+      mounts: { persistent: { size: 20, path: '/workspace' } },
+    });
+    expect(body.cmd).toBeUndefined();
+  });
+});
+
 describe('RunPod create refused', () => {
   it('says the balance is empty when RunPod answers a bare 403 to a create', async () => {
     const p = new RunPodProvider({

@@ -264,7 +264,7 @@ export class RunPodProvider implements ComputeProvider {
    * v2 create body (CreatePodRequest, checked 2026-10-09): name,
    * image | templateId, gpu {id, count}, cloud (SECURE | COMMUNITY),
    * disk (GB), mounts {persistent {size, path}}, ports[], env{},
-   * cmd[], dataCenterIds[]. v1's flat names (imageName, gpuTypeIds,
+   * entrypoint[], cmd[], dataCenterIds[]. v1's flat names (imageName, gpuTypeIds,
    * containerDiskInGb, volumeInGb) are not part of v2. The answer is the pod.
    */
   async create(spec: CreateNodeSpec & { name: string }, idempotencyKey: string, signal?: AbortSignal) {
@@ -279,6 +279,7 @@ export class RunPodProvider implements ComputeProvider {
       ...(spec.image && { image: spec.image }),
       ...(spec.template_id && { templateId: spec.template_id }),
       ...(spec.region && { dataCenterIds: [spec.region] }),
+      ...(spec.entrypoint?.length && { entrypoint: spec.entrypoint }),
       ...(spec.command?.length && { cmd: spec.command }),
     };
     let res: Response;

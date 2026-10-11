@@ -31,6 +31,16 @@ request_count() { # vLLM prometheus counter; total finished requests
     | awk '/^vllm:request_success_total/ {s+=$NF} END {printf "%d", s}'
 }
 
+stop_by_api() { # RunPod's REST API, with Python so curl is not needed
+  python3 - "$RUNPOD_POD_ID" <<'PY'
+import os, sys, urllib.request
+req = urllib.request.Request(
+    f"https://rest.runpod.io/v1/pods/{sys.argv[1]}/stop", method="POST",
+    headers={"authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}"})
+sys.exit(0 if urllib.request.urlopen(req, timeout=30).status < 300 else 1)
+PY
+}
+
 controller_alive() {
   [ -f "$STATE_DIR/last_heartbeat_ok" ] || return 1
   local last; last="$(cat "$STATE_DIR/last_heartbeat_ok")"
@@ -61,10 +71,14 @@ while sleep "$INTERVAL"; do
   fi
 
   log warn "idle ${idle_min} min and Controller unreachable: stopping pod ${RUNPOD_POD_ID:-?}"
-  if command -v runpodctl >/dev/null 2>&1 && [ -n "${RUNPOD_POD_ID:-}" ]; then
-    runpodctl stop pod "$RUNPOD_POD_ID" && exit 0
-    log error "runpodctl stop failed; will retry next interval"
+  if [ -z "${RUNPOD_POD_ID:-}" ]; then
+    log error "RUNPOD_POD_ID missing; cannot self-stop"
+  elif command -v runpodctl >/dev/null 2>&1 && runpodctl stop pod "$RUNPOD_POD_ID"; then
+    exit 0
+  elif [ -n "${RUNPOD_API_KEY:-}" ] && stop_by_api; then
+    # Images without runpodctl: RunPod gives every pod a key scoped to itself.
+    exit 0
   else
-    log error "runpodctl or RUNPOD_POD_ID missing; cannot self-stop"
+    log error "could not stop the pod (no runpodctl, or RunPod refused); will retry next interval"
   fi
 done

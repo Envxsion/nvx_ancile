@@ -10,9 +10,10 @@
  *  How      |  pnpm test:runpod              free: key and listing only
  *           |  pnpm test:runpod --create     spends a little money
  *           |  pnpm test:runpod --create --bootstrap   the same, through
- *           |    infra/node/bootstrap.sh from the repo's main branch
+ *           |    infra/node/bootstrap.sh in the vLLM image: this checkout's
+ *           |    scripts (or --scripts-url to fetch them), plus the watchdog
  *           |  Options: --gpu "NVIDIA RTX A4000" --secure --region ID
- *           |  --model HF_ID --max-usd-hour 0.40 --max-minutes 30 --keep
+ *           |  --image REF (with --bootstrap) --model HF_ID --max-usd-hour 0.40 --max-minutes 30 --keep
  *  Note     |  The pod it creates is terminated on every way out
  *           |  (success, failure, Ctrl+C, the time cap), unless --keep,
  *           |  which stops it instead so you can add it in the app.
@@ -23,6 +24,8 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
+import { NODE_IMAGE } from '@nvx/contracts/controller';
 import { mapPod, RunPodProvider } from '../src/providers/runpod';
 import type { ProviderNode } from '../src/providers/types';
 
@@ -61,10 +64,13 @@ const region = opt('region', '');
 const model = opt('model', 'Qwen/Qwen2.5-0.5B-Instruct');
 const served = 'shakedown';
 const bootstrap = flag('bootstrap');
-const scriptsUrl = opt(
-  'scripts-url',
-  'https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node',
-);
+// Pods run the official vLLM image, its entrypoint replaced by the bootstrap;
+// --image tries another (a CUDA image without vLLM takes the install path).
+const nodeImage = opt('image', NODE_IMAGE);
+// Fetched from here with --scripts-url; otherwise this checkout's scripts go
+// to the pod in its environment, so the run tests what is about to ship.
+const scriptsUrl = opt('scripts-url', '');
+const statusPort = 8001;
 // The bootstrap makes vLLM require a key; a throwaway one for this pod only.
 const nodeKey = bootstrap ? randomUUID() : '';
 const nodeAuth: Record<string, string> = nodeKey ? { authorization: `Bearer ${nodeKey}` } : {};
@@ -153,6 +159,47 @@ async function modelAnswers(minutes: number) {
   return { ok: text.length > 0, note: `the model said "${text.slice(0, 40)}"` };
 }
 
+/** The node scripts as gzip+base64 env chunks, and the command that unpacks and runs them. */
+function localScripts(): { env: Record<string, string>; entrypoint: string[] } {
+  const env: Record<string, string> = {};
+  const files = ['bootstrap', 'healthcheck', 'watchdog'];
+  for (const f of files) {
+    const packed = gzipSync(readFileSync(join(ROOT, 'infra', 'node', `${f}.sh`))).toString('base64');
+    const chunks = packed.match(/.{1,3900}/g) ?? [];
+    if (chunks.length > 10) throw new Error(`infra/node/${f}.sh is too big to send in the environment`);
+    chunks.forEach((c, i) => {
+      env[`ANCILE_SRC_${f.toUpperCase()}_${i}`] = c;
+    });
+  }
+  const unpack = [
+    'set -e; d=/opt/ancile-node; mkdir -p $d',
+    `for f in ${files.join(' ')}; do for i in 0 1 2 3 4 5 6 7 8 9; do v="ANCILE_SRC_\${f^^}_$i"; printf %s "\${!v:-}"; done | base64 -d | gunzip > $d/$f.sh; done`,
+    'chmod +x $d/*.sh; exec $d/bootstrap.sh',
+  ].join('; ');
+  return { env, entrypoint: ['bash', '-c', unpack] };
+}
+
+function fetchedScripts(): { env: Record<string, string>; entrypoint: string[] } {
+  const py = `python3 -c "import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1]).read().decode())" ${scriptsUrl}/bootstrap.sh`;
+  return {
+    env: { ANCILE_NODE_SCRIPTS: scriptsUrl },
+    entrypoint: ['bash', '-c', `(curl -fsSL ${scriptsUrl}/bootstrap.sh || ${py}) | bash`],
+  };
+}
+
+/** The bootstrap's status page (its log, node key removed), for a failure note. */
+async function nodeStatus(): Promise<string> {
+  try {
+    const r = await fetch(`https://${podId}-${statusPort}.proxy.runpod.net/index.txt`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return `(status page answered HTTP ${r.status})`;
+    return (await r.text()).trim().split('\n').slice(-25).join('\n') || '(status page empty)';
+  } catch (e) {
+    return `(status page unreachable: ${e instanceof Error ? e.message : String(e)})`;
+  }
+}
+
 async function cleanUp() {
   if (!podId || cleaning) return;
   cleaning = true;
@@ -228,6 +275,7 @@ async function main() {
   say(
     `Creating a pod (${gpus.length} GPU types to try, ${cloud} first): ${bootstrap ? 'bootstrap.sh' : 'the vLLM image'} serving ${model}. Cap $${maxRate}/h, ${maxMinutes} min.`,
   );
+  const scripts = bootstrap ? (scriptsUrl ? fetchedScripts() : localScripts()) : { env: {}, entrypoint: [] };
   const tryCreate = async (gpu: string, where: 'community' | 'secure') => {
     try {
       return await rp.create(
@@ -238,14 +286,15 @@ async function main() {
           cloud: where,
           ...(bootstrap
             ? {
-                image: 'runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04',
-                command: ['bash', '-c', `curl -fsSL ${scriptsUrl}/bootstrap.sh | bash`],
+                image: nodeImage,
+                entrypoint: scripts.entrypoint,
                 env: {
+                  ...scripts.env,
+                  ANCILE_STATUS_PORT: String(statusPort),
                   ANCILE_MODEL: model,
                   ANCILE_SERVED_NAME: served,
                   ANCILE_NODE_API_KEY: nodeKey,
                   ANCILE_VLLM_ARGS: '--max-model-len 4096',
-                  ANCILE_NODE_SCRIPTS: scriptsUrl,
                   // Short, so the run can watch the watchdog stop the idle pod.
                   ANCILE_IDLE_MINUTES: '2',
                 },
@@ -267,7 +316,7 @@ async function main() {
           container_disk_gb: 30,
           // The bootstrap keeps vLLM and the weights on /workspace, so a restart reuses them.
           volume_gb: bootstrap ? 20 : 0,
-          ports: ['8000/http'],
+          ports: bootstrap ? ['8000/http', `${statusPort}/http`] : ['8000/http'],
           ...(region && { region }),
         },
         `shake-create-${randomUUID()}`,
@@ -306,6 +355,11 @@ async function main() {
   }
   const first = await modelAnswers(bootstrap ? 25 : 15);
   record('vLLM answers through the RunPod proxy', first.ok, first.note);
+  if (!first.ok && bootstrap) {
+    // Nothing after this can pass; say why and stop paying.
+    say(`  the node's own log:\n${await nodeStatus()}`);
+    return;
+  }
 
   const stop = await rp.action(podId, 'stop', `shake-stop-${randomUUID()}`);
   say(`  stop: ${stop.detail}`);
@@ -322,6 +376,7 @@ async function main() {
   record('start again reaches running', await waitState('running', 15));
   const second = await modelAnswers(15);
   record('vLLM answers after a restart', second.ok, second.note);
+  if (!second.ok && bootstrap) say(`  the node's own log:\n${await nodeStatus()}`);
 
   const again = await rp.action(podId, 'start', `shake-start-${randomUUID()}`).then(
     () => 'accepted',
@@ -333,7 +388,13 @@ async function main() {
     // No Controller is reachable from the pod here, as when Ancile is closed:
     // the watchdog alone should stop it after ANCILE_IDLE_MINUTES idle.
     say('Waiting for the watchdog to stop the idle pod by itself (about 3 to 5 min).');
-    record('stops itself when idle, with no Controller (watchdog)', await waitState('stopped', 9));
+    const selfStopped = await waitState('stopped', 9);
+    record(
+      'stops itself when idle, with no Controller (watchdog)',
+      selfStopped,
+      selfStopped ? '' : 'still running after 9 min',
+    );
+    if (!selfStopped) say(`  the node's own log:\n${await nodeStatus()}`);
   }
 }
 

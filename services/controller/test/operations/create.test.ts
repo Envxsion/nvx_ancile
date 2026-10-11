@@ -186,7 +186,9 @@ describe('setting up a pod by hand', () => {
       env: Record<string, string>;
       node_token: string;
     };
-    expect(setup.start_command).toMatch(/infra\/node\/bootstrap\.sh \| bash"$/);
+    expect(setup.start_command).toMatch(
+      /^bash -c "\(curl -fsSL \S+\/infra\/node\/bootstrap\.sh \|\| python3 .*\) \| bash"$/,
+    );
     expect(setup.env.ANCILE_NODE_API_KEY).toBe(key);
     expect(setup.env.CONTROLLER_NODE_TOKEN).toBe(key);
     expect((await call('/control/v1/node-setup')).status).toBe(401);
