@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import { existsSync, mkdirSync, statfsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statfsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { atLeast, c, mark, probe, ROOT, readEnv } from './lib.mjs';
@@ -52,21 +52,45 @@ check(
 );
 
 // --- Environment -----------------------------------------------------------
+// .env is optional: `pnpm start` makes every secret on first run into
+// .ancile/secrets.json, and a value in .env wins over it. Only names are read
+// here, never printed.
 const envFile = join(ROOT, '.env');
+const secretsFile = join(ROOT, '.ancile', 'secrets.json');
+let made = {};
+try {
+  made = existsSync(secretsFile) ? JSON.parse(readFileSync(secretsFile, 'utf8')) : {};
+} catch {
+  check(false, '.ancile/secrets.json readable', 'Delete .ancile/secrets.json; `pnpm start` makes it again.');
+}
+// A blank line in .env (KEY=) leaves the generated value in charge, as at start.
+const env = { ...made, ...Object.fromEntries(Object.entries(readEnv()).filter(([, v]) => v !== '')) };
 check(
-  existsSync(envFile),
-  '.env present',
-  'Run `cp .env.example .env`, then `node scripts/gen-keys.mjs --write`.',
+  true,
+  existsSync(envFile)
+    ? '.env present (its values win)'
+    : 'No .env: defaults, with secrets made on first start',
+  '',
 );
-const env = readEnv();
+const firstRun = !existsSync(secretsFile);
 for (const key of ['ANCILE_SECRET_KEY', 'ANCILE_SERVICE_TOKEN', 'CONTROLLER_TOKEN']) {
-  check(!!env[key], `${key} set`, 'Run `node scripts/gen-keys.mjs --write` to fill it.');
+  check(
+    !!env[key] || firstRun,
+    env[key] ? `${key} set` : `${key} will be made on first start`,
+    'Run `pnpm start` once to make it, or set it in .env.',
+    env[key] ? 'fail' : 'warn',
+  );
 }
 // The runner builds DATABASE_URL from the POSTGRES_* values when it is not set.
 check(
-  !!(env.DATABASE_URL || env.POSTGRES_PASSWORD),
-  env.DATABASE_URL ? 'DATABASE_URL set' : 'Postgres password set',
-  'Run `node scripts/gen-keys.mjs --write` to fill POSTGRES_PASSWORD.',
+  !!(env.DATABASE_URL || env.POSTGRES_PASSWORD) || firstRun,
+  env.DATABASE_URL
+    ? 'DATABASE_URL set'
+    : env.POSTGRES_PASSWORD
+      ? 'Postgres password set'
+      : 'Postgres password will be made on first start',
+  'Run `pnpm start` once to make it, or set POSTGRES_PASSWORD in .env.',
+  env.DATABASE_URL || env.POSTGRES_PASSWORD ? 'fail' : 'warn',
 );
 if (env.ANCILE_SECRET_KEY) {
   const len = Buffer.from(env.ANCILE_SECRET_KEY, 'base64').length;

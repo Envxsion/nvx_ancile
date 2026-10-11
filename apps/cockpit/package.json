@@ -4,7 +4,7 @@
   "private": true,
   "description": "The NVX Ancile Cockpit: the keyboard-first workspace UI.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",

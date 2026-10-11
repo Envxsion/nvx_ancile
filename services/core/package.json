@@ -1,6 +1,7 @@
 {
   "name": "@nvx/ancile-core",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "NVX Ancile Core: the conductor between the Cockpit, the Knowledge service, the Controller and model providers.",
   "type": "module",

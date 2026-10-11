@@ -1,6 +1,7 @@
 {
   "name": "@nvx/plugin-example-memory-provider",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Sketch: an NVX Ancile memory provider backed by an Obsidian vault folder.",
   "type": "module",

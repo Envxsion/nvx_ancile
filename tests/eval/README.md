@@ -24,4 +24,4 @@ Quality is measured, not asserted. These suites run nightly in CI (`.github/work
   - ECE is at most 0.12.
 
 TODO(phase-3): add the corpus, cases and runner for retrieval.
-TODO(phase-4): add the cases and runner for factcheck.
+TODO(phase-6): add the labelled cases and the runner for factcheck, and gate CI on it (v0.2 plan).

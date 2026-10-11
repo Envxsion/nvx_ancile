@@ -1,6 +1,7 @@
 {
   "name": "@nvx/plugin-example-tool",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Worked example: a tools plugin for NVX Ancile, written as an MCP server.",
   "type": "module",

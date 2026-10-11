@@ -4,8 +4,9 @@
 #   docker compose --profile search up -d      + SearXNG for web evidence
 #   docker compose --profile observability up -d  + Phoenix trace UI on :6006
 #
-# For day-to-day development use `pnpm up`, which runs Postgres here and the
-# services on the host with hot reload, after their boot tests pass.
+# For day-to-day development use `pnpm start` instead: Postgres runs embedded
+# (no Docker), and the services run on the host with hot reload after their
+# boot tests pass.
 
 name: nvx-ancile
 

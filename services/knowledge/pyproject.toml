@@ -3,7 +3,7 @@ name = "ancile-knowledge"
 version = "0.1.0"
 description = "NVX Ancile knowledge layer: ingestion, chunking, embeddings, hybrid search, evidence. A product from nvx.sh."
 requires-python = ">=3.12,<3.13"
-license = { text = "UNLICENSED" }
+license = { text = "GPL-3.0-or-later" }
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",

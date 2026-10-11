@@ -1,6 +1,7 @@
 {
   "name": "@nvx/aperture",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "APERTURE, the NVX family design system, as carried by NVX Ancile: tokens, identity, the mark, theme boot.",
   "type": "module",

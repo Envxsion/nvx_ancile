@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "NVX Ancile: a private AI operating system for serious knowledge work. A product from nvx.sh.",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@11.3.0",
   "engines": {
     "node": ">=22.12"

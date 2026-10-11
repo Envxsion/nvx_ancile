@@ -1,6 +1,7 @@
 {
   "name": "@nvx/resilience",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Retry, circuit breaker, deadlines, bulkheads and fallback chains: the only sanctioned way NVX Ancile calls anything external.",
   "type": "module",

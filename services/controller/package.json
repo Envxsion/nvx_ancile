@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "NVX Ancile Controller: remote compute lifecycle, model routing to nodes, queueing, costs and auto-shutdown rules. A separate deployable with its own contract.",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.12"

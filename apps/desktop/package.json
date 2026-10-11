@@ -1,6 +1,7 @@
 {
   "name": "@nvx/ancile-desktop",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "NVX Ancile for the desktop: a Tauri shell that runs every service for you.",
   "type": "module",

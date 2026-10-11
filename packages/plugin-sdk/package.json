@@ -1,6 +1,7 @@
 {
   "name": "@nvx/plugin-sdk",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Build NVX Ancile plugins: tools (as MCP servers with permission tiers), memory providers, and drawer/admin panels.",
   "type": "module",

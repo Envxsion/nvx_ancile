@@ -7,8 +7,9 @@
 #  How      |  Bun compiles the vendored workspace; the runtime image
 #           |  carries git (snapshots/undo), ripgrep (grep tool) and
 #           |  the binary, as a non-root user confined to /workspace.
-#  Note     |  TODO(phase-2): apply vendor/opencode/PATCHES.md before
-#           |  build (permission bridge, auth, no phone-home, gateway).
+#  Note     |  The engine's source is unchanged: every planned patch is
+#           |  done through its config and HTTP API (vendor/opencode/
+#           |  PATCHES.md). Run it with agentEnv()'s isolated environment.
 # ------------------------------------------------------------------
 
 FROM oven/bun:1.3 AS build

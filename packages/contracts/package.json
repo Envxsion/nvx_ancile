@@ -1,6 +1,7 @@
 {
   "name": "@nvx/contracts",
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "The single source of truth for NVX Ancile's API, events, config and Controller contract (zod). Python models are generated from the JSON Schema export.",
   "type": "module",
