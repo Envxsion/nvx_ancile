@@ -87,6 +87,8 @@ export function computeRoutes(deps: {
   });
 
   r.get('/compute/nodes', async (c) => c.json(await client.get('/nodes')));
+  // The settings for a pod set up by hand, its key included (shown to you, never logged).
+  r.get('/compute/node-setup', async (c) => c.json(await client.get('/node-setup')));
   r.post('/compute/nodes', async (c) => {
     const req = await body(c, AddNodeBody);
     if (deps.hasFeature) await assertRoomForNode(client, deps.hasFeature('fleet'));

@@ -16,7 +16,7 @@ A node is **ephemeral and stateless**. It serves models over an OpenAI-compatibl
 - **Start command:** `bash -c "curl -fsSL https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh | bash"`. Piped in like this, the script fetches `healthcheck.sh` and `watchdog.sh` to `/workspace/ancile-node/` itself. Alternatively, copy `infra/node/` to the volume and run `bash /workspace/ancile-node/bootstrap.sh`.
 - **Environment:** `ANCILE_MODEL`, `ANCILE_NODE_API_KEY`. Optionally `ANCILE_TOOL_PARSER`, `ANCILE_VLLM_ARGS`, `CONTROLLER_URL`, `CONTROLLER_NODE_TOKEN`, `HF_TOKEN`.
 
-Set the same `ANCILE_NODE_API_KEY` as the node's token in the Controller, so the data plane can authenticate to vLLM.
+`ANCILE_NODE_API_KEY` must equal the Controller's `CONTROLLER_NODE_TOKEN`: the Controller sends that value as the bearer token on every request it routes to the node, and vLLM rejects any other. Set `CONTROLLER_NODE_TOKEN` on the pod to the same value so heartbeats are accepted. A pod created from the app gets the value from the Controller itself; only a pod you set up by hand needs it typed in.
 
 ## Notes and open items
 

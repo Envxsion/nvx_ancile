@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { ActionRequest, CreateNodeRequest, Rule } from '@nvx/contracts/controller';
+import { ActionRequest, CreateNodeRequest, type NodeSetup, Rule } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -34,6 +34,10 @@ export interface ControlDeps extends ExecutorDeps {
   nodeToken?: string;
 }
 
+/** The node bootstrap on this repository's main branch (infra/node/bootstrap.sh). */
+export const BOOTSTRAP_URL =
+  'https://raw.githubusercontent.com/Envxsion/nvx_ancile/main/infra/node/bootstrap.sh';
+
 const ulidish = (prefix: string) =>
   `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 26).toUpperCase()}`;
 
@@ -51,6 +55,21 @@ export function controlRoutes(deps: ControlDeps) {
   app.use('*', trace);
 
   app.get('/nodes', async (c) => c.json({ items: (await store.listNodes()).map(publicNode) }));
+
+  // For a pod set up by hand: the bootstrap and the key this Controller sends
+  // (docs/compute.md). Behind the Controller token, like every /control route.
+  app.get('/node-setup', (c) => {
+    const token = deps.nodeToken ?? null;
+    const out: NodeSetup = {
+      start_command: `bash -c "curl -fsSL ${BOOTSTRAP_URL} | bash"`,
+      env: {
+        ANCILE_MODEL: '<Hugging Face model id>',
+        ...(token && { ANCILE_NODE_API_KEY: token, CONTROLLER_NODE_TOKEN: token }),
+      },
+      node_token: token,
+    };
+    return c.json(out);
+  });
 
   const RegisterBody = z.object({
     provider_ref: z.string().min(1).max(500),

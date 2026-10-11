@@ -175,3 +175,27 @@ describe('creating a node', () => {
     expect(node).toMatchObject({ ref: 'pod9', hourlyRate: 0.79, region: 'EU-RO-1' });
   });
 });
+
+describe('setting up a pod by hand', () => {
+  it('gives the bootstrap and the key this Controller sends, behind its token', async () => {
+    const key = 'n'.repeat(32);
+    const { call } = app(new FakeProvider(20), key);
+    const r = await call('/control/v1/node-setup', { headers: auth });
+    const setup = (await r.json()) as {
+      start_command: string;
+      env: Record<string, string>;
+      node_token: string;
+    };
+    expect(setup.start_command).toMatch(/infra\/node\/bootstrap\.sh \| bash"$/);
+    expect(setup.env.ANCILE_NODE_API_KEY).toBe(key);
+    expect(setup.env.CONTROLLER_NODE_TOKEN).toBe(key);
+    expect((await call('/control/v1/node-setup')).status).toBe(401);
+  });
+
+  it('says there is no key when CONTROLLER_NODE_TOKEN is not set', async () => {
+    const r = await app(new FakeProvider(20)).call('/control/v1/node-setup', { headers: auth });
+    const setup = (await r.json()) as { env: Record<string, string>; node_token: string | null };
+    expect(setup.node_token).toBeNull();
+    expect(setup.env.ANCILE_NODE_API_KEY).toBeUndefined();
+  });
+});

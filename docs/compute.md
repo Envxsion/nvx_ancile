@@ -18,9 +18,12 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
    ```
    Then set these env vars on the pod:
    - `ANCILE_MODEL` (e.g. `Qwen/Qwen3-32B-AWQ`)
-   - `ANCILE_NODE_API_KEY` (a random string)
-   - `CONTROLLER_NODE_TOKEN` (from your `.env`)
+   - `ANCILE_NODE_API_KEY`: **the same value as `CONTROLLER_NODE_TOKEN` in your `.env`**. The Controller sends that value to the node with every request, and vLLM refuses anything else, so a different value means every chat routed to the node fails with 401.
+   - `CONTROLLER_NODE_TOKEN`: that same value again, so the node's heartbeats are accepted
    - `CONTROLLER_URL`, if your Controller is reachable from the internet; otherwise the Controller polls instead
+   Set `CONTROLLER_NODE_TOKEN` in `.env` first if it is empty: any long random string, for example from `openssl rand -hex 32`. Restart the Controller after changing it.
+
+   Pods you create from the app (GPU fleet, Pro) need none of this: the Controller gives them its own value.
 4. In Ancile, open Admin → Compute → **Add node**. Pick the pod and the models it serves, and set the hourly and storage rates if RunPod doesn't report them.
 5. Add a model with `via: controller` (Settings → Models does this for you), and put it in a routing chain.
 

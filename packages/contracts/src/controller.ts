@@ -116,6 +116,18 @@ export const CreateNodeRequest = z.object({
   reason: z.string().max(500).optional(),
 });
 
+/**
+ * GET /control/v1/node-setup: what a pod set up by hand needs (start
+ * command and environment), so its key matches the one the Controller
+ * sends. `node_token` is null when CONTROLLER_NODE_TOKEN is not set.
+ */
+export const NodeSetup = z.object({
+  start_command: z.string(),
+  env: z.record(z.string(), z.string()),
+  node_token: z.string().nullable(),
+});
+export type NodeSetup = z.infer<typeof NodeSetup>;
+
 export const ActionRequest = z.object({
   action: NodeAction,
   idempotency_key: z.string().min(8),

@@ -277,7 +277,7 @@
   flex: 1 1 220px;
   padding: 0 8px 0 10px;
   border-radius: var(--r-sm);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--mute);
   transition: box-shadow var(--d-micro) var(--ease);
@@ -342,7 +342,7 @@
   min-height: 240px;
   overflow: auto;
   border-radius: var(--r-lg);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px var(--hair);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -563,7 +563,7 @@ button.logline__row:hover {
   display: grid;
   padding: 26px 0 6px;
   border-radius: var(--r-lg);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px var(--hair);
   overflow: hidden;
 }
@@ -1183,7 +1183,7 @@ button.logline__row:hover {
   margin: 12px 0;
   padding: 10px 12px;
   border-radius: var(--r-md);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.4);
 }
 .token-box code {

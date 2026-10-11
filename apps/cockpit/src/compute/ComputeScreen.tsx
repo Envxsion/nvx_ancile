@@ -48,6 +48,7 @@ import {
   useNodes,
   useRules,
 } from './data';
+import { PodSetup } from './PodSetup';
 
 const STATE_WORD: Record<ComputeNode['observed_state'], string> = {
   creating: 'Being created',
@@ -607,6 +608,7 @@ function AddNodeDialog({
                 </span>
               </label>
             ) : null}
+            {!local ? <PodSetup /> : null}
             <div className="dialog__actions">
               <Dialog.Close asChild>
                 <button type="button" className="btn btn--ghost">

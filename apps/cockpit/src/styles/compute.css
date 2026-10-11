@@ -194,7 +194,7 @@
   width: 32px;
   height: 32px;
   border-radius: var(--r-md);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow:
     var(--hi),
     inset 0 0 0 1px var(--hair);
@@ -243,7 +243,7 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: var(--r-md);
-  background: var(--vault);
+  background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px var(--hair);
 }
 .node-card__figures dt {
@@ -387,6 +387,55 @@
 .add-node__form {
   display: grid;
   gap: 14px;
+}
+
+/* Setting a pod up by hand: closed by default, so the dialog stays short. */
+.pod-setup {
+  border-top: 1px solid var(--hair);
+  padding-top: 12px;
+  font-size: var(--t-small);
+}
+.pod-setup summary {
+  cursor: pointer;
+  color: var(--fg-2);
+}
+.pod-setup summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.pod-setup__body {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.pod-setup__body p {
+  margin: 0;
+}
+.pod-setup__block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: start;
+}
+.pod-setup__label {
+  grid-column: 1 / -1;
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.pod-setup__code {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--void-rgb) / 0.55);
+  box-shadow: var(--vault);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pod-setup__warn {
+  color: var(--warn);
 }
 
 @media (max-width: 720px) {

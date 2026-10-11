@@ -79,7 +79,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `RUNPOD_API_BASE` | `https://api.runpod.io` | REST v2. v1 is retired on 15 Nov 2026. |
 | `CONTROLLER_COST_CAP_USD` | `150` | Default hard monthly cap across nodes. |
 | `CONTROLLER_QUEUE_DEADLINE_S` | `240` | How long a request waits for a waking node. |
-| `CONTROLLER_NODE_TOKEN` | empty | Token nodes use to send heartbeats. |
+| `CONTROLLER_NODE_TOKEN` | empty | The shared key between the Controller and its nodes: the Controller sends it to each node's model server, and nodes use it for heartbeats. A pod you set up by hand needs the same value as `ANCILE_NODE_API_KEY` and `CONTROLLER_NODE_TOKEN`; pods created from the app get it automatically. Creating a pod from the app without it fails with `node.needs_token`. |
 
 ### Providers
 
