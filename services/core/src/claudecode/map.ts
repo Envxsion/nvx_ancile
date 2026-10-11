@@ -11,9 +11,14 @@
  *           |  a turn in one message, with tool calls and their results
  *           |  side by side, so entries are grouped: a prompt is a user
  *           |  message; the assistant entries and tool results after it
- *           |  are one assistant message; the summary Claude Code writes
- *           |  when it compacts is a system message whose provenance
- *           |  kind is 'compact_boundary' (the UI draws a divider).
+ *           |  are one assistant message. What Claude Code itself wrote
+ *           |  on the user side (markup.ts) is not shown as the person's
+ *           |  words: a slash command is one user message of kind
+ *           |  'command' (its printed output folded in), notifications
+ *           |  and hand-backs are system messages of kind
+ *           |  'notification', a compaction is a 'compact_boundary'
+ *           |  divider followed by a 'compact_summary', and an
+ *           |  interruption is a system message of kind 'interrupted'.
  *           |  Each message lists the entry uuids it holds in
  *           |  provenance.claude_code.uuids, which is how a sync knows
  *           |  what is already mirrored. An entry whose predecessor is
@@ -22,20 +27,50 @@
  *  Note     |  Very large tool results are cut to RESULT_CAP characters
  *           |  with a note. Images up to IMAGE_CAP bytes are kept as
  *           |  data URLs; larger ones become a short text note.
+ *           |  MAPPER_VERSION goes up whenever the result changes.
  * ------------------------------------------------------------------
  */
 
 import type { Part, Usage } from '@nvx/contracts';
 import type { CcSessionMessage } from './bridge-protocol';
+import {
+  type CcCommand,
+  type CcNotification,
+  classifyUser,
+  commandLine,
+  isInterruption,
+  joinOutput,
+  stripReminders,
+  type UserClass,
+} from './markup';
 
 export const RESULT_CAP = 64 * 1024;
 export const IMAGE_CAP = 512 * 1024;
 const SUB_TEXT_CAP = 4 * 1024;
 const SUB_TURNS_CAP = 300;
 
+/**
+ * Bumped whenever the mapping changes what a session looks like. A
+ * thread mapped by an older version (and holding nothing written in
+ * Ancile) is rebuilt on the next auto-import pass.
+ * 1: first release. 2: Claude Code's own markup (commands,
+ * notifications, compaction summary, interruptions, reminders) mapped
+ * instead of shown as the person's prompts.
+ */
+export const MAPPER_VERSION = 2;
+
+export const INTERRUPTED_TEXT = 'Stopped by you';
+
+/** provenance.claude_code.kind; prompts and answers have none. */
+export type CcKind = 'command' | 'notification' | 'compact_boundary' | 'compact_summary' | 'interrupted';
+
 type Block = Record<string, unknown>;
 
-export type EntryKind = 'prompt' | 'assistant' | 'tool_result' | 'compact' | 'skip';
+export type EntryClass =
+  | { kind: 'assistant' }
+  | { kind: 'tool_result'; interrupted: boolean }
+  | { kind: 'skip' }
+  | UserClass;
 
 const isObj = (v: unknown): v is Block => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -48,16 +83,31 @@ function contentOf(e: CcSessionMessage): string | Block[] | null {
   return null;
 }
 
-export function kindOf(e: CcSessionMessage): EntryKind {
-  if (e.type === 'system') return 'skip';
-  if (e.type === 'assistant') return 'assistant';
-  if (e.isCompactSummary) return 'compact';
-  if (e.is_meta) return 'skip';
+const isToolResult = (b: Block) => b.type === 'tool_result' || String(b.type).endsWith('_tool_result');
+const blockText = (b: Block) => (typeof b.text === 'string' ? b.text : '');
+
+/** What one transcript entry is. */
+export function classify(e: CcSessionMessage): EntryClass {
+  if (e.type === 'system') return { kind: 'skip' };
+  if (e.type === 'assistant') return { kind: 'assistant' };
   const c = contentOf(e);
-  if (c === null) return 'skip';
-  if (Array.isArray(c) && c.some((b) => b.type === 'tool_result' || String(b.type).endsWith('_tool_result')))
-    return 'tool_result';
-  return 'prompt';
+  if (e.isCompactSummary) {
+    const text = typeof c === 'string' ? c : (c ?? []).map(blockText).join('');
+    return { kind: 'compact', text: stripReminders(text).trim() };
+  }
+  if (c === null) return { kind: 'skip' };
+  if (Array.isArray(c)) {
+    if (c.some(isToolResult))
+      return {
+        kind: 'tool_result',
+        interrupted: c.some((b) => b.type === 'text' && isInterruption(blockText(b))),
+      };
+    // Only text blocks: read them as one string. Anything else (a pasted image) is a prompt.
+    if (!c.every((b) => b.type === 'text'))
+      return e.is_meta ? { kind: 'skip' } : { kind: 'prompt', text: '' };
+    return classifyUser(c.map(blockText).join('\n'), e.origin, !!e.is_meta);
+  }
+  return classifyUser(c, e.origin, !!e.is_meta);
 }
 
 function cut(text: string, cap: number): string {
@@ -98,16 +148,26 @@ function resultText(content: unknown, cap: number): string {
   return cut(JSON.stringify(content), cap);
 }
 
-/** One entry's content blocks as Ancile parts. */
+/**
+ * One entry's content blocks as Ancile parts. On the user side,
+ * <system-reminder> blocks and interruption notes are left out.
+ */
 export function partsOf(e: CcSessionMessage, cap = RESULT_CAP): Part[] {
   const c = contentOf(e);
   if (c === null) return [];
-  if (typeof c === 'string') return c ? [{ type: 'text', text: cut(c, cap * 4) }] : [];
+  const userSide = e.type === 'user';
+  const clean = (t: string) => (userSide ? stripReminders(t) : t);
+  if (typeof c === 'string') {
+    const t = clean(c);
+    return t.trim() ? [{ type: 'text', text: cut(t, cap * 4) }] : [];
+  }
   const out: Part[] = [];
   for (const b of c) {
     const t = String(b.type);
     if (t === 'text' && typeof b.text === 'string') {
-      if (b.text) out.push({ type: 'text', text: cut(b.text, cap * 4) });
+      const text = clean(b.text);
+      if (userSide && isInterruption(text)) continue;
+      if (text.trim()) out.push({ type: 'text', text: cut(text, cap * 4) });
     } else if (t === 'thinking' && typeof b.thinking === 'string') {
       out.push({
         type: 'reasoning',
@@ -125,7 +185,7 @@ export function partsOf(e: CcSessionMessage, cap = RESULT_CAP): Part[] {
       typeof b.id === 'string'
     ) {
       out.push({ type: 'tool_call', call_id: b.id, tool: String(b.name ?? 'tool'), args: b.input ?? {} });
-    } else if ((t === 'tool_result' || t.endsWith('_tool_result')) && typeof b.tool_use_id === 'string') {
+    } else if (isToolResult(b) && typeof b.tool_use_id === 'string') {
       out.push({
         type: 'tool_result',
         call_id: b.tool_use_id,
@@ -184,14 +244,22 @@ export function addUsage(a: Usage | null, b: Usage | null): Usage | null {
   };
 }
 
-/** Provenance kept on every mirrored message. */
+/**
+ * Provenance kept on every mirrored message (provenance.claude_code).
+ * A marker Ancile adds after an entry (the divider before a compaction
+ * summary, "Stopped by you" after an interrupted tool call) holds the
+ * entry's uuid with a "+" suffix, or none, so it is never written twice.
+ */
 export interface CcProvenance {
   session_id: string;
   /** The last entry this message holds. */
   uuid: string;
   uuids: string[];
-  /** 'compact_boundary' where Claude Code compacted the conversation. */
-  kind?: 'compact_boundary';
+  kind?: CcKind;
+  /** kind 'command'. */
+  command?: CcCommand;
+  /** kind 'notification'. */
+  notification?: CcNotification;
   /** The API message id of the last assistant entry, so usage is counted once. */
   last_api_id?: string | null;
 }
@@ -208,15 +276,22 @@ export interface PlannedMessage {
   created_at: string | null;
   model_id: string | null;
   usage: Usage | null;
-  compact: boolean;
+  kind: CcKind | null;
+  command?: CcCommand;
+  notification?: CcNotification;
+  /** Extending a mirrored command: output to add to it. */
+  output?: string | null;
   last_api_id: string | null;
 }
 
 /** What is already mirrored: entry uuid → message, and each message's last entry. */
 export interface MirrorState {
   byUuid: Map<string, string>;
-  /** message id → { role, last uuid, has children, last api id } */
-  messages: Map<string, { role: string; lastUuid: string; hasChildren: boolean; lastApiId: string | null }>;
+  /** message id → { role, last uuid, has children, last api id, kind } */
+  messages: Map<
+    string,
+    { role: string; lastUuid: string; hasChildren: boolean; lastApiId: string | null; kind?: string | null }
+  >;
 }
 
 export interface PlanResult {
@@ -226,6 +301,22 @@ export interface PlanResult {
   /** The last entry of the chain, mirrored or not. */
   lastUuid: string | null;
 }
+
+/** The provenance a planned (new) message is written with. */
+export function provenanceOf(sessionId: string, p: PlannedMessage): CcProvenance {
+  return {
+    session_id: sessionId,
+    uuid: p.uuids.at(-1) ?? '',
+    uuids: p.uuids,
+    ...(p.kind && { kind: p.kind }),
+    ...(p.command && { command: p.command }),
+    ...(p.notification && { notification: p.notification }),
+    ...(p.last_api_id && { last_api_id: p.last_api_id }),
+  };
+}
+
+/** The marker key for something Ancile adds after entry `uuid`. */
+const after = (uuid: string) => `${uuid}+`;
 
 /**
  * Work out the messages to write for `chain` (the session's current
@@ -245,21 +336,26 @@ export function planSync(
   let open: PlannedMessage | null = null;
   let lastUuid: string | null = null;
 
-  const start = (role: PlannedMessage['role'], e: CcSessionMessage, compact: boolean): PlannedMessage => {
-    const p: PlannedMessage = {
-      id: newId(),
-      extends: false,
-      parent_id: prevMsg ?? (planned.length === 0 && mirror.byUuid.size === 0 ? null : fallbackParent),
-      role,
-      parts: [],
-      uuids: [],
-      created_at: e.timestamp ?? null,
-      model_id: null,
-      usage: null,
-      compact,
-      last_api_id: null,
-    };
+  const blank = (id: string, role: PlannedMessage['role'], kind: CcKind | null): PlannedMessage => ({
+    id,
+    extends: false,
+    parent_id: null,
+    role,
+    parts: [],
+    uuids: [],
+    created_at: null,
+    model_id: null,
+    usage: null,
+    kind,
+    last_api_id: null,
+  });
+
+  const start = (role: PlannedMessage['role'], e: CcSessionMessage, kind: CcKind | null): PlannedMessage => {
+    const p = blank(newId(), role, kind);
+    p.parent_id = prevMsg ?? (planned.length === 0 && mirror.byUuid.size === 0 ? null : fallbackParent);
+    p.created_at = e.timestamp ?? null;
     planned.push(p);
+    prevMsg = p.id;
     return p;
   };
 
@@ -270,58 +366,106 @@ export function planSync(
     const known = mirror.byUuid.get(e.uuid);
     if (known) {
       open = null;
-      prevMsg = known;
+      prevMsg = mirror.byUuid.get(after(e.uuid)) ?? known;
       prevUuid = e.uuid;
       continue;
     }
-    const kind = kindOf(e);
-    if (kind === 'skip') continue;
+    const cls = classify(e);
+    if (cls.kind === 'skip') continue;
 
-    if (kind === 'assistant' || kind === 'tool_result') {
+    if (cls.kind === 'assistant' || cls.kind === 'tool_result') {
       if (!open && prevMsg && prevUuid) {
         const m = mirror.messages.get(prevMsg);
         // Carry on the assistant message the previous entry ended, if nothing hangs off it yet.
         if (m && m.role === 'assistant' && m.lastUuid === prevUuid && !m.hasChildren) {
-          open = {
-            id: prevMsg,
-            extends: true,
-            parent_id: null,
-            role: 'assistant',
-            parts: [],
-            uuids: [],
-            created_at: null,
-            model_id: null,
-            usage: null,
-            compact: false,
-            last_api_id: m.lastApiId,
-          };
+          open = { ...blank(prevMsg, 'assistant', null), extends: true, last_api_id: m.lastApiId };
           planned.push(open);
         }
       }
-      if (open?.role !== 'assistant') open = start('assistant', e, false);
+      if (open?.role !== 'assistant') open = start('assistant', e, null);
       open.parts.push(...partsOf(e));
       open.uuids.push(e.uuid);
-      if (kind === 'assistant') {
+      if (cls.kind === 'assistant') {
         open.model_id = modelOf(e) ?? open.model_id;
         const api = apiIdOf(e);
         if (!api || api !== open.last_api_id) open.usage = addUsage(open.usage, usageOf(e));
         open.last_api_id = api ?? open.last_api_id;
       }
       if (!open.created_at && e.timestamp) open.created_at = e.timestamp;
-    } else {
-      open = null;
-      const p = start(kind === 'compact' ? 'system' : 'user', e, kind === 'compact');
-      const parts = partsOf(e);
-      // The summary stays as text; provenance kind 'compact_boundary' marks the divider.
-      p.parts = kind === 'compact' ? parts.filter((x) => x.type === 'text') : parts;
-      p.uuids.push(e.uuid);
+      prevMsg = open.id;
+      prevUuid = e.uuid;
+      if (cls.kind === 'tool_result' && cls.interrupted) {
+        open = null;
+        const s = start('system', e, 'interrupted');
+        s.parts = [{ type: 'text', text: INTERRUPTED_TEXT }];
+        s.uuids.push(after(e.uuid));
+      }
+      continue;
     }
-    const cur = planned[planned.length - 1] as PlannedMessage;
-    prevMsg = cur.id;
+
+    if (cls.kind === 'command_output') {
+      // Fold a command's printed output into the command it belongs to.
+      const last = planned.at(-1);
+      if (open === null && last && last.kind === 'command' && last.id === prevMsg) {
+        if (last.extends || !last.command) last.output = joinOutput(last.output ?? null, cls.output);
+        else last.command.output = joinOutput(last.command.output, cls.output);
+        last.uuids.push(e.uuid);
+        prevUuid = e.uuid;
+        continue;
+      }
+      const m = prevMsg ? mirror.messages.get(prevMsg) : undefined;
+      if (prevMsg && m?.kind === 'command' && m.lastUuid === prevUuid && !m.hasChildren) {
+        const ext: PlannedMessage = {
+          ...blank(prevMsg, 'user', 'command'),
+          extends: true,
+          output: cls.output,
+          uuids: [e.uuid],
+        };
+        planned.push(ext);
+        open = null;
+        prevUuid = e.uuid;
+        continue;
+      }
+      // Output with no command before it: shown as a note.
+      open = null;
+      const n = start('system', e, 'notification');
+      n.notification = { source: 'system', title: 'Command output' };
+      n.parts = [{ type: 'text', text: cls.output ?? '' }];
+      n.uuids.push(e.uuid);
+      prevUuid = e.uuid;
+      continue;
+    }
+
+    open = null;
+    if (cls.kind === 'compact') {
+      // A divider, then Claude Code's summary of what came before.
+      // The divider holds no entry: on a later sync the summary's entry is known, so it is not redone.
+      start('system', e, 'compact_boundary');
+      const s = start('system', e, 'compact_summary');
+      s.parts = cls.text ? [{ type: 'text', text: cls.text }] : [];
+      s.uuids.push(e.uuid);
+    } else if (cls.kind === 'interrupted') {
+      const s = start('system', e, 'interrupted');
+      s.parts = [{ type: 'text', text: INTERRUPTED_TEXT }];
+      s.uuids.push(e.uuid);
+    } else if (cls.kind === 'command') {
+      const s = start('user', e, 'command');
+      s.command = { ...cls.command };
+      s.parts = [{ type: 'text', text: commandLine(cls.command) }];
+      s.uuids.push(e.uuid);
+    } else if (cls.kind === 'notification') {
+      const s = start('system', e, 'notification');
+      s.notification = cls.notification;
+      s.parts = cls.body ? [{ type: 'text', text: cut(cls.body, RESULT_CAP * 4) }] : [];
+      s.uuids.push(e.uuid);
+    } else {
+      const s = start('user', e, null);
+      s.parts = partsOf(e);
+      s.uuids.push(e.uuid);
+    }
     prevUuid = e.uuid;
-    if (kind === 'prompt' || kind === 'compact') open = null;
   }
-  // A user message with no parts (an empty prompt) still needs a part to render.
+  // A message with no parts (an empty prompt, a divider) still needs a part to render.
   for (const p of planned) if (!p.extends && p.parts.length === 0) p.parts = [{ type: 'text', text: '' }];
   return { planned, head: prevMsg, lastUuid };
 }
@@ -344,17 +488,20 @@ export function digestSubagent(agentId: string, msgs: CcSessionMessage[]): Subag
   const callId = msgs.find((m) => m.parent_tool_use_id)?.parent_tool_use_id ?? null;
   let n = 0;
   const { planned } = planSync(msgs, { byUuid: new Map(), messages: new Map() }, () => `t${n++}`, null);
-  const turns = planned.slice(0, SUB_TURNS_CAP).map((p) => ({
-    role: p.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-    parts: p.parts.map((x): Part => {
-      if (x.type === 'text') return { type: 'text', text: cut(x.text, SUB_TEXT_CAP) };
-      if (x.type === 'reasoning') return { type: 'reasoning', text: cut(x.text, SUB_TEXT_CAP) };
-      if (x.type === 'tool_result')
-        return { ...x, result: typeof x.result === 'string' ? cut(x.result, SUB_TEXT_CAP / 2) : x.result };
-      if (x.type === 'image') return { type: 'text', text: '[image]' };
-      return x;
-    }),
-  }));
+  const turns = planned
+    .filter((p) => p.kind !== 'compact_boundary')
+    .slice(0, SUB_TURNS_CAP)
+    .map((p) => ({
+      role: p.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+      parts: p.parts.map((x): Part => {
+        if (x.type === 'text') return { type: 'text', text: cut(x.text, SUB_TEXT_CAP) };
+        if (x.type === 'reasoning') return { type: 'reasoning', text: cut(x.text, SUB_TEXT_CAP) };
+        if (x.type === 'tool_result')
+          return { ...x, result: typeof x.result === 'string' ? cut(x.result, SUB_TEXT_CAP / 2) : x.result };
+        if (x.type === 'image') return { type: 'text', text: '[image]' };
+        return x;
+      }),
+    }));
   return {
     call_id: callId,
     agent_id: agentId,

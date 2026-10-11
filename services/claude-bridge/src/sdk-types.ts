@@ -47,6 +47,8 @@ export interface CcSessionMessage {
   /** The summary written when Claude Code compacted the conversation. */
   isCompactSummary?: boolean;
   is_meta?: boolean;
+  /** Who put a user entry there ({ kind: 'human' | 'peer' | 'task-notification', … }); passed through as is. */
+  origin?: unknown;
 }
 
 export interface CcDirOptions {

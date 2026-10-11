@@ -25,14 +25,44 @@ Claude Code's usage counts against whichever account Claude Code is signed into 
 - A thread is named after the session: the name you gave it in Claude Code (`/rename`), else its summary, else its first prompt. Rename the session in Claude Code and the thread follows, unless you renamed the thread in NVX Ancile, which then wins.
 - Sessions from one folder go into one notebook named after that folder, such as `cyberfolio` or `nvx_ancile`. A notebook you already have with exactly that name is used, unless it already belongs to another folder. Two folders with the same name are told apart by their parent folder: `nvx_ancile (Desktop)`.
 - Each thread remembers the folder its session runs in, exactly as Claude Code recorded it, so it can carry on in that folder later.
+- A notebook made for a folder gets its own colour: the first of azure, coral, jade, amber, cyan and magenta that no other notebook (not archived) uses. When all six are taken it gets the least used one, and the same folder always gets the same one. Folder notebooks made before colours get theirs on the next import pass. A notebook you already had, or chose, keeps its colour.
+
+## Excluded folders
+
+Some sessions are not yours: the claude-mem plugin, for example, runs automated "observer" sessions in `~/.claude-mem`. Sessions from an excluded folder (or any folder inside it) are never listed, never brought in automatically, and bringing one in by hand says "Sessions from that folder are not brought in".
+
+- Settings → Claude Code → **Excluded folders** lists them (`exclude_folders`). `~` means your home folder. On Windows, case and slash direction do not matter. `~/.claude-mem` is excluded by default.
+- **Don't bring in this folder** on a session adds its folder to the list.
+- What already came in from an excluded folder is put away when NVX Ancile starts and whenever the list changes: a thread whose messages all came from Claude Code is archived (never deleted) and no longer synced. A thread you wrote in from NVX Ancile is left exactly as it is. A notebook NVX Ancile made for that folder is archived too once it has no threads left that are not archived.
 
 ## How sessions look in a thread
 
 - Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results.
-- Where Claude Code compacted the conversation, a divider reads "Conversation compacted here", with Claude Code's summary.
+- What Claude Code itself wrote on your side of the conversation is not shown as if you typed it:
+  - **Commands you ran** (`/model opus`, or `!git status` in shell mode) are one message showing the command, with what it printed folded into it (colour codes removed).
+  - **Notifications** are shown as notes, not as your words: a background task that finished or failed (with its result), a message from another Claude Code session ("Message from nvx_folio"), and an agent's report.
+  - **Interruptions** ("[Request interrupted by user]") read "Stopped by you".
+  - Claude Code's notes to the model (`<system-reminder>`) and its caveat before local commands are left out.
+- Where Claude Code compacted the conversation, a divider reads "Conversation compacted here", followed by Claude Code's summary of what came before, as a note.
 - A subagent (the Task tool) is folded under the call that started it; open it to read its conversation.
 - Very large tool results are shortened, with a note saying how much was left out. Images up to 512 KB come in; larger ones are noted.
 - If you rewound a session in Claude Code and went another way, the thread has a branch there, and the newest path is the one shown.
+
+### For developers: what the Cockpit receives
+
+Every message from Claude Code has `provenance.claude_code = { session_id, uuid, uuids, kind?, command?, notification?, last_api_id?, subagent? }`. Prompts and answers have no `kind`. The others:
+
+| `kind` | role | parts | extra fields |
+|---|---|---|---|
+| `command` | user | one text part, `/name args` (or `! command`) | `command: { name, args, output }`; `output` is the printed stdout then stderr, ANSI codes removed, or `null` |
+| `notification` | system | one text part: the body as markdown, tags removed (may be empty) | `notification: { source: 'task' \| 'session' \| 'agent' \| 'system', title, from?, status? }` |
+| `compact_boundary` | system | one empty text part | none; the divider |
+| `compact_summary` | system | one text part: Claude Code's summary | none; it hangs off the divider |
+| `interrupted` | system | one text part, "Stopped by you" | none |
+
+Titles are "Background task finished: <summary>" (or "failed", "stopped"), "Message from <session>", "Report from an agent" (with `from` naming it) and "Note from Claude Code" for a wrapper NVX Ancile does not know yet. Tool results stay strings, line-number gutters included.
+
+When the mapping changes, `MAPPER_VERSION` (services/core/src/claudecode/map.ts) goes up. The next import pass rebuilds every thread made by an older version, keeping the thread, its title, notebook and place in the list, as long as the thread holds only messages from Claude Code. A thread you wrote in from NVX Ancile is kept as it is; only new messages use the new mapping.
 
 ## How NVX Ancile reads sessions
 
@@ -46,3 +76,5 @@ Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Clau
 
 - The folder recorded is the one Claude Code gives for the session; a session that moved folder part-way through (`/cd`) shows its current folder only when Claude Code reports it. TODO(phase-2): follow folder changes within a session.
 - Running sessions from NVX Ancile comes in the next release.
+- Claude Code gives NVX Ancile a session's current conversation only, so a rewind inside Claude Code (Esc Esc) shows as a branch only if NVX Ancile synced the earlier path before you rewound. After a compaction, it gives the conversation from the summary on.
+- A forked session (`/branch`, or the SDK's `forkSession`) comes in as a thread of its own: on the sessions measured, no message ids were shared between sessions, so there is nothing to hang a fork off as a branch. TODO(phase-2): bring forks in as branches if Claude Code records where they came from.

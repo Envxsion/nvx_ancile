@@ -16,7 +16,11 @@
  *           |  projects folder changes. A pass works one session at a
  *           |  time, newest first, writes in chunks and pauses between
  *           |  sessions, so requests are never held up; it resumes
- *           |  from what is stored (each session's last sync).
+ *           |  from what is stored (each session's last sync). A pass
+ *           |  also rebuilds threads made by an older MAPPER_VERSION and
+ *           |  colours folder notebooks. Excluded folders are never
+ *           |  listed or imported; what came from them is archived at
+ *           |  start and whenever the list changes.
  *  Note     |  Sessions are only ever read: a session open in a
  *           |  terminal keeps syncing and is never written to. Nothing
  *           |  here spawns or downloads at Core boot unless Claude Code
@@ -49,8 +53,18 @@ import type { CcSessionInfo, SessionSource } from './bridge-protocol';
 import { type ClaudeCli, MIN_VERSION } from './cli';
 import { ccErrors } from './errors';
 import type { ClaudeInstaller } from './install';
-import { addUsage, type CcProvenance, digestSubagent, planSync, type SubagentDigest, titleOf } from './map';
-import { type ClaudeCodeStore, cwdKey, type SessionBinding } from './store';
+import {
+  addUsage,
+  type CcProvenance,
+  digestSubagent,
+  MAPPER_VERSION,
+  planSync,
+  provenanceOf,
+  type SubagentDigest,
+  titleOf,
+} from './map';
+import { joinOutput } from './markup';
+import { type ClaudeCodeStore, cwdKey, cwdWithin, type SessionBinding } from './store';
 import type { ClaudeVerifier } from './verify';
 
 const log = logFor('claude-code');
@@ -84,6 +98,8 @@ export interface ClaudeCodeServiceDeps {
   /** Auto-import timings. */
   auto?: { startDelayMs?: number; debounceMs?: number; pauseMs?: number };
   signInPollMs?: number;
+  /** The home folder "~" stands for in excluded folders. */
+  home?: string;
 }
 
 export interface SessionFilter {
@@ -112,6 +128,45 @@ export function notebookNames(cwd: string): string[] {
   if (parent && grand) out.push(`${base} (${grand}/${parent})`);
   for (let i = 2; i < 50; i++) out.push(`${base} ${i}`);
   return out;
+}
+
+/** The Cockpit's notebook hues, in its order (apps/cockpit/src/lib/mappers.ts HUES). */
+export const NOTEBOOK_HUES = ['azure', 'coral', 'jade', 'amber', 'cyan', 'magenta'] as const;
+
+/**
+ * The Cockpit has no code or terminal glyph in its icon set yet, so a
+ * folder's notebook gets none. TODO(phase-3): 'terminal' once the
+ * Cockpit draws one.
+ */
+export const FOLDER_NOTEBOOK_ICON: string | null = null;
+
+/** FNV-1a, so a folder always breaks a tie the same way. */
+function stableHash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * A hue for a folder's notebook: the first one no other live notebook
+ * uses; when all are used, the least used, ties settled by the folder.
+ */
+export function pickHue(key: string, used: (string | null | undefined)[]): string {
+  const count = new Map<string, number>(NOTEBOOK_HUES.map((h) => [h, 0]));
+  for (const c of used) if (c && count.has(c)) count.set(c, (count.get(c) ?? 0) + 1);
+  const free = NOTEBOOK_HUES.find((h) => count.get(h) === 0);
+  if (free) return free;
+  const least = Math.min(...count.values());
+  const tied = NOTEBOOK_HUES.filter((h) => count.get(h) === least);
+  return tied[stableHash(key) % tied.length] as string;
+}
+
+/** "~" (alone or before a slash) as the home folder. */
+export function expandHome(path: string, home: string): string {
+  return path.trim().replace(/^~(?=$|[\\/])/, home);
 }
 
 export class ClaudeCodeService {
@@ -152,8 +207,74 @@ export class ClaudeCodeService {
   async patchSettings(patch: Partial<ClaudeCodeSettings>): Promise<ClaudeCodeSettings> {
     const next = ClaudeCodeSettings.parse({ ...(await this.settings()), ...patch });
     await this.deps.settings.set(SETTING.claudeCode, next);
+    if (patch.exclude_folders !== undefined) await this.cleanupExcluded();
     if (patch.auto_import === true) this.kick();
     return next;
+  }
+
+  /* ---- excluded folders ------------------------------------------------ */
+
+  /** Does a session in `cwd` belong to an excluded folder? */
+  private async excluded(): Promise<(cwd: string | null | undefined) => boolean> {
+    const home = this.deps.home ?? homedir();
+    const roots = (await this.settings()).exclude_folders.map((f) => expandHome(f, home)).filter(Boolean);
+    return (cwd) => !!cwd && roots.some((r) => cwdWithin(cwd, r, this.platform));
+  }
+
+  /** "Don't bring in this folder": add it to the excluded folders and tidy up. */
+  async excludeFolder(cwd: string): Promise<ClaudeCodeSettings> {
+    const cur = await this.settings();
+    const home = this.deps.home ?? homedir();
+    const already = cur.exclude_folders.some((f) => cwdWithin(cwd, expandHome(f, home), this.platform));
+    if (already) {
+      await this.cleanupExcluded();
+      return cur;
+    }
+    return this.patchSettings({ exclude_folders: [...cur.exclude_folders, cwd] });
+  }
+
+  /**
+   * Put away what was brought in from excluded folders. A thread whose
+   * messages all came from Claude Code is archived (never deleted) and
+   * its session unbound; a thread with anything written in Ancile is
+   * left as it is. A notebook made for such a folder that ends up with
+   * no live threads is archived and its folder unbound.
+   */
+  async cleanupExcluded(): Promise<{ threads: number; notebooks: number }> {
+    const ws = this.deps.workspaceId;
+    const isExcluded = await this.excluded();
+    let threadsDone = 0;
+    let notebooksDone = 0;
+    for (const b of await this.deps.store.sessions(ws)) {
+      if (!isExcluded(b.cwd)) continue;
+      const msgs = await this.deps.threads.messages(b.thread_id);
+      if (!msgs.every((m) => !!m.provenance?.claude_code)) {
+        log.info(
+          { session_id: b.session_id, thread_id: b.thread_id },
+          'a thread from an excluded folder has messages written in Ancile; left as it is',
+        );
+        continue;
+      }
+      const t = await this.deps.threads.getThread(b.thread_id);
+      if (t && !t.archived_at) await this.deps.threads.patchThread(b.thread_id, { archived: true });
+      await this.deps.store.removeSession(ws, b.session_id);
+      threadsDone++;
+    }
+    for (const p of await this.deps.store.projects(ws)) {
+      if (!isExcluded(p.cwd) || !p.created_notebook) continue;
+      const nb = await this.deps.notebooks.get(p.notebook_id);
+      if (!nb) continue;
+      const live = await this.deps.threads.listThreads(ws, { notebookId: nb.id, archived: false, limit: 1 });
+      if (live.length) continue;
+      if (!nb.archived_at) await this.deps.notebooks.patch(nb.id, { archived: true });
+      await this.deps.store.removeProject(ws, p.cwd);
+      notebooksDone++;
+    }
+    if (threadsDone || notebooksDone) {
+      log.info({ threads: threadsDone, notebooks: notebooksDone }, 'put away sessions from excluded folders');
+      this.emit('sessions');
+    }
+    return { threads: threadsDone, notebooks: notebooksDone };
   }
 
   /** Environment for every Claude Code run: telemetry off when the person turned it off. */
@@ -313,7 +434,9 @@ export class ClaudeCodeService {
     const exists = this.deps.pathExists ?? existsSync;
     const q = f.q?.trim().toLowerCase();
     const cwd = f.cwd ? cwdKey(f.cwd, this.platform) : null;
+    const isExcluded = await this.excluded();
     const filtered = infos.filter((s) => {
+      if (isExcluded(s.cwd)) return false;
       if (cwd && (!s.cwd || cwdKey(s.cwd, this.platform) !== cwd)) return false;
       if (q && !titleOf(s).toLowerCase().includes(q) && !(s.cwd ?? '').toLowerCase().includes(q))
         return false;
@@ -391,13 +514,50 @@ export class ClaudeCodeService {
       for (const name of notebookNames(cwd)) {
         const existing = books.find((b) => b.title === name);
         if (existing && bound.has(existing.id)) continue;
-        const id =
-          existing?.id ??
-          (await this.deps.notebooks.create({ id: `nbk_${ulid()}`, workspace_id: ws, title: name })).id;
-        await this.deps.store.putProject(ws, cwd, id);
-        return id;
+        if (existing) {
+          await this.deps.store.putProject(ws, cwd, existing.id, false);
+          return existing.id;
+        }
+        const color = pickHue(
+          key,
+          books.filter((b) => !b.archived_at).map((b) => b.color),
+        );
+        const made = await this.deps.notebooks.create({
+          id: `nbk_${ulid()}`,
+          workspace_id: ws,
+          title: name,
+          color,
+          icon: FOLDER_NOTEBOOK_ICON,
+        });
+        await this.deps.store.putProject(ws, cwd, made.id, true);
+        return made.id;
       }
       return null;
+    });
+    this.notebookLock = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Notebooks made for folders before they had colours get one. */
+  private backfillColours(): Promise<number> {
+    const run = this.notebookLock.then(async () => {
+      const ws = this.deps.workspaceId;
+      const projects = (await this.deps.store.projects(ws)).filter((p) => p.created_notebook);
+      if (!projects.length) return 0;
+      const books = await this.deps.notebooks.list(ws);
+      let n = 0;
+      for (const p of projects) {
+        const nb = books.find((b) => b.id === p.notebook_id);
+        if (!nb || nb.color || nb.archived_at) continue;
+        const color = pickHue(
+          p.cwd_key,
+          books.filter((b) => !b.archived_at && b.id !== nb.id).map((b) => b.color),
+        );
+        await this.deps.notebooks.patch(nb.id, { color });
+        nb.color = color;
+        n++;
+      }
+      return n;
     });
     this.notebookLock = run.catch(() => undefined);
     return run;
@@ -431,10 +591,12 @@ export class ClaudeCodeService {
     const infos = await this.sessionInfos();
     const byId = new Map(infos.map((s) => [s.sessionId, s]));
     const result: ImportClaudeCodeSessionsResult = { imported: [], failed: [] };
+    const isExcluded = await this.excluded();
     for (const id of req.session_ids) {
       try {
         const info = byId.get(id) ?? (await this.deps.source.sessionInfo(id));
         if (!info) throw ccErrors.sessionNotFound(id);
+        if (isExcluded(info.cwd)) throw ccErrors.folderExcluded(info.cwd ?? '');
         const r = await this.syncSession(info, req.notebook_id ?? undefined);
         result.imported.push({
           session_id: id,
@@ -520,8 +682,28 @@ export class ClaudeCodeService {
     } catch (err) {
       throw ccErrors.sdkUnavailable((err as Error).message);
     }
+    // Built by an older mapping: rebuild it, unless something was written in Ancile.
+    let mapperVersion = binding?.mapper_version ?? MAPPER_VERSION;
+    let fallbackHead = thread.active_head_id;
+    if (binding && mapperVersion < MAPPER_VERSION && chain.length > 0) {
+      const old = await threads.messages(thread.id);
+      if (old.every((m) => !!m.provenance?.claude_code)) {
+        await threads.discardMessages(old.map((m) => m.id));
+        fallbackHead = null;
+        log.info(
+          { session_id: sessionId, thread_id: thread.id, from: mapperVersion, to: MAPPER_VERSION },
+          'rebuilding a Claude Code thread with the current mapping',
+        );
+      } else {
+        log.info(
+          { session_id: sessionId, thread_id: thread.id },
+          'a Claude Code thread has messages written in Ancile; kept as it is, new messages use the current mapping',
+        );
+      }
+      mapperVersion = MAPPER_VERSION;
+    }
     const mirror = await this.deps.store.mirror(thread.id);
-    const plan = planSync(chain, mirror, () => `msg_${ulid()}`, thread.active_head_id);
+    const plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
     let added = 0;
     let firstRoot = null as string | null;
 
@@ -530,13 +712,7 @@ export class ClaudeCodeService {
     for (let i = 0; i < fresh.length; i += CHUNK) {
       const rows: NewMessage[] = fresh.slice(i, i + CHUNK).map((p) => {
         if (!p.parent_id && !firstRoot) firstRoot = p.id;
-        const cc: CcProvenance = {
-          session_id: sessionId,
-          uuid: p.uuids.at(-1) ?? '',
-          uuids: p.uuids,
-          ...(p.compact && { kind: 'compact_boundary' as const }),
-          ...(p.last_api_id && { last_api_id: p.last_api_id }),
-        };
+        const cc = provenanceOf(sessionId, p);
         return {
           id: p.id,
           thread_id: thread.id,
@@ -571,6 +747,8 @@ export class ClaudeCodeService {
             uuid: uuids.at(-1) ?? oc.uuid,
             uuids,
             last_api_id: p.last_api_id ?? oc.last_api_id ?? null,
+            ...(p.output !== undefined &&
+              oc.command && { command: { ...oc.command, output: joinOutput(oc.command.output, p.output) } }),
           },
         },
       });
@@ -603,6 +781,7 @@ export class ClaudeCodeService {
       cwd,
       last_modified: info.lastModified ?? 0,
       synced_at: syncedAt,
+      mapper_version: mapperVersion,
     };
     await this.deps.store.putSession(ws, binding2);
     if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
@@ -679,6 +858,10 @@ export class ClaudeCodeService {
   /** Start auto-import: a pass after a short delay, then on every change to the projects folder. */
   startAuto(): void {
     this.stopped = false;
+    // What excluded folders brought in before is put away at every start.
+    void this.cleanupExcluded().catch((err: unknown) =>
+      log.warn({ err: (err as Error).message }, 'could not put away sessions from excluded folders'),
+    );
     if (!this.deps.cli.where()) return;
     this.startTimer = setTimeout(() => {
       void this.watch();
@@ -755,13 +938,17 @@ export class ClaudeCodeService {
   private async pass(): Promise<void> {
     if (!(await this.settings()).auto_import) return;
     if (!this.deps.cli.where()) return;
+    const coloured = await this.backfillColours();
+    if (coloured) this.emit('sessions', { detail: 'notebooks' });
     const infos = await this.sessionInfos(true);
     const bound = new Map(
       (await this.deps.store.sessions(this.deps.workspaceId)).map((b) => [b.session_id, b]),
     );
+    const isExcluded = await this.excluded();
     const todo = infos.filter((i) => {
+      if (isExcluded(i.cwd)) return false;
       const b = bound.get(i.sessionId);
-      return !b || b.last_modified < i.lastModified;
+      return !b || b.last_modified < i.lastModified || b.mapper_version < MAPPER_VERSION;
     });
     if (!todo.length) return;
     let done = 0;

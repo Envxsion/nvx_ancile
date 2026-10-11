@@ -71,6 +71,15 @@ export const ccErrors = {
       errorClass: 'permanent',
       detail: `session ${id}`,
     }),
+  folderExcluded: (cwd: string) =>
+    new AncileError({
+      code: 'claude_code.folder_excluded',
+      title: 'Sessions from that folder are not brought in',
+      hint: 'It is in Excluded folders in Settings → Claude Code. Remove it there to bring its sessions in.',
+      status: 409,
+      errorClass: 'permanent',
+      detail: cwd.slice(0, 500),
+    }),
   notBound: () =>
     new AncileError({
       code: 'claude_code.not_bound',

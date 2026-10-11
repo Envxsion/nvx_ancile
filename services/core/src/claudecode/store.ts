@@ -1,12 +1,14 @@
 /**
  * ------------------------------------------------------------------
  *  Title    |  Claude Code bindings
- *  Ref      |  docs/claude-code.md · migrations/0013_claude_code.sql
+ *  Ref      |  docs/claude-code.md · migrations/0013_claude_code.sql,
+ *           |  0014_claude_code_mapper.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which notebook a folder's sessions go to, which thread
- *           |  each session was brought into, and which transcript
- *           |  entries a thread already holds.
+ *           |  each session was brought into (and by which version of
+ *           |  the mapping), and which transcript entries a thread
+ *           |  already holds.
  *  How      |  ClaudeCodeStore is the interface; PgClaudeCodeStore is
  *           |  real, MemoryClaudeCodeStore backs tests (over the memory
  *           |  thread repo). Folders are compared with cwdKey: on
@@ -29,10 +31,22 @@ export function cwdKey(cwd: string, platform: NodeJS.Platform = process.platform
   return k.length > 1 ? k.replace(/\/+$/, '') : k;
 }
 
+/** Is `cwd` the folder `root` or inside it (whole path segments only)? */
+export function cwdWithin(cwd: string, root: string, platform: NodeJS.Platform = process.platform): boolean {
+  const a = cwdKey(cwd, platform);
+  const b = cwdKey(root, platform);
+  if (!b) return false;
+  if (a === b) return true;
+  const sep = b.includes('\\') || platform === 'win32' ? '\\' : '/';
+  return a.startsWith(b.endsWith(sep) ? b : `${b}${sep}`);
+}
+
 export interface ProjectBinding {
   cwd: string;
   cwd_key: string;
   notebook_id: string;
+  /** The notebook was made for this folder (not adopted or chosen). */
+  created_notebook: boolean;
 }
 
 export interface SessionBinding {
@@ -44,15 +58,23 @@ export interface SessionBinding {
   /** Transcript modified time (ms) at the last sync. */
   last_modified: number;
   synced_at: string;
+  /** map.ts MAPPER_VERSION the thread was built with. */
+  mapper_version: number;
 }
 
 export interface ClaudeCodeStore {
   projects(workspaceId: string): Promise<ProjectBinding[]>;
-  putProject(workspaceId: string, cwd: string, notebookId: string): Promise<ProjectBinding>;
+  putProject(
+    workspaceId: string,
+    cwd: string,
+    notebookId: string,
+    created?: boolean,
+  ): Promise<ProjectBinding>;
   removeProject(workspaceId: string, cwd: string): Promise<boolean>;
-  /** Sessions whose thread still exists. */
+  /** Sessions whose thread still exists (archived threads included). */
   sessions(workspaceId: string): Promise<SessionBinding[]>;
   putSession(workspaceId: string, s: SessionBinding): Promise<void>;
+  removeSession(workspaceId: string, sessionId: string): Promise<boolean>;
   /** What a thread already mirrors. */
   mirror(threadId: string): Promise<MirrorState>;
 }
@@ -76,6 +98,7 @@ function buildMirror(rows: MirrorRow[]): MirrorState {
       lastUuid: String(r.cc.uuid ?? r.cc.uuids.at(-1) ?? ''),
       hasChildren: parents.has(r.id),
       lastApiId: typeof r.cc.last_api_id === 'string' ? r.cc.last_api_id : null,
+      kind: typeof r.cc.kind === 'string' ? r.cc.kind : null,
     });
   }
   return { byUuid, messages };
@@ -89,18 +112,19 @@ export class PgClaudeCodeStore implements ClaudeCodeStore {
 
   async projects(workspaceId: string) {
     return this.sql<ProjectBinding[]>`
-      select p.cwd, p.cwd_key, p.notebook_id from core.claude_code_projects p
+      select p.cwd, p.cwd_key, p.notebook_id, p.created_notebook from core.claude_code_projects p
       join core.notebooks n on n.id = p.notebook_id and n.deleted_at is null
       where p.workspace_id = ${workspaceId} order by p.cwd`.then((r) => [...r]);
   }
 
-  async putProject(workspaceId: string, cwd: string, notebookId: string) {
+  async putProject(workspaceId: string, cwd: string, notebookId: string, created = false) {
     const key = cwdKey(cwd, this.platform);
     await this.sql`
-      insert into core.claude_code_projects (workspace_id, cwd_key, cwd, notebook_id)
-      values (${workspaceId}, ${key}, ${cwd}, ${notebookId})
-      on conflict (workspace_id, cwd_key) do update set cwd = excluded.cwd, notebook_id = excluded.notebook_id, updated_at = now()`;
-    return { cwd, cwd_key: key, notebook_id: notebookId };
+      insert into core.claude_code_projects (workspace_id, cwd_key, cwd, notebook_id, created_notebook)
+      values (${workspaceId}, ${key}, ${cwd}, ${notebookId}, ${created})
+      on conflict (workspace_id, cwd_key) do update set cwd = excluded.cwd, notebook_id = excluded.notebook_id,
+        created_notebook = excluded.created_notebook, updated_at = now()`;
+    return { cwd, cwd_key: key, notebook_id: notebookId, created_notebook: created };
   }
 
   async removeProject(workspaceId: string, cwd: string) {
@@ -114,22 +138,31 @@ export class PgClaudeCodeStore implements ClaudeCodeStore {
     const rows = await this.sql<
       (Omit<SessionBinding, 'last_modified' | 'synced_at'> & { last_modified: string; synced_at: Date })[]
     >`
-      select s.session_id, s.thread_id, s.title, s.cwd, s.last_modified, s.synced_at
+      select s.session_id, s.thread_id, s.title, s.cwd, s.last_modified, s.synced_at, s.mapper_version
       from core.claude_code_sessions s join core.threads t on t.id = s.thread_id and t.deleted_at is null
       where s.workspace_id = ${workspaceId}`;
     return rows.map((r) => ({
       ...r,
       last_modified: Number(r.last_modified),
       synced_at: r.synced_at.toISOString(),
+      mapper_version: Number(r.mapper_version),
     }));
   }
 
   async putSession(workspaceId: string, s: SessionBinding) {
     await this.sql`
-      insert into core.claude_code_sessions (workspace_id, session_id, thread_id, title, cwd, last_modified, synced_at)
-      values (${workspaceId}, ${s.session_id}, ${s.thread_id}, ${s.title}, ${s.cwd}, ${s.last_modified}, ${s.synced_at})
+      insert into core.claude_code_sessions (workspace_id, session_id, thread_id, title, cwd, last_modified, synced_at, mapper_version)
+      values (${workspaceId}, ${s.session_id}, ${s.thread_id}, ${s.title}, ${s.cwd}, ${s.last_modified}, ${s.synced_at}, ${s.mapper_version})
       on conflict (workspace_id, session_id) do update set thread_id = excluded.thread_id, title = excluded.title,
-        cwd = excluded.cwd, last_modified = excluded.last_modified, synced_at = excluded.synced_at`;
+        cwd = excluded.cwd, last_modified = excluded.last_modified, synced_at = excluded.synced_at,
+        mapper_version = excluded.mapper_version`;
+  }
+
+  async removeSession(workspaceId: string, sessionId: string) {
+    const r = await this.sql`
+      delete from core.claude_code_sessions where workspace_id = ${workspaceId} and session_id = ${sessionId}
+      returning session_id`;
+    return r.length > 0;
   }
 
   async mirror(threadId: string) {
@@ -156,9 +189,9 @@ export class MemoryClaudeCodeStore implements ClaudeCodeStore {
       .sort((a, b) => a.cwd.localeCompare(b.cwd));
   }
 
-  async putProject(workspaceId: string, cwd: string, notebookId: string) {
+  async putProject(workspaceId: string, cwd: string, notebookId: string, created = false) {
     const key = cwdKey(cwd, this.platform);
-    const b = { cwd, cwd_key: key, notebook_id: notebookId };
+    const b = { cwd, cwd_key: key, notebook_id: notebookId, created_notebook: created };
     this.proj.set(`${workspaceId}|${key}`, { ...b, ws: workspaceId });
     return b;
   }
@@ -179,6 +212,10 @@ export class MemoryClaudeCodeStore implements ClaudeCodeStore {
 
   async putSession(workspaceId: string, s: SessionBinding) {
     this.sess.set(`${workspaceId}|${s.session_id}`, { ...s, ws: workspaceId });
+  }
+
+  async removeSession(workspaceId: string, sessionId: string) {
+    return this.sess.delete(`${workspaceId}|${sessionId}`);
   }
 
   async mirror(threadId: string) {

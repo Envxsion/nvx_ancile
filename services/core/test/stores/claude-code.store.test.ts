@@ -74,6 +74,7 @@ eachBackend('Claude Code store', (backend) => {
       lastUuid: 'a2',
       hasChildren: true,
       lastApiId: 'm1',
+      kind: null,
     });
     expect(mirror.messages.get(c)?.hasChildren).toBe(false);
   });
@@ -85,6 +86,9 @@ eachBackend('Claude Code store', (backend) => {
     const mine = (await store.projects(ws)).filter((p) => p.notebook_id === nb.id);
     expect(mine).toHaveLength(1);
     expect(mine[0]?.cwd).toBe('c:/code/CYBERFOLIO/');
+    expect(mine[0]?.created_notebook).toBe(false);
+    await store.putProject(ws, 'C:\\Code\\cyberfolio', nb.id, true);
+    expect((await store.projects(ws)).find((p) => p.notebook_id === nb.id)?.created_notebook).toBe(true);
     expect(await store.removeProject(ws, 'C:\\CODE\\cyberfolio')).toBe(true);
 
     const t = await threads.createThread({ id: uid('thr'), workspace_id: ws });
@@ -96,11 +100,27 @@ eachBackend('Claude Code store', (backend) => {
       cwd: 'C:\\a',
       last_modified: 1_760_000_000_000,
       synced_at: '2026-10-01T09:00:00.000Z',
+      mapper_version: 2,
     });
     expect((await store.sessions(ws)).find((s) => s.session_id === sid)).toMatchObject({
       thread_id: t.id,
       last_modified: 1_760_000_000_000,
+      mapper_version: 2,
     });
+    // Several sessions may share one thread (a fork brought in as a branch).
+    const sid2 = uid('ses');
+    await store.putSession(ws, {
+      session_id: sid2,
+      thread_id: t.id,
+      title: 'x',
+      cwd: 'C:\\a',
+      last_modified: 1,
+      synced_at: '2026-10-01T09:00:00.000Z',
+      mapper_version: 1,
+    });
+    expect((await store.sessions(ws)).filter((s) => s.thread_id === t.id)).toHaveLength(2);
+    expect(await store.removeSession(ws, sid2)).toBe(true);
+    expect(await store.removeSession(ws, sid2)).toBe(false);
     await threads.deleteThread(t.id);
     expect((await store.sessions(ws)).find((s) => s.session_id === sid)).toBeUndefined();
   });

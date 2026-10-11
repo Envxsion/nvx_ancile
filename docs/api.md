@@ -233,7 +233,7 @@ Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudeco
 | Route | Does |
 |---|---|
 | `GET /claude-code/status?fresh=1` | `ClaudeCodeStatus`: installed, version, path, sign-in (method and plan only, never the account's email or organisation), install state, `verification` of the install, the Agent SDK's state, settings. Cached for 10 s unless `fresh`. |
-| `PATCH /claude-code/settings {auto_install?, auto_import?, claude_telemetry?}` | Save and answer `ClaudeCodeSettings` |
+| `PATCH /claude-code/settings {auto_install?, auto_import?, exclude_folders?, claude_telemetry?}` | Save and answer `ClaudeCodeSettings`. Changing `exclude_folders` puts away what came from those folders (threads archived, never deleted; `claude_code.changed {what: sessions}`) |
 | `POST /claude-code/install` | 202 `{state, error}`: runs Anthropic's official installer in the background (`claude_code.changed {what: install}` as it goes) |
 | `POST /claude-code/sign-in {method?: claudeai, console or sso}` | 202 `{started}`: opens Claude Code's own sign-in (`claude auth login`); NVX Ancile watches `claude auth status` for up to 5 minutes |
 | `POST /claude-code/sign-out` | 204: `claude auth logout`, only when the person asks |
@@ -241,6 +241,7 @@ Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudeco
 | `POST /claude-code/sessions/import {session_ids, notebook_id?}` | `ImportClaudeCodeSessionsResult`. Idempotent: an imported session is synced instead |
 | `POST /claude-code/threads/:id/sync` | `{thread_id, session_id, added, gone}`: pull what is new; `gone` when the transcript is no longer on this computer (the thread stays) |
 | `GET /claude-code/projects` · `PUT /claude-code/projects {cwd, notebook_id}` · `DELETE /claude-code/projects?cwd=` | Folder → notebook bindings (`{items: ClaudeCodeProject[]}`) |
+| `POST /claude-code/projects/exclude {cwd}` | "Don't bring in this folder": adds it to `exclude_folders` (unless already covered) and puts away what came from it; answers `ClaudeCodeSettings` |
 
 ### Core ↔ Claude bridge
 

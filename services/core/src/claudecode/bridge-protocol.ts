@@ -51,6 +51,12 @@ export interface CcSessionMessage {
   timestamp?: string;
   isCompactSummary?: boolean;
   is_meta?: boolean;
+  /**
+   * Who put a user entry there, when Claude Code says: { kind: 'human' },
+   * { kind: 'peer', name, body, handback? } for another session or an
+   * agent's hand-back, { kind: 'task-notification' }. Checked at run time.
+   */
+  origin?: unknown;
 }
 
 export interface BridgeSdkStatus {

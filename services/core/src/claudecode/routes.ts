@@ -14,7 +14,12 @@
  * ------------------------------------------------------------------
  */
 
-import { ClaudeCodeProject, ImportClaudeCodeSessionsRequest, PatchClaudeCodeSettings } from '@nvx/contracts';
+import {
+  ClaudeCodeProject,
+  ExcludeClaudeCodeFolderRequest as ExcludeFolderRequest,
+  ImportClaudeCodeSessionsRequest,
+  PatchClaudeCodeSettings,
+} from '@nvx/contracts';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app';
@@ -72,6 +77,12 @@ export function claudeCodeRoutes(deps: { service: () => ClaudeCodeService }) {
   r.put('/claude-code/projects', async (c) => {
     const req = await body(c, ClaudeCodeProject.strict());
     return c.json(await svc().putProject(req));
+  });
+
+  // "Don't bring in this folder": excluded from now on; what came from it is put away.
+  r.post('/claude-code/projects/exclude', async (c) => {
+    const req = await body(c, ExcludeFolderRequest);
+    return c.json(await svc().excludeFolder(req.cwd));
   });
 
   r.delete('/claude-code/projects', async (c) => {

@@ -285,5 +285,6 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `claude_code.unverified` | 409 | "This Claude Code install could not be verified." with the reason / Reinstall Claude Code from claude.ai/install, then press Check again. Sessions are not run through an install that fails the check. |
 | `claude_code.sign_in_unavailable` | 409 | "Claude Code's sign-in cannot open from here." / Run `claude auth login` in a terminal on this computer, then press Check again. |
 | `claude_code.session_not_found` | 404 | "That Claude Code session is not on this computer." / It may have been deleted or moved. Refresh the list of sessions. |
+| `claude_code.folder_excluded` | 409 | "Sessions from that folder are not brought in." / It is in Excluded folders in Settings → Claude Code. Remove it there to bring its sessions in. |
 | `claude_code.not_bound` | 409 | "This thread did not come from Claude Code." / Only threads brought in from Claude Code can be synced. |
 | `claude_code.cli_failed` | 502 | "Claude Code could not <do that>." with its words / Run the same command in a terminal to see why, then try again. |

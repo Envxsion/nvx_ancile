@@ -13,9 +13,16 @@ import type { AppEnv } from '../../src/app';
 import { BridgeClient } from '../../src/claudecode/bridge';
 import { ClaudeCli } from '../../src/claudecode/cli';
 import { ClaudeInstaller } from '../../src/claudecode/install';
+import { MAPPER_VERSION } from '../../src/claudecode/map';
 import { claudeCodeRoutes } from '../../src/claudecode/routes';
-import { ClaudeCodeService, notebookNames } from '../../src/claudecode/service';
-import { MemoryClaudeCodeStore } from '../../src/claudecode/store';
+import {
+  ClaudeCodeService,
+  expandHome,
+  NOTEBOOK_HUES,
+  notebookNames,
+  pickHue,
+} from '../../src/claudecode/service';
+import { cwdWithin, MemoryClaudeCodeStore } from '../../src/claudecode/store';
 import { ClaudeVerifier } from '../../src/claudecode/verify';
 import type { EventBus, GlobalEventInput } from '../../src/events/bus';
 import { MemoryNotebookRepo } from '../../src/notebooks/repo';
@@ -261,14 +268,17 @@ describe('importing', () => {
     });
     const r = await svc.importSessions({ session_ids: ['s1'] });
     const msgs = await threads.messages(r.imported[0]?.thread_id as string);
-    const marker = msgs.find(
-      (m) => (m.provenance.claude_code as { kind?: string })?.kind === 'compact_boundary',
-    );
-    expect(marker).toMatchObject({
+    const kindOf = (k: string) =>
+      msgs.find((m) => (m.provenance.claude_code as { kind?: string })?.kind === k);
+    const marker = kindOf('compact_boundary');
+    const summary = kindOf('compact_summary');
+    expect(marker).toMatchObject({ role: 'system', parts: [{ type: 'text', text: '' }] });
+    expect(summary).toMatchObject({
       role: 'system',
+      parent_id: marker?.id,
       parts: [{ type: 'text', text: 'Summary of the work so far' }],
     });
-    expect(msgs.at(-1)?.parent_id).toBe(marker?.id);
+    expect(msgs.at(-1)?.parent_id).toBe(summary?.id);
   });
 
   it('collapses a subagent onto the call that started it', async () => {
@@ -500,7 +510,12 @@ describe('routes', () => {
         body: JSON.stringify({ claude_telemetry: false }),
       })
     ).json();
-    expect(patched).toEqual({ auto_install: true, auto_import: true, claude_telemetry: false });
+    expect(patched).toEqual({
+      auto_install: true,
+      auto_import: true,
+      exclude_folders: ['~/.claude-mem'],
+      claude_telemetry: false,
+    });
     expect(await svc.cliEnv()).toEqual({ DISABLE_TELEMETRY: '1' });
   });
 });
@@ -520,6 +535,236 @@ describe('the bridge connection', () => {
     bridge.stop();
     await bridge.listSessions();
     expect(w.launches).toBe(2);
+  });
+});
+
+const HOME = 'C:\\Users\\p';
+const OBSERVER = 'C:\\Users\\p\\.claude-mem\\observer-sessions';
+
+describe('excluded folders', () => {
+  it('matches "~", case and slash direction on Windows, and whole folder names only', () => {
+    expect(expandHome('~/.claude-mem', HOME)).toBe('C:\\Users\\p/.claude-mem');
+    expect(cwdWithin(OBSERVER, expandHome('~/.claude-mem', HOME), 'win32')).toBe(true);
+    expect(cwdWithin('c:/users/P/.CLAUDE-MEM', 'C:\\Users\\p\\.claude-mem\\', 'win32')).toBe(true);
+    expect(cwdWithin('C:\\Users\\p\\.claude-mem-other', 'C:\\Users\\p\\.claude-mem', 'win32')).toBe(false);
+    expect(cwdWithin('/home/p/.claude-mem/x', '/home/p/.claude-mem', 'linux')).toBe(true);
+    expect(cwdWithin('/home/p/.Claude-mem/x', '/home/p/.claude-mem', 'linux')).toBe(false);
+  });
+
+  it('are never listed, auto-imported or brought in by hand', async () => {
+    svc = make({ home: HOME });
+    w.sessions.set('obs', { info: info('obs', { cwd: OBSERVER }), chain: basicChain() });
+    w.sessions.set('mine', { info: info('mine', { cwd: 'C:\\Code\\app' }), chain: basicChain() });
+    expect((await svc.listSessions()).items.map((s) => s.session_id)).toEqual(['mine']);
+    svc.kick();
+    await svc.idle();
+    const list = await threads.listThreads(WS);
+    expect(list).toHaveLength(1);
+    expect(list[0]?.settings.claude_code?.session_id).toBe('mine');
+    const r = await svc.importSessions({ session_ids: ['obs'] });
+    expect(r.failed).toEqual([
+      { session_id: 'obs', title: 'Sessions from that folder are not brought in', hint: expect.any(String) },
+    ]);
+  });
+
+  it('puts away what was already brought in: archives, never deletes, and keeps what was written in Ancile', async () => {
+    const store = new MemoryClaudeCodeStore(threads, 'win32');
+    svc = make({ home: HOME, store });
+    await svc.patchSettings({ exclude_folders: [] });
+    const other = 'C:\\Users\\p\\.claude-mem\\other';
+    w.sessions.set('o1', { info: info('o1', { cwd: OBSERVER }), chain: basicChain() });
+    w.sessions.set('o2', { info: info('o2', { cwd: OBSERVER }), chain: basicChain() });
+    w.sessions.set('k1', { info: info('k1', { cwd: other }), chain: basicChain() });
+    w.sessions.set('mine', { info: info('mine', { cwd: 'C:\\Code\\app' }), chain: basicChain() });
+    const r = await svc.importSessions({ session_ids: ['o1', 'o2', 'k1', 'mine'] });
+    const [o1, o2, k1, mine] = r.imported;
+    // Something written in Ancile in k1's thread.
+    await threads.insertMessage({
+      id: 'msg_mine',
+      thread_id: k1?.thread_id as string,
+      parent_id: (await threads.getThread(k1?.thread_id as string))?.active_head_id ?? null,
+      role: 'user',
+      parts: [{ type: 'text', text: 'my own note' }],
+      status: 'complete',
+      trace_id: '0'.repeat(32),
+    });
+    bus.events = [];
+
+    await svc.patchSettings({ exclude_folders: ['~/.claude-mem'] });
+
+    for (const id of [o1?.thread_id, o2?.thread_id]) {
+      const t = await threads.getThread(id as string);
+      expect(t?.archived_at).toBeTruthy();
+      expect(await threads.messages(id as string)).toHaveLength(2);
+    }
+    expect((await threads.getThread(k1?.thread_id as string))?.archived_at).toBeNull();
+    expect((await threads.getThread(mine?.thread_id as string))?.archived_at).toBeNull();
+    const bound = (await store.sessions(WS)).map((b) => b.session_id).sort();
+    expect(bound).toEqual(['k1', 'mine']);
+    // The observer notebook (made for the folder, now empty) is archived and unbound; k1's stays.
+    expect((await notebooks.get(o1?.notebook_id as string))?.archived_at).toBeTruthy();
+    expect((await notebooks.get(k1?.notebook_id as string))?.archived_at).toBeNull();
+    expect((await svc.projects()).map((p) => p.cwd).sort()).toEqual(['C:\\Code\\app', other]);
+    expect(bus.events).toContainEqual({ type: 'claude_code.changed', what: 'sessions' });
+    // Nothing comes back on the next pass.
+    svc.kick();
+    await svc.idle();
+    expect((await store.sessions(WS)).map((b) => b.session_id).sort()).toEqual(['k1', 'mine']);
+  });
+
+  it('runs at start, and "Don\'t bring in this folder" adds the folder and tidies up', async () => {
+    svc = make({ home: HOME });
+    await svc.patchSettings({ exclude_folders: [] });
+    w.sessions.set('a', { info: info('a', { cwd: 'C:\\Code\\scratch' }), chain: basicChain() });
+    const id = (await svc.importSessions({ session_ids: ['a'] })).imported[0]?.thread_id as string;
+    await settings.set(SETTING.claudeCode, { exclude_folders: ['C:\\Code\\scratch'] });
+    const fresh = make({
+      home: HOME,
+      store: (svc as unknown as { deps: { store: MemoryClaudeCodeStore } }).deps.store,
+    });
+    expect(await fresh.cleanupExcluded()).toEqual({ threads: 1, notebooks: 1 });
+    expect((await threads.getThread(id))?.archived_at).toBeTruthy();
+
+    await settings.set(SETTING.claudeCode, {});
+    w.sessions.set('b', { info: info('b', { cwd: 'C:\\Code\\toy' }), chain: basicChain() });
+    const id2 = (await svc.importSessions({ session_ids: ['b'] })).imported[0]?.thread_id as string;
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => svc }));
+    const res = await app.request('/claude-code/projects/exclude', {
+      method: 'POST',
+      body: JSON.stringify({ cwd: 'c:/code/TOY' }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { exclude_folders: string[] }).exclude_folders).toEqual([
+      '~/.claude-mem',
+      'c:/code/TOY',
+    ]);
+    expect((await threads.getThread(id2))?.archived_at).toBeTruthy();
+    const again = await app.request('/claude-code/projects/exclude', {
+      method: 'POST',
+      body: JSON.stringify({ cwd: 'C:\\Code\\toy\\' }),
+    });
+    expect(((await again.json()) as { exclude_folders: string[] }).exclude_folders).toHaveLength(2);
+    expect((await app.request('/claude-code/projects/exclude', { method: 'POST', body: '{}' })).status).toBe(
+      400,
+    );
+  });
+});
+
+describe('folder notebook colours', () => {
+  it('gives each new folder notebook the first hue no live notebook uses', async () => {
+    await notebooks.create({ id: 'nbk_u', workspace_id: WS, title: 'Mine', color: 'azure' });
+    const gone = await notebooks.create({ id: 'nbk_g', workspace_id: WS, title: 'Old', color: 'coral' });
+    await notebooks.patch(gone.id, { archived: true });
+    for (const [id, cwd] of [
+      ['a', 'C:\\Code\\one'],
+      ['b', 'C:\\Code\\two'],
+      ['c', 'C:\\Code\\three'],
+    ] as const)
+      w.sessions.set(id, { info: info(id, { cwd }), chain: basicChain() });
+    const r = await svc.importSessions({ session_ids: ['a', 'b', 'c'] });
+    const books = await Promise.all(r.imported.map((i) => notebooks.get(i.notebook_id as string)));
+    expect(books.map((b) => b?.color)).toEqual(['coral', 'jade', 'amber']);
+    expect(books.map((b) => b?.icon)).toEqual([null, null, null]);
+  });
+
+  it('uses the least used hue when all are taken, the same one for the same folder', () => {
+    const all = [...NOTEBOOK_HUES];
+    const pick = pickHue('c:\\code\\x', all);
+    expect(NOTEBOOK_HUES).toContain(pick);
+    expect(pickHue('c:\\code\\x', all)).toBe(pick);
+    expect(
+      pickHue('c:\\code\\x', [...all, 'azure', 'coral', 'jade', 'amber', 'cyan', null, 'not-a-hue']),
+    ).toBe('magenta');
+  });
+
+  it('colours folder notebooks made before colours, on the next pass', async () => {
+    const store = new MemoryClaudeCodeStore(threads, 'win32');
+    svc = make({ store });
+    const made = await notebooks.create({ id: 'nbk_m', workspace_id: WS, title: 'app' });
+    const chosen = await notebooks.create({ id: 'nbk_c', workspace_id: WS, title: 'Chosen' });
+    await store.putProject(WS, 'C:\\Code\\app', made.id, true);
+    await store.putProject(WS, 'C:\\Code\\other', chosen.id, false);
+    svc.kick();
+    await svc.idle();
+    expect((await notebooks.get(made.id))?.color).toBe('azure');
+    expect((await notebooks.get(chosen.id))?.color).toBeNull();
+  });
+});
+
+describe('remapping older imports', () => {
+  const COMMAND =
+    '<command-name>/model</command-name><command-message>model</command-message><command-args>opus</command-args>';
+
+  async function importOld(store: MemoryClaudeCodeStore, chain: ReturnType<typeof basicChain>) {
+    w.sessions.set('s1', { info: info('s1', { cwd: 'C:\\Code\\app' }), chain });
+    const r = await svc.importSessions({ session_ids: ['s1'] });
+    const id = r.imported[0]?.thread_id as string;
+    // As the first mapping left it: the command shown as the person's words.
+    const cmd = (await threads.messages(id)).find((m) => textOf(m.parts) === '/model opus');
+    await threads.updateMessage(cmd?.id as string, {
+      parts: [{ type: 'text', text: COMMAND }],
+      provenance: { claude_code: { session_id: 's1', uuid: 'c1', uuids: ['c1'] } },
+    });
+    const b = (await store.sessions(WS))[0];
+    await store.putSession(WS, { ...(b as NonNullable<typeof b>), mapper_version: 1 });
+    return { id, nb: r.imported[0]?.notebook_id };
+  }
+
+  it('rebuilds a thread that holds only Claude Code messages, keeping its id, title, notebook and head', async () => {
+    const store = new MemoryClaudeCodeStore(threads, 'win32');
+    svc = make({ store });
+    const chain = [user('c1', COMMAND), ...basicChain()];
+    const { id, nb } = await importOld(store, chain);
+    await threads.patchThread(id, { title: 'Renamed here', title_source: 'user' });
+    const before = await threads.messages(id);
+    expect(textOf(before[0]?.parts ?? [])).toBe(COMMAND);
+
+    svc.kick();
+    await svc.idle();
+
+    const after = await threads.messages(id);
+    const t = await threads.getThread(id);
+    expect(after).toHaveLength(3);
+    expect(after[0]).toMatchObject({
+      role: 'user',
+      parent_id: null,
+      parts: [{ type: 'text', text: '/model opus' }],
+      provenance: {
+        claude_code: { kind: 'command', command: { name: '/model', args: 'opus', output: null } },
+      },
+    });
+    expect(after.map((m) => m.id)).not.toContain(before[0]?.id);
+    expect(t).toMatchObject({ id, notebook_id: nb, title: 'Renamed here' });
+    expect(t?.active_head_id).toBe(after[2]?.id);
+    expect((await store.sessions(WS))[0]?.mapper_version).toBe(MAPPER_VERSION);
+    // Once rebuilt, a pass leaves it alone.
+    svc.kick();
+    await svc.idle();
+    expect((await threads.messages(id)).map((m) => m.id)).toEqual(after.map((m) => m.id));
+  });
+
+  it('leaves a thread with messages written in Ancile as it is', async () => {
+    const store = new MemoryClaudeCodeStore(threads, 'win32');
+    svc = make({ store });
+    const { id } = await importOld(store, [user('c1', COMMAND), ...basicChain()]);
+    const head = (await threads.getThread(id))?.active_head_id ?? null;
+    await threads.insertMessage({
+      id: 'msg_here',
+      thread_id: id,
+      parent_id: head,
+      role: 'user',
+      parts: [{ type: 'text', text: 'asked in Ancile' }],
+      status: 'complete',
+      trace_id: '0'.repeat(32),
+    });
+    const before = (await threads.messages(id)).map((m) => m.id);
+    svc.kick();
+    await svc.idle();
+    expect((await threads.messages(id)).map((m) => m.id)).toEqual(before);
+    expect(textOf((await threads.messages(id))[0]?.parts ?? [])).toBe(COMMAND);
+    expect((await store.sessions(WS))[0]?.mapper_version).toBe(MAPPER_VERSION);
   });
 });
 
