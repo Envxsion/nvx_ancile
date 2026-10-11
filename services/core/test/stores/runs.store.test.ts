@@ -56,16 +56,22 @@ eachBackend('run store and event log', (backend) => {
   });
 
   it('claims a burst several at a time, oldest first, each exactly once', async () => {
-    // Clear anything earlier tests left queued.
-    while ((await runs.claimMany?.('wkr_old', 30_000, 50))?.length);
+    // Other test files share this database and queue runs of their own:
+    // judge only ours, wherever they land among the claims.
     const made = [];
     for (let i = 0; i < 3; i++) made.push(await newRun());
-    const first = (await runs.claimMany?.('wkr_a', 30_000, 2)) ?? [];
-    const second = (await runs.claimMany?.('wkr_b', 30_000, 2)) ?? [];
-    expect(first.map((r) => r.id)).toEqual(made.slice(0, 2).map((r) => r.id));
-    expect(second.map((r) => r.id)).toEqual([made[2]?.id]);
-    expect([...first, ...second].every((r) => r.status === 'running')).toBe(true);
-    expect(await runs.claimMany?.('wkr_c', 30_000, 2)).toEqual([]);
+    const ours = new Set(made.map((r) => r.id));
+    const claimed: string[] = [];
+    for (let round = 0; round < 50 && claimed.filter((id) => ours.has(id)).length < 3; round++) {
+      const batch = (await runs.claimMany?.(`wkr_${round}`, 30_000, 2)) ?? [];
+      if (!batch.length) break;
+      expect(batch.length).toBeLessThanOrEqual(2);
+      expect(batch.every((r) => r.status === 'running')).toBe(true);
+      claimed.push(...batch.map((r) => r.id));
+    }
+    const mine = claimed.filter((id) => ours.has(id));
+    expect(mine).toEqual(made.map((r) => r.id));
+    expect(new Set(claimed).size).toBe(claimed.length);
   });
 
   it('saves only while the stored run still matches, and clears the lease when it stops running', async () => {

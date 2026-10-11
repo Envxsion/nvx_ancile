@@ -113,10 +113,13 @@ export class PgRunStore implements RunStore {
         lease_until = now() + ${leaseMs} * interval '1 millisecond', updated_at = now()
       where id in (
         select id from core.runs where status = 'queued'
-        order by created_at for update skip locked limit ${n}
+        order by created_at, id for update skip locked limit ${n}
       )
       returning *`;
-    return rows.map(fromRow).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+    // Oldest first; runs made in the same instant keep their (monotonic) id order.
+    return rows
+      .map(fromRow)
+      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
   }
 
   async renew(id: string, owner: string, leaseMs: number): Promise<boolean> {
