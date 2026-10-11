@@ -55,6 +55,7 @@ function status(p: Partial<ClaudeCodeStatus> = {}): ClaudeCodeStatus {
     config_dir: null,
     install: { state: 'installed', error: null },
     sdk: { ready: true, version: '0.2.0', error: null },
+    verification: { state: 'verified', error: null },
     settings: { auto_install: true, auto_import: true, claude_telemetry: true },
     ...p,
   };

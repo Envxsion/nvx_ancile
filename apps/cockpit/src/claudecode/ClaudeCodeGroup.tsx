@@ -200,6 +200,16 @@ function StatusCard({
         ) : null}
       </div>
 
+      {s.installed && s.verification?.state === 'failed' ? (
+        <p className="cc-card__sdk" role="alert">
+          <Icon name="warn" size={13} />
+          <span>
+            This Claude Code install could not be verified, so NVX Ancile will not run it.{' '}
+            {s.verification.error ?? 'Reinstall Claude Code with the official installer, then check again.'}
+          </span>
+        </p>
+      ) : null}
+
       {s.installed && s.version_ok && !s.sdk.ready ? (
         <p className="cc-card__sdk" role="status">
           <Icon name="warn" size={13} />
