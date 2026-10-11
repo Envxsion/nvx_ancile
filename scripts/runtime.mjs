@@ -263,7 +263,10 @@ ${made.out}`);
  * and every tool asks, so each call reaches Core's permission bridge
  * (services/core/src/lab). Core answers "once" or "reject", never
  * "always": grants live in Core, nowhere else. `question` is denied
- * because nobody is at the engine's own prompt. Tracked in
+ * because nobody is at the engine's own prompt. The MCP servers Core hosts
+ * reach the lab as one remote server, `ancile` at Core's /mcp/lab, behind
+ * the same gateway token: the lab never holds a server's secrets, and each
+ * call is gated by Core again when it arrives. Tracked in
  * vendor/opencode/PATCHES.md.
  */
 export function agentConfig(env) {
@@ -286,6 +289,15 @@ export function agentConfig(env) {
     share: 'disabled',
     autoupdate: false,
     snapshot: true,
+    mcp: {
+      ancile: {
+        type: 'remote',
+        url: `${core}/mcp/lab`,
+        headers: { Authorization: 'Bearer {env:ANCILE_GATEWAY_TOKEN}' },
+        oauth: false,
+        enabled: true,
+      },
+    },
     permission: {
       '*': 'ask',
       question: 'deny',

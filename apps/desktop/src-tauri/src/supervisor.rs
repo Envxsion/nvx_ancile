@@ -760,6 +760,9 @@ fn kill_on_close_job() -> Option<win32job::Job> {
 }
 
 /// The lab's environment from the services' one (see `Supervisor::lab_env`).
+/// Core's hosted MCP tools reach the lab as one remote server, `ancile` at
+/// Core's /mcp/lab, behind the gateway token the lab already holds; no MCP
+/// server's secrets ever enter this environment.
 fn lab_env_for(
     env: &BTreeMap<String, String>,
     data: &std::path::Path,
@@ -793,6 +796,15 @@ fn lab_env_for(
         "share": "disabled",
         "autoupdate": false,
         "snapshot": true,
+        "mcp": {
+            "ancile": {
+                "type": "remote",
+                "url": format!("{core}/mcp/lab"),
+                "headers": { "Authorization": "Bearer {env:ANCILE_GATEWAY_TOKEN}" },
+                "oauth": false,
+                "enabled": true
+            }
+        },
         "permission": {
             "*": "ask",
             "question": "deny",
@@ -860,6 +872,20 @@ mod lab_tests {
         assert_eq!(lab["OPENCODE_SERVER_PASSWORD"], "engine");
         assert_eq!(lab["ANCILE_GATEWAY_TOKEN"], "gateway");
         assert!(lab["OPENCODE_CONFIG_CONTENT"].contains("http://127.0.0.1:7700/internal/v1/openai"));
+        let config: serde_json::Value =
+            serde_json::from_str(&lab["OPENCODE_CONFIG_CONTENT"]).expect("config is JSON");
+        assert_eq!(
+            config["mcp"]["ancile"]["url"],
+            "http://127.0.0.1:7700/mcp/lab"
+        );
+        assert_eq!(
+            config["mcp"]["ancile"]["headers"]["Authorization"],
+            "Bearer {env:ANCILE_GATEWAY_TOKEN}"
+        );
+        assert!(
+            !lab["OPENCODE_CONFIG_CONTENT"].contains("gateway"),
+            "token inlined in config"
+        );
         assert_eq!(lab["OPENCODE_DISABLE_AUTOUPDATE"], "1");
     }
 }

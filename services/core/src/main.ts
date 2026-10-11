@@ -68,6 +68,8 @@ import { knowledgeClient } from './knowledge/client';
 import { HttpEngine } from './lab/engine-client';
 import { LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
+import { LabPasses } from './lab/hosted';
+import { LabMcpEndpoint } from './lab/mcp-server';
 import { labRoutes } from './lab/routes';
 import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
@@ -364,6 +366,7 @@ async function main() {
     env.AGENT_ENGINE_URL && env.AGENT_ENGINE_TOKEN
       ? new HttpEngine(env.AGENT_ENGINE_URL, env.AGENT_ENGINE_TOKEN)
       : null;
+  const labPasses = new LabPasses();
   const mirror = engine
     ? new LabMirror({
         engine,
@@ -373,9 +376,24 @@ async function main() {
         bus: events,
         userId: owner.userId,
         approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
+        tools,
+        passes: labPasses,
       })
     : null;
   mirror?.start();
+  // The hosted MCP tools, offered to the lab as one server behind its gateway token.
+  const labMcp =
+    engine && env.AGENT_GATEWAY_TOKEN
+      ? new LabMcpEndpoint({
+          registry: tools,
+          gate,
+          passes: labPasses,
+          token: env.AGENT_GATEWAY_TOKEN,
+          userId: owner.userId,
+          workspaceId: owner.workspaceId,
+          version: VERSION,
+        })
+      : null;
   const labSnapshots = resolve(env.ANCILE_DATA_DIR, 'lab-snapshots');
   const factchecks = new PgFactcheckStore(sql);
   // ---- Flows (Phase 5b): graphs that decide how a message is answered ----
@@ -785,6 +803,7 @@ async function main() {
         restartAfter: env.ANCILE_RESTART_AFTER_FAILURES,
       }),
     mcp: mcpServe,
+    ...(labMcp && { labMcp: labMcp.handle }),
     internalRoutes: [
       logIngestRoutes({ pipeline: obs }),
       // The desktop host asks here before checking nvx.sh for updates.
@@ -958,6 +977,7 @@ async function main() {
     stopCompute();
     worker.stop();
     mirror?.stop();
+    await labMcp?.close();
     repos.stop();
     await mcp.stop();
     server.close();

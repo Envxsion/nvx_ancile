@@ -16,7 +16,11 @@
  *           |  in Core's grants, so the engine asks again next time and
  *           |  Core answers from its grant. Parts of user messages are
  *           |  skipped (roles come from message.updated). A request for
- *           |  a session Core did not start is rejected.
+ *           |  a session Core did not start is rejected. A tool from
+ *           |  Core's own MCP server is checked as the hosted tool, and
+ *           |  a person's "approve once" leaves a one-call pass for
+ *           |  lab/mcp-server.ts, which gates the call again when it
+ *           |  arrives.
  *  Note     |  After a restart attach() re-reads the engine's pending
  *           |  requests, reusing an approval that is already waiting.
  *           |  A session that went idle while nobody was listening (a
@@ -35,7 +39,9 @@ import type { Gate } from '../permissions/gate';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
 import type { ApprovalRecord, PermissionStore } from '../permissions/store';
 import type { RunEventLog } from '../runs/events';
+import type { ToolRegistry } from '../tools/registry';
 import type { Engine, EngineEvent, PendingPermission } from './engine-client';
+import { hostedTool, hostedToolForAsk, type LabPasses } from './hosted';
 import { type LabPlace, mapAsk } from './permission-map';
 
 const log = logFor('lab');
@@ -92,6 +98,10 @@ export interface MirrorDeps {
   userId: string;
   /** How long a question waits for an answer before it expires (default 24 h). */
   approvalTtlMs?: number;
+  /** Core's tools: an "ancile_<tool>" ask is checked as that hosted tool. */
+  tools?: Pick<ToolRegistry, 'get'>;
+  /** Where an approved hosted-tool ask leaves its one-call pass (lab/mcp-server.ts spends it). */
+  passes?: LabPasses;
 }
 
 const MAX_RESULT = 4_000;
@@ -291,6 +301,8 @@ export class LabMirror {
     if (!p) return false;
     this.pending.delete(approval.id);
     const ok = status === 'approved';
+    if (ok && this.deps.passes && this.deps.tools && hostedTool(this.deps.tools, approval.tool))
+      this.deps.passes.grant(approval.tool);
     try {
       await this.deps.engine.reply(
         p.requestId,
@@ -524,6 +536,7 @@ export class LabMirror {
     const mapped = mapAsk(
       { permission: ask.permission, patterns: ask.patterns ?? [], metadata: ask.metadata ?? {} },
       turn.place,
+      (name) => (this.deps.tools ? hostedToolForAsk(this.deps.tools, name) : undefined),
     );
     const decision = await this.deps.gate.check({
       userId: this.deps.userId,

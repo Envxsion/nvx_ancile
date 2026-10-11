@@ -15,11 +15,17 @@
  *           |  engine reports are real; they are mapped back to that
  *           |  virtual root, or kept as-is (and so outside the root)
  *           |  when they leave it.
+ *           |  A tool from Core's own MCP server ("ancile_<tool>", see
+ *           |  lab/hosted.ts) is checked as the hosted tool itself, on
+ *           |  its action, resource and tier, so a grant for
+ *           |  mcp.github.* covers chat and the lab alike. Any other
+ *           |  MCP tool falls back to mcp.lab.<name>.
  * ------------------------------------------------------------------
  */
 
 import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import type { Tier } from '@nvx/contracts';
+import type { ToolSpec } from '../tools/registry';
 
 export interface LabAsk {
   permission: string;
@@ -55,7 +61,10 @@ export function virtualPath(raw: string, place: LabPlace): string {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
-export function mapAsk(ask: LabAsk, place: LabPlace): MappedAsk {
+/** Finds the hosted tool behind an engine permission name (lab/hosted.ts hostedToolForAsk). */
+export type HostedLookup = (permission: string) => ToolSpec | undefined;
+
+export function mapAsk(ask: LabAsk, place: LabPlace, hosted?: HostedLookup): MappedAsk {
   const m = ask.metadata;
   const first = ask.patterns[0];
   const pathOf = () =>
@@ -120,7 +129,18 @@ export function mapAsk(ask: LabAsk, place: LabPlace): MappedAsk {
         destructive: false,
         tool: 'doom_loop',
       };
-    default:
+    default: {
+      const spec = hosted?.(ask.permission);
+      if (spec)
+        return {
+          action: spec.action,
+          // The engine's ask carries no arguments; the call itself is checked
+          // again on its real arguments by lab/mcp-server.ts.
+          resource: spec.resource(m),
+          tier: spec.tier,
+          destructive: spec.destructive,
+          tool: spec.name,
+        };
       return {
         action: `mcp.lab.${ask.permission}`,
         resource: `mcp:lab/${ask.permission}`,
@@ -128,5 +148,6 @@ export function mapAsk(ask: LabAsk, place: LabPlace): MappedAsk {
         destructive: false,
         tool: ask.permission,
       };
+    }
   }
 }

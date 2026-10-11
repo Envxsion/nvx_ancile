@@ -8,6 +8,7 @@
  *           |    /health, /ready         liveness and readiness
  *           |    /api/v1/*               the Cockpit's API (REST + SSE)
  *           |    /internal/v1/*          service-to-service (token)
+ *           |    /mcp, /mcp/lab          MCP for apps, and for the lab
  *           |    /*                      the built Cockpit, SPA fallback
  *  How      |  createApp() takes its dependencies, so tests build an
  *           |  app with fakes and no network. /api/v1 sits behind the
@@ -74,6 +75,8 @@ export interface AppDeps {
   systemHealth?: () => SystemHealth;
   /** Phase 5: NVX Ancile as an MCP server, at /mcp (bearer token, not the browser guard). */
   mcp?: (req: Request) => Promise<Response>;
+  /** The hosted MCP tools, for the lab, at /mcp/lab (the lab's token, not the browser guard). */
+  labMcp?: (req: Request) => Promise<Response>;
   /** Phase 5: more service-token routes under /internal/v1 (log ingest). */
   internalRoutes?: Hono<AppEnv>[];
   /** Phase 6: every /api/v1 request, answered (anonymous usage statistics). */
@@ -206,6 +209,10 @@ export function createApp(deps: AppDeps) {
   if (deps.mcp) {
     const handle = deps.mcp;
     app.all('/mcp', (c) => handle(c.req.raw));
+  }
+  if (deps.labMcp) {
+    const handle = deps.labMcp;
+    app.all('/mcp/lab', (c) => handle(c.req.raw));
   }
 
   if (deps.cockpitDist) {

@@ -229,6 +229,8 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 
 The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer token is missing, unknown or disconnected. A tool an app has no grant for answers with `isError` and the way to allow it (Admin → Plugins).
 
+The lab's MCP endpoint (`/mcp/lab`) answers 401 with a JSON-RPC error unless the bearer token is the lab's gateway token (`AGENT_GATEWAY_TOKEN`). A call the gate denies answers `isError` with "Not allowed: …"; a call that needs a person and has no approval yet answers `isError` and asks the lab to try again (the approval appears in NVX Ancile when the lab uses the tool).
+
 ### Credentials {#credentials}
 
 Settings → API keys (`/api/v1/credentials`). A value is never echoed in an error: anything a provider says back is scrubbed of it first.

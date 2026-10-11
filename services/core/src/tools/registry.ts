@@ -11,6 +11,9 @@
  *  How      |  Tools never run themselves: the conductor calls execute()
  *           |  only after the permission gate allowed the call (or a
  *           |  person approved it). Built-ins live in tools/builtin.
+ *           |  onChange() tells listeners the list changed (an MCP
+ *           |  server connected or went away), so the lab's view of
+ *           |  hosted tools (lab/mcp-server.ts) stays live.
  *  Note     |  TODO(phase-3): notebook.search, note.create, web.fetch.
  *           |  TODO(phase-5): embedding-based tool selection so small
  *           |  models are not handed fifty schemas.
@@ -65,6 +68,7 @@ export interface ToolOverride {
 
 export class ToolRegistry {
   private tools = new Map<string, ToolSpec>();
+  private readonly listeners = new Set<() => void>();
 
   register(tool: ToolSpec, override?: ToolOverride): void {
     if (override?.disabled) return;
@@ -72,10 +76,37 @@ export class ToolRegistry {
     let tier = override?.tier ?? tool.tier;
     if (destructive && tier === 'auto') tier = 'gated'; // the floor holds even against config
     this.tools.set(tool.name, { ...tool, tier, destructive });
+    this.changed();
   }
 
   unregisterSource(match: (s: ToolSpec['source']) => boolean): void {
-    for (const [name, t] of this.tools) if (match(t.source)) this.tools.delete(name);
+    let removed = false;
+    for (const [name, t] of this.tools)
+      if (match(t.source)) {
+        this.tools.delete(name);
+        removed = true;
+      }
+    if (removed) this.changed();
+  }
+
+  /**
+   * Called after every change to the list (synchronously, so a burst of
+   * registrations calls it once per tool: debounce on the listener's side).
+   * Returns the function that stops listening.
+   */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private changed(): void {
+    for (const l of this.listeners) {
+      try {
+        l();
+      } catch {
+        // A listener's failure is its own; the registry has changed regardless.
+      }
+    }
   }
 
   get(name: string): ToolSpec | undefined {

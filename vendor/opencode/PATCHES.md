@@ -12,7 +12,7 @@ How it is started: `scripts/boot.mjs` runs `bun run ./src/index.ts serve --hostn
 | 2. Core-signed auth and a pinned workspace root | The server password (`OPENCODE_SERVER_PASSWORD`) is a per-install secret that only Core holds. Each thread's sessions are opened with `?directory=<workspace>/labs/<thread>`. Every path the engine reports is mapped back to `/workspace/labs/<thread>/…` before it is checked, so leaving that folder is a write outside the workspace and escalates to critical. | `scripts/runtime.mjs`, `lab/handler.ts` |
 | 3. No autoupdate, share or models.dev fetch | These are switched off by environment flags: `OPENCODE_DISABLE_AUTOUPDATE`, `_SHARE`, `_MODELS_FETCH`, `_CLAUDE_CODE*`, `_EXTERNAL_SKILLS`, `_DEFAULT_PLUGINS`, `_EMBEDDED_WEB_UI` and `_LSP_DOWNLOAD`. The config also sets `share: "disabled"` and `autoupdate: false`. Engine state is kept in `data/agent` (XDG dirs). | `agentEnv()` |
 | 4. Gateway as the only provider | `OPENCODE_CONFIG_CONTENT` defines one provider, `ancile`. It uses `@ai-sdk/openai-compatible` (bundled, so nothing is downloaded) pointed at Core's `/internal/v1/openai`. The config also sets `enabled_providers: ["ancile"]` and `OPENCODE_DISABLE_PROJECT_CONFIG=1`, so no project file can add another provider. The key is `AGENT_GATEWAY_TOKEN`, which Core accepts for model calls only. | `agentConfig()`, `services/core/src/app.ts` |
-| 5. MCP config pushed from Core | Core registers MCP servers in its own tool registry, so chat sees them now. The lab can be given the same servers through the `mcp` key of the injected config, or through `POST /mcp` at runtime. TODO(phase-3): push `config/mcp.yaml` to the engine when a lab session opens. | `services/core/src/mcp/manager.ts` |
+| 5. MCP servers from Core | The lab does not connect to MCP servers itself. Core hosts them (its tool registry) and offers all their tools to the lab as one remote MCP server, `ancile`, at Core's `/mcp/lab`. The injected config's `mcp` key points at it, with the gateway token as a Bearer header (`{env:ANCILE_GATEWAY_TOKEN}`), so the lab never holds a server's secrets. The engine names those tools `ancile_<server>__<tool>`; the bridge checks each ask as the hosted tool (its own action, resource and tier), and `/mcp/lab` runs the gate again on the real arguments when the call arrives. A person's "approve once" leaves a one-call pass that the call spends. The list is read from the registry on every request, and open sessions are sent `tools/list_changed` when a server is added, removed, connects or drops. | `services/core/src/lab/mcp-server.ts`, `lab/hosted.ts`, `agentConfig()`, `apps/desktop/src-tauri/src/supervisor.rs` |
 
 ## Isolation
 
@@ -20,7 +20,7 @@ The engine runs commands that a model chose, so `agentEnv()` builds its environm
 - system basics: `PATH`, home and temp
 - its server password
 - the injected config
-- the gateway token
+- the gateway token (model calls and `/mcp/lab` only)
 
 It never sees the service token, `DATABASE_URL` or any provider key.
 
