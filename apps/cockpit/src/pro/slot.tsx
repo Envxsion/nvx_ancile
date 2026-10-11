@@ -94,8 +94,17 @@ export interface ProUi {
 }
 type CreateProUi = (kit: ProKit) => ProUi;
 
+/**
+ * False in a free build (NVX_TIER=free when it was built), so the bundler
+ * drops the import below and no Pro screen can reach a free build, even one
+ * built from a checkout that has pro/. Set in vite.config.ts.
+ */
+declare const __ANCILE_PRO_UI__: boolean;
+
 // Relative to this file: apps/cockpit/src/pro → the repository's pro/cockpit.
-const entries = import.meta.glob<{ createProUi?: CreateProUi }>('../../../../pro/cockpit/index.tsx');
+const entries: Record<string, () => Promise<{ createProUi?: CreateProUi }>> = __ANCILE_PRO_UI__
+  ? import.meta.glob<{ createProUi?: CreateProUi }>('../../../../pro/cockpit/index.tsx')
+  : {};
 
 export const proUiPresent = Object.keys(entries).length > 0;
 

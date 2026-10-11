@@ -170,9 +170,11 @@ jobs:
           git config --global url."https://x-access-token:${PRO_REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
           git submodule update --init --depth 1 pro
           rm -rf apps/desktop/src-tauri/target/release/bundle
-      - name: Core with Pro bundled
+      # Core gets dist/pro.js; the Cockpit is rebuilt with Pro's screens (and
+      # without source maps, which would carry Pro's source).
+      - name: Core and Cockpit with Pro bundled
         if: env.PRO_REPO_TOKEN != ''
-        run: pnpm --filter @nvx/ancile-desktop sidecars core
+        run: pnpm --filter @nvx/ancile-desktop sidecars core cockpit
       - name: Build the installers (Pro)
         if: env.PRO_REPO_TOKEN != ''
         working-directory: apps/desktop
