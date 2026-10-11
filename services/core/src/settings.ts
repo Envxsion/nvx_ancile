@@ -7,6 +7,8 @@
  *           |  to a YAML file a person edits: onboarding state, the
  *           |  permission preset, models switched on by a key test.
  *  How      |  core.settings in Postgres; MemorySettings for tests.
+ *  Note     |  Setting null or undefined clears the key: the column is
+ *           |  NOT NULL, and every caller that writes null means "unset".
  * ------------------------------------------------------------------
  */
 
@@ -14,6 +16,7 @@ import type { Sql } from 'postgres';
 
 export interface SettingsStore {
   get<T>(key: string): Promise<T | undefined>;
+  /** null or undefined removes the key, so get() answers undefined. */
   set(key: string, value: unknown): Promise<void>;
 }
 
@@ -23,7 +26,8 @@ export class MemorySettings implements SettingsStore {
     return this.m.get(key) as T | undefined;
   }
   async set(key: string, value: unknown) {
-    this.m.set(key, structuredClone(value));
+    if (value === null || value === undefined) this.m.delete(key);
+    else this.m.set(key, structuredClone(value));
   }
 }
 
@@ -36,6 +40,10 @@ export class PgSettings implements SettingsStore {
   }
 
   async set(key: string, value: unknown): Promise<void> {
+    if (value === null || value === undefined) {
+      await this.sql`delete from core.settings where key = ${key}`;
+      return;
+    }
     const json = this.sql.json(value as never);
     await this.sql`
       insert into core.settings (key, value) values (${key}, ${json})

@@ -188,7 +188,7 @@ describe('telemetry', () => {
     await t.setConsent(false);
     expect(await store.queued()).toBe(0);
     expect(await store.daysBefore('2100-01-01')).toEqual([]);
-    expect(await settings.get('telemetry.install_id')).toBeNull();
+    expect(await settings.get('telemetry.install_id')).toBeUndefined();
     expect((await t.status()).consent).toBe('declined');
     t.count('messages');
     await t.tick();
