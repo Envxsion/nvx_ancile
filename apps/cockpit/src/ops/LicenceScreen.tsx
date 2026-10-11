@@ -42,6 +42,9 @@ export function formatKey(raw: string): string {
   return body ? `NVX-${groups.join('-')}` : raw.toUpperCase().startsWith('N') ? raw.toUpperCase() : '';
 }
 
+/** Where a key holder gets the Pro installer (current licences get short-lived links). */
+const PRO_DOWNLOAD = 'https://ancile.nvx.sh/pro/download';
+
 export function LicenceScreen() {
   const details = useQuery({ queryKey: KEY, queryFn: () => api.get<Details>('/license/details') });
   // An ancile://activate link (desktop app) opens this screen with ?key=…
@@ -189,13 +192,15 @@ export function LicenceScreen() {
       </ul>
 
       {!pro && d.build === 'free' ? (
-        <p className="licence__free-build">
-          This copy of NVX Ancile was built without Pro, so a key cannot turn it on. Download NVX Ancile from{' '}
-          <a href="https://ancile.nvx.sh" target="_blank" rel="noreferrer">
-            ancile.nvx.sh
-          </a>{' '}
-          to use Pro; your notebooks, threads and memory stay as they are.
-        </p>
+        <div className="licence__free-build">
+          <p>
+            This copy of NVX Ancile was built without Pro, so a key cannot turn it on. Install the Pro edition
+            over it; your notebooks, threads and memory stay as they are.
+          </p>
+          <a className="btn btn--primary" href={PRO_DOWNLOAD} target="_blank" rel="noreferrer">
+            Have a Pro key? Get the Pro installer
+          </a>
+        </div>
       ) : null}
 
       {seatTaken ? (

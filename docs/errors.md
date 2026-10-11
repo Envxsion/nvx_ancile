@@ -209,7 +209,7 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `license.unreachable` | 503 | "nvx.sh could not be reached." / Check your connection; once Pro is on, it keeps working offline until its token expires. |
 | `license.rejected` | 422 | nvx.sh's own words / Check the key (NVX-XXXX-XXXX-XXXX) in your nvx.sh account. |
 | `license.invalid` | 422 | Why the token did not unlock anything: not a token from nvx.sh, issued for another computer, signed by a key this version does not know, for another NVX product, or expired / Turn Pro on here with your key, or update NVX Ancile. |
-| `license.free_build` | 422 | "This build has no Pro in it." / Download NVX Ancile from ancile.nvx.sh to use Pro. A clone without `pro/` is the free product. |
+| `license.free_build` | 422 | "This build has no Pro in it." / Get the Pro installer with your key at https://ancile.nvx.sh/pro/download. A clone without `pro/` is the free product. |
 | `license.seat_taken` | 409 | "This key is already on as many computers as it allows." / Choose Move it here; the one used least recently goes back to the free edition. `error.context` has `devices` and `max_devices`. |
 | `license.transfer_limit` | 409 | "This key has moved too many times recently." / Wait a few days, or ask nvx.sh support to move it. |
 | `license.not_found` | 404 | "There is no licence with that key." / Copy the key again from your nvx.sh account. |

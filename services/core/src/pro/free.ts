@@ -57,7 +57,7 @@ export function freeModule(settings: SettingsStore): { build: 'free'; license: P
         throw new AncileError({
           code: 'license.free_build',
           title: 'This build has no Pro in it',
-          hint: 'Download NVX Ancile from ancile.nvx.sh to use Pro. Everything here keeps working on the free edition.',
+          hint: 'Get the Pro installer with your key at https://ancile.nvx.sh/pro/download. Everything here keeps working on the free edition.',
           status: 422,
           errorClass: 'permanent',
         });
