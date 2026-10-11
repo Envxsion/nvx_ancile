@@ -45,7 +45,12 @@ before(async () => {
       const meta = JSON.parse(raw.toString());
       if (published.has(meta.version)) return json(409, { error: { code: 'release.exists' } });
       const store = meta.notes === 'supabase' ? 'supabase' : 'r2';
-      return json(200, { upload_url: `${base}/storage/${meta.filename}`, method: 'PUT', store, path: meta.filename });
+      return json(200, {
+        upload_url: `${base}/storage/${meta.filename}`,
+        method: 'PUT',
+        store,
+        path: meta.filename,
+      });
     }
     if (req.url?.startsWith('/storage/')) {
       stored.set(decodeURIComponent(req.url), raw.length);

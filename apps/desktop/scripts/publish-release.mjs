@@ -138,7 +138,14 @@ export async function publishExternal({
  * R2 is set up nvx.sh offers Supabase, capped at 50 MB) and returns
  * 'skipped' without sending anything.
  */
-export async function publish({ file, meta, token, base = 'https://nvx.sh', fetchImpl = fetch, requireStore }) {
+export async function publish({
+  file,
+  meta,
+  token,
+  base = 'https://nvx.sh',
+  fetchImpl = fetch,
+  requireStore,
+}) {
   const up = await call(fetchImpl, base, '/api/releases/upload', token, meta);
   if (up.status === 409 && codeOf(up.body) === 'release.exists') {
     // Already published: the same build again is a harmless retry; another build fails below.
