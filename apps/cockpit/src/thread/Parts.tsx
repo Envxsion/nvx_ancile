@@ -15,9 +15,11 @@
  */
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
+import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { modelName } from '../lib/format';
 import { shortResource } from '../lib/mappers';
+import type { SubagentView } from '../lib/types';
 import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
@@ -102,10 +104,12 @@ function ToolStep({
   result,
   waiting,
   folded,
+  subagent,
 }: {
   call: ToolCall;
   result: ToolResult | undefined;
   waiting: boolean;
+  subagent?: SubagentView | undefined;
   /** Settings → Reading: tool steps start as one line. */
   folded: boolean;
 }) {
@@ -141,12 +145,59 @@ function ToolStep({
         {result ? (
           <>
             <div className="tool-step__k">{result.ok ? 'Result' : 'What happened'}</div>
-            <pre data-num>
-              {typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)}
-            </pre>
+            <ResultText
+              text={
+                typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)
+              }
+            />
           </>
         ) : null}
+        {subagent ? <SubagentConversation s={subagent} /> : null}
       </div>
+    </details>
+  );
+}
+
+/** Long results (a whole file, a long log) start short, with the rest one click away. */
+export const RESULT_LINES = 24;
+const RESULT_CHARS = 2400;
+
+export function ResultText({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const lines = text.split('\n');
+  const long = lines.length > RESULT_LINES || text.length > RESULT_CHARS;
+  if (!long || all) return <pre data-num>{text}</pre>;
+  const head = lines.slice(0, RESULT_LINES).join('\n').slice(0, RESULT_CHARS);
+  return (
+    <>
+      <pre data-num data-clipped>
+        {head}
+      </pre>
+      <button type="button" className="link-btn tool-step__more" onClick={() => setAll(true)}>
+        Show all {lines.length} lines
+      </button>
+    </>
+  );
+}
+
+/** A Claude Code subagent's own conversation, folded away. */
+export function SubagentConversation({ s }: { s: SubagentView }) {
+  if (!s.turns.length) return null;
+  return (
+    <details className="subagent">
+      <summary>
+        Subagent conversation
+        {s.title ? <span className="subagent__title">{s.title}</span> : null}
+      </summary>
+      <ol className="subagent__turns">
+        {s.turns.map((t, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: turns are positional
+          <li key={i} data-role={t.role}>
+            <span className="subagent__who">{t.role === 'user' ? 'Asked' : 'Answered'}</span>
+            <p>{t.text}</p>
+          </li>
+        ))}
+      </ol>
     </details>
   );
 }
@@ -157,7 +208,10 @@ export function Parts({
   waiting,
   claims,
   holdText = false,
+  subagents,
 }: {
+  /** Claude Code subagent transcripts: under their tool step, or at the end. */
+  subagents?: SubagentView[] | undefined;
   parts: Part[];
   streaming: boolean;
   waiting: boolean;
@@ -169,6 +223,8 @@ export function Parts({
   const folded = usePrefs((s) => s.prefs.reading.collapseTools);
   const segs = segments(parts);
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
+  const calls = new Set(segs.flatMap((s) => (s.kind === 'tool' ? [s.call.call_id] : [])));
+  const loose = (subagents ?? []).filter((a) => !a.callId || !calls.has(a.callId));
   return (
     <>
       {segs.map((s, i) => {
@@ -196,7 +252,16 @@ export function Parts({
               </details>
             );
           case 'tool':
-            return <ToolStep key={s.key} call={s.call} result={s.result} waiting={waiting} folded={folded} />;
+            return (
+              <ToolStep
+                key={s.key}
+                call={s.call}
+                result={s.result}
+                waiting={waiting}
+                folded={folded}
+                subagent={subagents?.find((a) => a.callId === s.call.call_id)}
+              />
+            );
           case 'seam':
             return (
               <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">
@@ -207,6 +272,10 @@ export function Parts({
             return null;
         }
       })}
+      {loose.map((a, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: transcripts without a call have only their place
+        <SubagentConversation key={`sub-${i}`} s={a} />
+      ))}
     </>
   );
 }

@@ -29,6 +29,7 @@ import type {
   NotebookView,
   PendingApproval,
   SourceView,
+  SubagentView,
   ThreadSummary,
   ThreadView,
 } from './types';
@@ -109,6 +110,7 @@ export function toThreadSummary(t: WireThreadSummary): ThreadSummary {
     live: t.live,
     pinned: !!t.pinned_at,
     archived: !!t.archived_at,
+    ...(t.settings?.claude_code && { fromClaudeCode: true }),
   };
 }
 
@@ -202,6 +204,42 @@ export interface Provenance {
   flow?: FlowProvenance;
   /** How the answer was routed and why (DESIGN §16.3): a flow or one model, and who chose it. */
   route?: AnswerRoute;
+  /**
+   * Mirrored from a Claude Code session. `kind: 'compact_boundary'` marks where
+   * Claude Code compacted; `subagent` carries a subagent's transcript (one or a
+   * list) on the tool result it belongs to. Both are optional and loosely shaped.
+   */
+  claude_code?: { session_id?: string; uuid?: string; kind?: string; subagent?: unknown };
+}
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
+
+/** Whatever shape a subagent transcript arrives in, as turns to read; nothing when absent. */
+export function subagentsOf(raw: unknown): SubagentView[] {
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return list.flatMap((item): SubagentView[] => {
+    if (!item || typeof item !== 'object') return [];
+    const o = item as Record<string, unknown>;
+    const msgs = Array.isArray(o.messages) ? o.messages : Array.isArray(o.transcript) ? o.transcript : [];
+    const turns = msgs.flatMap((m): SubagentView['turns'] => {
+      if (!m || typeof m !== 'object') return [];
+      const r = m as { role?: unknown; text?: unknown; parts?: unknown };
+      const text =
+        str(r.text) ??
+        (Array.isArray(r.parts)
+          ? partsText(r.parts.filter((p): p is Part => !!p && typeof p === 'object'))
+          : '');
+      if (!text.trim()) return [];
+      return [{ role: r.role === 'user' ? 'user' : 'assistant', text }];
+    });
+    return [
+      {
+        callId: str(o.call_id) ?? str(o.tool_use_id),
+        title: str(o.title) ?? str(o.description) ?? str(o.agent_type) ?? str(o.agent),
+        turns,
+      },
+    ];
+  });
 }
 
 const REASON_WORDS: Record<string, string> = {
@@ -222,7 +260,10 @@ export function toMessageView(m: Message): MessageView | null {
   const prov = m.provenance as Provenance;
   const attempts = prov.attempts ?? [];
   const first = attempts[0];
+  const subagents = subagentsOf(prov.claude_code?.subagent);
   return {
+    ...(prov.claude_code?.kind === 'compact_boundary' && { compactBoundary: true }),
+    ...(subagents.length > 0 && { subagents }),
     id: m.id,
     parentId: m.parent_id,
     role: m.role,
@@ -256,14 +297,42 @@ export function toMessageView(m: Message): MessageView | null {
   };
 }
 
+/**
+ * Messages to draw. A message that is nothing but tool results (Claude Code
+ * keeps them in the next turn, some providers in a `tool` message) joins the
+ * answer that made the calls, so each step shows how it went. A user message
+ * like that stays in the list, folded, so the branch still ends where it ends.
+ */
+export function toMessageViews(messages: Message[]): MessageView[] {
+  const out: MessageView[] = [];
+  for (const m of messages) {
+    const onlyResults = m.parts.length > 0 && m.parts.every((p) => p.type === 'tool_result');
+    if (m.role === 'tool' || (m.role === 'user' && onlyResults)) {
+      const host = out.findLast((v) => v.role === 'assistant' && !v.folded);
+      const subagents = subagentsOf((m.provenance as Provenance).claude_code?.subagent);
+      if (host) {
+        host.parts = [...(host.parts ?? []), ...m.parts.filter((p) => p.type === 'tool_result')];
+        if (subagents.length) host.subagents = [...(host.subagents ?? []), ...subagents];
+      }
+      const v = m.role === 'user' ? toMessageView(m) : null;
+      if (v) out.push({ ...v, parts: [], subagents: undefined, folded: true });
+      continue;
+    }
+    const v = toMessageView(m);
+    if (v) out.push(v);
+  }
+  return out;
+}
+
 export function toThreadView(p: ThreadPath): ThreadView {
   return {
     id: p.thread.id,
     title: p.thread.title,
     notebookId: p.thread.notebook_id,
     model: p.thread.settings.model ?? null,
-    messages: p.messages.flatMap((m) => toMessageView(m) ?? []),
+    messages: toMessageViews(p.messages),
     activeRun: p.active_run ? { id: p.active_run.id, messageId: p.active_run.message_id } : null,
+    claudeCode: p.thread.settings.claude_code ?? null,
   };
 }
 

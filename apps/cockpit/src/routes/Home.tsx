@@ -26,13 +26,13 @@ import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
 import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
-import type { Hue, NotebookView } from '../lib/types';
+import type { Hue } from '../lib/types';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Composer, type SendExtras } from '../thread/Composer';
 import { Icon } from '../ui/Icon';
-import { DropMenu, type MenuEntry } from '../ui/Menu';
+import { NotebookPick } from '../ui/NotebookPick';
 
 const STARTERS = [
   {
@@ -58,51 +58,6 @@ function greeting(d = new Date()): string {
   if (h < 12) return 'Good morning.';
   if (h < 18) return 'Good afternoon.';
   return 'Good evening.';
-}
-
-function NotebookPick({
-  notebooks,
-  value,
-  onChange,
-}: {
-  notebooks: NotebookView[];
-  value: string | null;
-  onChange: (id: string | null) => void;
-}) {
-  const current = notebooks.find((n) => n.id === value) ?? null;
-  const items: MenuEntry[] = [
-    { kind: 'label', label: 'Answer from' },
-    { label: 'No notebook', icon: 'thread', onSelect: () => onChange(null) },
-    ...(notebooks.length ? [{ kind: 'separator' as const }] : []),
-    ...notebooks
-      .filter((n) => !n.archived)
-      .slice(0, 30)
-      .map((n) => ({ label: n.title, icon: 'notebook' as const, onSelect: () => onChange(n.id) })),
-  ];
-  return (
-    <DropMenu
-      align="start"
-      side="top"
-      items={items}
-      trigger={
-        <button
-          type="button"
-          className="scope-pick"
-          data-set={current ? true : undefined}
-          style={current?.color ? ({ '--hue': hueVar(current.color as Hue) } as CSSProperties) : undefined}
-          aria-label={current ? `Notebook: ${current.title}. Change` : 'Choose a notebook'}
-        >
-          {current ? (
-            <span className="scope-pick__dot" aria-hidden="true" />
-          ) : (
-            <Icon name="notebook" size={13} />
-          )}
-          <span className="scope-pick__label">{current ? current.title : 'No notebook'}</span>
-          <Icon name="chevronDown" size={11} />
-        </button>
-      }
-    />
-  );
 }
 
 export function HomeScreen() {

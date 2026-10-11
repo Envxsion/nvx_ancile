@@ -67,6 +67,8 @@ export interface ThreadSummary {
   live?: boolean;
   pinned?: boolean;
   archived?: boolean;
+  /** Came from a Claude Code session, so it can be synced from it. */
+  fromClaudeCode?: boolean;
 }
 
 export type Verdict = 'verified' | 'unverified' | 'contradicted';
@@ -117,6 +119,19 @@ export interface MessageView {
   error?: { title: string; hint: string } | null;
   /** What Core recorded about how this answer was made (models tried, sources found). */
   provenance?: import('./mappers').Provenance;
+  /** Only tool results, already shown in the answer before it: kept for the branch, not drawn. */
+  folded?: boolean;
+  /** Imported from Claude Code: where it compacted the conversation (drawn as a divider). */
+  compactBoundary?: boolean;
+  /** Imported from Claude Code: conversations its subagents had for this answer. */
+  subagents?: SubagentView[];
+}
+
+export interface SubagentView {
+  /** The tool call that started it, when Claude Code said. */
+  callId: string | null;
+  title: string | null;
+  turns: { role: 'user' | 'assistant'; text: string }[];
 }
 
 export interface ThreadView {
@@ -129,6 +144,8 @@ export interface ThreadView {
   model?: string | null;
   /** A run still producing the last message: attach its stream. */
   activeRun?: { id: string; messageId: string | null } | null;
+  /** The Claude Code session this thread came from, if it did. */
+  claudeCode?: import('@nvx/contracts').ClaudeCodeBinding | null;
 }
 
 export interface TreeNodeView {

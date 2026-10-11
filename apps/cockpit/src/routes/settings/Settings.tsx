@@ -15,6 +15,7 @@
 import { DEFAULT_PREFERENCES, Preferences, type PrefGroup } from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ClaudeCodeGroup } from '../../claudecode/ClaudeCodeGroup';
 import { ApiKeysGroup } from '../../credentials/ApiKeys';
 import { helpDone } from '../../help/store';
 import { ProSurfaceView } from '../../pro/slot';
@@ -37,7 +38,7 @@ import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
 const GROUPS: {
-  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys';
+  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -86,6 +87,13 @@ const GROUPS: {
     icon: 'key',
     body: ApiKeysGroup,
     lede: 'Keys and tokens for models, compute and GitHub, encrypted on this computer.',
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    icon: 'command',
+    body: ClaudeCodeGroup,
+    lede: 'Use the Claude Code on this computer, and keep its sessions here as threads.',
   },
   {
     id: 'privacy',
@@ -357,7 +365,8 @@ export function SettingsScreen() {
             current.id !== 'about' &&
             current.id !== 'privacy' &&
             current.id !== 'sync' &&
-            current.id !== 'keys' ? (
+            current.id !== 'keys' &&
+            current.id !== 'claude-code' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

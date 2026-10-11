@@ -31,6 +31,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { syncThread } from '../claudecode/api';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
 import { threadQuery, useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
@@ -157,6 +158,15 @@ function ThreadRow({
       icon: 'link',
       onSelect: () => void navigator.clipboard?.writeText(`${location.origin}/t/${t.id}`),
     },
+    ...(t.fromClaudeCode
+      ? [
+          {
+            label: 'Sync from Claude Code',
+            icon: 'regenerate' as const,
+            onSelect: () => void syncThread(t.id),
+          },
+        ]
+      : []),
     { kind: 'separator' },
     { label: 'Archive', icon: 'archive', onSelect: () => void setArchived(t.id, true, t.title) },
     {
@@ -203,13 +213,13 @@ function ThreadRow({
               setRenaming(t.id);
             }
           }}
-          title={t.title}
+          title={t.fromClaudeCode ? `${t.title}, from Claude Code` : t.title}
           dir="auto"
         >
           {active ? <ActivePlate /> : null}
           {icon ? (
             <Icon
-              name={t.pinned ? 'pin' : 'thread'}
+              name={t.pinned ? 'pin' : t.fromClaudeCode ? 'command' : 'thread'}
               size={14}
               className={t.pinned ? 'gilt-ink' : undefined}
             />

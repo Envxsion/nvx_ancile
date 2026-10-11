@@ -19,6 +19,7 @@ import { watchSystemTheme } from '@nvx/aperture';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { type CSSProperties, useEffect } from 'react';
 import { ApprovalDialog } from '../approvals/ApprovalDialog';
+import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
 import { HelpCentre } from '../help/HelpCentre';
 import { TourOverlay } from '../help/TourOverlay';
 import { installKeys, useBinding } from '../keys/dispatch';
@@ -215,6 +216,7 @@ export function AppShell() {
       <HelpCentre />
       <TourOverlay />
       <BeamHost />
+      <ClaudeCodeSessionsHost />
       <Toaster />
     </div>
   );

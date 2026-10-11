@@ -365,6 +365,7 @@ export const Message = memo(function Message({
                 waiting={waiting}
                 claims={claims}
                 holdText={streaming && whole}
+                subagents={m.subagents}
               />
             </ClaimsProvider>
           </CiteProvider>

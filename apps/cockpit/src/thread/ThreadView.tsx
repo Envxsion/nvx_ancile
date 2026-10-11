@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ClaudeCodeMarker, CompactionDivider } from '../claudecode/ThreadMarker';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
 import { useThread, useThreads } from '../lib/data';
@@ -258,6 +259,11 @@ export function ThreadView({ threadId }: { threadId: string }) {
           <h1 className="thread__title" data-display dir="auto">
             {listTitle ?? thread.data?.title}
           </h1>
+          {thread.data?.claudeCode ? (
+            <div className="thread__origin">
+              <ClaudeCodeMarker threadId={threadId} binding={thread.data.claudeCode} />
+            </div>
+          ) : null}
 
           {thread.data?.tldr ? (
             <section className="tldr" data-open={tldrOpen || undefined}>
@@ -283,6 +289,14 @@ export function ThreadView({ threadId }: { threadId: string }) {
           ) : (
             <ol className="thread__messages" aria-label="Conversation">
               {messages.map((m) => {
+                // Tool results already drawn in the answer before them.
+                if (m.folded) return null;
+                if (m.compactBoundary)
+                  return (
+                    <li key={m.id} data-mid={m.id}>
+                      <CompactionDivider />
+                    </li>
+                  );
                 const live = turns[m.id];
                 return (
                   <li key={m.id} data-mid={m.id}>

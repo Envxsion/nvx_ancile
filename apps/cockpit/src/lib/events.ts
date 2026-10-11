@@ -17,6 +17,7 @@
 import { GlobalEvent } from '@nvx/contracts';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
+import { onClaudeCodeChanged } from '../claudecode/api';
 import { onMemoryProposal } from '../memory/api';
 import { decisionChime } from '../notify/chime';
 import { onMcpServerChanged } from '../ops/mcp';
@@ -72,6 +73,9 @@ export function useGlobalEvents(): void {
             break;
           case 'mcp.server_changed':
             onMcpServerChanged(e, queryClient);
+            break;
+          case 'claude_code.changed':
+            onClaudeCodeChanged(e, queryClient);
             break;
           case 'source.progress': {
             // Move the bar now; refetch the lists when a source settles.

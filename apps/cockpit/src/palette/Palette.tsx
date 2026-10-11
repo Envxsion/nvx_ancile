@@ -18,11 +18,13 @@
  * ------------------------------------------------------------------
  */
 
-import type { ThreadSearchHit } from '@nvx/contracts';
+import type { ClaudeCodeStatus, ThreadSearchHit } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from '@tanstack/react-router';
 import { Command } from 'cmdk';
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { CC_KEYS, syncThread } from '../claudecode/api';
+import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { searchHelp } from '../help/articles';
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
@@ -33,6 +35,7 @@ import { compactNow } from '../lib/branching';
 import { useModels, useNotebooks, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
+import { queryClient } from '../lib/query';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
 import { openBeam } from '../pro/beam';
@@ -102,6 +105,12 @@ const SETTINGS_INDEX: { label: string; group: string; words: string }[] = [
   { label: 'Motion', group: 'accessibility', words: 'reduce animation' },
   { label: 'Larger buttons', group: 'accessibility', words: 'touch targets' },
   { label: 'Custom CSS', group: 'advanced', words: 'style theme css' },
+  { label: 'Claude Code', group: 'claude-code', words: 'claude code install sign in sessions anthropic' },
+  {
+    label: 'Bring Claude Code sessions in by themselves',
+    group: 'claude-code',
+    words: 'claude code import sessions automatic',
+  },
   { label: 'Effects and performance', group: 'advanced', words: 'lite blur performance' },
 ];
 
@@ -238,6 +247,8 @@ export function Palette() {
   };
 
   const thread = threadId ? threads.data?.find((t) => t.id === threadId) : undefined;
+  // Read what is already known; the palette never asks Core about Claude Code by itself.
+  const ccStatus = open ? queryClient.getQueryData<ClaudeCodeStatus>(CC_KEYS.status) : undefined;
   const go = (to: string, params?: Record<string, string>) => () =>
     navigate({ to, ...(params && { params }) } as Parameters<typeof navigate>[0]);
 
@@ -388,6 +399,30 @@ export function Palette() {
       label: 'Search memory',
       icon: 'memory',
       run: go('/admin/$section', { section: 'memory' }),
+    },
+    {
+      id: 'claude-code-sessions',
+      label: 'Open Claude Code sessions',
+      icon: 'command',
+      words: 'claude code sessions terminal cli import sync',
+      run: () => openClaudeCodeSessions(),
+    },
+    {
+      id: 'claude-code-import',
+      label: 'Import Claude Code sessions',
+      icon: 'download',
+      words: 'claude code sessions bring in',
+      // Only when sessions do not come in by themselves (the default is that they do).
+      when: ccStatus?.settings.auto_import === false,
+      run: () => openClaudeCodeSessions(),
+    },
+    {
+      id: 'claude-code-sync',
+      label: 'Sync this thread from Claude Code',
+      icon: 'regenerate',
+      words: 'claude code session update new messages',
+      when: !!thread?.fromClaudeCode,
+      run: () => thread && void syncThread(thread.id),
     },
     {
       id: 'setup',

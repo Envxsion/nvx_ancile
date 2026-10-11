@@ -271,6 +271,34 @@ The agent asks before anything that changes files or runs a command, through the
 Under the answer, **What the lab changed** lists every file it added, changed or deleted, with the differences. **Undo these changes** puts the folder back exactly as it was before the run.`,
       },
       {
+        id: 'claude-code',
+        title: 'Using Claude Code in NVX Ancile',
+        summary:
+          'Your own Claude Code, its sessions kept here as threads, and its sign-in kept by Claude Code.',
+        keywords: 'claude code anthropic cli terminal sessions import sync sign in install update agent',
+        body: `NVX Ancile works with the Claude Code installed on this computer. Every Claude Code session comes in as a thread, in a notebook named after the folder it ran in, and keeps in step as Claude Code adds to it.
+
+**Install**
+Open **Settings → Claude Code**. If Claude Code is missing, **Install Claude Code** runs Anthropic's official installer and shows its progress. NVX Ancile can do this by itself when Claude Code is missing; turn that off in the same place.
+
+If Claude Code is too old, run \`claude update\` in a terminal, then press **Check again**.
+
+**Sign in**
+**Sign in to Claude Code** asks Claude Code to sign in. A browser window opens from Claude Code itself, and you sign in there. NVX Ancile never sees your Claude sign-in: Claude Code keeps it, and NVX Ancile only asks whether it is signed in.
+
+**Sessions**
+With **Bring Claude Code sessions in by themselves** on (the default), there is nothing to do: sessions arrive as threads and stay up to date. A small line in Settings shows progress while they come in, and one notice says how many arrived.
+
+**Open Claude Code sessions** (in the palette, or **See sessions** in Settings) lists every session by folder: which are in NVX Ancile, which have new messages, and which are open in a terminal right now. Turn the switch off to choose sessions yourself and import them.
+
+A thread from Claude Code says so under its title. **Sync from Claude Code** (in that marker's menu, the thread's menu in the sidebar, or the palette) adds anything new at once.
+
+**Good to know**
+- A session open in a terminal right now can be brought in, but continuing it here waits until that terminal closes.
+- Where Claude Code compacted a conversation, the thread shows **Conversation compacted here**.
+- Usage counts against the account Claude Code is signed in to, as it would in a terminal.`,
+      },
+      {
         id: 'approvals',
         title: 'Approvals',
         summary: 'Once, always, or every time: you decide what the AI may do.',
@@ -732,6 +760,11 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'mcp.read_only': 'mcp-servers',
   'mcp.secret_missing': 'mcp-servers',
   'mcp.tier_not_allowed': 'mcp-servers',
+  'claude_code.not_installed': 'claude-code',
+  'claude_code.signed_out': 'claude-code',
+  'claude_code.version_old': 'claude-code',
+  'claude_code.sdk_unavailable': 'claude-code',
+  'claude_code.install_failed': 'claude-code',
 };
 
 /** Plain-text search over titles, summaries, keywords and bodies, best first. */
