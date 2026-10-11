@@ -27,7 +27,7 @@ describe('desktop updates', () => {
     expect(bad.status).toBeGreaterThanOrEqual(400);
   });
 
-  it('gives the host the licence token only on a Pro install', async () => {
+  it('gives the host the licence token in every edition, so a lapsed Pro install can come back to Pro', async () => {
     const settings = new MemorySettings();
     await settings.set('license.token', 'h.p.s');
     const pro = await (
@@ -37,6 +37,12 @@ describe('desktop updates', () => {
     const free = await (
       await updateInternalRoutes({ settings, pro: () => false }).request('/desktop/updates')
     ).json();
-    expect(free).toEqual({ channel: 'stable', token: null });
+    expect(free).toEqual({ channel: 'stable', token: 'h.p.s' });
+    const none = await (
+      await updateInternalRoutes({ settings: new MemorySettings(), pro: () => false }).request(
+        '/desktop/updates',
+      )
+    ).json();
+    expect(none).toEqual({ channel: 'stable', token: null });
   });
 });

@@ -5,13 +5,16 @@
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  What the desktop host needs to ask nvx.sh for updates:
- *           |  the channel this person chose, and for a Pro install
- *           |  the licence token to send as its Authorization header.
+ *           |  the channel this person chose, and the licence token
+ *           |  (when one is held) to send as its Authorization header.
  *  How      |  GET/PUT /api/v1/system/updates: the channel (stable or
  *           |  beta), kept in settings. GET /internal/v1/desktop/
  *           |  updates (service token: only the desktop host has it):
- *           |  {channel, token}. The edition is decided by the host
- *           |  from what was bundled, not here.
+ *           |  {channel, token}. The token is given in every edition:
+ *           |  a Pro install whose licence lapsed is moved to the free
+ *           |  build, and only the token lets it ask for Pro again once
+ *           |  the licence is renewed. The host asks for the Pro edition
+ *           |  when Pro is bundled or a token is held.
  *  Note     |  The token never appears in a log line or an /api reply.
  * ------------------------------------------------------------------
  */
@@ -49,7 +52,7 @@ export function updateRoutes(deps: { settings: SettingsStore }) {
 export function updateInternalRoutes(deps: { settings: SettingsStore; pro: () => boolean }) {
   const r = new Hono<AppEnv>();
   r.get('/desktop/updates', async (c) => {
-    const token = deps.pro() ? ((await deps.settings.get<string>(TOKEN)) ?? null) : null;
+    const token = (await deps.settings.get<string>(TOKEN)) ?? null;
     c.header('cache-control', 'no-store');
     return c.json({ channel: await channelOf(deps.settings), token });
   });

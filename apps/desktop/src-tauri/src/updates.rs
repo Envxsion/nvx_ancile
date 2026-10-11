@@ -8,9 +8,13 @@
 //  How      |  Once the services are up, then every 24 hours:
 //           |  GET https://ancile.nvx.sh/api/updates/{target}/{arch}/
 //           |  {current_version}?edition=free|pro&channel=stable|beta.
-//           |  The edition is what was bundled (pro.js beside Core's
-//           |  main.js). Core tells us the channel and, for Pro, the
-//           |  licence token, sent as the Authorization header.
+//           |  The edition is Pro when Pro is bundled (pro.js beside
+//           |  Core's main.js) or a licence token is held: a Pro
+//           |  install whose licence lapsed was moved to the free build,
+//           |  and asks for Pro again so a renewed licence brings Pro
+//           |  back. Core tells us the channel and the token, sent as
+//           |  the Authorization header; with no or a lapsed token the
+//           |  server answers with the free build.
 //           |  204: nothing newer. An update shows in the tray menu;
 //           |  nothing installs without a click.
 //  Note     |  No update server, or no network: fails quietly. The
@@ -37,6 +41,12 @@ pub struct TrayLine(pub MenuItem<tauri::Wry>);
 struct FromCore {
     channel: String,
     token: Option<String>,
+}
+
+/// Ask for the Pro edition when Pro is bundled, or when a licence token is
+/// held (a lapsed Pro install on the free build, so renewal brings Pro back).
+pub fn wants_pro(bundled: bool, has_token: bool) -> bool {
+    bundled || has_token
 }
 
 /// The update endpoint for this install: its edition and channel in the query.
@@ -71,7 +81,7 @@ fn check(app: &AppHandle) {
     let Some(sup) = crate::supervisor_of(app) else {
         return;
     };
-    let pro = sup
+    let bundled = sup
         .layout()
         .sidecar("core")
         .join("dist")
@@ -80,6 +90,8 @@ fn check(app: &AppHandle) {
     let from_core = sup
         .service_token()
         .and_then(|t| ask_core(sup.layout().ports.core, t));
+    let token = from_core.as_ref().and_then(|c| c.token.as_deref());
+    let pro = wants_pro(bundled, token.is_some());
     let channel = from_core
         .as_ref()
         .map(|c| c.channel.as_str())
@@ -94,13 +106,12 @@ fn check(app: &AppHandle) {
             return;
         }
     };
-    // A Pro install proves its licence; without a token it is offered free builds.
-    if pro {
-        if let Some(token) = from_core.as_ref().and_then(|c| c.token.as_deref()) {
-            match builder.header("Authorization", format!("Bearer {token}")) {
-                Ok(b) => builder = b,
-                Err(_) => return,
-            }
+    // The licence proves Pro; without a token, or with a lapsed one, the
+    // server offers the free build.
+    if let Some(token) = token {
+        match builder.header("Authorization", format!("Bearer {token}")) {
+            Ok(b) => builder = b,
+            Err(_) => return,
         }
     }
     let Ok(updater) = builder.build() else {
@@ -161,7 +172,7 @@ pub fn install(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::endpoint;
+    use super::{endpoint, wants_pro};
 
     #[test]
     fn endpoint_names_edition_and_channel() {
@@ -170,5 +181,12 @@ mod tests {
             "https://ancile.nvx.sh/api/updates/{{target}}/{{arch}}/{{current_version}}?edition=pro&channel=beta"
         );
         assert!(endpoint(false, "anything").ends_with("?edition=free&channel=stable"));
+    }
+
+    #[test]
+    fn pro_is_asked_for_when_bundled_or_licensed() {
+        assert!(wants_pro(true, false), "a Pro install with no token still asks for Pro");
+        assert!(wants_pro(false, true), "a lapsed Pro install on the free build asks for Pro again");
+        assert!(!wants_pro(false, false), "a free install never asks for Pro");
     }
 }
