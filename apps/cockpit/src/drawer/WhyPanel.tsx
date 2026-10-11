@@ -478,7 +478,7 @@ export function WhyPanel() {
   const chosen = useUi((s) => s.whyMessage);
   if (demo) return <WhyDemo />;
 
-  const answers = (thread.data?.messages ?? []).filter((m) => m.role === 'assistant');
+  const answers = (thread.data?.messages ?? []).filter((m) => m.role === 'assistant' && !m.cc);
   const m = answers.find((a) => a.id === chosen) ?? answers.at(-1);
   if (!m)
     return (

@@ -25,6 +25,7 @@ import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { LiveClaim } from './Claims';
+import { MdCode } from './Code';
 
 type Ref = Extract<Part, { type: 'citation_ref' }>;
 interface Cites {
@@ -180,4 +181,5 @@ function Link({ href, children, ...rest }: ComponentProps<'a'>) {
   );
 }
 
-export const MD_COMPONENTS = { a: Link, img: SafeImage };
+/** Links, images and code as Aperture draws them, for every Streamdown in the thread. */
+export const MD_COMPONENTS = { a: Link, img: SafeImage, code: MdCode };

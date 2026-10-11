@@ -125,7 +125,24 @@ export interface MessageView {
   compactBoundary?: boolean;
   /** Imported from Claude Code: conversations its subagents had for this answer. */
   subagents?: SubagentView[];
+  /** Imported from Claude Code: a turn that is not a conversation bubble (a command, a notice). */
+  cc?: CcEvent;
 }
+
+/** What Claude Code recorded besides prompts and answers, drawn as quiet rows. */
+export type CcEvent =
+  | { kind: 'compact_boundary'; summary: string | null }
+  | { kind: 'compact_summary'; summary: string }
+  | { kind: 'command'; name: string | null; args: string | null; output: string | null }
+  | {
+      kind: 'notification';
+      source: 'task' | 'session' | 'agent' | 'system';
+      title: string;
+      from: string | null;
+      status: string | null;
+      body: string;
+    }
+  | { kind: 'interrupted' };
 
 export interface SubagentView {
   /** The tool call that started it, when Claude Code said. */

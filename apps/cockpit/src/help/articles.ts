@@ -96,7 +96,7 @@ The arrows above a message move between its versions.`,
 
 **Compare and merge.** Press **C** on a node to compare it with where you are, or shift-click two nodes. You see both sides from where they split, turn by turn, with a short account of how they differ. **Merge** makes a new thread from the best of both: pick the messages yourself, or let a model write one combined answer that marks each point A or B. Nothing in the original thread changes.
 
-**Context.** The meter in the status bar shows how much of the model's context this path uses. Past 80% a chip above the composer offers **Compact now**: older messages become a summary and the latest turns stay word for word. Every branch through that point reuses the same summary. At 95% it happens before the next answer by itself, and the answer says so.
+**Context.** The meter in the status bar shows how much of the model's context this path uses. Past 80% a slim line on top of the composer offers **Compact now**: older messages become a summary and the latest turns stay word for word. Every branch through that point reuses the same summary. At 95% it happens before the next answer by itself, and the answer says so.
 
 **Deleting.** **Delete from here** removes a message and everything that grew from it. It tells you how many messages go first, and **Undo** brings them back for 30 seconds.
 

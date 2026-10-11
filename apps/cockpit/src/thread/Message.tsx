@@ -173,6 +173,10 @@ function ProvenanceMarks({ m }: { m: MessageView }) {
   );
 }
 
+/** Your message folds past this many lines (or characters), with Show all. */
+export const USER_LINES = 12;
+const USER_CHARS = 1600;
+
 /**
  * Memoised: while one answer streams, the thread re-renders on every token,
  * and without this every finished message re-parsed its markdown each time.
@@ -223,6 +227,12 @@ export const Message = memo(function Message({
   const [editing, setEditing] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [draft, setDraft] = useState('');
+  // A long paste (a log, a file) starts at a dozen lines, the rest one click away.
+  const [showAll, setShowAll] = useState(false);
+  const userText = m.role === 'user' ? partsText(m.parts) : '';
+  const userLines = userText ? userText.split('\n').length : 0;
+  const clampable = userLines > USER_LINES || userText.length > USER_CHARS;
+  const clamped = clampable && !showAll;
 
   const go = (delta: number) => {
     const id = sib?.ids?.[sib.index - 1 + delta];
@@ -355,7 +365,13 @@ export const Message = memo(function Message({
         </form>
       ) : null}
 
-      <div className="msg__body" tabIndex={-1} hidden={editing} dir="auto">
+      <div
+        className="msg__body"
+        tabIndex={-1}
+        hidden={editing}
+        dir="auto"
+        data-clamped={clamped || undefined}
+      >
         {m.parts ? (
           <CiteProvider parts={m.parts} trace={m.provenance?.retrieval}>
             <ClaimsProvider messageId={m.id} claims={claims}>
@@ -389,6 +405,21 @@ export const Message = memo(function Message({
           </p>
         ) : null}
       </div>
+      {clampable && !editing ? (
+        <button
+          type="button"
+          className="link-btn msg__more"
+          aria-expanded={!clamped}
+          onClick={() => setShowAll((x) => !x)}
+        >
+          <Icon name={clamped ? 'chevronDown' : 'chevronRight'} size={11} />
+          {!clamped
+            ? 'Show less'
+            : userLines > USER_LINES
+              ? `Show all ${userLines.toLocaleString('en-GB')} lines`
+              : 'Show all'}
+        </button>
+      ) : null}
 
       {streaming ? <WakingNotice messageId={m.id} /> : null}
 

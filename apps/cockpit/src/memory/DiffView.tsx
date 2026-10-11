@@ -16,11 +16,20 @@ import type { DiffLine } from './linediff';
 
 type Row = DiffLine | { kind: 'file'; path: string };
 
-export function DiffView({ rows, label }: { rows: Row[]; label: string }) {
+export function DiffView({
+  rows,
+  label,
+  numbered = true,
+}: {
+  rows: Row[];
+  label: string;
+  /** Line numbers; off for a snippet (an agent's edit) whose numbers mean nothing. */
+  numbered?: boolean;
+}) {
   if (!rows.some((r) => r.kind === 'add' || r.kind === 'del'))
     return <p className="mute mem-diff__none">No changes.</p>;
   return (
-    <div className="mem-diff" role="group" aria-label={label}>
+    <div className="mem-diff" role="group" aria-label={label} data-numbered={numbered ? undefined : 'false'}>
       {rows.map((r, i) => {
         const key = `${r.kind}-${i}`;
         if (r.kind === 'file')
@@ -37,12 +46,16 @@ export function DiffView({ rows, label }: { rows: Row[]; label: string }) {
           );
         return (
           <div key={key} className="mem-diff__line" data-kind={r.kind}>
-            <span className="mem-diff__no" data-num aria-hidden="true">
-              {r.kind === 'add' ? '' : (r.a ?? '')}
-            </span>
-            <span className="mem-diff__no" data-num aria-hidden="true">
-              {r.kind === 'del' ? '' : (r.b ?? '')}
-            </span>
+            {numbered ? (
+              <>
+                <span className="mem-diff__no" data-num aria-hidden="true">
+                  {r.kind === 'add' ? '' : (r.a ?? '')}
+                </span>
+                <span className="mem-diff__no" data-num aria-hidden="true">
+                  {r.kind === 'del' ? '' : (r.b ?? '')}
+                </span>
+              </>
+            ) : null}
             <span className="mem-diff__sign" aria-hidden="true">
               {r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}
             </span>

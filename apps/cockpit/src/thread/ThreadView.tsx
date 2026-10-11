@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ClaudeCodeMarker, CompactionDivider } from '../claudecode/ThreadMarker';
+import { CcEventRow, ClaudeCodeMarker } from '../claudecode/ThreadMarker';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
 import { useThread, useThreads } from '../lib/data';
@@ -37,6 +37,7 @@ import { nextAnnouncement } from './announce';
 import { Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { Message } from './Message';
+import { ToolCwd } from './ToolSteps';
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 
@@ -101,7 +102,8 @@ export function ThreadView({ threadId }: { threadId: string }) {
     liveTurn?.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 1), 0) ?? 0;
 
   useEffect(() => {
-    if (!selected && last) setSelected(messages.findLast((m) => m.role === 'assistant')?.id ?? last.id);
+    if (!selected && last)
+      setSelected(messages.findLast((m) => m.role === 'assistant' && !m.cc)?.id ?? last.id);
   }, [last, selected, messages]);
 
   // Restore the reading position by message, not by pixel.
@@ -287,41 +289,50 @@ export function ThreadView({ threadId }: { threadId: string }) {
               body="Ask a question below. Every reply can be regenerated with another model, edited and explained."
             />
           ) : (
-            <ol className="thread__messages" aria-label="Conversation">
-              {messages.map((m) => {
-                // Tool results already drawn in the answer before them.
-                if (m.folded) return null;
-                if (m.compactBoundary)
+            <ToolCwd.Provider value={thread.data?.claudeCode?.cwd ?? null}>
+              <ol className="thread__messages" aria-label="Conversation">
+                {messages.map((m) => {
+                  // Tool results already drawn in the answer before them.
+                  if (m.folded) return null;
+                  // Claude Code's commands, notices and compactions: quiet rows, not bubbles.
+                  if (m.cc)
+                    return (
+                      <li key={m.id} data-mid={m.id} data-cc={m.cc.kind}>
+                        <CcEventRow e={m.cc} />
+                      </li>
+                    );
+                  const live = turns[m.id];
                   return (
                     <li key={m.id} data-mid={m.id}>
-                      <CompactionDivider />
+                      <Message
+                        m={m}
+                        threadId={threadId}
+                        selected={selected === m.id}
+                        onSelect={setSelected}
+                        waiting={
+                          !!live && !live.done && (!!live.approvalId || live.status === 'waiting_approval')
+                        }
+                        liveModelName={live?.modelName ?? null}
+                        approvalId={live?.approvalId ?? null}
+                      />
                     </li>
                   );
-                const live = turns[m.id];
-                return (
-                  <li key={m.id} data-mid={m.id}>
-                    <Message
-                      m={m}
-                      threadId={threadId}
-                      selected={selected === m.id}
-                      onSelect={setSelected}
-                      waiting={
-                        !!live && !live.done && (!!live.approvalId || live.status === 'waiting_approval')
-                      }
-                      liveModelName={live?.modelName ?? null}
-                      approvalId={live?.approvalId ?? null}
-                    />
-                  </li>
-                );
-              })}
-            </ol>
+                })}
+              </ol>
+            </ToolCwd.Provider>
           )}
         </div>
       </div>
 
       <div className="thread__composer">
         <div className="thread__measure">
-          {demo ? null : <ComposerHints threadId={threadId} headId={last?.id ?? null} />}
+          {demo ? null : (
+            <ComposerHints
+              threadId={threadId}
+              headId={last?.id ?? null}
+              fromClaudeCode={thread.data ? !!thread.data.claudeCode : null}
+            />
+          )}
           <Composer
             threadId={threadId}
             parentId={last?.id ?? null}

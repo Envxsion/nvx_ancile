@@ -15,18 +15,25 @@
  */
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
-import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { modelName } from '../lib/format';
-import { shortResource } from '../lib/mappers';
 import type { SubagentView } from '../lib/types';
 import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
 import { markClaims } from './Claims';
+import { REMARK_PLUGINS } from './mdPlugins';
+import {
+  GROUP_AFTER,
+  Prose,
+  SubagentConversation,
+  type ToolCall,
+  ToolGroup,
+  type ToolResult,
+  ToolStep,
+} from './ToolSteps';
 
-type ToolCall = Extract<Part, { type: 'tool_call' }>;
-type ToolResult = Extract<Part, { type: 'tool_result' }>;
+export { RESULT_LINES, ResultText, SubagentConversation } from './ToolSteps';
 
 type Segment =
   | { kind: 'text'; key: string; text: string; base: number }
@@ -52,152 +59,49 @@ function segments(parts: Part[]): Segment[] {
   return out;
 }
 
-/** past, progressive, bare: "Wrote", "Writing", "write" */
-const TOOL_VERBS: Record<string, [string, string, string]> = {
-  fs_read: ['Read', 'Reading', 'read'],
-  fs_list: ['Listed', 'Listing', 'list'],
-  fs_write: ['Wrote', 'Writing', 'write'],
-  fs_delete: ['Deleted', 'Deleting', 'delete'],
-  // The lab's engine
-  read: ['Read', 'Reading', 'read'],
-  write: ['Wrote', 'Writing', 'write'],
-  edit: ['Edited', 'Editing', 'edit'],
-  apply_patch: ['Patched', 'Patching', 'patch'],
-  list: ['Listed', 'Listing', 'list'],
-  glob: ['Searched for', 'Searching for', 'search for'],
-  grep: ['Searched for', 'Searching for', 'search for'],
-  bash: ['Ran', 'Running', 'run'],
-  webfetch: ['Fetched', 'Fetching', 'fetch'],
-};
+type Item = { kind: 'one'; seg: Segment; index: number } | { kind: 'group'; key: string; segs: Segment[] };
 
-function target(args: unknown): string | null {
-  const a = args as {
-    path?: unknown;
-    filePath?: unknown;
-    url?: unknown;
-    command?: unknown;
-    pattern?: unknown;
-  } | null;
-  const file = a?.path ?? a?.filePath;
-  const v = file ?? a?.url ?? a?.command ?? a?.pattern;
-  if (typeof v !== 'string') return null;
-  if (file === undefined) return v;
-  // The lab reports real paths; show them relative to its folder.
-  const p = v.replaceAll('\\', '/').replace(/^.*\/labs\/[^/]+\//, '');
-  return shortResource(p.startsWith('/') ? `fs:${p}` : `fs:/workspace/${p}`);
+/**
+ * Runs of tool steps (with the thinking between them) longer than
+ * GROUP_AFTER fold into one group, so a long agentic turn reads as one line.
+ * Thinking after the last step of a run stays outside it.
+ */
+export function groupSegments(segs: Segment[]): Item[] {
+  const out: Item[] = [];
+  let i = 0;
+  while (i < segs.length) {
+    const seg = segs[i] as Segment;
+    if (seg.kind !== 'tool') {
+      out.push({ kind: 'one', seg, index: i });
+      i++;
+      continue;
+    }
+    let j = i;
+    let lastTool = i;
+    while (j < segs.length && (segs[j]?.kind === 'tool' || segs[j]?.kind === 'reasoning')) {
+      if (segs[j]?.kind === 'tool') lastTool = j;
+      j++;
+    }
+    const run = segs.slice(i, lastTool + 1);
+    const tools = run.filter((x) => x.kind === 'tool').length;
+    if (tools > GROUP_AFTER) out.push({ kind: 'group', key: `g-${seg.key}`, segs: run });
+    else for (const [k, x] of run.entries()) out.push({ kind: 'one', seg: x, index: i + k });
+    i = lastTool + 1;
+  }
+  return out;
 }
 
-type StepState = 'running' | 'waiting' | 'ok' | 'failed' | 'declined';
-
-function stepLabel(tool: string, on: string | null, state: StepState): string {
-  const v = TOOL_VERBS[tool];
-  if (!v) return on ? `${tool} on ${on}` : tool;
-  const what = on ?? 'the workspace';
-  if (state === 'ok') return `${v[0]} ${what}`;
-  if (state === 'declined') return `Didn't ${v[2]} ${what}`;
-  if (state === 'failed') return `Couldn't ${v[2]} ${what}`;
-  return `${v[1]} ${what}`;
-}
-
-function ToolStep({
-  call,
-  result,
-  waiting,
-  folded,
-  subagent,
-}: {
-  call: ToolCall;
-  result: ToolResult | undefined;
-  waiting: boolean;
-  subagent?: SubagentView | undefined;
-  /** Settings → Reading: tool steps start as one line. */
-  folded: boolean;
-}) {
-  const state: StepState = !result
-    ? waiting
-      ? 'waiting'
-      : 'running'
-    : result.declined_reason !== undefined
-      ? 'declined'
-      : result.ok
-        ? 'ok'
-        : 'failed';
-  const detail =
-    state === 'waiting'
-      ? 'Waiting for your decision'
-      : state === 'declined'
-        ? result?.declined_reason || null
-        : state === 'failed'
-          ? String(result?.result ?? '')
-          : null;
-  const icon =
-    state === 'ok' ? 'check' : state === 'waiting' ? 'shield' : state === 'running' ? 'model' : 'warn';
+/** Thinking, folded to one quiet line until asked for. */
+export function Thinking({ text, live }: { text: string; live: boolean }) {
   return (
-    <details className="tool-step" data-state={state} open={!folded || undefined}>
+    <details className="thinking">
       <summary>
-        <Icon name={icon} size={13} />
-        <span className="tool-step__label">{stepLabel(call.tool, target(call.args), state)}</span>
-        {detail ? <span className="tool-step__detail">{detail}</span> : null}
+        <Icon name="chevronRight" size={11} className="thinking__chev" />
+        {live ? 'Thinking' : 'Thought for a while'}
       </summary>
-      <div className="tool-step__body">
-        <div className="tool-step__k">Input</div>
-        <pre data-num>{JSON.stringify(call.args, null, 2)}</pre>
-        {result ? (
-          <>
-            <div className="tool-step__k">{result.ok ? 'Result' : 'What happened'}</div>
-            <ResultText
-              text={
-                typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)
-              }
-            />
-          </>
-        ) : null}
-        {subagent ? <SubagentConversation s={subagent} /> : null}
+      <div className="thinking__body">
+        <Prose text={text} />
       </div>
-    </details>
-  );
-}
-
-/** Long results (a whole file, a long log) start short, with the rest one click away. */
-export const RESULT_LINES = 24;
-const RESULT_CHARS = 2400;
-
-export function ResultText({ text }: { text: string }) {
-  const [all, setAll] = useState(false);
-  const lines = text.split('\n');
-  const long = lines.length > RESULT_LINES || text.length > RESULT_CHARS;
-  if (!long || all) return <pre data-num>{text}</pre>;
-  const head = lines.slice(0, RESULT_LINES).join('\n').slice(0, RESULT_CHARS);
-  return (
-    <>
-      <pre data-num data-clipped>
-        {head}
-      </pre>
-      <button type="button" className="link-btn tool-step__more" onClick={() => setAll(true)}>
-        Show all {lines.length} lines
-      </button>
-    </>
-  );
-}
-
-/** A Claude Code subagent's own conversation, folded away. */
-export function SubagentConversation({ s }: { s: SubagentView }) {
-  if (!s.turns.length) return null;
-  return (
-    <details className="subagent">
-      <summary>
-        Subagent conversation
-        {s.title ? <span className="subagent__title">{s.title}</span> : null}
-      </summary>
-      <ol className="subagent__turns">
-        {s.turns.map((t, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: turns are positional
-          <li key={i} data-role={t.role}>
-            <span className="subagent__who">{t.role === 'user' ? 'Asked' : 'Answered'}</span>
-            <p>{t.text}</p>
-          </li>
-        ))}
-      </ol>
     </details>
   );
 }
@@ -225,52 +129,61 @@ export function Parts({
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
   const calls = new Set(segs.flatMap((s) => (s.kind === 'tool' ? [s.call.call_id] : [])));
   const loose = (subagents ?? []).filter((a) => !a.callId || !calls.has(a.callId));
+
+  const one = (s: Segment, i: number) => {
+    switch (s.kind) {
+      case 'text':
+        if (holdText) return null;
+        return (
+          <Streamdown
+            key={s.key}
+            className="md"
+            mode={streaming && i === lastText ? 'streaming' : 'static'}
+            isAnimating={streaming && i === lastText}
+            parseIncompleteMarkdown={streaming && i === lastText}
+            controls={false}
+            components={MD_COMPONENTS}
+            remarkPlugins={REMARK_PLUGINS}
+          >
+            {linkMarkers(streaming ? s.text : markClaims(s.text, s.base, claims))}
+          </Streamdown>
+        );
+      case 'reasoning':
+        return <Thinking key={s.key} text={s.text} live={streaming && i === segs.length - 1} />;
+      case 'tool':
+        return (
+          <ToolStep
+            key={s.key}
+            call={s.call}
+            result={s.result}
+            waiting={waiting}
+            folded={folded}
+            subagent={subagents?.find((a) => a.callId === s.call.call_id)}
+          />
+        );
+      case 'seam':
+        return (
+          <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">
+            {modelName(s.to)} continued after {modelName(s.from)} stopped
+          </p>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <>
-      {segs.map((s, i) => {
-        switch (s.kind) {
-          case 'text':
-            if (holdText) return null;
-            return (
-              <Streamdown
-                key={s.key}
-                className="md"
-                mode={streaming && i === lastText ? 'streaming' : 'static'}
-                isAnimating={streaming && i === lastText}
-                parseIncompleteMarkdown={streaming && i === lastText}
-                controls={false}
-                components={MD_COMPONENTS}
-              >
-                {linkMarkers(streaming ? s.text : markClaims(s.text, s.base, claims))}
-              </Streamdown>
-            );
-          case 'reasoning':
-            return (
-              <details key={s.key} className="thinking">
-                <summary>Thinking</summary>
-                <p>{s.text}</p>
-              </details>
-            );
-          case 'tool':
-            return (
-              <ToolStep
-                key={s.key}
-                call={s.call}
-                result={s.result}
-                waiting={waiting}
-                folded={folded}
-                subagent={subagents?.find((a) => a.callId === s.call.call_id)}
-              />
-            );
-          case 'seam':
-            return (
-              <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">
-                {modelName(s.to)} continued after {modelName(s.from)} stopped
-              </p>
-            );
-          default:
-            return null;
-        }
+      {groupSegments(segs).map((item) => {
+        if (item.kind === 'one') return one(item.seg, item.index);
+        const steps = item.segs.flatMap((x) =>
+          x.kind === 'tool' ? [{ call: x.call, result: x.result }] : [],
+        );
+        return (
+          <ToolGroup key={item.key} steps={steps} open={waiting && steps.some((x) => !x.result)}>
+            {item.segs.map((x) => one(x, -1))}
+          </ToolGroup>
+        );
       })}
       {loose.map((a, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: transcripts without a call have only their place

@@ -1,0 +1,795 @@
+/* ---------------------------------------------------------------------------
+   Tool steps, code, thinking (thread/ToolSteps.tsx, thread/Code.tsx).
+   A calm timeline: one quiet line per step, the detail indented on a
+   hairline when opened. Colour is for state (ok, warn, live), never for
+   decoration; syntax colours are hue tokens mixed toward the text colour.
+   --------------------------------------------------------------------------- */
+
+/* ---- Disclosure chevrons ---------------------------------------------- */
+
+.thinking__chev,
+.tool-group__chev,
+.tstep__sub > summary > .icon,
+.subagent > summary > .icon,
+.cc-chev {
+  flex: none;
+  color: var(--mute-2);
+  transition: transform var(--d-micro) var(--ease);
+}
+.thinking[open] > summary > .thinking__chev,
+.tool-group[open] > summary > .tool-group__chev,
+.tstep__sub[open] > summary > .icon,
+.subagent[open] > summary > .icon,
+details[open] > summary .cc-chev {
+  transform: rotate(90deg);
+}
+
+/* ---- One step ---------------------------------------------------------- */
+
+.tool-step {
+  margin-top: 0.6em;
+  font-size: var(--t-ui);
+  line-height: 1.45;
+}
+.tool-step + .tool-step,
+.thinking + .tool-step,
+.tool-step + .thinking {
+  margin-top: 2px;
+}
+.tool-step > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0 -8px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  list-style: none;
+  cursor: pointer;
+  color: var(--fg-3);
+  transition: background var(--d-micro) var(--ease);
+}
+.tool-step > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-step > summary:hover,
+.tool-step[open] > summary {
+  background: var(--wash-2);
+}
+.tool-step__icon {
+  flex: none;
+  color: var(--mute);
+}
+.tool-step__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.tool-step__verb {
+  flex: none;
+  color: var(--fg-2);
+  font-weight: 520;
+}
+.tool-step__target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+}
+.tool-step__target[data-mono],
+.tool-step__where [data-mono] {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.tool-step__where {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mute);
+}
+.tool-step__badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--chalk);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  line-height: 18px;
+}
+.tool-step__detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.tool-step__meta {
+  flex: none;
+  color: var(--mute);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+.tool-step__status {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  color: var(--mute-2);
+}
+.tool-step[data-state='ok'] .tool-step__status {
+  color: var(--ok);
+}
+.tool-step[data-state='failed'] .tool-step__status,
+.tool-step[data-state='declined'] .tool-step__status,
+.tool-step[data-state='failed'] .tool-step__meta {
+  color: var(--warn);
+}
+.tool-step[data-state='waiting'] > summary {
+  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.32);
+}
+.tool-step[data-state='waiting'] .tool-step__status,
+.tool-step[data-state='running'] .tool-step__status {
+  color: var(--signal-ink);
+}
+.tool-step[data-state='running'] .tool-step__status {
+  animation: pulse 1.4s var(--ease) infinite;
+}
+
+.tool-step__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 4px 0 10px 6px;
+  padding: 4px 0 4px 16px;
+  border-left: 1px solid var(--hair);
+}
+.tool-step__body > * {
+  margin: 0;
+}
+.tool-step__k {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--mute);
+}
+.tool-step__k + * {
+  margin-top: -4px;
+}
+.tool-step__body pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--lift-2);
+  font-family: var(--font-mono);
+  font-size: calc(var(--code-size) - 1px);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-3);
+}
+.tool-step pre[data-clipped] {
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+.tool-step__more {
+  justify-self: start;
+  font-size: var(--t-small);
+}
+.tstep__note {
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.tstep__fail pre {
+  box-shadow: inset 2px 0 0 var(--warn);
+  color: var(--fg-2);
+}
+.tstep__sub > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--r-xs);
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.tstep__sub > summary::-webkit-details-marker {
+  display: none;
+}
+.tstep__sub > summary:hover {
+  background: var(--wash-2);
+  color: var(--fg-2);
+}
+.tstep__subbody {
+  margin-top: 6px;
+}
+.tstep__clamp {
+  display: grid;
+  gap: 4px;
+}
+.tstep__clamp .md,
+.tstep__report .md,
+.subagent__turns .md,
+.thinking__body .md,
+.cc-before__body .md,
+.cc-notice__body .md {
+  font-size: var(--t-ui);
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+.tstep__clamp[data-clipped] > .md {
+  max-height: 15em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 65%, transparent);
+}
+.tstep__report {
+  display: grid;
+  gap: 6px;
+}
+
+/* Lists inside steps are not prose: no message dashes. */
+.msg__body .todo > li,
+.msg__body .matches > li {
+  padding-left: 0;
+}
+.msg__body .todo > li::before,
+.msg__body .matches > li::before {
+  content: none;
+}
+
+/* ---- Many steps, one line ---------------------------------------------- */
+
+.tool-group {
+  margin-top: 0.6em;
+}
+.tool-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--t-ui);
+  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  transition: background var(--d-micro) var(--ease);
+}
+.tool-group > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-group > summary:hover {
+  background: var(--wash-2);
+}
+.tool-group__title {
+  flex: none;
+  font-weight: 560;
+  color: var(--fg);
+}
+.tool-group__failed {
+  flex: none;
+  color: var(--warn);
+  font-size: var(--t-small);
+}
+.tool-group__last {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.tool-group[open] .tool-group__last {
+  display: none;
+}
+.tool-group[data-live] .tool-group__chev {
+  color: var(--signal-ink);
+}
+.tool-group__steps {
+  margin: 6px 0 0 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--hair);
+}
+.tool-group__steps > :first-child {
+  margin-top: 0;
+}
+
+/* ---- Thinking ----------------------------------------------------------- */
+
+.thinking {
+  margin-top: 0.6em;
+  font-size: var(--t-ui);
+  color: var(--mute);
+}
+.thinking > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  margin-left: -8px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  list-style: none;
+  cursor: pointer;
+  font-style: italic;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.thinking > summary::-webkit-details-marker {
+  display: none;
+}
+.thinking > summary:hover {
+  background: var(--wash-2);
+  color: var(--fg-3);
+}
+.thinking__body {
+  max-height: 420px;
+  overflow: auto;
+  margin: 4px 0 6px 4px;
+  padding-left: 14px;
+  border-left: 1px solid var(--hair);
+}
+.thinking__body .md {
+  color: var(--fg-3);
+}
+
+/* ---- Subagents ---------------------------------------------------------- */
+
+.subagent {
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: var(--t-small);
+}
+.subagent > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: var(--r-md);
+  list-style: none;
+  cursor: pointer;
+  color: var(--fg-3);
+}
+.subagent > summary::-webkit-details-marker {
+  display: none;
+}
+.subagent > summary:hover {
+  background: var(--wash-2);
+}
+.subagent__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.subagent__count {
+  flex: none;
+  margin-left: auto;
+  color: var(--mute-2);
+}
+.subagent__turns {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 6px 12px 12px;
+  list-style: none;
+}
+.subagent__who {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--mute);
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+.subagent__turns p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+}
+
+/* ---- Code --------------------------------------------------------------- */
+
+.code {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.md .code {
+  margin-top: 0.85em;
+}
+.code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 30px;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid var(--hair);
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.code__lang {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.code__copy:hover {
+  background: var(--wash-2);
+  color: var(--fg-2);
+}
+.code__copy[data-done] {
+  color: var(--ok);
+}
+.code__pre,
+.tool-step__body .code__pre {
+  margin: 0;
+  max-height: none;
+  padding: 10px 0;
+  overflow-x: auto;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+  color: var(--fg-2);
+  tab-size: 2;
+}
+.code__pre:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.code__pre code,
+.msg__body .code__pre code {
+  display: grid;
+  min-width: max-content;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
+  color: inherit;
+}
+.code__line {
+  display: flex;
+  padding: 0 14px;
+}
+.code[data-numbered] .code__line {
+  padding-left: 4px;
+}
+.code__no {
+  flex: none;
+  min-width: 3.2em;
+  padding-right: 14px;
+  text-align: right;
+  color: var(--mute-3);
+  user-select: none;
+}
+.code__text {
+  white-space: pre;
+}
+.code__pre[data-clipped] {
+  mask-image: linear-gradient(to bottom, black 72%, transparent);
+}
+.code__more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-top: 1px solid var(--hair);
+  background: transparent;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.code__more:hover {
+  background: var(--wash);
+  color: var(--fg);
+}
+
+.tok-kw {
+  color: color-mix(in srgb, var(--s-azure) 72%, var(--fg));
+}
+.tok-str {
+  color: color-mix(in srgb, var(--s-jade) 68%, var(--fg));
+}
+.tok-com {
+  color: var(--mute);
+  font-style: italic;
+}
+.tok-num {
+  color: color-mix(in srgb, var(--s-amber) 72%, var(--fg));
+}
+.tok-fn {
+  color: color-mix(in srgb, var(--s-cyan) 62%, var(--fg));
+}
+.tok-type {
+  color: color-mix(in srgb, var(--s-magenta) 52%, var(--fg));
+}
+.tok-tag {
+  color: color-mix(in srgb, var(--s-coral) 62%, var(--fg));
+}
+.tok-attr {
+  color: color-mix(in srgb, var(--s-amber) 58%, var(--fg));
+}
+
+/* ---- Terminal ----------------------------------------------------------- */
+
+.term {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--void-deep);
+  box-shadow: var(--vault);
+  font-family: var(--font-mono);
+  font-size: calc(var(--code-size) - 0.5px);
+}
+.term__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid var(--hair);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.term__shell {
+  flex: none;
+}
+.term__desc {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-3);
+}
+.term__exit {
+  flex: none;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--warn-rgb) / 0.12);
+  color: var(--warn);
+  font-size: var(--t-micro);
+  line-height: 18px;
+}
+.term__head .code__copy {
+  margin-left: auto;
+}
+.term__cmd,
+.tool-step__body .term__cmd {
+  margin: 0;
+  max-height: none;
+  padding: 10px 12px 4px;
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+}
+.term__prompt {
+  margin-right: 8px;
+  color: var(--mute-2);
+  user-select: none;
+}
+.tool-step__body .term .tstep__out {
+  max-height: 320px;
+  padding: 4px 12px 10px;
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+  color: var(--fg-3);
+}
+.term[data-failed] .tstep__out {
+  color: var(--fg-2);
+}
+.term__quiet {
+  margin: 0;
+  padding: 2px 12px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+.term .tool-step__more {
+  margin: 0 12px 10px;
+}
+
+/* ---- Matches ------------------------------------------------------------ */
+
+.matches {
+  display: grid;
+  max-height: 360px;
+  margin: 0;
+  padding: 6px 0;
+  overflow: auto;
+  list-style: none;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-family: var(--font-mono);
+  font-size: calc(var(--code-size) - 1px);
+  line-height: 1.6;
+}
+.matches > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 1px 12px;
+}
+.matches > li > .icon {
+  flex: none;
+  align-self: center;
+  color: var(--mute-2);
+}
+.matches__file {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.matches li[data-kind='line'] .matches__file {
+  max-width: 40%;
+  color: var(--mute);
+}
+.matches__no {
+  flex: none;
+  color: var(--mute-3);
+}
+.matches__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--fg-2);
+}
+
+/* ---- Links -------------------------------------------------------------- */
+
+.link-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  text-decoration: none;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.link-chip:hover {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.link-chip > .icon {
+  flex: none;
+  color: var(--mute);
+}
+.link-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- The plan (TodoWrite) ---------------------------------------------- */
+
+.todo {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.todo > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--t-ui);
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+.todo__box {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2.5px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px var(--mute-2);
+}
+.todo > li[data-status='completed'] .todo__box {
+  background: rgb(var(--ok-rgb) / 0.14);
+  box-shadow: none;
+  color: var(--ok);
+}
+.todo > li[data-status='completed'] .todo__text {
+  color: var(--mute);
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--fg-rgb) / 0.25);
+}
+.todo > li[data-status='in_progress'] .todo__box {
+  box-shadow: inset 0 0 0 1.5px var(--fg-2);
+}
+.todo > li[data-status='in_progress'] .todo__box::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--fg-2);
+}
+.todo > li[data-status='in_progress'] .todo__text {
+  color: var(--fg);
+  font-weight: 540;
+}
+
+/* ---- Diffs of an agent's edits (no line numbers: they are a snippet's) -- */
+
+.mem-diff[data-numbered='false'] .mem-diff__line {
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+.mem-diff[data-numbered='false'] .mem-diff__fold {
+  padding-left: 22px;
+}
+.tool-step__body .mem-diff {
+  max-height: 380px;
+}

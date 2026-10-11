@@ -101,7 +101,7 @@ export function EvidencePanel() {
   const thread = useThread(params.threadId);
   const ref = useRef<HTMLUListElement>(null);
 
-  const answers = (thread.data?.messages ?? []).filter((m) => m.role === 'assistant');
+  const answers = (thread.data?.messages ?? []).filter((m) => m.role === 'assistant' && !m.cc);
   const inThread = answers.find((a) => a.id === chosen);
   const m = inThread ?? [...answers].reverse().find((a) => a.provenance?.factcheck) ?? answers.at(-1) ?? null;
   const progress = useProgress(m?.id ?? '');

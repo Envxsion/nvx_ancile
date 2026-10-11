@@ -23,6 +23,7 @@ import type {
   ThreadSummary as WireThreadSummary,
 } from '@nvx/contracts';
 import type {
+  CcEvent,
   Hue,
   MessageView,
   ModelView,
@@ -209,7 +210,15 @@ export interface Provenance {
    * Claude Code compacted; `subagent` carries a subagent's transcript (one or a
    * list) on the tool result it belongs to. Both are optional and loosely shaped.
    */
-  claude_code?: { session_id?: string; uuid?: string; kind?: string; subagent?: unknown };
+  claude_code?: {
+    session_id?: string;
+    uuid?: string;
+    /** compact_boundary, compact_summary, command, notification, interrupted. */
+    kind?: string;
+    subagent?: unknown;
+    command?: { name?: unknown; args?: unknown; output?: unknown };
+    notification?: { source?: unknown; title?: unknown; from?: unknown; status?: unknown };
+  };
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
@@ -242,6 +251,68 @@ export function subagentsOf(raw: unknown): SubagentView[] {
   });
 }
 
+/** Terminal colour codes that ride along in a command's output. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching the escape character is the point
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const tagText = (text: string, tag: string): string | null => {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return m ? (m[1] as string).trim() : null;
+};
+const NOTICE_SOURCES = new Set(['task', 'session', 'agent', 'system']);
+
+/**
+ * A Claude Code turn that is not a conversation bubble: what Core marked
+ * (provenance kind), or, for sessions brought in before Core marked them,
+ * what the text itself says (a slash command, "[Request interrupted by user]").
+ * Nothing for an ordinary prompt or answer.
+ */
+export function ccEventOf(m: Message): CcEvent | null {
+  const cc = (m.provenance as Provenance).claude_code;
+  if (!cc) return null;
+  const text = partsText(m.parts).trim();
+  switch (cc.kind) {
+    case 'compact_boundary':
+      return { kind: 'compact_boundary', summary: text || null };
+    case 'compact_summary':
+      return { kind: 'compact_summary', summary: text };
+    case 'command': {
+      const c = cc.command ?? {};
+      return {
+        kind: 'command',
+        name: str(c.name) ?? tagText(text, 'command-name'),
+        args: str(c.args) ?? tagText(text, 'command-args'),
+        output: (str(c.output) ?? tagText(text, 'local-command-stdout'))?.replace(ANSI, '') || null,
+      };
+    }
+    case 'notification': {
+      const n = cc.notification ?? {};
+      const source = str(n.source);
+      return {
+        kind: 'notification',
+        source: source && NOTICE_SOURCES.has(source) ? (source as 'task') : 'system',
+        title: str(n.title) ?? 'Notification',
+        from: str(n.from),
+        status: str(n.status),
+        body: text,
+      };
+    }
+    case 'interrupted':
+      return { kind: 'interrupted' };
+  }
+  if (m.role !== 'user') return null;
+  if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) return { kind: 'interrupted' };
+  const name = tagText(text, 'command-name');
+  const stdout = tagText(text, 'local-command-stdout');
+  if (name || (stdout !== null && text.startsWith('<local-command-stdout>')))
+    return {
+      kind: 'command',
+      name,
+      args: tagText(text, 'command-args') || null,
+      output: stdout?.replace(ANSI, '') || null,
+    };
+  return null;
+}
+
 const REASON_WORDS: Record<string, string> = {
   transient: 'was unavailable',
   capacity: 'was over capacity',
@@ -256,17 +327,20 @@ const REASON_WORDS: Record<string, string> = {
 export const reasonWords = (reason: string) => REASON_WORDS[reason] ?? reason;
 
 export function toMessageView(m: Message): MessageView | null {
-  if (m.role !== 'user' && m.role !== 'assistant') return null;
+  const cc = ccEventOf(m);
+  // System turns are drawn only when Claude Code's mirror says what they are.
+  if (m.role !== 'user' && m.role !== 'assistant' && !cc) return null;
   const prov = m.provenance as Provenance;
   const attempts = prov.attempts ?? [];
   const first = attempts[0];
   const subagents = subagentsOf(prov.claude_code?.subagent);
   return {
-    ...(prov.claude_code?.kind === 'compact_boundary' && { compactBoundary: true }),
+    ...(cc?.kind === 'compact_boundary' && { compactBoundary: true }),
+    ...(cc && { cc }),
     ...(subagents.length > 0 && { subagents }),
     id: m.id,
     parentId: m.parent_id,
-    role: m.role,
+    role: m.role === 'user' ? 'user' : 'assistant',
     blocks: [],
     parts: m.parts,
     modelId: m.model_id,
@@ -308,7 +382,7 @@ export function toMessageViews(messages: Message[]): MessageView[] {
   for (const m of messages) {
     const onlyResults = m.parts.length > 0 && m.parts.every((p) => p.type === 'tool_result');
     if (m.role === 'tool' || (m.role === 'user' && onlyResults)) {
-      const host = out.findLast((v) => v.role === 'assistant' && !v.folded);
+      const host = out.findLast((v) => v.role === 'assistant' && !v.folded && !v.cc);
       const subagents = subagentsOf((m.provenance as Provenance).claude_code?.subagent);
       if (host) {
         host.parts = [...(host.parts ?? []), ...m.parts.filter((p) => p.type === 'tool_result')];

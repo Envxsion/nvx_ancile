@@ -16,6 +16,7 @@
 
 import { live as demoLive } from '../fixtures/demo';
 import { compactNow, useContextBudget } from '../lib/branching';
+import { useThread } from '../lib/data';
 import { compact, percent } from '../lib/format';
 import { useThreadIdFromRoute } from '../lib/models';
 import { useUi } from '../state/ui';
@@ -38,7 +39,11 @@ export function ContextMeter() {
   const demo = useUi((s) => s.demo);
   const live = demoLive.context;
   const threadId = useThreadIdFromRoute();
-  const budget = useContextBudget(demo ? undefined : threadId);
+  // Claude Code manages its own context; Ancile's estimate would mislead there.
+  // TODO(phase-2): show Claude Code's real usage for its threads.
+  const thread = useThread(demo ? undefined : threadId);
+  const fromClaudeCode = thread.data ? !!thread.data.claudeCode : null;
+  const budget = useContextBudget(demo || fromClaudeCode !== false ? undefined : threadId);
 
   if (demo) {
     const level = live.ratio >= 0.95 ? 'critical' : live.ratio >= 0.8 ? 'warn' : 'ok';
@@ -59,7 +64,7 @@ export function ContextMeter() {
   }
 
   const b = budget.data;
-  if (!threadId || !b || b.window === 0) return null;
+  if (!threadId || !b || b.window === 0 || fromClaudeCode !== false) return null;
   const u = b.used;
   const label = [
     `${compact(b.total)} of ${compact(b.window)} tokens for this branch.`,

@@ -573,62 +573,104 @@
 
 /* --- Composer hints ----------------------------------------------------- */
 
+/* A slim tab on the composer's top edge: it slides out from under the
+   composer, never floats above the conversation. */
 .composer-hints {
   display: grid;
-  gap: 6px;
-  justify-items: start;
-  margin-bottom: 8px;
+  gap: 2px;
+  margin: 0 14px -6px;
 }
 .composer-hints:empty {
   display: none;
 }
-.hint-chip {
-  display: inline-flex;
-  flex-wrap: wrap;
+.hint-line {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 5px 6px 5px 10px;
-  border-radius: var(--r-pill);
-  background: var(--lift-2);
-  box-shadow: var(--elev-1);
+  gap: 10px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 4px 6px 12px;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  background: var(--wash-2);
+  box-shadow:
+    inset 0 1px 0 var(--hair),
+    inset 1px 0 0 var(--hair),
+    inset -1px 0 0 var(--hair);
   font-size: var(--t-small);
-  color: var(--fg-2);
+  color: var(--fg-3);
+  white-space: nowrap;
 }
-.hint-chip[data-level='warn'] {
-  box-shadow:
-    var(--elev-1),
-    inset 0 0 0 1px rgb(var(--warn-rgb) / 0.35);
+.hint-line + .hint-line {
+  border-radius: 0;
 }
-.hint-chip[data-level='critical'] {
-  box-shadow:
-    var(--elev-1),
-    inset 0 0 0 1px rgb(var(--fail-rgb) / 0.4);
-}
-.hint-chip__meter {
+.hint-line__meter {
   position: relative;
-  width: 36px;
-  height: 4px;
+  flex: none;
+  width: 44px;
+  height: 3px;
   border-radius: 2px;
   background: var(--chalk-2);
   overflow: hidden;
 }
-.hint-chip__meter > span {
+.hint-line__meter > span {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 0;
   border-radius: 2px;
-  background: var(--warn);
-  transition: width var(--d-view) var(--ease);
+  background: var(--fg-3);
+  transform-origin: left center;
+  transition: transform var(--d-view) var(--ease);
 }
-.hint-chip[data-level='critical'] .hint-chip__meter > span {
+.hint-line[data-tone='high'] .hint-line__meter > span {
+  background: var(--gilt);
+}
+.hint-line[data-tone='over'] .hint-line__meter > span {
   background: var(--fail);
 }
-.hint-chip--branch .icon {
-  color: var(--fg-3);
+.hint-line__icon {
+  flex: none;
+  color: var(--mute);
 }
-.hint-chip strong {
+.hint-line__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hint-line[data-tone='over'] .hint-line__text {
+  color: var(--fg-2);
+}
+.hint-line strong {
   font-weight: 600;
+  color: var(--fg-2);
+}
+.hint-line__act {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.hint-line__act:hover:not(:disabled) {
+  background: var(--chalk);
   color: var(--fg);
+}
+.hint-line__act:disabled {
+  color: var(--mute);
+  cursor: default;
+}
+.hint-line__act[data-busy] {
+  animation: pulse 1.4s var(--ease) infinite;
+}
+.hint-line__close {
+  flex: none;
 }
 
 /* --- Message marks ------------------------------------------------------ */
