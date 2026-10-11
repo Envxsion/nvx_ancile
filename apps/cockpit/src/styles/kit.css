@@ -136,7 +136,7 @@ html[data-resizing] .shell {
 .rail__filter:focus-within {
   box-shadow:
     inset 0 0 0 1px var(--signal-ink),
-    0 0 0 3px rgb(var(--signal-rgb) / 0.14);
+    0 0 0 calc(var(--focus-w) + 1px) rgb(var(--signal-rgb) / 0.14);
 }
 .rail__filter input {
   flex: 1;
@@ -593,6 +593,7 @@ li[data-done] .checklist__step {
 }
 .drawer__pane:focus-visible {
   outline: none;
+  box-shadow: var(--focus-ring-inset);
 }
 .drawer--sheet {
   position: fixed;
@@ -640,7 +641,7 @@ li[data-done] .checklist__step {
   display: flex;
   align-items: center;
   gap: 9px;
-  height: 30px;
+  height: var(--row-sm);
   padding: 0 8px;
   border-radius: var(--r-sm);
   font-size: var(--t-ui);
@@ -1173,7 +1174,9 @@ li[data-done] .checklist__step {
 .settings__link[data-active] {
   color: var(--fg);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow:
+    var(--elev-1),
+    inset 2px 0 0 var(--signal);
 }
 .settings__link[data-active] .icon {
   color: var(--signal-ink);
@@ -1295,6 +1298,40 @@ li[data-done] .checklist__step {
 }
 .setting__reset {
   animation: tip-in var(--d-micro) var(--ease-out);
+}
+/* The accent at work: primary action, focus, live. Real tokens, so it
+   changes with the swatch underneath. */
+.accent-preview {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: rgb(var(--void-rgb) / 0.35);
+  box-shadow: var(--vault);
+  pointer-events: none;
+  user-select: none;
+}
+.accent-preview__focus {
+  outline: var(--focus-w) solid var(--focus-color);
+  outline-offset: 3px;
+}
+.accent-preview__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.accent-preview__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-dim);
+  animation: pulse 1.6s var(--ease) infinite;
 }
 .swatches {
   display: flex;

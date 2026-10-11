@@ -284,7 +284,7 @@
   /* Density (Settings → Layout): rows and gaps scale together */
   --dens: 1;
   --row: calc(32px * var(--dens));
-  --row-sm: calc(26px * var(--dens));
+  --row-sm: calc(30px * var(--dens)); /* menu items, tree rows */
   --gap: calc(8px * var(--dens));
 
   /* Spacing on a 4px grid */
@@ -331,8 +331,17 @@
   --press: 0.97;
   --pop-from: 0.96;
 
-  /* Reading (Settings → Reading) */
+  /* Reading (Settings → Reading): the answer's prose and its code */
   --read-size: var(--t-read);
+  --code-size: 13px;
+
+  /* Focus (Settings → Accessibility). Every focus ring in the app reads
+     these: an outline, or one of the two box-shadow rings where an outline
+     would be clipped. Thick only changes --focus-w. */
+  --focus-w: 2px;
+  --focus-color: var(--signal-ink);
+  --focus-ring: 0 0 0 var(--focus-w) var(--focus-color);
+  --focus-ring-inset: inset 0 0 0 var(--focus-w) var(--focus-color);
 }
 
 [data-display] {
@@ -384,12 +393,12 @@ body {
 }
 
 ::selection {
-  background: var(--signal);
-  color: var(--on-signal);
+  background: var(--signal-dim);
+  color: var(--fg);
 }
 
 :focus-visible {
-  outline: 2px solid var(--signal-ink);
+  outline: var(--focus-w) solid var(--focus-color);
   outline-offset: 3px;
   border-radius: var(--r-xs);
 }

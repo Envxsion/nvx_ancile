@@ -16,6 +16,8 @@
 
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
+import { live as demoLive } from '../fixtures/demo';
 import { tourEvent } from '../help/tours';
 import { useConnection } from '../lib/connection';
 import { useApprovals, useSystemHealth } from '../lib/data';
@@ -28,6 +30,49 @@ import { Ticker } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { HueChip, StatusDot, Tip } from '../ui/primitives';
 import { ContextMeter } from './ContextMeter';
+
+/** The node to show: one that is running (or waking), the dearest first; else none. */
+export function shownNode(nodes: ComputeNode[] | undefined): ComputeNode | null {
+  const up = (nodes ?? []).filter((n) => n.observed_state === 'running' || n.observed_state === 'starting');
+  up.sort(
+    (a, b) =>
+      Number(b.observed_state === 'running') - Number(a.observed_state === 'running') ||
+      b.hourly_rate - a.hourly_rate,
+  );
+  return up[0] ?? null;
+}
+
+/** The GPU node segment: the demo's sample node, or a real running node, or nothing. */
+function NodeSegment({ demo }: { demo: boolean }) {
+  const status = useComputeStatus();
+  const ready = !demo && !!status.data?.configured && !!status.data.reachable;
+  const nodes = useNodes(ready);
+  const real = ready ? shownNode(nodes.data) : null;
+  const node = demo
+    ? demoLive.node
+    : real
+      ? {
+          name: real.name,
+          state: real.observed_state === 'running' ? 'running' : 'waking',
+          rate: real.hourly_rate,
+        }
+      : null;
+  if (!node) return null;
+  return (
+    <Link
+      to="/admin/$section"
+      params={{ section: 'compute' }}
+      className="status-seg"
+      aria-label={`GPU node ${node.name}: ${node.state === 'running' ? 'running' : 'starting'}, ${usd(node.rate)} an hour`}
+    >
+      <StatusDot status={node.state === 'running' ? 'ok' : node.state === 'error' ? 'down' : 'idle'} />
+      <span>{node.name}</span>
+      <span data-num className="mute">
+        {usd(node.rate)}/h
+      </span>
+    </Link>
+  );
+}
 
 function Clock() {
   const [now, setNow] = useState(() => new Date());
@@ -43,7 +88,6 @@ function Clock() {
 }
 
 export function StatusBar() {
-  const live = useUi((s) => s.live);
   const demo = useUi((s) => s.demo);
   const openPalette = useUi((s) => s.openPalette);
   const setApproval = useUi((s) => s.setApproval);
@@ -76,18 +120,7 @@ export function StatusBar() {
 
       {demo ? null : <RepoSegment />}
 
-      {/* TODO(phase-5): the real node from the Controller. */}
-      {demo && live.node && show.node ? (
-        <Link to="/admin/$section" params={{ section: 'compute' }} className="status-seg">
-          <StatusDot
-            status={live.node.state === 'running' ? 'ok' : live.node.state === 'error' ? 'down' : 'idle'}
-          />
-          <span>{live.node.name}</span>
-          <span data-num className="mute">
-            {usd(live.node.rate)}/h
-          </span>
-        </Link>
-      ) : null}
+      {show.node ? <NodeSegment demo={demo} /> : null}
 
       <span className="statusbar__spacer" />
 

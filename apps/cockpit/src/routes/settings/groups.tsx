@@ -12,9 +12,8 @@
  */
 
 import { ACCENTS, type Preferences } from '@nvx/contracts';
+import { Link } from '@tanstack/react-router';
 import { type CSSProperties, useContext, useState } from 'react';
-import { Hint } from '../../help/Hint';
-import { CAPTURE_OPTIONS, CaptureControl } from '../../memory/MemoryScreen';
 import { usePrefs } from '../../state/prefs';
 import { Range, Segmented, Switch } from '../../ui/controls';
 import { Kbd } from '../../ui/primitives';
@@ -39,6 +38,23 @@ const ACCENT_SWATCH: Record<(typeof ACCENTS)[number], string> = {
   jade: '#4fd69e',
   graphite: '#d7dbe2',
 };
+
+/**
+ * The accent at work, live: what --signal is for and nothing else. A primary
+ * button, a focus ring and a live dot, drawn with the real tokens.
+ */
+function AccentPreview() {
+  return (
+    <div className="accent-preview" aria-hidden="true">
+      <span className="btn btn--primary btn--sm accent-preview__btn">Start node</span>
+      <span className="btn btn--ghost btn--sm accent-preview__focus">Focused</span>
+      <span className="accent-preview__live">
+        <span className="accent-preview__dot" />
+        Live
+      </span>
+    </div>
+  );
+}
 
 function usePrefGroup<G extends keyof Preferences>(g: G): Preferences[G] {
   return usePrefs((s) => s.prefs[g]);
@@ -76,6 +92,7 @@ export function AppearanceGroup() {
           keywords="colour color signal violet"
           stack
         >
+          <AccentPreview />
           <div className="swatches" role="radiogroup" aria-label="Accent">
             {ACCENTS.map((x) => (
               <button
@@ -237,12 +254,12 @@ export function AppearanceGroup() {
         <Row
           group="appearance"
           k="width"
-          label="Letter width"
-          desc="Archivo can be set narrower or wider."
-          keywords="condensed wide stretch"
+          label="Heading width"
+          desc="Archivo headings can be set narrower or wider."
+          keywords="condensed wide stretch letter width"
         >
           <Range
-            label="Letter width"
+            label="Heading width"
             value={a.width}
             min={88}
             max={112}
@@ -309,7 +326,7 @@ export function LayoutGroup() {
           group="layout"
           k="density"
           label="Density"
-          desc="How much fits on screen. Compact suits large monitors; spacious suits touch."
+          desc="Row height in the sidebar, lists, tables and menus. Compact suits large monitors; spacious suits touch."
           keywords="compact comfortable spacious spacing rows"
         >
           <Segmented
@@ -375,6 +392,7 @@ export function LayoutGroup() {
               { value: 'notes', label: 'Notes' },
               { value: 'tree', label: 'Tree' },
               { value: 'why', label: 'Why' },
+              { value: 'evidence', label: 'Evidence' },
             ]}
           />
         </Row>
@@ -456,17 +474,17 @@ export function ReadingGroup() {
         <Row
           group="reading"
           k="streaming"
-          label="Streaming"
-          desc="Smooth paces words evenly; raw shows them the moment they arrive."
-          keywords="typing animation"
+          label="Show answers"
+          desc="As they are written, or all at once when finished."
+          keywords="streaming typing animation buffer"
         >
           <Segmented
-            label="Streaming"
+            label="Show answers"
             value={r.streaming}
             onChange={(streaming) => set({ streaming })}
             options={[
-              { value: 'smooth', label: 'Smooth' },
-              { value: 'raw', label: 'Raw' },
+              { value: 'live', label: 'As written' },
+              { value: 'whole', label: 'When finished' },
             ]}
           />
         </Row>
@@ -508,12 +526,12 @@ export function ReadingGroup() {
         <Row
           group="reading"
           k="collapseTools"
-          label="Fold long tool output"
-          desc="Steps that read or write files stay one line until opened."
-          keywords="tool steps collapse"
+          label="Fold tool steps"
+          desc="Steps that read, write or run stay one line until you open them."
+          keywords="tool steps collapse fold output"
         >
           <Switch
-            label="Fold long tool output"
+            label="Fold tool steps"
             checked={r.collapseTools}
             onChange={(collapseTools) => set({ collapseTools })}
           />
@@ -556,8 +574,8 @@ export function ComposerGroup() {
           group="composer"
           k="pastePlain"
           label="Paste as plain text"
-          desc="Drop formatting from anything you paste."
-          keywords="clipboard formatting"
+          desc="Off keeps links, bold, headings and lists from a web page as markdown. On pastes the words alone."
+          keywords="clipboard formatting markdown"
         >
           <Switch
             label="Paste as plain text"
@@ -573,24 +591,6 @@ export function ComposerGroup() {
           keywords="autocomplete mention command"
         >
           <Switch label="Slash and @ menus" checked={c.menus} onChange={(menus) => set({ menus })} />
-        </Row>
-        <Row
-          group="composer"
-          k="grounded"
-          label="Answer from sources in notebooks"
-          desc="Inside a notebook, questions are answered from its sources with citations."
-          keywords="grounded retrieval rag citations"
-          hint={{
-            title: 'Grounded answers',
-            body: 'NVX Ancile finds the passages that best match your question and asks the model to cite them by number.',
-            article: 'citations',
-          }}
-        >
-          <Switch
-            label="Answer from sources in notebooks"
-            checked={c.grounded}
-            onChange={(grounded) => set({ grounded })}
-          />
         </Row>
       </Block>
       <Block title="Snippets" lede="Type a trigger and a space in the composer, and it becomes the text.">
@@ -699,7 +699,13 @@ export function NotificationsGroup() {
             onChange={(maxStacked) => set({ maxStacked })}
           />
         </Row>
-        <Row group="notifications" k="sound" label="A soft sound for decisions" keywords="audio chime">
+        <Row
+          group="notifications"
+          k="sound"
+          label="A soft sound for decisions"
+          desc="Only when something waits for your yes or no."
+          keywords="audio chime approval"
+        >
           <Switch label="A soft sound for decisions" checked={n.sound} onChange={(sound) => set({ sound })} />
         </Row>
       </Block>
@@ -774,7 +780,13 @@ export function AccessibilityGroup() {
           ]}
         />
       </Row>
-      <Row group="accessibility" k="focus" label="Focus ring" keywords="outline keyboard">
+      <Row
+        group="accessibility"
+        k="focus"
+        label="Focus ring"
+        desc="Thick makes every focus ring a pixel wider."
+        keywords="outline keyboard"
+      >
         <Segmented
           label="Focus ring"
           value={x.focus}
@@ -809,7 +821,7 @@ export function AccessibilityGroup() {
         group="accessibility"
         k="announce"
         label="Read answers aloud as they arrive"
-        desc="For screen readers: how often new text is announced."
+        desc="For screen readers: how often new text is read out. A finished answer is always announced."
         keywords="screen reader live region"
       >
         <Segmented
@@ -865,7 +877,7 @@ export function AdvancedGroup() {
           group="advanced"
           k="developer"
           label="Developer details"
-          desc="Trace ids and raw JSON in message menus."
+          desc="A menu under each message to copy its id, its run id and its raw JSON."
           keywords="debug trace json"
         >
           <Switch
@@ -916,24 +928,25 @@ export function AdvancedGroup() {
   );
 }
 
-/** How memory learns: kept by Core (it governs what Core writes), so not a synced preference. */
+/** How memory learns lives in Admin, beside what it governs; this points there. */
 function MemoryBlock() {
   const q = useContext(SearchContext);
   if (!matches(q, 'memory learn remember capture inbox corrections', 'advanced')) return null;
   return (
-    <Block title="Memory" lede="What NVX Ancile may keep from your corrections and from its own mistakes.">
-      <div className="setting" data-stack>
+    <Block title="Memory">
+      <div className="setting">
         <div className="setting__words">
           <div className="setting__label">
             <span>How memory learns</span>
-            <Hint id="setting-memory-capture" title="How memory learns" article="memory-learning">
-              Whatever you choose, nothing from a web page, a file or a tool is kept without your yes.
-            </Hint>
           </div>
-          <p className="setting__desc">{CAPTURE_OPTIONS.map((o) => `${o.label}: ${o.desc}`).join(' ')}</p>
+          <p className="setting__desc">
+            Set at the top of Admin → Memory, beside what it has kept and what waits for your yes.
+          </p>
         </div>
         <div className="setting__control">
-          <CaptureControl />
+          <Link to="/admin/$section" params={{ section: 'memory' }} className="btn btn--ghost btn--sm">
+            Open memory settings
+          </Link>
         </div>
       </div>
     </Block>

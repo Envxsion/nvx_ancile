@@ -209,7 +209,8 @@
 }
 .nbk__dropzone:hover,
 .nbk__dropzone:focus-visible {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 55%, transparent);
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
   background: color-mix(in srgb, var(--hue) 5%, var(--vault));
 }
 .nbk__dropzone > svg {

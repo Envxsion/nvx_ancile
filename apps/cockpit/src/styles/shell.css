@@ -395,7 +395,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
+  min-height: var(--row-sm);
   padding: 4px 8px 4px calc(10px + var(--depth) * 16px);
   border-radius: var(--r-sm);
   color: var(--mute);

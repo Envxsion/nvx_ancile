@@ -356,7 +356,7 @@
   align-items: baseline;
   gap: 10px;
   width: 100%;
-  padding: 5px 12px;
+  padding: calc(5px * var(--dens)) 12px;
   text-align: left;
   color: var(--fg-2);
   transition: background var(--d-instant) var(--ease);

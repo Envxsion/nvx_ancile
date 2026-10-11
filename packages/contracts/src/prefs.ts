@@ -10,7 +10,8 @@
  *           |  and the exported ancile-settings.json.
  *  How      |  Each group is .default()ed field by field, so an older
  *           |  file or a partial import parses to a complete object.
- *           |  Unknown keys are dropped, never fatal.
+ *           |  Unknown keys are dropped, never fatal, so a setting
+ *           |  that is removed (composer.grounded) simply falls away.
  * ------------------------------------------------------------------
  */
 import { z } from 'zod';
@@ -61,8 +62,11 @@ export const ReadingPrefs = z.object({
   citations: z.enum(['inline', 'superscript', 'hover']).default('inline'),
   cost: z.boolean().default(true),
   timestamps: z.enum(['relative', 'absolute', 'hidden']).default('relative'),
+  /** Tool steps start folded to one line. */
   collapseTools: z.boolean().default(true),
-  streaming: z.enum(['smooth', 'raw']).default('smooth'),
+  /** "live" shows the answer as it is written; "whole" waits and shows it finished.
+   *  Older files said smooth or raw: both read as live. */
+  streaming: z.enum(['live', 'whole']).catch('live'),
 });
 
 export const Snippet = z.object({
@@ -75,7 +79,6 @@ export const ComposerPrefs = z.object({
   spellcheck: z.boolean().default(true),
   pastePlain: z.boolean().default(false),
   menus: z.boolean().default(true),
-  grounded: z.boolean().default(true),
   snippets: z.array(Snippet).max(200).default([]),
 });
 

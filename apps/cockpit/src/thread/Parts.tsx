@@ -18,6 +18,7 @@ import type { FactcheckClaim, Part } from '@nvx/contracts';
 import { Streamdown } from 'streamdown';
 import { modelName } from '../lib/format';
 import { shortResource } from '../lib/mappers';
+import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
 import { markClaims } from './Claims';
@@ -100,10 +101,13 @@ function ToolStep({
   call,
   result,
   waiting,
+  folded,
 }: {
   call: ToolCall;
   result: ToolResult | undefined;
   waiting: boolean;
+  /** Settings → Reading: tool steps start as one line. */
+  folded: boolean;
 }) {
   const state: StepState = !result
     ? waiting
@@ -125,7 +129,7 @@ function ToolStep({
   const icon =
     state === 'ok' ? 'check' : state === 'waiting' ? 'shield' : state === 'running' ? 'model' : 'warn';
   return (
-    <details className="tool-step" data-state={state}>
+    <details className="tool-step" data-state={state} open={!folded || undefined}>
       <summary>
         <Icon name={icon} size={13} />
         <span className="tool-step__label">{stepLabel(call.tool, target(call.args), state)}</span>
@@ -152,13 +156,17 @@ export function Parts({
   streaming,
   waiting,
   claims,
+  holdText = false,
 }: {
   parts: Part[];
   streaming: boolean;
   waiting: boolean;
+  /** Settings → Reading → "When finished": keep the prose back until the answer is whole. */
+  holdText?: boolean;
   /** Fact-checked claims to underline, at offsets into the answer's text. */
   claims?: FactcheckClaim[] | undefined;
 }) {
+  const folded = usePrefs((s) => s.prefs.reading.collapseTools);
   const segs = segments(parts);
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
   return (
@@ -166,6 +174,7 @@ export function Parts({
       {segs.map((s, i) => {
         switch (s.kind) {
           case 'text':
+            if (holdText) return null;
             return (
               <Streamdown
                 key={s.key}
@@ -187,7 +196,7 @@ export function Parts({
               </details>
             );
           case 'tool':
-            return <ToolStep key={s.key} call={s.call} result={s.result} waiting={waiting} />;
+            return <ToolStep key={s.key} call={s.call} result={s.result} waiting={waiting} folded={folded} />;
           case 'seam':
             return (
               <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">

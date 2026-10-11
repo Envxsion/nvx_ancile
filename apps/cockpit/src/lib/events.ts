@@ -18,6 +18,7 @@ import { GlobalEvent } from '@nvx/contracts';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { onMemoryProposal } from '../memory/api';
+import { decisionChime } from '../notify/chime';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { useMemoryTray } from '../thread/MemoryTray';
@@ -39,6 +40,9 @@ export function useGlobalEvents(): void {
       onEvent: (e) => {
         switch (e.type) {
           case 'approval.requested':
+            decisionChime();
+            void queryClient.invalidateQueries({ queryKey: keys.approvals });
+            break;
           case 'approval.resolved':
             void queryClient.invalidateQueries({ queryKey: keys.approvals });
             break;

@@ -33,7 +33,8 @@
   --xy-minimap-mask-background-color: rgb(var(--void-rgb) / 0.55);
 }
 .btree:focus-visible {
-  box-shadow: inset 0 0 0 2px rgb(var(--signal-rgb) / 0.45);
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
 }
 .btree .react-flow__renderer {
   border-radius: inherit;

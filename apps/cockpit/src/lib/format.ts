@@ -36,6 +36,23 @@ export function relative(iso: string, now = Date.now()): string {
   return d === 1 ? 'yesterday' : `${d} days ago`;
 }
 
+/**
+ * A message's time as Settings → Reading → Times asks: "5 min ago", "14:05"
+ * (with the date once it is not today), or nothing.
+ */
+export function stamp(
+  iso: string,
+  mode: 'relative' | 'absolute' | 'hidden',
+  now = Date.now(),
+): string | null {
+  const t = new Date(iso);
+  if (mode === 'hidden' || Number.isNaN(t.getTime())) return null;
+  if (mode === 'relative') return relative(iso, now);
+  const time = t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  if (t.toDateString() === new Date(now).toDateString()) return time;
+  return `${t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
 export function percent(r: number): string {
   return `${Math.round(r * 100)}%`;
 }

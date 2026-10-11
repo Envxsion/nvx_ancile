@@ -7,7 +7,7 @@
  *           |  the way. Undo wherever the change can be taken back.
  *  How      |  Settings → Notifications set the corner, the stack
  *           |  height, how long each stays (errors at least 8 s, or
- *           |  until dismissed) and an optional soft chime. Timers
+ *           |  until dismissed) and a soft chime for decisions (chime.ts). Timers
  *           |  pause while hovered or focused. Motion lays the stack
  *           |  out; reduced motion makes it a plain swap.
  * ------------------------------------------------------------------
@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { type Notice, useNotify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { Icon, type IconName } from '../ui/Icon';
+import { decisionChime, shouldChime } from './chime';
 
 const ICON: Record<Notice['level'], IconName> = {
   info: 'dot',
@@ -25,31 +26,6 @@ const ICON: Record<Notice['level'], IconName> = {
   warn: 'warn',
   error: 'alert',
 };
-
-let audio: AudioContext | null = null;
-
-/** Two quiet sine notes, a fifth apart. Lower and shorter for errors. */
-function chime(level: Notice['level']) {
-  try {
-    audio ??= new AudioContext();
-    const at = audio.currentTime;
-    const base = level === 'error' || level === 'warn' ? 440 : 660;
-    for (const [i, f] of [base, base * 1.5].entries()) {
-      const osc = audio.createOscillator();
-      const gain = audio.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      gain.gain.setValueAtTime(0, at + i * 0.09);
-      gain.gain.linearRampToValueAtTime(0.05, at + i * 0.09 + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + i * 0.09 + 0.32);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(at + i * 0.09);
-      osc.stop(at + i * 0.09 + 0.34);
-    }
-  } catch {
-    /* no audio device, or blocked until a gesture: stay silent */
-  }
-}
 
 function Toast({ t, exitX }: { t: Notice; exitX: number }) {
   const dismiss = useNotify((s) => s.dismiss);
@@ -63,7 +39,7 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the toast appears
   useEffect(() => {
-    if (sound) chime(t.level);
+    if (shouldChime(sound, t)) decisionChime();
   }, []);
 
   useEffect(() => {

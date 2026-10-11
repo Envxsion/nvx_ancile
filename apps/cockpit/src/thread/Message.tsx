@@ -20,10 +20,11 @@ import { type CSSProperties, memo, type ReactNode, useState } from 'react';
 import { WakingNotice } from '../compute/WakingNotice';
 import { useBinding } from '../keys/dispatch';
 import { useFactcheck, useProgress } from '../lib/factcheck';
-import { hueVar, modelById, modelName, percent, usd } from '../lib/format';
+import { hueVar, modelById, modelName, percent, stamp, usd } from '../lib/format';
 import { partsText, reasonWords } from '../lib/mappers';
 import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
+import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { CiteProvider } from './Citations';
@@ -130,6 +131,19 @@ function ErrorActions({ m, threadId }: { m: MessageView; threadId: string }) {
   );
 }
 
+/** When it was said, as Settings → Reading → Times asks; nothing when hidden. */
+function Stamp({ iso }: { iso: string }) {
+  const mode = usePrefs((s) => s.prefs.reading.timestamps);
+  const text = stamp(iso, mode);
+  if (!text) return null;
+  const full = new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <time className="msg__time" dateTime={iso} title={full} data-num>
+      {text}
+    </time>
+  );
+}
+
 /** Where an answer's context came from, when that is not just this path. */
 function ProvenanceMarks({ m }: { m: MessageView }) {
   const p = m.provenance;
@@ -201,6 +215,10 @@ export const Message = memo(function Message({
   const team = useLiveTeam(m.id);
   const flow = m.provenance?.flow;
   const hasText = (m.parts ?? []).some((p) => (p.type === 'text' && p.text) || p.type === 'tool_call');
+  const showCost = usePrefs((s) => s.prefs.reading.cost);
+  // "When finished": the answer is held back until it is whole.
+  const whole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
+  const writingHidden = streaming && whole && hasText;
 
   const [editing, setEditing] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -341,20 +359,32 @@ export const Message = memo(function Message({
         {m.parts ? (
           <CiteProvider parts={m.parts} trace={m.provenance?.retrieval}>
             <ClaimsProvider messageId={m.id} claims={claims}>
-              <Parts parts={m.parts} streaming={streaming} waiting={waiting} claims={claims} />
+              <Parts
+                parts={m.parts}
+                streaming={streaming}
+                waiting={waiting}
+                claims={claims}
+                holdText={streaming && whole}
+              />
             </ClaimsProvider>
           </CiteProvider>
         ) : (
           m.blocks.map((b, i) => renderBlock(b, i, m.citations))
         )}
-        {streaming && !waiting && !hasText ? (
+        {streaming && !waiting && (!hasText || writingHidden) ? (
           <p className="msg__thinking">
             <span className="dots" aria-hidden="true">
               <i />
               <i />
               <i />
             </span>
-            {name ? `${name} is thinking` : 'Thinking'}
+            {writingHidden
+              ? name
+                ? `${name} is writing`
+                : 'Writing'
+              : name
+                ? `${name} is thinking`
+                : 'Thinking'}
           </p>
         ) : null}
       </div>
@@ -405,6 +435,7 @@ export const Message = memo(function Message({
       !streaming &&
       (m.status === 'complete' || m.status === 'stopped' || m.status === undefined) ? (
         <footer className="msg__foot">
+          <Stamp iso={m.createdAt} />
           {m.status === 'stopped' ? <span className="mute">Stopped</span> : null}
           <ProvenanceMarks m={m} />
           {flow ? (
@@ -428,12 +459,18 @@ export const Message = memo(function Message({
               <span data-num>{percent(m.confidence)}</span> grounded
             </span>
           ) : null}
-          {m.usage ? (
+          {m.usage && showCost ? (
             <span className="mute" data-num>
               {m.usage.tokens.toLocaleString('en-GB')} tok · {usd(m.usage.costUsd, 3)}
               {m.usage.ms !== undefined ? ` · ${(m.usage.ms / 1000).toFixed(1)} s` : null}
             </span>
           ) : null}
+        </footer>
+      ) : null}
+
+      {m.role === 'user' && !editing ? (
+        <footer className="msg__foot msg__foot--user">
+          <Stamp iso={m.createdAt} />
         </footer>
       ) : null}
 

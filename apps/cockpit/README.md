@@ -62,7 +62,7 @@ Single keys never fire while you type or while a dialog is open. `mod` means ⌘
 | `[` / `]` | Toggle sidebar / side panel |
 | `mod+shift+o` | New thread |
 | `m` | Change model |
-| `mod+shift+l` | Switch theme (system → dark → light) |
+| `mod+shift+l` | Switch theme (to the other one; back to following the system when that matches it) |
 | `g n` `g t` `g b` `g a` `g l` `g i` | Notebooks, threads, branch tree, admin, logs, notifications |
 | `j` / `k` / `Enter` | Move and open in lists |
 | `i` | Back to the composer |

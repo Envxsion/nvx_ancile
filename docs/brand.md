@@ -14,10 +14,10 @@ The source of truth is `packages/aperture/`. It holds `tokens.css` (family), `an
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `--signal` | `#9d86ff` | `#6e52ec` | Fills: primary button, active bar, the mark, selection |
+| `--signal` | `#9d86ff` | `#6e52ec` | Fills: primary button, active bar, the mark, live dots |
 | `--signal-ink` | `#b3a1ff` | `#5a3fd6` | Text and hairline strokes in signal; focus ring |
 | `--signal-mid` | `#7a63e6` | `#5a3fd6` | Pressed states, gradients' far stop |
-| `--signal-dim` | `#2a2160` | `#e4defe` | Tinted backgrounds for selected rows |
+| `--signal-dim` | `#2a2160` | `#e4defe` | Tinted backgrounds: selected text and rows, the halo of a live dot |
 | `--on-signal` | `#08090a` | `#ffffff` | Text on a signal fill (6.9:1 dark, 5.2:1 light) |
 
 **Signal is for system affordance only:** focus, the primary action, live state, the thing the AI is doing now. It's never decoration and never a status colour. Success, warning and failure have their own tokens (`--ok`, `--warn`, `--fail`). Violet is the only hue Ancile never assigns from the identity ramp, because it would sit beside the signal.

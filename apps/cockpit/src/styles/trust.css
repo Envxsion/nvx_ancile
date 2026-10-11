@@ -30,7 +30,7 @@
 .claim:focus-visible {
   outline: none;
   background: rgb(var(--signal-rgb) / 0.1);
-  box-shadow: 0 0 0 2px rgb(var(--signal-rgb) / 0.45);
+  box-shadow: var(--focus-ring);
 }
 .claim[data-verdict='contradicted']:hover {
   background: rgb(var(--fail-rgb) / 0.08);

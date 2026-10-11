@@ -386,7 +386,7 @@ To see exactly what a thread's next answer will be given, open **Why** on any an
 
 Before anything is written, it is compared with what is already remembered: the same thing said again is ignored, a better wording replaces the old one, and a change of mind keeps the old belief under Superseded so you can see what changed.
 
-How freely it learns is your choice, in **Settings → Advanced** or at the top of Admin → Memory:
+How freely it learns is your choice, at the top of **Admin → Memory** (Settings → Advanced links there):
 
 - **Learn when sure** keeps what it is confident about and shows a toast with **Undo**. Anything less certain waits in the inbox.
 - **Always ask** sends every suggestion to the inbox.
@@ -490,16 +490,20 @@ To turn Pro on, paste the key from your nvx.sh account (NVX-XXXX-XXXX-XXXX) in *
         id: 'settings',
         title: 'Settings',
         summary: 'Appearance, layout, reading, composer, keys and more.',
-        keywords: 'settings preferences customise theme accent density font',
+        keywords:
+          'settings preferences customise theme accent density font timestamps cost paste plain developer gilt focus sound',
         body: `Open Settings with **Ctrl ,** or **G S**. Every change applies at once and follows you to other devices. A dot marks anything you have changed; **Reset** puts one setting, a group, or everything back.
 
-- **Appearance**: theme, accent colour, ground tint, contrast, glass or solid surfaces, grain, the gilt details, corners, fonts and zoom.
-- **Layout**: density, sidebar and panel widths, what the status bar shows.
-- **Reading**: text size, line spacing, reading width, code size, citations, timestamps.
-- **Composer**: the send key, spellcheck, snippets.
+- **Appearance**: theme, accent colour, ground tint, contrast, glass or solid surfaces, grain, the gilt details, corners, fonts, heading width and zoom. The accent row shows it at work: the main button, a focus ring and a live dot, the only three places it appears. Gilt can be on, subtle (muted brass, no glow) or off.
+- **Layout**: density (row height in the sidebar, lists, tables and menus), sidebar and panel widths, the tab the side panel opens on, and what the status bar shows. The GPU node appears there only while one is running.
+- **Reading**: text size and code size in answers, line spacing, reading width, whether answers show as they are written or all at once, citations, message times, tokens and cost under answers, and whether tool steps start folded.
+- **Composer**: the send key, spellcheck, paste as plain text (off keeps links and lists from a web page as markdown), the / and @ menus, snippets.
 - **Keyboard**: change any key, and whether single keys work at all.
-- **Notifications**: where toasts appear, for how long, and which kinds.
-- **Accessibility**: motion, transparency, focus rings, larger targets.
+- **Notifications**: where toasts appear, for how long, which kinds, and a soft sound when a decision waits for you.
+- **Accessibility**: motion, transparency, focus rings (every ring, thicker), underlined links, larger targets, and how often a screen reader hears an answer as it arrives.
+- **Advanced**: effects, help hints, developer details (a menu under each message to copy its ids and raw JSON), your own CSS.
+
+The theme button in the title bar always switches to the other theme; when that is the one your system uses, it goes back to following the system.
 
 **Export settings** saves everything to one file; **Import** shows what would change before applying it.`,
       },

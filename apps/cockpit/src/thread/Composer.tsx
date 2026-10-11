@@ -49,6 +49,7 @@ import { HueChip, Kbd, Tip } from '../ui/primitives';
 import { FlowChip } from './FlowChip';
 import { useFlowList, useResolvedFlow } from './flowActions';
 import { ModelChoiceDialog, useModelChoice } from './ModelChoice';
+import { htmlToMarkdown } from './pasteMarkdown';
 
 interface Slash {
   cmd: string;
@@ -471,7 +472,17 @@ export function Composer({
     if (e.clipboardData.files.length > 0 && notebookId) {
       e.preventDefault();
       addFiles(e.clipboardData.files);
+      return;
     }
+    // Formatting comes in as markdown, unless "Paste as plain text" is on.
+    if (prefs.pastePlain) return;
+    const md = htmlToMarkdown(e.clipboardData.getData('text/html'));
+    if (!md) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const at = el.selectionStart + md.length;
+    onChange(`${text.slice(0, el.selectionStart)}${md}${text.slice(el.selectionEnd)}`);
+    requestAnimationFrame(() => el.setSelectionRange(at, at));
   };
 
   const onDrop = (e: DragEvent) => {

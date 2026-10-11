@@ -13,6 +13,7 @@
 }
 .mem:focus-visible {
   outline: none;
+  box-shadow: var(--focus-ring-inset);
 }
 .mem__intro {
   display: grid;
@@ -570,9 +571,8 @@
   box-shadow: var(--elev-2);
 }
 .mem-card:focus-visible {
-  box-shadow:
-    var(--elev-2),
-    0 0 0 2px var(--signal);
+  outline: none;
+  box-shadow: var(--elev-2), var(--focus-ring);
 }
 .mem-card[data-untrusted] {
   box-shadow:

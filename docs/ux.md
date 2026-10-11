@@ -101,7 +101,7 @@ Single-key shortcuts never fire while you're typing. Leave the composer with `Es
 
 ## Accessibility
 
-- Every control is reachable and operable by keyboard, and focus is always visible (2 px signal ring).
+- Every control is reachable and operable by keyboard, and focus is always visible (a 2 px signal ring, 3 px with Settings → Accessibility → Focus ring → Thick). Every ring reads `--focus-w` and `--focus-color`, or the `--focus-ring` shadows built from them, so the setting reaches all of them.
 - Streaming replies are announced to screen readers a sentence at a time, not a token at a time.
 - Status is never colour alone: fact-check underlines carry icons, and health dots carry text.
 - Contrast is AA in both themes. The signal ink colour holds 4.5:1 on the light ground.

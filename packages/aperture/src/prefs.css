@@ -19,7 +19,7 @@
    data-mono       martian | system
    data-focus      standard | thick
    data-links      plain | underline
-   --wdth, --read-size, --lh-read, --measure, --ui-zoom: set inline.
+   --wdth, --read-size, --code-size, --lh-read, --measure, --ui-zoom: set inline.
    ========================================================================== */
 
 /* ---- Accents. Ultraviolet is NVX Ancile; the rest are the owner's choice.
@@ -170,8 +170,8 @@
 :root[data-mono='system'] {
   --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Consolas, monospace;
 }
-:root[data-focus='thick'] :focus-visible {
-  outline-width: 3px;
+:root[data-focus='thick'] {
+  --focus-w: 3px;
 }
 :root[data-links='underline'] a {
   text-decoration: underline;
@@ -262,29 +262,10 @@
 
 /* ---------------------------------------------------------------------------
    Gilt utilities. Budget: one gilt element per cluster, about 1% of a
-   screen. data-gilt="subtle" halves it; "off" removes it everywhere.
+   screen. data-gilt="subtle" mutes the brass towards the ground and drops
+   the glow to a hairline; "off" removes it everywhere.
    --------------------------------------------------------------------------- */
 
-/* A 1px brass hairline round anything, keeping its own background */
-.gilt-edge {
-  position: relative;
-}
-.gilt-edge::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: var(--gilt-hair);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-  pointer-events: none;
-}
 .gilt-ink {
   color: var(--gilt);
 }
@@ -304,7 +285,21 @@
   }
 }
 :root[data-gilt='subtle'] {
+  --gilt: #b3a07c;
+  --gilt-rgb: 179 160 124;
+  --gilt-hi: #cfc2a6;
+  --gilt-lo: #74643f;
   --gilt-hair: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.3), rgb(var(--gilt-rgb) / 0.12));
+  --gilt-sheen: linear-gradient(100deg, #8f7d5a 0%, #b3a07c 40%, #cfc2a6 55%, #8f7d5a 100%);
+  --gilt-glow: 0 0 0 1px rgb(179 160 124 / 0.16);
+}
+:root[data-theme='light'][data-gilt='subtle'] {
+  --gilt: #7d6a48;
+  --gilt-rgb: 125 106 72;
+  --gilt-hi: #a8966f;
+  --gilt-lo: #5f5137;
+  --gilt-sheen: linear-gradient(100deg, #7d6a48 0%, #a8966f 45%, #7d6a48 100%);
+  --gilt-glow: 0 0 0 1px rgb(125 106 72 / 0.16);
 }
 :root[data-gilt='off'] {
   --gilt: var(--fg-3);

@@ -25,6 +25,7 @@ import { queryClient } from '../lib/query';
 import { regenerate, runInLab } from '../lib/turns';
 import type { MessageView, ThreadView } from '../lib/types';
 import { notify } from '../state/notify';
+import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { askDelete } from '../tree/store';
 import { Icon, type IconName } from '../ui/Icon';
@@ -84,6 +85,38 @@ const ACTIONS: Action[] = [
   },
 ];
 
+/** Copy for the developer menu, with the same words as Copy. */
+async function copyDev(text: string, what: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify({ level: 'success', title: `Copied ${what}` });
+  } catch {
+    notify({ level: 'warn', title: 'Clipboard is blocked', body: 'Select the text and copy it by hand.' });
+  }
+}
+
+/** Settings → Advanced → Developer details: ids and the raw message, one menu away. */
+export function devEntries(m: MessageView): MenuEntry[] {
+  return [
+    { kind: 'label', label: 'Developer details' },
+    { label: 'Copy message id', icon: 'hash', onSelect: () => void copyDev(m.id, 'the message id') },
+    ...(m.runId
+      ? [
+          {
+            label: 'Copy run id',
+            icon: 'hash' as const,
+            onSelect: () => void copyDev(m.runId ?? '', 'the run id'),
+          },
+        ]
+      : []),
+    {
+      label: 'Copy raw JSON',
+      icon: 'copyDebug',
+      onSelect: () => void copyDev(JSON.stringify(m, null, 2), 'the raw JSON'),
+    },
+  ];
+}
+
 function plainText(m: MessageView): string {
   if (m.parts) return partsText(m.parts);
   return m.blocks
@@ -112,6 +145,7 @@ export function MessageActions({
   onEdit?: () => void;
 }) {
   const demo = useUi((s) => s.demo);
+  const developer = usePrefs((s) => s.prefs.advanced.developer);
   const openDrawer = useUi((s) => s.openDrawer);
   const openPalette = useUi((s) => s.openPalette);
 
@@ -318,6 +352,16 @@ export function MessageActions({
           </Tip>
         ),
       )}
+      {developer ? (
+        <DropMenu
+          items={devEntries(message)}
+          trigger={
+            <button type="button" className="icon-btn icon-btn--sm" aria-label="Developer details">
+              <Icon name="copyDebug" size={14} />
+            </button>
+          }
+        />
+      ) : null}
     </div>
   );
 }

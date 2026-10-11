@@ -44,8 +44,9 @@ export const useComputeStatus = () =>
     refetchInterval: 30_000,
   });
 
-export const useNodes = () =>
+export const useNodes = (enabled = true) =>
   useQuery({
+    enabled,
     queryKey: computeKeys.nodes,
     queryFn: () => api.get<{ items: ComputeNode[] }>('/compute/nodes').then((r) => r.items),
     refetchInterval: 10_000,

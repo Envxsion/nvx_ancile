@@ -14,6 +14,7 @@
  * ------------------------------------------------------------------
  */
 
+import { live as demoLive } from '../fixtures/demo';
 import { compactNow, useContextBudget } from '../lib/branching';
 import { compact, percent } from '../lib/format';
 import { useThreadIdFromRoute } from '../lib/models';
@@ -35,7 +36,7 @@ function Meter({ ratio, level }: { ratio: number; level: 'ok' | 'warn' | 'critic
 
 export function ContextMeter() {
   const demo = useUi((s) => s.demo);
-  const live = useUi((s) => s.live.context);
+  const live = demoLive.context;
   const threadId = useThreadIdFromRoute();
   const budget = useContextBudget(demo ? undefined : threadId);
 

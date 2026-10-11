@@ -26,11 +26,13 @@ import { attachRun, detachThread, type LiveTurn, resumeThread, useRuns } from '.
 import { sendMessage } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { notify } from '../state/notify';
+import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { BranchLayer } from '../tree/BranchLayer';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
+import { nextAnnouncement } from './announce';
 import { Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { Message } from './Message';
@@ -76,6 +78,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
   useEffect(() => {
     setLocal([]);
     following.current = true;
+    useUi.getState().resetDrawerTab();
   }, [threadId]);
 
   // Opened mid-answer (a reload, another tab): pick the stream back up.
@@ -125,15 +128,32 @@ export function ThreadView({ threadId }: { threadId: string }) {
     if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [streamedLength, messages.length]);
 
-  // Say when an answer finishes, for screen readers.
-  const wasStreaming = useRef(false);
+  // For screen readers: the answer as it arrives, by sentence or paragraph
+  // (Settings → Accessibility), and always a word when it finishes. Only an
+  // answer seen streaming here is read, never an old one on load.
+  const announceMode = usePrefs((s) => s.prefs.accessibility.announce);
+  const showWhole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
+  const spoken = useRef<{ id: string | null; upTo: number }>({ id: null, upTo: 0 });
+  const lastText =
+    last?.role === 'assistant'
+      ? (last.parts ?? []).reduce((t, p) => (p.type === 'text' ? t + p.text : t), '')
+      : '';
   useEffect(() => {
-    const now = last?.status === 'streaming';
-    if (wasStreaming.current && !now && last?.role === 'assistant') {
-      setAnnounce(last.status === 'error' ? 'The answer could not be finished.' : 'Answer finished.');
+    if (last?.role !== 'assistant') return;
+    const writing = last.status === 'streaming' || last.status === 'pending';
+    if (writing && spoken.current.id !== last.id) spoken.current = { id: last.id, upTo: 0 };
+    if (spoken.current.id !== last.id) return;
+    if (writing && showWhole) return;
+    const r = nextAnnouncement(lastText, spoken.current.upTo, announceMode, !writing);
+    spoken.current.upTo = r.upTo;
+    if (writing) {
+      if (r.say) setAnnounce(r.say);
+      return;
     }
-    wasStreaming.current = now;
-  }, [last?.status, last?.role]);
+    spoken.current = { id: null, upTo: 0 };
+    const end = last.status === 'error' ? 'The answer could not be finished.' : 'Answer finished.';
+    setAnnounce(r.say ? `${r.say} ${end}` : end);
+  }, [last?.id, last?.status, last?.role, lastText, announceMode, showWhole]);
 
   const onScroll = () => {
     const el = scroller.current;
