@@ -12,11 +12,16 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 
-export const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'migrations');
+const here = dirname(fileURLToPath(import.meta.url));
+/** src/db/ from source, dist/ in a bundle (the desktop app copies migrations/ beside dist/). */
+export const MIGRATIONS_DIR =
+  [join(here, '..', '..', 'migrations'), join(here, '..', 'migrations')].find((d) => existsSync(d)) ??
+  join(here, '..', '..', 'migrations');
 
 async function migrationFiles(dir = MIGRATIONS_DIR): Promise<string[]> {
   return (await readdir(dir)).filter((f) => /^\d{4}_.+\.sql$/.test(f)).sort();
@@ -35,16 +40,33 @@ export async function pendingMigrations(sql: Sql, dir = MIGRATIONS_DIR): Promise
   return (await migrationFiles(dir)).filter((f) => !applied.has(f));
 }
 
+/** Arbitrary but fixed: one migrator at a time, across processes. */
+const MIGRATION_LOCK = 772_001;
+
 export async function migrate(sql: Sql, dir = MIGRATIONS_DIR): Promise<string[]> {
-  const pending = await pendingMigrations(sql, dir);
-  for (const name of pending) {
-    const body = await readFile(join(dir, name), 'utf8');
-    await sql.begin(async (tx) => {
-      await tx.unsafe(body);
-      await tx.unsafe('insert into controller._migrations (name) values ($1)', [name]);
-    });
+  // The Controller migrates itself at start, and `pnpm db:migrate` may run
+  // beside it: a session lock on one reserved connection keeps them apart.
+  const conn = await sql.reserve();
+  try {
+    await conn`select pg_advisory_lock(${MIGRATION_LOCK})`;
+    const pending = await pendingMigrations(conn as unknown as Sql, dir);
+    for (const name of pending) {
+      const body = await readFile(join(dir, name), 'utf8');
+      await conn.unsafe('begin');
+      try {
+        await conn.unsafe(body);
+        await conn.unsafe('insert into controller._migrations (name) values ($1)', [name]);
+        await conn.unsafe('commit');
+      } catch (err) {
+        await conn.unsafe('rollback');
+        throw err;
+      }
+    }
+    return pending;
+  } finally {
+    await conn`select pg_advisory_unlock(${MIGRATION_LOCK})`.catch(() => undefined);
+    conn.release();
   }
-  return pending;
 }
 
 // `pnpm db:migrate`

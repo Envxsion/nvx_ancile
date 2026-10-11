@@ -65,7 +65,43 @@ struct Spec {
     args: Vec<String>,
     cwd: PathBuf,
     ready: Option<String>,
+    /// Built from nothing instead of the services' environment: the lab runs
+    /// commands a model chose, so it must not see any secret but its own.
+    isolated: Option<BTreeMap<String, String>>,
 }
+
+/// What a process may see of this machine's environment when it must not see
+/// the services' secrets: enough to find programs, a home and a temp folder
+/// (the same list as scripts/runtime.mjs SYSTEM_ENV).
+const SYSTEM_ENV: &[&str] = &[
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "windir",
+    "ComSpec",
+    "SystemDrive",
+    "HOME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "SHELL",
+    "USER",
+    "USERNAME",
+    "NODE_EXTRA_CA_CERTS",
+    "PROCESSOR_ARCHITECTURE",
+    "NUMBER_OF_PROCESSORS",
+    "OS",
+];
 
 pub struct Supervisor {
     app: AppHandle,
@@ -442,6 +478,15 @@ impl Supervisor {
         }
     }
 
+    /// The lab's whole environment, as `agentEnv()` builds it in development
+    /// (scripts/runtime.mjs): its own server password, a gateway token that
+    /// can only ask Core for model calls, the injected config, its state
+    /// folders, and the engine's phone-home features switched off. No
+    /// service token, database URL or provider key.
+    fn lab_env(&self) -> BTreeMap<String, String> {
+        lab_env_for(&self.env, &self.layout.data, self.layout.ports.core)
+    }
+
     fn node(&self) -> PathBuf {
         self.layout.sidecar(&format!("node/{}", exe("node")))
     }
@@ -466,6 +511,7 @@ impl Supervisor {
             .collect(),
             cwd: self.layout.sidecar("knowledge/app"),
             ready: Some(format!("http://127.0.0.1:{}/ready", p.knowledge)),
+            isolated: None,
         }];
         if self.env.contains_key("CONTROLLER_URL") {
             out.push(Spec {
@@ -474,6 +520,7 @@ impl Supervisor {
                 args: vec!["dist/main.js".into()],
                 cwd: self.layout.sidecar("controller"),
                 ready: Some(format!("http://127.0.0.1:{}/ready", p.controller)),
+                isolated: None,
             });
         }
         if self.env.contains_key("AGENT_ENGINE_URL") {
@@ -489,6 +536,7 @@ impl Supervisor {
                 ],
                 cwd: self.layout.data.clone(),
                 ready: None,
+                isolated: Some(self.lab_env()),
             });
         }
         out.push(Spec {
@@ -497,13 +545,23 @@ impl Supervisor {
             args: vec!["--enable-source-maps".into(), "dist/main.js".into()],
             cwd: self.layout.sidecar("core"),
             ready: Some(format!("http://127.0.0.1:{}/ready", p.core)),
+            isolated: None,
         });
         out
     }
 
     fn spawn(&self, spec: &Spec) -> Result<(), String> {
-        let child = self
-            .command(&spec.program, &spec.args, &spec.cwd, spec.name)
+        let mut cmd = self.command(&spec.program, &spec.args, &spec.cwd, spec.name);
+        if let Some(own) = &spec.isolated {
+            cmd.env_clear();
+            for k in SYSTEM_ENV {
+                if let Ok(v) = std::env::var(k) {
+                    cmd.env(k, v);
+                }
+            }
+            cmd.envs(own);
+        }
+        let child = cmd
             .spawn()
             .map_err(|e| format!("{} could not start: {e}", spec.name))?;
         self.adopt(&child);
@@ -699,4 +757,109 @@ fn kill_on_close_job() -> Option<win32job::Job> {
     info.limit_kill_on_job_close();
     job.set_extended_limit_info(&info).ok()?;
     Some(job)
+}
+
+/// The lab's environment from the services' one (see `Supervisor::lab_env`).
+fn lab_env_for(
+    env: &BTreeMap<String, String>,
+    data: &std::path::Path,
+    core_port: u16,
+) -> BTreeMap<String, String> {
+    let get = |k: &str| env.get(k).cloned().unwrap_or_default();
+    let base = data.join("agent");
+    let core = format!("http://127.0.0.1:{core_port}");
+    let config = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            "ancile": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "NVX Ancile",
+                "options": {
+                    "baseURL": format!("{core}/internal/v1/openai"),
+                    "apiKey": "{env:ANCILE_GATEWAY_TOKEN}"
+                },
+                "models": {
+                    "ancile": {
+                        "name": "Ancile routing",
+                        "tool_call": true,
+                        "limit": { "context": 200000, "output": 32000 }
+                    }
+                }
+            }
+        },
+        "enabled_providers": ["ancile"],
+        "model": "ancile/ancile",
+        "small_model": "ancile/ancile",
+        "share": "disabled",
+        "autoupdate": false,
+        "snapshot": true,
+        "permission": {
+            "*": "ask",
+            "question": "deny",
+            "skill": "deny",
+            "todowrite": "allow",
+            "task": "allow",
+            "lsp": "allow"
+        }
+    });
+    let mut e = BTreeMap::new();
+    let dir = |sub: &str| base.join(sub).display().to_string();
+    e.insert("OPENCODE_SERVER_PASSWORD".into(), get("AGENT_ENGINE_TOKEN"));
+    e.insert("ANCILE_GATEWAY_TOKEN".into(), get("AGENT_GATEWAY_TOKEN"));
+    e.insert("OPENCODE_CONFIG_CONTENT".into(), config.to_string());
+    e.insert("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into());
+    e.insert("XDG_DATA_HOME".into(), dir("data"));
+    e.insert("XDG_CONFIG_HOME".into(), dir("config"));
+    e.insert("XDG_CACHE_HOME".into(), dir("cache"));
+    e.insert("XDG_STATE_HOME".into(), dir("state"));
+    for flag in [
+        "OPENCODE_DISABLE_AUTOUPDATE",
+        "OPENCODE_DISABLE_SHARE",
+        "OPENCODE_DISABLE_MODELS_FETCH",
+        "OPENCODE_DISABLE_CLAUDE_CODE",
+        "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT",
+        "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+        "OPENCODE_DISABLE_DEFAULT_PLUGINS",
+        "OPENCODE_DISABLE_EMBEDDED_WEB_UI",
+        "OPENCODE_DISABLE_LSP_DOWNLOAD",
+    ] {
+        e.insert(flag.into(), "1".into());
+    }
+    e
+}
+
+#[cfg(test)]
+mod lab_tests {
+    use super::*;
+
+    #[test]
+    fn the_lab_sees_none_of_the_services_secrets() {
+        let mut env = BTreeMap::new();
+        for (k, v) in [
+            ("ANCILE_SERVICE_TOKEN", "svc"),
+            ("ANCILE_SECRET_KEY", "key"),
+            ("DATABASE_URL", "postgres://x"),
+            ("CONTROLLER_TOKEN", "ctl"),
+            ("CONTROLLER_NODE_TOKEN", "node"),
+            ("POSTGRES_PASSWORD", "pg"),
+            ("AGENT_ENGINE_TOKEN", "engine"),
+            ("AGENT_GATEWAY_TOKEN", "gateway"),
+        ] {
+            env.insert(k.to_string(), v.to_string());
+        }
+        let lab = lab_env_for(&env, std::path::Path::new("/data"), 7700);
+        let all: String = lab.values().cloned().collect::<Vec<_>>().join(
+            "
+",
+        );
+        for secret in ["svc", "key", "postgres://x", "ctl", "node", "pg"] {
+            assert!(!lab.values().any(|v| v == secret), "{secret} leaked");
+        }
+        assert!(!all.contains("postgres://"));
+        assert_eq!(lab["OPENCODE_SERVER_PASSWORD"], "engine");
+        assert_eq!(lab["ANCILE_GATEWAY_TOKEN"], "gateway");
+        assert!(lab["OPENCODE_CONFIG_CONTENT"].contains("http://127.0.0.1:7700/internal/v1/openai"));
+        assert_eq!(lab["OPENCODE_DISABLE_AUTOUPDATE"], "1");
+    }
 }

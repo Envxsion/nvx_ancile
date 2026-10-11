@@ -60,14 +60,20 @@ What `sidecars` builds, and roughly how big each part is on Windows:
 |---|---|---|
 | `pg0` | Embedded Postgres 18 with pgvector, one binary | 57 MB |
 | `node` | The Node runtime Core runs on | 80 MB |
-| `core` | Core, bundled with esbuild, with its production dependencies (flat, without type definitions or source maps) | 49 MB |
-| `cockpit` | The Cockpit's production build, served by Core | 17 MB |
+| `core` | Core, bundled with esbuild, with its production dependencies (flat, without type definitions or source maps) | 51 MB |
+| `cockpit` | The Cockpit's production build, served by Core (no source maps in a Pro build) | 4 MB |
+| `controller` | The Controller (GPU nodes) as one esbuild bundle with its migrations; it migrates its own schema at start | 1 MB |
+| `lab` | The agent engine (opencode, unchanged) compiled to one binary by `scripts/build-lab.ts` with a pinned Bun from npm | 138 MB |
 | `knowledge` | A standalone CPython 3.12 with the locked dependencies and the Knowledge service | 371 MB |
 | `share` | Configuration, prompts, the memory template and the database setup | under 1 MB |
 
 Add `--with-models` to include the search models, so the first source needs no download. Rebuild one part with, for example, `pnpm --filter @nvx/ancile-desktop sidecars core`.
 
-Core is not a Node single-executable application: that format takes one CommonJS file and cannot load Core's WebAssembly policy engine from disk, so the app ships the Node runtime next to an esbuild bundle instead. The lab (the agent engine) and the Controller (GPU nodes) are not bundled yet; the desktop app runs them when their folders are present.
+Core is not a Node single-executable application: that format takes one CommonJS file and cannot load Core's WebAssembly policy engine from disk, so the app ships the Node runtime next to an esbuild bundle instead. The lab and the Controller are optional: if either is missing or fails to start, the rest of the app still starts.
+
+The lab runs commands a model chose, so the desktop gives it an environment built from nothing, as `agentEnv()` does in development: system basics, its own server password, a gateway token that can only ask Core for model calls, and its injected config. It never sees the service token, the database or any provider key (`lab_env_for` in `supervisor.rs`, with a test).
+
+The Controller starts with RunPod and no key, which means sample nodes until you choose **Connect RunPod** in Admin → Compute.
 
 ### Trying a build without touching your workspace
 

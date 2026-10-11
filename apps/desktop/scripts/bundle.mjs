@@ -25,13 +25,17 @@
  *           |  models  (only with --with-models) the embedding and
  *           |          rerank models, so the first source needs no
  *           |          download.
+ *           |  lab     the agent engine compiled to one binary
+ *           |          (build-lab.ts, a pinned Bun from npm).
+ *           |  controller  the Controller as one esbuild bundle (its
+ *           |          npm packages inlined) plus its migrations.
  *  Note     |  Why not a Node single-executable for Core: SEA takes one
  *           |  CommonJS script and cannot load Core's WebAssembly
  *           |  policy engine or native-free ESM dependencies from disk
  *           |  without rewriting how they load. A bundled runtime plus
  *           |  an esbuild bundle works the same on every platform.
- *           |  The lab and the Controller are not bundled yet; the
- *           |  supervisor runs them when their folders exist.
+ *           |  The supervisor runs the lab and the Controller only
+ *           |  when their folders exist, so a partial build still starts.
  * ------------------------------------------------------------------
  */
 
@@ -57,6 +61,8 @@ const IS_WIN = process.platform === 'win32';
 const args = new Set(process.argv.slice(2));
 const only = [...args].filter((a) => !a.startsWith('--'));
 const want = (part) => only.length === 0 || only.includes(part);
+/** The Bun that compiles the lab (the engine's own build asks for 1.3.14 or later). */
+const LAB_BUN = '1.3.14';
 
 const sh = (cmd, cmdArgs, opts = {}) =>
   execFileSync(cmd, cmdArgs, { stdio: 'inherit', shell: IS_WIN, cwd: ROOT, ...opts });
@@ -214,6 +220,46 @@ if (want('cockpit')) {
   sh('pnpm', ['--filter', '@nvx/ancile-cockpit', 'build']);
   cpSync(join(ROOT, 'apps', 'cockpit', 'dist'), fresh(join(OUT, 'cockpit')), { recursive: true });
   done('cockpit');
+}
+
+// --- Controller ---------------------------------------------------------------
+// GPU nodes. One self-contained bundle (its few npm packages inlined), run by
+// the bundled Node, plus its SQL migrations, which it applies itself at start.
+if (want('controller')) {
+  const dir = fresh(join(OUT, 'controller'));
+  const esbuild = createRequire(import.meta.url)('esbuild');
+  console.log('Controller: bundle');
+  await esbuild.build({
+    entryPoints: [join(ROOT, 'services', 'controller', 'src', 'main.ts')],
+    outfile: join(dir, 'dist', 'main.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    minify: true,
+    logLevel: 'warning',
+    banner: {
+      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
+    },
+  });
+  cpSync(join(ROOT, 'services', 'controller', 'migrations'), join(dir, 'migrations'), { recursive: true });
+  writeFileSync(join(dir, 'package.json'), '{ "type": "module", "private": true }\n');
+  done('controller');
+}
+
+// --- Lab ----------------------------------------------------------------------
+// The agent engine (vendor/opencode, unchanged) compiled to one binary by
+// build-lab.ts with a pinned Bun, so nobody needs Bun installed. Its
+// dependencies are a Bun workspace of their own, installed here if missing.
+if (want('lab')) {
+  const bun = ['-y', `bun@${LAB_BUN}`];
+  const engine = join(ROOT, 'vendor', 'opencode');
+  if (!existsSync(join(engine, 'node_modules'))) {
+    console.log('Lab: engine dependencies (bun install)');
+    sh('npx', [...bun, 'install', '--frozen-lockfile'], { cwd: engine });
+  }
+  sh('npx', [...bun, join(here, 'build-lab.ts')]);
+  done('lab');
 }
 
 // --- Shared files -------------------------------------------------------------

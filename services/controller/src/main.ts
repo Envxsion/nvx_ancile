@@ -17,6 +17,7 @@
 import { serve } from '@hono/node-server';
 import postgres from 'postgres';
 import { createApp } from './app';
+import { migrate } from './db/migrate';
 import { EnvError, loadEnv } from './env';
 import { logger } from './logger';
 import { reconcile, register, seedSampleNodes } from './nodes';
@@ -57,6 +58,12 @@ async function boot() {
     env.CONTROLLER_STORE === 'postgres' && env.DATABASE_URL
       ? postgres(env.DATABASE_URL, { max: 4, onnotice: () => {} })
       : null;
+  // Its own schema, brought up to date before anything reads it (the desktop
+  // app and container images have no separate migration step).
+  if (sql) {
+    const applied = await migrate(sql);
+    if (applied.length) logger.info({ applied }, 'controller schema migrated');
+  }
   const store: Store = sql ? new PgStore(sql) : new MemoryStore();
 
   // Without a RunPod key the Controller shows sample nodes, here as on the
