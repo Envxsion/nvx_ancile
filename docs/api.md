@@ -118,6 +118,16 @@ POST /api/v1/threads/thr_…/compare            { "a": "msg_…head A", "b": "ms
 POST /api/v1/merge                            { "picks": ["msg_…", "msg_…"], "strategy": "synthesize", "title": "Best of both" }
 ```
 
+### Read a long thread a page at a time
+
+```http
+GET /api/v1/threads/thr_…/path?limit=60                     the head end: the last 60 messages of the path
+GET /api/v1/threads/thr_…/path?limit=60&before=msg_…        the 60 before that message (scrolling up)
+GET /api/v1/threads/thr_…/path?limit=60&include=msg_…       from just above that message to the head (jump to it)
+```
+
+`ThreadPath` with `total` (messages on the whole path), `start` (where `messages` begins in it; 0 is the root) and `has_more` (`start > 0`). `limit` is 1 to 500; `head` and `exact` work as without paging. A page never starts on a message that only carries tool results: it reaches back to the answer that asked for them, so a page can hold a few more than `limit`. `before` or `include` not on the path is a 404. Without `limit` the whole path comes back as it always has (`start: 0`, `has_more: false`). The path is worked out from the thread's shape alone (ids and parents) and only the page's messages are read, so a 20,000-message thread imported from Claude Code answers its last page in tens of milliseconds. `GET /threads/:id/tree` reads content only for the nodes it draws.
+
 ### Why did the AI say this?
 
 ```http

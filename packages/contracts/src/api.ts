@@ -196,8 +196,29 @@ export const ThreadPath = z.object({
   messages: z.array(Message),
   /** A run still producing the last message, to attach its stream. */
   active_run: z.object({ id: z.string(), message_id: z.string().nullable(), status: RunStatus }).nullable(),
+  /**
+   * Paging (asked with ?limit=): how many messages the whole path has, where
+   * in it `messages` starts (0 is the root), and whether earlier ones remain.
+   * Without a limit the whole path comes back and these say so.
+   */
+  total: z.number().int().nonnegative().optional(),
+  start: z.number().int().nonnegative().optional(),
+  has_more: z.boolean().optional(),
 });
 export type ThreadPath = z.infer<typeof ThreadPath>;
+
+/** GET /threads/:id/path. `limit` pages from the head end; `before` and `include` are message ids on the path. */
+export const ThreadPathQuery = z.object({
+  head: z.string().optional(),
+  exact: z.enum(['0', '1']).optional(),
+  /** Messages to return, newest end first (1 to 500). Without it, the whole path. */
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  /** The page that ends just before this message (load earlier). */
+  before: z.string().optional(),
+  /** Start early enough to contain this message (jump to an old message). */
+  include: z.string().optional(),
+});
+export type ThreadPathQuery = z.infer<typeof ThreadPathQuery>;
 
 export const RegenerateRequest = z
   .object({

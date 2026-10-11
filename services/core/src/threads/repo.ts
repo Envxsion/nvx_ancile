@@ -64,6 +64,14 @@ export interface ListThreads {
   notebookId?: string;
 }
 
+/** A message's place in the tree, without its content (ThreadRepo.skeleton). */
+export interface MessageNode {
+  id: string;
+  parent_id: string | null;
+  role: Message['role'];
+  created_at: string;
+}
+
 export interface SearchHit {
   thread_id: string;
   message_id: string;
@@ -105,6 +113,14 @@ export interface ThreadRepo {
   /** Threads per notebook, for notebook counts. */
   countByNotebook(workspaceId: string): Promise<Map<string, number>>;
   messages(threadId: string): Promise<MessageRecord[]>;
+  /**
+   * The thread's shape without its content: every live message's id, parent,
+   * role and time, in creation order. Cheap for a 20,000-message thread, so
+   * paths and the tree are worked out before any parts are read.
+   */
+  skeleton(threadId: string): Promise<MessageNode[]>;
+  /** These messages of the thread, whole, in the order asked (missing ids are skipped). */
+  messagesByIds(threadId: string, ids: string[]): Promise<MessageRecord[]>;
   getMessage(id: string): Promise<MessageRecord | undefined>;
   insertMessage(m: NewMessage): Promise<MessageRecord>;
   /** Many messages in one statement, parents before children (an import). */
@@ -305,6 +321,21 @@ export class PgThreadRepo implements ThreadRepo {
     return rows.map(messageFromRow);
   }
 
+  async skeleton(threadId: string) {
+    const rows = await this.sql<{ id: string; parent_id: string | null; role: Message['role']; created_at: Date }[]>`
+      select id, parent_id, role, created_at from core.messages
+      where thread_id = ${threadId} and deleted_at is null order by created_at, id`;
+    return rows.map((r) => ({ id: r.id, parent_id: r.parent_id, role: r.role, created_at: r.created_at.toISOString() }));
+  }
+
+  async messagesByIds(threadId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.sql<MessageRow[]>`
+      select * from core.messages where thread_id = ${threadId} and id = any(${ids}) and deleted_at is null`;
+    const byId = new Map(rows.map((r) => [r.id, messageFromRow(r)] as const));
+    return ids.flatMap((id) => byId.get(id) ?? []);
+  }
+
   async getMessage(id: string) {
     const rows = await this.sql<MessageRow[]>`select * from core.messages where id = ${id}`;
     return rows[0] ? messageFromRow(rows[0]) : undefined;
@@ -483,6 +514,19 @@ export class MemoryThreadRepo implements ThreadRepo {
     return [...this.msgs.values()]
       .filter((m) => m.thread_id === threadId && !m.deleted_at)
       .map((m) => structuredClone(m));
+  }
+
+  async skeleton(threadId: string) {
+    return [...this.msgs.values()]
+      .filter((m) => m.thread_id === threadId && !m.deleted_at)
+      .map((m) => ({ id: m.id, parent_id: m.parent_id, role: m.role, created_at: m.created_at }));
+  }
+
+  async messagesByIds(threadId: string, ids: string[]) {
+    return ids.flatMap((id) => {
+      const m = this.msgs.get(id);
+      return m && m.thread_id === threadId && !m.deleted_at ? [structuredClone(m)] : [];
+    });
   }
 
   async getMessage(id: string) {

@@ -43,7 +43,7 @@ import { compareBranches } from './compare';
 import { mergeBranches } from './merge';
 import { ancestorPath, childrenIndex, snapBranchPoint } from './path';
 import { asTree, type MessageRecord, type ThreadRepo, type TreeRecord } from './repo';
-import { buildTree, deepestFrom } from './tree';
+import { buildTree, deepestFrom, treeDetailIds } from './tree';
 import type { UtilityDeps } from './utility';
 
 export const UNDO_MS = 30_000;
@@ -150,7 +150,12 @@ export function branchRoutes(deps: BranchRouteDeps) {
 
   r.get('/threads/:id/tree', async (c) => {
     const t = await thread(c.req.param('id'));
-    const msgs = await repo.messages(t.id);
+    // The shape of every message, the content only of those the tree draws.
+    const shape = await repo.skeleton(t.id);
+    const detail = new Map(
+      (await repo.messagesByIds(t.id, treeDetailIds(shape))).map((m) => [m.id, m] as const),
+    );
+    const msgs = shape.map((m) => detail.get(m.id) ?? m);
     return c.json(buildTree(t.id, msgs, await branches.list(t.id), t.active_head_id));
   });
 

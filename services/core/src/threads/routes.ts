@@ -26,6 +26,7 @@ import {
   type Thread,
   ThreadListQuery,
   type ThreadPath,
+  ThreadPathQuery,
   type ThreadSearchHit,
   type ThreadSummary,
 } from '@nvx/contracts';
@@ -39,8 +40,9 @@ import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunRecord, RunStore } from '../runs/engine';
 import type { RunWorker } from '../runs/worker';
+import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
-import { asTree, cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
+import { cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
 import { assertChatModel, startTurn, type TurnDeps, usableChatModel } from './service';
 
 /** Longest text part a person can send (characters); far beyond any context window. */
@@ -106,7 +108,7 @@ const runOut = (r: RunRecord) => ({
 });
 
 /** Follow the newest child down from a message, so a head on a user message lands on its reply. */
-function deepest(kids: Map<string | null, TreeRecord[]>, id: string): string {
+function deepest(kids: Map<string | null, { id: string }[]>, id: string): string {
   let cur = id;
   for (;;) {
     const next = kids.get(cur)?.at(-1);
@@ -242,34 +244,64 @@ export function threadRoutes(deps: ThreadRouteDeps) {
 
   r.get('/threads/:id/path', async (c) => {
     const t = await thread(c.req.param('id'));
-    const all = asTree(await repo.messages(t.id));
-    const byId = new Map(all.map((m) => [m.id, m] as const));
-    const kids = childrenIndex(all);
-    const asked = c.req.query('head') ?? t.active_head_id;
+    const q = ThreadPathQuery.safeParse(c.req.query());
+    if (!q.success) {
+      const issue = q.error.issues[0];
+      throw badRequest(`${issue?.path.join('.') || 'query'}: ${issue?.message ?? 'not valid'}`);
+    }
+    // The shape first (ids and parents, no parts): a long thread is cheap to walk.
+    const nodes = (await repo.skeleton(t.id)).map((m) => ({ ...m, parentId: m.parent_id }));
+    const byId = new Map(nodes.map((m) => [m.id, m] as const));
+    const kids = childrenIndex(nodes);
+    const asked = q.data.head ?? t.active_head_id;
     let head: string | null = null;
     // A named branch's head is where that branch ends, even before anything is
     // sent on it ("branch here"); ?exact=1 asks the same of any message.
     // Anything else follows the newest child down to its leaf.
     const pinned =
-      c.req.query('exact') === '1' ||
+      q.data.exact === '1' ||
       (!!asked &&
         !!deps.branches &&
         (await deps.branches.list(t.id)).some((b) => b.head_message_id === asked));
     if (asked && byId.has(asked)) head = pinned ? asked : deepest(kids, asked);
     else {
-      const root = kids.get(null)?.at(-1) ?? all[0];
+      const root = kids.get(null)?.at(-1) ?? nodes[0];
       if (root) head = deepest(kids, root.id);
     }
-    const path = head ? ancestorPath(byId, head) : [];
+    const ids = head ? ancestorPath(byId, head).map((m) => m.id) : [];
+    let range: { start: number; end: number };
+    try {
+      range = pageRange(ids, q.data);
+    } catch (e) {
+      if (e instanceof NotOnPathError) throw notFound('That message on this path');
+      throw e;
+    }
+    // Then the content of the page alone, reaching back past tool results to their answer.
+    let from = Math.max(0, range.start - 8);
+    let rows = await repo.messagesByIds(t.id, ids.slice(from, range.end));
+    for (;;) {
+      const snap = snapStart(range.start, from, rows);
+      range.start = snap.start;
+      if (!snap.short || from === 0) break;
+      const earlier = Math.max(0, from - 64);
+      rows = [...(await repo.messagesByIds(t.id, ids.slice(earlier, from))), ...rows];
+      from = earlier;
+    }
+    const page = rows.slice(range.start - from);
     const live = (await runs.activeForThread(t.id))[0];
     const out: ThreadPath = {
       thread: threadOut(t),
       head_id: head,
-      messages: path.map((m) => {
-        const { index, count, ids } = siblingInfo(kids, m);
-        return messageOut(m, { index, count, ids });
+      messages: page.map((m) => {
+        const node = byId.get(m.id);
+        if (!node) return messageOut(m);
+        const { index, count, ids: sibs } = siblingInfo(kids, node);
+        return messageOut(m, { index, count, ids: sibs });
       }),
       active_run: live ? { id: live.id, message_id: live.messageId, status: live.status } : null,
+      total: ids.length,
+      start: range.start,
+      has_more: range.start > 0,
     };
     return c.json(out);
   });
