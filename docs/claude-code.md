@@ -118,7 +118,7 @@ Passages are numbered across a turn, so the markers in an answer are unique. Whe
 
 ### Commands
 
-Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing; new commands appear without an NVX Ancile update. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
+Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing; new commands appear without an NVX Ancile update. Reading that list takes a few seconds the first time in a folder, so the built-ins show at once and your skills, plugins and MCP prompts join the list when it arrives; typing never waits for it. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
 
 | Command | In NVX Ancile |
 |---|---|

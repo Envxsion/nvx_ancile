@@ -27,7 +27,7 @@ async function longThread(hh: H, n: number, opts: { results?: number[] } = {}) {
   const results = new Set(opts.results ?? []);
   for (let i = 0; i < n; i++) {
     const parts: Part[] = results.has(i)
-      ? [{ type: 'tool_result', call_id: `c${i}`, ok: true, content: `out ${i}` } as Part]
+      ? [{ type: 'tool_result', call_id: `c${i}`, ok: true, result: `out ${i}` }]
       : text(`message ${i}`);
     ms.push({
       id: `m${i}`,
@@ -60,7 +60,7 @@ describe('pageRange', () => {
   it('never starts on a message that only carries tool results', () => {
     const rows = [
       { role: 'assistant', parts: text('calls a tool') },
-      { role: 'user', parts: [{ type: 'tool_result', call_id: 'a', ok: true, content: '' } as Part] },
+      { role: 'user', parts: [{ type: 'tool_result', call_id: 'a', ok: true, result: '' } as Part] },
       { role: 'tool', parts: [] },
     ];
     expect(snapStart(2, 0, rows)).toEqual({ start: 0, short: false });

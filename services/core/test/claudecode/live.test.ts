@@ -790,7 +790,13 @@ describe('state and commands', () => {
     ];
     bridge.controlAnswers.supported_models = [{ value: 'opus', displayName: 'Opus' }];
     bridge.controlAnswers.mcp_status = [{ name: 'github' }];
-    const items = await live.commands('thr_1');
+    const first = await live.commands('thr_1');
+    // At once: the built-ins, marked partial, while Claude Code's own list is read.
+    expect(first.partial).toBe(true);
+    expect(first.items.find((c) => c.name === 'mcp')).toMatchObject({ ancile_action: 'open_mcp' });
+    expect(first.items.find((c) => c.name === 'my-skill')).toBeUndefined();
+    const { items, partial } = await live.commands('thr_1', { wait: true });
+    expect(partial).toBe(false);
     const by = new Map(items.map((c) => [c.name, c]));
     expect(by.get('mcp')).toMatchObject({
       handled_by: 'ancile',
@@ -829,7 +835,7 @@ describe('state and commands', () => {
     expect(bridge.opened[0]).toMatchObject({ cwd: CWD, persist: false });
     expect(bridge.opened[0]?.resume).toBeUndefined();
     expect(bridge.closed).toEqual(['h1']);
-    await live.commands('thr_1');
+    expect((await live.commands('thr_1')).partial).toBe(false);
     expect(bridge.opened).toHaveLength(1); // cached per folder and version
   });
 

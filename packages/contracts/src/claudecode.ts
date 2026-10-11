@@ -208,6 +208,17 @@ export const ClaudeCodeCommand = z.object({
 });
 export type ClaudeCodeCommand = z.infer<typeof ClaudeCodeCommand>;
 
+/**
+ * GET /claude-code/threads/:id/commands. Answers at once: until Claude
+ * Code's own list has been read for that folder, `items` holds the
+ * built-ins and `partial` is true; ask again shortly for the whole list.
+ */
+export const ClaudeCodeCommandList = z.object({
+  items: z.array(ClaudeCodeCommand),
+  partial: z.boolean(),
+});
+export type ClaudeCodeCommandList = z.infer<typeof ClaudeCodeCommandList>;
+
 /** POST /claude-code/threads/:id/send — one turn in the live session. */
 export const SendClaudeCodeRequest = z
   .object({

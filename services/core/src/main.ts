@@ -1085,6 +1085,16 @@ async function main() {
   // Claude Code sessions come in by themselves (Auto-import, on by default),
   // shortly after start and only when Claude Code is installed here.
   claudeCode.service.startAuto();
+  // Claude Code's "/" list for the latest folders, read once Core has settled,
+  // so the first "/" in a Claude Code thread is already complete.
+  const warmCommands = setTimeout(() => {
+    void claudeLive
+      .warmCommands()
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, "Claude Code's command lists were not read ahead"),
+      );
+  }, 45_000);
+  warmCommands.unref();
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');
