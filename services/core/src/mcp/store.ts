@@ -139,7 +139,7 @@ export class PgMcpServerStore implements McpServerStore {
         insert into core.mcp_servers
           (id, name, transport, command, args, env, url, headers, env_secret_ids, enabled, tool_overrides)
         values (${row.id}, ${row.name}, ${row.transport}, ${row.command}, ${j(row.args)}, ${j(row.env)},
-                ${row.url}, ${j(row.headers)}, ${this.sql.array(row.secret_keys)}::text[], ${row.enabled},
+                ${row.url}, ${j(row.headers)}, array(select jsonb_array_elements_text(${j(row.secret_keys)}))::text[], ${row.enabled},
                 ${j(row.tool_overrides)})`;
       return true;
     } catch (err) {
@@ -157,7 +157,7 @@ export class PgMcpServerStore implements McpServerStore {
       const [r] = await this.sql<Row[]>`
         update core.mcp_servers set
           name = ${n.name}, command = ${n.command}, args = ${j(n.args)}, env = ${j(n.env)},
-          url = ${n.url}, headers = ${j(n.headers)}, env_secret_ids = ${this.sql.array(n.secret_keys)}::text[],
+          url = ${n.url}, headers = ${j(n.headers)}, env_secret_ids = array(select jsonb_array_elements_text(${j(n.secret_keys)}))::text[],
           enabled = ${n.enabled}, tool_overrides = ${j(n.tool_overrides)}, updated_at = now()
         where id = ${id}
         returning *`;
