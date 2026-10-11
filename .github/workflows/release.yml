@@ -101,7 +101,9 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with: { workspaces: 'apps/desktop/src-tauri -> target' }
       - run: pnpm install --frozen-lockfile
-      - name: Sidecars (Postgres, Node, Core, Cockpit, Knowledge), free edition
+      # bundle.mjs also writes THIRD_PARTY_LICENSES.txt into sidecars/ (installed with the
+      # app) and fails here if a shipped package has a denied or unknown licence.
+      - name: Sidecars (Postgres, Node, Core, Cockpit, Knowledge) and licences, free edition
         env: { NVX_TIER: free }
         run: pnpm --filter @nvx/ancile-desktop sidecars
       - name: Updater configuration, when its keys exist

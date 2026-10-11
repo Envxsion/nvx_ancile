@@ -11,8 +11,9 @@
     "sidecars": "node scripts/bundle.mjs",
     "dev": "tauri dev",
     "build": "node scripts/bundle.mjs && tauri build",
-    "typecheck": "node --check scripts/bundle.mjs && node --check scripts/publish-release.mjs",
-    "test": "node --test scripts/publish-release.test.mjs"
+    "typecheck": "node --check scripts/bundle.mjs && node --check scripts/publish-release.mjs && node --check scripts/third-party-licenses.mjs",
+    "test": "node --test scripts/publish-release.test.mjs scripts/third-party-licenses.test.mjs",
+    "licences": "node scripts/third-party-licenses.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

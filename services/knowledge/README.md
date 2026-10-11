@@ -5,7 +5,7 @@ The grounding layer: ingestion, chunking, embeddings, hybrid search, reranking, 
 ```bash
 uv sync                          # base: API, DB, chunking, search, dedupe
 uv sync --extra embed            # local fastembed embedder + reranker (CPU)
-uv sync --extra extract          # content-core + MarkItDown
+uv sync --extra extract          # MarkItDown (office documents)
 uv sync --extra docling          # layout-heavy PDFs (pulls torch)
 uv run alembic upgrade head      # schema "knowledge"
 uv run ancile-knowledge          # :7710

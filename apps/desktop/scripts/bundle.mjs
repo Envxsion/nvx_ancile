@@ -29,6 +29,9 @@
  *           |          (build-lab.ts, a pinned Bun from npm).
  *           |  controller  the Controller as one esbuild bundle (its
  *           |          npm packages inlined) plus its migrations.
+ *           |  licences  THIRD_PARTY_LICENSES.txt and NOTICE.md at the
+ *           |          top of sidecars/ (third-party-licenses.mjs), after
+ *           |          every build; a denied or unknown licence fails it.
  *  Note     |  Why not a Node single-executable for Core: SEA takes one
  *           |  CommonJS script and cannot load Core's WebAssembly
  *           |  policy engine or native-free ESM dependencies from disk
@@ -125,6 +128,11 @@ if (want('node')) {
   if (major < 22 || (major === 22 && minor < 12))
     throw new Error(`Node 22.12 or later is needed, this is ${process.version}`);
   cpSync(process.execPath, join(fresh(join(OUT, 'node')), IS_WIN ? 'node.exe' : 'node'));
+  // Node's own LICENSE, where this install has one (tarballs do, the Windows
+  // MSI does not; third-party-licenses.mjs fetches it for that version then).
+  const nodeHome = dirname(process.execPath);
+  const nodeLicence = [join(nodeHome, 'LICENSE'), join(nodeHome, '..', 'LICENSE')].find(existsSync);
+  if (nodeLicence) cpSync(nodeLicence, join(OUT, 'node', 'LICENSE'));
   done('node');
 }
 
@@ -340,6 +348,16 @@ if (args.has('--with-models')) {
 } else if (only.length === 0) {
   rmSync(join(OUT, 'models'), { recursive: true, force: true });
 }
+
+// --- Licences -------------------------------------------------------------------
+// THIRD_PARTY_LICENSES.txt (and NOTICE.md) for everything now in sidecars/,
+// after full and partial builds alike. It fails the build when a shipped
+// package's licence is denied or unknown.
+console.log('Licences: THIRD_PARTY_LICENSES.txt');
+execFileSync(process.execPath, [join(here, 'third-party-licenses.mjs'), '--sidecars', OUT], {
+  stdio: 'inherit',
+  cwd: ROOT,
+});
 
 // Keep a record across partial rebuilds (`sidecars core` updates only core).
 const manifestFile = join(OUT, 'MANIFEST.json');
