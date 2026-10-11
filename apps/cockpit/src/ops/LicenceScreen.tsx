@@ -49,6 +49,12 @@ export function LicenceScreen() {
   const [key, setKey] = useState(() =>
     formatKey(new URLSearchParams(window.location.search).get('key') ?? ''),
   );
+  // The desktop app opens this screen with ?lapsed_update=<version> when the
+  // only update on offer is the free edition and this install holds a lapsed licence.
+  const [lapsedUpdate] = useState(() => {
+    const v = new URLSearchParams(window.location.search).get('lapsed_update');
+    return v && /^\d+\.\d+\.\d+([-.+][\w.]+)?$/.test(v) ? v : null;
+  });
   /** The key is in use elsewhere: offer to move the seat here. */
   const [seatTaken, setSeatTaken] = useState<string[] | null>(null);
   const activate = useMutation({
@@ -128,6 +134,21 @@ export function LicenceScreen() {
                     ? 'This licence is paused, so Pro is off. Your key is kept: Pro comes back when it is resumed.'
                     : 'This licence has ended, so Pro is off. Renew it in your nvx.sh account, then check again.'}
             </p>
+          ) : null}
+          {lapsedUpdate ? (
+            <div className="edition__lapse" data-lapse="update" role="status">
+              <p>
+                Your Pro licence has lapsed. Version {lapsedUpdate} is the free edition: installing it removes
+                the Pro screens. Your data stays.
+              </p>
+              <p className="mute">
+                Renew in your nvx.sh account to keep Pro, or choose "Install the free edition anyway" in the
+                NVX Ancile menu in your system tray.
+              </p>
+              <a className="btn btn--primary" href="https://ancile.nvx.sh" target="_blank" rel="noreferrer">
+                Renew Pro
+              </a>
+            </div>
           ) : null}
           {d.checked_at ? <p className="mute edition__checked">Checked {relative(d.checked_at)}</p> : null}
         </div>

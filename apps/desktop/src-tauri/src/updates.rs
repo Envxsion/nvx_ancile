@@ -32,7 +32,22 @@ const ENDPOINT: &str = "https://ancile.nvx.sh/api/updates/{{target}}/{{arch}}/{{
 const EVERY: Duration = Duration::from_secs(24 * 3600);
 
 /// The update found, waiting for the person to install it.
-pub struct Waiting(pub Mutex<Option<Update>>);
+pub struct Waiting(pub Mutex<Option<Offer>>);
+
+/// An update on offer. `free_for_pro`: the server offers the free edition to an
+/// install that holds a licence (it lapsed): explained first, never installed
+/// on the first click.
+pub struct Offer {
+    pub update: Update,
+    pub free_for_pro: bool,
+    pub explained: bool,
+}
+
+/// The server says which edition it offers ("edition" in its answer); the free
+/// one, offered to an install holding a licence, means the licence lapsed.
+pub fn free_offer_for_pro(token_held: bool, edition: Option<&str>) -> bool {
+    token_held && edition == Some("free")
+}
 
 /// The tray line that offers it.
 pub struct TrayLine(pub MenuItem<tauri::Wry>);
@@ -119,15 +134,19 @@ fn check(app: &AppHandle) {
     };
     match tauri::async_runtime::block_on(updater.check()) {
         Ok(Some(update)) => {
-            log::info!("updates: {} is available", update.version);
+            let edition = update.raw_json.get("edition").and_then(|e| e.as_str());
+            let free_for_pro = free_offer_for_pro(token.is_some(), edition);
+            log::info!("updates: {} is available (free for a Pro install: {free_for_pro})", update.version);
             if let Some(line) = app.try_state::<TrayLine>() {
-                let _ = line
-                    .0
-                    .set_text(format!("Install NVX Ancile {} and restart", update.version));
+                let _ = line.0.set_text(if free_for_pro {
+                    "Pro licence lapsed: see your options".to_string()
+                } else {
+                    format!("Install NVX Ancile {} and restart", update.version)
+                });
                 let _ = line.0.set_enabled(true);
             }
             if let Some(w) = app.try_state::<Waiting>() {
-                *w.0.lock().unwrap() = Some(update);
+                *w.0.lock().unwrap() = Some(Offer { update, free_for_pro, explained: false });
             }
         }
         Ok(None) => log::info!("updates: this is the newest version"),
@@ -139,12 +158,28 @@ fn check(app: &AppHandle) {
 /// The tray's "Install … and restart": download, install, start again.
 pub fn install(app: AppHandle) {
     std::thread::spawn(move || {
-        let Some(update) = app
+        let Some(offer) = app
             .try_state::<Waiting>()
             .and_then(|w| w.0.lock().unwrap().take())
         else {
             return;
         };
+        // The free edition for a lapsed Pro install: the first click explains
+        // (Renew, or install free anyway); only a second, deliberate click installs.
+        if offer.free_for_pro && !offer.explained {
+            let version = offer.update.version.clone();
+            crate::open_route(&app, format!("/admin/license?lapsed_update={version}"));
+            if let Some(line) = app.try_state::<TrayLine>() {
+                let _ = line.0.set_text(format!(
+                    "Install the free edition {version} anyway (Pro screens go, your data stays)"
+                ));
+            }
+            if let Some(w) = app.try_state::<Waiting>() {
+                *w.0.lock().unwrap() = Some(Offer { explained: true, ..offer });
+            }
+            return;
+        }
+        let update = offer.update;
         if let Some(line) = app.try_state::<TrayLine>() {
             let _ = line
                 .0
@@ -172,7 +207,7 @@ pub fn install(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint, wants_pro};
+    use super::{endpoint, free_offer_for_pro, wants_pro};
 
     #[test]
     fn endpoint_names_edition_and_channel() {
@@ -188,5 +223,13 @@ mod tests {
         assert!(wants_pro(true, false), "a Pro install with no token still asks for Pro");
         assert!(wants_pro(false, true), "a lapsed Pro install on the free build asks for Pro again");
         assert!(!wants_pro(false, false), "a free install never asks for Pro");
+    }
+
+    #[test]
+    fn a_free_offer_to_a_licensed_install_is_explained_not_installed() {
+        assert!(free_offer_for_pro(true, Some("free")));
+        assert!(!free_offer_for_pro(true, Some("pro")));
+        assert!(!free_offer_for_pro(false, Some("free")), "a free install just updates");
+        assert!(!free_offer_for_pro(true, None), "an older server without the field: a plain update");
     }
 }

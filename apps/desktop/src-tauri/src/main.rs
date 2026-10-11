@@ -71,7 +71,7 @@ fn route_for(url: &Url) -> Option<String> {
     }
 }
 
-fn open_route(app: &AppHandle, route: String) {
+pub(crate) fn open_route(app: &AppHandle, route: String) {
     show_main(app);
     let ready = supervisor_of(app)
         .map(|s| s.status().ready)
