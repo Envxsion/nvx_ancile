@@ -146,6 +146,14 @@ export const ClaudeCodeBinding = z.object({
 });
 export type ClaudeCodeBinding = z.infer<typeof ClaudeCodeBinding>;
 
+/**
+ * POST /claude-code/projects/exclude: "Don't bring in this folder". The
+ * folder joins exclude_folders, and what already came from it is put
+ * away (threads archived, never deleted). Answers ClaudeCodeSettings.
+ */
+export const ExcludeClaudeCodeFolderRequest = z.object({ cwd: z.string().min(1).max(500) }).strict();
+export type ExcludeClaudeCodeFolderRequest = z.infer<typeof ExcludeClaudeCodeFolderRequest>;
+
 /** A folder → notebook binding, so a project's sessions land together. */
 export const ClaudeCodeProject = z.object({
   cwd: z.string(),
