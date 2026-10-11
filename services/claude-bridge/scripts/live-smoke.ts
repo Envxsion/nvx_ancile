@@ -25,7 +25,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeSdkLoader } from '../src/sdk';
 import type { ClaudeAgentSdkLive, SdkQuery } from '../src/sdk-types';
-import { type InputQueue, inputQueue } from '../src/session';
+import { type InputQueue, inputQueue, SessionManager } from '../src/session';
 
 const cli = process.env.CLAUDE_PATH;
 if (!cli) throw new Error('Set CLAUDE_PATH to the verified Claude Code executable');
@@ -121,6 +121,40 @@ try {
     q.close();
   }
   if (process.env.SMOKE_ONLY === 'commands') process.exit(0);
+
+  // 1b. Through the bridge's own SessionManager: a tool call is asked about, on its real input.
+  if (process.env.SMOKE_ONLY === 'hook') {
+    const mgr = new SessionManager({ load: async () => sdk, version: 'smoke' });
+    const asks: Record<string, unknown>[] = [];
+    let done: () => void = () => undefined;
+    const finished = new Promise<void>((r) => {
+      done = r;
+    });
+    const types: Record<string, number> = {};
+    const { handle } = await mgr.openSession(
+      { cwd, path_to_cli: cli, env: { DISABLE_TELEMETRY: '1' } },
+      (event, data) => {
+        const d = data as Record<string, unknown>;
+        if (event === 'session.permission') {
+          asks.push({ tool: d.tool_name, via: d.via, has_input: !!d.input, has_id: !!d.tool_use_id });
+          mgr.reply(handle, d.request_id, { behavior: 'deny', message: 'smoke run: no tools' });
+        }
+        if (event === 'session.message') {
+          const m = d.message as Record<string, unknown>;
+          const k = `${m.type}${m.subtype ? `/${m.subtype}` : ''}`;
+          types[k] = (types[k] ?? 0) + 1;
+          if (m.type === 'result') done();
+        }
+      },
+    );
+    mgr.send(handle, 'Run the shell command `echo hi` with your Bash tool, then reply with one word.', {
+      uuid: randomUUID(),
+    });
+    await finished;
+    console.log('hook turn:', { asks, types });
+    mgr.closeAll();
+    process.exit(0);
+  }
 
   // 2. One trivial turn in the throwaway folder.
   const asked: string[] = [];
