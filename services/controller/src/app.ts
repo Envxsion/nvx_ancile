@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { CONTROLLER_CONTRACT_VERSION } from '@nvx/contracts/controller';
+import { CONTROLLER_CONTRACT_VERSION, type ProviderStatus } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { type AppEnv, apiError, bearer, trace } from './http';
 import { componentLogger } from './logger';
@@ -29,6 +29,8 @@ export interface AppDeps extends ExecutorDeps {
   queueDeadlineS: number;
   nodeToken?: string;
   routingBlocked?: () => boolean;
+  /** Connect RunPod with a key (checked first), or go back to sample nodes with null. */
+  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean }>;
 }
 
 export function createApp(deps: AppDeps) {

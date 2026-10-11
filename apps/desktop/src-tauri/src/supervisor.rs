@@ -157,7 +157,9 @@ impl Supervisor {
                 "CONTROLLER_URL",
                 format!("http://127.0.0.1:{}", p.controller),
             );
-            set("CONTROLLER_PROVIDER", "fake".into());
+            // RunPod with no key: sample nodes until RunPod is connected in
+            // Admin → Compute (Core keeps the key and gives it to the Controller).
+            set("CONTROLLER_PROVIDER", "runpod".into());
         }
         if layout.has(&format!("lab/{}", exe("ancile-lab"))) {
             set("AGENT_ENGINE_PORT", p.lab.to_string());

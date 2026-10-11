@@ -287,7 +287,8 @@ Change it in Admin → Permissions. Policies an administrator writes in Cedar al
         id: 'compute',
         title: 'Running models on your own GPU',
         summary: 'A RunPod pod or a machine on your network, started when you need it.',
-        keywords: 'compute gpu node runpod pod ollama vllm local network start stop wake cost',
+        keywords:
+          'compute gpu node runpod pod ollama vllm local network start stop wake cost connect api key',
         body: `Admin → Compute lists the GPU nodes NVX Ancile manages for you: pods in your RunPod account, or machines on your own network running Ollama, vLLM or any OpenAI-compatible server.
 
 Every model a node serves appears in the model switcher as "*model* on *node*". Ask it something while the node is stopped and NVX Ancile wakes it: the answer shows **Waking your GPU node** with roughly how long it takes, then streams in as soon as the node is up. **Use a cloud model instead** answers at once with your next model.
@@ -296,7 +297,9 @@ Every model a node serves appears in the model switcher as "*model* on *node*". 
 
 Each card shows the hourly rate, the hours and money spent this month, and the projection if things stay as they are. A machine on your network costs nothing per hour; NVX Ancile cannot switch it on or off, but notices within a minute when you do.
 
-Until you connect a provider, two **sample** nodes show how it all works. They start, stop and answer, and cost nothing.`,
+Until you connect a provider, two **sample** nodes show how it all works. They start, stop and answer, and cost nothing.
+
+**Connect RunPod** takes an API key from RunPod (Settings → API Keys, with read and write access to pods). It is checked with RunPod before anything changes and kept encrypted on this computer; the sample nodes then go. To set a pod up yourself, **Add a node** → *Setting the pod up yourself?* has the exact start command and settings to copy.`,
       },
       {
         id: 'compute-rules',

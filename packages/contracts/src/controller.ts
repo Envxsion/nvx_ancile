@@ -117,6 +117,22 @@ export const CreateNodeRequest = z.object({
 });
 
 /**
+ * GET/PUT/DELETE /control/v1/provider: which provider manages nodes.
+ * `fake` is sample nodes (nothing connected). The RunPod key is given with
+ * PUT, checked against RunPod first, and held only in memory.
+ */
+export const ProviderStatus = z.object({
+  kind: z.string(),
+  connected: z.boolean(),
+  detail: z.string(),
+});
+export type ProviderStatus = z.infer<typeof ProviderStatus>;
+export const ConnectProviderRequest = z.object({
+  kind: z.literal('runpod'),
+  api_key: z.string().trim().min(8).max(400),
+});
+
+/**
  * GET /control/v1/node-setup: what a pod set up by hand needs (start
  * command and environment), so its key matches the one the Controller
  * sends. `node_token` is null when CONTROLLER_NODE_TOKEN is not set.

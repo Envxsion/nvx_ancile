@@ -30,6 +30,7 @@ import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton, StatusDot, Tip } from '../ui/primitives';
 import { ConfirmationChain } from './ConfirmationChain';
+import { ConnectRunPodDialog, useDisconnectRunPod } from './ConnectRunPod';
 import {
   ACTION_WORD,
   addNode,
@@ -679,6 +680,8 @@ export function ComputeScreen() {
   const nodes = useNodes();
   const costs = useCosts();
   const [adding, setAdding] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const disconnect = useDisconnectRunPod();
   const [terminating, setTerminating] = useState<ComputeNode | null>(null);
   const costByNode = useMemo(
     () => new Map((costs.data?.nodes ?? []).map((c) => [c.node_id, c])),
@@ -708,6 +711,7 @@ export function ComputeScreen() {
   }
 
   const sample = Boolean(status.data?.sample);
+  const runpod = status.data?.provider === 'runpod';
   const list = (nodes.data ?? []).filter((n) => n.observed_state !== 'terminated');
 
   return (
@@ -717,19 +721,47 @@ export function ComputeScreen() {
           Your GPU nodes, what they cost, and the rules that keep them in check. A model on a stopped node
           wakes it when you ask it something.
         </p>
-        <button type="button" className="btn btn--primary btn--sm" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={14} />
-          Add a node
-        </button>
+        <div className="compute__bar-actions">
+          {sample ? (
+            <button type="button" className="btn btn--primary btn--sm" onClick={() => setConnecting(true)}>
+              <Icon name="link" size={14} />
+              Connect RunPod
+            </button>
+          ) : (
+            <button type="button" className="btn btn--primary btn--sm" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={14} />
+              Add a node
+            </button>
+          )}
+          {runpod ? (
+            <DropMenu
+              items={[
+                {
+                  label: 'Disconnect RunPod',
+                  icon: 'close',
+                  danger: true,
+                  onSelect: () => disconnect.mutate(),
+                },
+              ]}
+              trigger={
+                <button type="button" className="icon-btn icon-btn--sm" aria-label="More for compute">
+                  <Icon name="more" size={15} />
+                </button>
+              }
+            />
+          ) : null}
+        </div>
       </div>
 
       {sample ? (
         <p className="compute__sample">
           <Icon name="sparkle" size={14} />
           <span>
-            These are sample nodes: they start, stop, answer and cost nothing, so you can try everything. Set{' '}
-            <code>RUNPOD_API_KEY</code>, or list machines on your network in{' '}
-            <code>CONTROLLER_LOCAL_NODES</code>, to manage real ones.
+            These are sample nodes: they start, stop, answer and cost nothing, so you can try everything.{' '}
+            <button type="button" className="link-btn" onClick={() => setConnecting(true)}>
+              Connect RunPod
+            </button>{' '}
+            to manage real ones.
           </span>
         </p>
       ) : null}
@@ -769,6 +801,7 @@ export function ComputeScreen() {
       <Rules />
 
       <AddNodeDialog open={adding} onOpenChange={setAdding} provider={status.data?.provider ?? null} />
+      <ConnectRunPodDialog open={connecting} onOpenChange={setConnecting} />
       <TerminateDialog
         key={terminating?.id ?? 'none'}
         node={terminating}

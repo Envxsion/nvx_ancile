@@ -27,7 +27,7 @@ import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
-import { computeRoutes } from './compute/routes';
+import { computeRoutes, providerSync } from './compute/routes';
 import { chatTurnHandler } from './conductor/pipeline';
 import { knowledgeRetriever } from './conductor/retrieval';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
@@ -228,6 +228,11 @@ async function main() {
   // ---- Phase 5: remote compute (the Controller) ----
   const compute = controllerClient({ url: env.CONTROLLER_URL, token: env.CONTROLLER_TOKEN });
   const stopCompute = startComputeBridge({ client: compute, registry, bus: events });
+  // A RunPod key saved from Admin → Compute goes back to the Controller after
+  // it restarts (it holds the key only in memory).
+  const syncProvider = providerSync(compute, secrets);
+  void syncProvider();
+  setInterval(() => void syncProvider(), 60_000).unref();
   // ---- end Phase 5 ----
   const gateway = new Gateway({
     client: new RoutingClient(new AiSdkClient(secrets, endpoints), new FakeProvider({ wordDelayMs: 25 })),
@@ -852,7 +857,7 @@ async function main() {
       }),
       stateRoutes(new PgStateStore(sql, owner.userId)),
       notificationRoutes(notifications),
-      computeRoutes({ client: compute, hasFeature: hasProFeature }),
+      computeRoutes({ client: compute, secrets, hasFeature: hasProFeature }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, mcp }),
       repoRoutes({ repos, github, secrets, settings, mcp }),

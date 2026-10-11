@@ -384,6 +384,19 @@
 
 /* --- Add node ----------------------------------------------------------- */
 
+.compute__bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.connect-runpod__problem {
+  margin: 0;
+  color: var(--fail);
+  font-size: var(--t-small);
+}
+
 .add-node__form {
   display: grid;
   gap: 14px;

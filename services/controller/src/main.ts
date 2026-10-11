@@ -25,6 +25,7 @@ import { PgStore } from './pgstore';
 import { FAKE_SCHEME, FakeProvider } from './providers/fake';
 import { LocalNetworkProvider, parseLocalNodes } from './providers/local';
 import { RunPodProvider } from './providers/runpod';
+import { providerSwitch, SwitchableProvider } from './providers/switch';
 import type { ComputeProvider } from './providers/types';
 import { evaluateAll, newRunnerState } from './rules/runner';
 import { MemoryStore, type Store } from './store';
@@ -58,22 +59,20 @@ async function boot() {
       : null;
   const store: Store = sql ? new PgStore(sql) : new MemoryStore();
 
+  // Without a RunPod key the Controller shows sample nodes, here as on the
+  // desktop: RunPod is connected later from Admin → Compute (Core gives the
+  // key, which is held only in memory here).
   const sampleMode =
-    env.CONTROLLER_PROVIDER === 'fake' ||
-    (env.CONTROLLER_PROVIDER === 'runpod' && !env.RUNPOD_API_KEY && env.NODE_ENV !== 'production');
-  let provider: ComputeProvider;
-  if (env.CONTROLLER_PROVIDER === 'local') provider = new LocalNetworkProvider(localSpecs);
-  else if (sampleMode) provider = new FakeProvider(4_000);
-  else provider = new RunPodProvider({ apiKey: env.RUNPOD_API_KEY, baseUrl: env.RUNPOD_API_BASE });
+    env.CONTROLLER_PROVIDER === 'fake' || (env.CONTROLLER_PROVIDER === 'runpod' && !env.RUNPOD_API_KEY);
 
-  if (provider instanceof FakeProvider) {
-    // Sample nodes live in the provider's memory; put them back on boot so
-    // the stored records always have a machine behind them.
-    const seeded = await seedSampleNodes(store, provider);
+  /** Sample nodes live in the provider's memory; put them back so the stored records have a machine behind them. */
+  const samples = async () => {
+    const fake = new FakeProvider(4_000);
+    const seeded = await seedSampleNodes(store, fake);
     if (!seeded)
       for (const n of await store.listNodes())
         if (n.provider === 'fake')
-          provider.add({
+          fake.add({
             ref: n.provider_ref,
             name: n.name,
             state: n.observed_state === 'running' ? 'running' : 'stopped',
@@ -82,8 +81,27 @@ async function boot() {
             endpointUrl: `${FAKE_SCHEME}${n.provider_ref}`,
             region: n.region,
           });
-    logger.info({ seeded }, 'sample compute nodes in use: connect a provider in Admin → Compute');
-  }
+    logger.info({ seeded }, 'sample compute nodes in use: connect RunPod in Admin → Compute');
+    return fake;
+  };
+
+  let first: ComputeProvider;
+  if (env.CONTROLLER_PROVIDER === 'local') first = new LocalNetworkProvider(localSpecs);
+  else if (sampleMode) first = await samples();
+  else first = new RunPodProvider({ apiKey: env.RUNPOD_API_KEY, baseUrl: env.RUNPOD_API_BASE });
+  const provider = new SwitchableProvider(first);
+
+  /** Connect RunPod with a key (checked first; sample nodes are cleared), or go back to samples. */
+  const connectProvider =
+    env.CONTROLLER_PROVIDER === 'local'
+      ? undefined
+      : providerSwitch({
+          store,
+          provider,
+          samples,
+          connect: (apiKey) => new RunPodProvider({ apiKey, baseUrl: env.RUNPOD_API_BASE }),
+          onConnected: () => logger.info('RunPod connected'),
+        });
   if (provider instanceof LocalNetworkProvider)
     for (const spec of localSpecs)
       await register(store, provider, {
@@ -105,6 +123,7 @@ async function boot() {
     queueDeadlineS: env.CONTROLLER_QUEUE_DEADLINE_S,
     nodeToken: env.CONTROLLER_NODE_TOKEN || undefined,
     routingBlocked: () => runner.routingBlocked,
+    ...(connectProvider && { connectProvider }),
   });
 
   const rules = setInterval(async () => {

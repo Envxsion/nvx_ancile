@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import { NodeAction } from '@nvx/contracts/controller';
+import { NodeAction, type ProviderStatus } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
 import { z } from 'zod';
@@ -23,7 +23,35 @@ import type { AppEnv } from '../app';
 import { useCloud } from '../gateway/compute';
 import { body } from '../http/body';
 import { featureRequired } from '../pro/routes';
+import type { SecretStore } from '../secrets';
 import type { ControllerClient } from './controller';
+
+/** The RunPod key, encrypted in Core's secret store; the Controller holds it only in memory. */
+export const RUNPOD_KEY_SECRET = 'compute.runpod_api_key';
+
+/**
+ * Give the Controller the saved RunPod key whenever it has none (it restarted,
+ * or was down when the key was saved). Safe to call often: one at a time,
+ * and only a GET when nothing is needed.
+ */
+export function providerSync(client: ControllerClient, secrets: SecretStore) {
+  let running: Promise<void> | null = null;
+  const once = async () => {
+    if (!client.configured) return;
+    const key = await secrets.get(RUNPOD_KEY_SECRET);
+    if (!key) return;
+    const now = await client.get<ProviderStatus>('/provider');
+    if (now.kind === 'fake') await client.send('PUT', '/provider', { kind: 'runpod', api_key: key });
+  };
+  return (): Promise<void> => {
+    running ??= once()
+      .catch(() => undefined)
+      .finally(() => {
+        running = null;
+      });
+    return running;
+  };
+}
 
 const enc = encodeURIComponent;
 
@@ -63,6 +91,8 @@ async function assertRoomForNode(client: ControllerClient, hasFleet: boolean) {
 
 export function computeRoutes(deps: {
   client: ControllerClient;
+  /** Where the RunPod key is kept; absent (tests) means it cannot be connected from the app. */
+  secrets?: SecretStore;
   /** Pro's licence check; absent (tests, older wiring) means no limit. */
   hasFeature?: (f: 'fleet') => boolean;
 }) {
@@ -84,6 +114,27 @@ export function computeRoutes(deps: {
     } catch {
       return c.json({ configured: true, reachable: false, sample: false, provider: null });
     }
+  });
+
+  const sync = deps.secrets ? providerSync(client, deps.secrets) : null;
+
+  // Which provider manages nodes, and connecting RunPod from the app (the key
+  // is checked by the Controller against RunPod before it is saved here).
+  r.get('/compute/provider', async (c) => {
+    await sync?.();
+    const status = await client.get<ProviderStatus>('/provider');
+    return c.json({ ...status, key_saved: !!(await deps.secrets?.get(RUNPOD_KEY_SECRET)) });
+  });
+  r.put('/compute/provider', async (c) => {
+    const { api_key } = await body(c, z.object({ api_key: z.string().trim().min(8).max(400) }));
+    const status = await client.send<ProviderStatus>('PUT', '/provider', { kind: 'runpod', api_key });
+    await deps.secrets?.set(RUNPOD_KEY_SECRET, api_key);
+    return c.json({ ...status, key_saved: !!deps.secrets });
+  });
+  r.delete('/compute/provider', async (c) => {
+    const status = await client.send<ProviderStatus>('DELETE', '/provider');
+    await deps.secrets?.delete(RUNPOD_KEY_SECRET);
+    return c.json({ ...status, key_saved: false });
   });
 
   r.get('/compute/nodes', async (c) => c.json(await client.get('/nodes')));

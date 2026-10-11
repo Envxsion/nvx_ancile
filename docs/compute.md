@@ -6,11 +6,9 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
 
 ## Setting up RunPod
 
-1. Create an API key in RunPod with pod read/write scope. Put it in `.env`:
-   ```
-   RUNPOD_API_KEY=rpa_…
-   CONTROLLER_URL=http://localhost:7720
-   ```
+1. Create an API key in RunPod (Settings → API Keys) with read and write access to pods. In NVX Ancile, open Admin → Compute and choose **Connect RunPod**, then paste it. The Controller checks it with RunPod before anything changes, and NVX Ancile keeps it encrypted on this computer. Until then you see sample nodes, which cost nothing. **Disconnect RunPod** (the ⋯ menu) removes the key, once no real node is left.
+
+   On a server, `RUNPOD_API_KEY` in `.env` does the same, with `CONTROLLER_URL=http://localhost:7720`.
 2. Create a **network volume** in the region you want, for the model weights.
 3. Create a pod from any CUDA image with the volume mounted at `/workspace`. Set its start command to the node bootstrap:
    ```bash

@@ -13,7 +13,14 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { ActionRequest, CreateNodeRequest, type NodeSetup, Rule } from '@nvx/contracts/controller';
+import {
+  ActionRequest,
+  ConnectProviderRequest,
+  CreateNodeRequest,
+  type NodeSetup,
+  type ProviderStatus,
+  Rule,
+} from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -30,6 +37,7 @@ export interface ControlDeps extends ExecutorDeps {
   store: Store;
   costCapUsd: number;
   newId?: (prefix: 'opn' | 'rul') => string;
+  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean }>;
   /** CONTROLLER_NODE_TOKEN: the key every node's vLLM requires, and the Controller sends. */
   nodeToken?: string;
 }
@@ -55,6 +63,67 @@ export function controlRoutes(deps: ControlDeps) {
   app.use('*', trace);
 
   app.get('/nodes', async (c) => c.json({ items: (await store.listNodes()).map(publicNode) }));
+
+  // Which provider manages nodes; connecting RunPod from the app (docs/compute.md).
+  app.get('/provider', async (c) => {
+    const kind = deps.provider.id;
+    const ping =
+      kind === 'fake'
+        ? null
+        : await deps.provider.ping().catch((e: unknown) => ({ ok: false, detail: String(e) }));
+    const out: ProviderStatus = {
+      kind,
+      connected: kind !== 'fake',
+      detail: ping ? ping.detail : 'Sample nodes: no provider is connected.',
+    };
+    return c.json(out);
+  });
+
+  app.put('/provider', async (c) => {
+    const parsed = ConnectProviderRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return apiError(
+        c,
+        422,
+        'request.invalid',
+        'That is not a RunPod API key',
+        'Paste the key from RunPod → Settings → API Keys.',
+      );
+    if (!deps.connectProvider)
+      return apiError(
+        c,
+        501,
+        'provider.fixed',
+        'This Controller cannot change provider',
+        'Its provider is set where it is deployed.',
+      );
+    const r = await deps.connectProvider(parsed.data.api_key);
+    if (!r.ok) return apiError(c, 422, 'provider.auth', 'RunPod did not accept that key', r.detail);
+    const { ok: _ok, ...status } = r;
+    return c.json(status);
+  });
+
+  app.delete('/provider', async (c) => {
+    if (!deps.connectProvider)
+      return apiError(
+        c,
+        501,
+        'provider.fixed',
+        'This Controller cannot change provider',
+        'Its provider is set where it is deployed.',
+      );
+    const real = (await store.listNodes()).filter((n) => n.provider !== 'fake');
+    if (real.length)
+      return apiError(
+        c,
+        409,
+        'provider.nodes_exist',
+        `${real.length} node${real.length === 1 ? ' is' : 's are'} still managed through RunPod`,
+        'Remove them in Admin → Compute first; their pods stay in your RunPod account.',
+      );
+    const { ok: _ok, ...status } = await deps.connectProvider(null);
+    return c.json(status);
+  });
 
   // For a pod set up by hand: the bootstrap and the key this Controller sends
   // (docs/compute.md). Behind the Controller token, like every /control route.

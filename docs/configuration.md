@@ -75,7 +75,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 |---|---|---|
 | `CONTROLLER_URL` / `CONTROLLER_PORT` | `http://localhost:7720` / `7720` | Leave `CONTROLLER_URL` empty to run without remote compute. |
 | `CONTROLLER_TOKEN` | none (required with a Controller) | Core → Controller auth. |
-| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. |
+| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. Optional: Admin → Compute → Connect RunPod saves the key in the app instead. Empty and not connected: sample nodes. |
 | `RUNPOD_API_BASE` | `https://api.runpod.io` | REST v2. v1 is retired on 15 Nov 2026. |
 | `CONTROLLER_COST_CAP_USD` | `150` | Default hard monthly cap across nodes. |
 | `CONTROLLER_QUEUE_DEADLINE_S` | `240` | How long a request waits for a waking node. |
@@ -262,7 +262,8 @@ With none of the compute settings set, a development install shows two sample GP
 # --- Controller: GPU nodes ---
 # runpod: pods in your RunPod account (needs RUNPOD_API_KEY)
 # local:  OpenAI-compatible servers on your network (CONTROLLER_LOCAL_NODES)
-# fake:   sample nodes. Also used in development when RUNPOD_API_KEY is empty.
+# fake:   sample nodes. Also what runpod shows until a key is given here or
+#         from Admin → Compute → Connect RunPod.
 CONTROLLER_PROVIDER=runpod
 RUNPOD_API_KEY=
 # Machines on your network running Ollama, vLLM or LM Studio, as a JSON list:
