@@ -1,5 +1,6 @@
 export * from './api';
 export * from './branching';
+export * from './claudecode';
 export * from './config';
 export * as controller from './controller';
 export * from './credentials';

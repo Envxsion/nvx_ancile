@@ -5,6 +5,7 @@
  * TODO(phase-2..5): grow with each route; every route gets a contract test.
  */
 import { z } from 'zod';
+import { ClaudeCodeBinding } from './claudecode';
 import { ModelHue } from './config';
 import { RunStatus } from './events';
 import { Message, Part } from './messages';
@@ -106,6 +107,8 @@ export const ThreadSettings = z
     flow_overrides_flow: z.string().nullable().optional(),
     /** The lab's engine session for this thread, reused by every "Run in lab". */
     lab_session: z.string().optional(),
+    /** The Claude Code session this thread continues (docs/claude-code.md). */
+    claude_code: ClaudeCodeBinding.optional(),
   })
   .partial();
 
