@@ -5,7 +5,13 @@
  */
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { chosenTier, RELEASE_BUILD, trustedKeys } from '../../src/build';
+import {
+  chosenTier,
+  OFFICIAL_TELEMETRY_URL,
+  RELEASE_BUILD,
+  telemetryEndpoint,
+  trustedKeys,
+} from '../../src/build';
 import { LicenceClock } from '../../src/license/clock';
 import { verifyToken } from '../../src/license/verify';
 import { MemorySettings } from '../../src/settings';
@@ -30,6 +36,13 @@ describe('release builds', () => {
     expect(chosenTier('pro', true)).toBeUndefined();
     expect(chosenTier('free', true)).toBeUndefined();
     expect(chosenTier('free', false)).toBe('free');
+  });
+
+  it('sends usage statistics to nvx.sh only from a release build, unless told otherwise', () => {
+    expect(telemetryEndpoint(undefined, true)).toBe(OFFICIAL_TELEMETRY_URL);
+    expect(telemetryEndpoint(undefined, false)).toBeUndefined();
+    expect(telemetryEndpoint('https://stats.example', true)).toBe('https://stats.example');
+    expect(OFFICIAL_TELEMETRY_URL).toBe('https://ancile.nvx.sh/api/telemetry');
   });
 });
 

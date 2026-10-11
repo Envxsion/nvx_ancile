@@ -100,7 +100,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `NVX_TIER` | empty | Running from source only: `free` never loads Pro; `pro` loads it from `pro/`. Empty: Pro when `pro/` is present, free otherwise. Release builds ignore it: their edition is what was bundled. |
 | `NVX_LICENSE_URL` | `https://ancile.nvx.sh/api/license` | Licence activation and the daily refresh. Tokens are checked offline. |
 | `NVX_LICENSE_KEYS` | nvx.sh's public keys | Licence public keys, `{"kid":"<base64url Ed25519 key>"}` or `kid:key,kid:key`. Running from source only, to test with your own signing key. Release builds ignore it and trust only the keys built in (`OFFICIAL_LICENSE_KEYS`). |
-| `NVX_TELEMETRY_URL` | empty | Anonymous usage statistics endpoint, `https://` only. Empty: nothing is ever sent, whatever is chosen in Settings. See [telemetry](telemetry.md). |
+| `NVX_TELEMETRY_URL` | official builds: `https://ancile.nvx.sh/api/telemetry`; from source: empty | Anonymous usage statistics endpoint, `https://` only. Nothing is sent unless you turn statistics on in Settings → Privacy. Running from source with this empty, nothing is ever sent. See [telemetry](telemetry.md). |
 
 ## config/ files
 

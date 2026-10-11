@@ -30,3 +30,15 @@ export function trustedKeys<K>(official: K, fromEnv: K | null, release = RELEASE
 export function chosenTier<T>(fromEnv: T | undefined, release = RELEASE_BUILD): T | undefined {
   return release ? undefined : fromEnv;
 }
+
+/** Where a release build sends usage statistics (only when the person opts in). */
+export const OFFICIAL_TELEMETRY_URL = 'https://ancile.nvx.sh/api/telemetry';
+
+/**
+ * The statistics endpoint: NVX_TELEMETRY_URL when set; otherwise the
+ * official one in a release build, and none in a development build, so
+ * nothing you run from source ever reports anywhere.
+ */
+export function telemetryEndpoint(fromEnv: string | undefined, release = RELEASE_BUILD): string | undefined {
+  return fromEnv ?? (release ? OFFICIAL_TELEMETRY_URL : undefined);
+}

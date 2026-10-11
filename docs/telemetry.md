@@ -6,7 +6,7 @@ NVX Ancile can send anonymous usage statistics so it can keep getting better. It
 
 - The first time you finish setup, and on Home until you answer, NVX Ancile asks once: **Share anonymous usage stats?** Choose **Share stats** or **No thanks**.
 - Change your mind at any time in **Settings → Privacy**. The same page shows **What is shared**: the exact batch that would be sent next, and today's counts so far.
-- A build with no statistics address (`NVX_TELEMETRY_URL` empty, the default for anything you build yourself) never sends anything, whatever you choose.
+- The desktop app and official releases send to `https://ancile.nvx.sh/api/telemetry`, and only after you say yes. Running from source, there is no address unless you set `NVX_TELEMETRY_URL`, so nothing is ever sent, whatever you choose.
 
 Turning it off deletes the install id, everything waiting to be sent and every counter. Only the date NVX Ancile was first started is kept, and it is never sent.
 
@@ -29,7 +29,7 @@ The install id is a random number made when you say yes. It is not linked to you
 
 ## How it is sent
 
-- To `NVX_TELEMETRY_URL` over HTTPS, at most once an hour, in batches of up to 50 entries and under 8 KB.
+- To that address over HTTPS, at most once an hour, in batches of up to 50 entries and under 8 KB.
 - Each batch carries a small proof of work (`x-nvx-stamp`), so no secret has to ship in the app.
 - A batch that fails is tried once more, then dropped. Nothing waits for it, and a failure never affects the app.
 - The server refuses any entry that is not on the list in `packages/contracts/src/telemetry.ts`, which is the whole of what can be sent.

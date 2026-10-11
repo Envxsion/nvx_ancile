@@ -24,7 +24,7 @@ import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
 import { AutomationRunner, PgAutomationStore, scheduledJobs } from './automations';
 import { automationRoutes } from './automations/routes';
-import { chosenTier, RELEASE_BUILD, trustedKeys } from './build';
+import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes } from './compute/routes';
@@ -292,7 +292,7 @@ async function main() {
     settings,
     version: VERSION,
     channel: env.NODE_ENV === 'production' && !VERSION.includes('-') ? 'release' : 'dev',
-    endpoint: env.NVX_TELEMETRY_URL,
+    endpoint: telemetryEndpoint(env.NVX_TELEMETRY_URL),
     tier: () => tierNow(),
     env: serverEnv,
   });
