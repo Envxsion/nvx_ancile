@@ -29,6 +29,11 @@ export const ClaudeCodeSettings = z.object({
   auto_install: z.boolean().default(true),
   /** Bring every session in as a thread by itself, and keep it in step (on by default). */
   auto_import: z.boolean().default(true),
+  /**
+   * Folders whose sessions are never brought in: other tools' automated
+   * sessions, e.g. the claude-mem plugin's observer sessions. "~" is home.
+   */
+  exclude_folders: z.array(z.string().min(1).max(500)).max(100).default(['~/.claude-mem']),
   /** Claude Code's own usage reporting to Anthropic (DISABLE_TELEMETRY when off). */
   claude_telemetry: z.boolean().default(true),
 });
