@@ -27,8 +27,8 @@ export type ClaudeCodeInstallState = z.infer<typeof ClaudeCodeInstallState>;
 export const ClaudeCodeSettings = z.object({
   /** Install Claude Code with Anthropic's official installer when it is missing. */
   auto_install: z.boolean().default(true),
-  /** Bring new sessions in as threads by themselves (otherwise only on request). */
-  auto_import: z.boolean().default(false),
+  /** Bring every session in as a thread by itself, and keep it in step (on by default). */
+  auto_import: z.boolean().default(true),
   /** Claude Code's own usage reporting to Anthropic (DISABLE_TELEMETRY when off). */
   claude_telemetry: z.boolean().default(true),
 });
@@ -95,7 +95,7 @@ export const ImportClaudeCodeSessionsRequest = z
     session_ids: z.array(z.string().min(1).max(200)).min(1).max(500),
     /**
      * Where the threads go. Absent: the notebook already bound to the
-     * session's folder, else a new "Claude Code: <project>" notebook.
+     * session's folder, else a new notebook named after the folder.
      */
     notebook_id: z.string().nullable().optional(),
   })
