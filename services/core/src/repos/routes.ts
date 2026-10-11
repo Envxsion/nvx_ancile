@@ -11,7 +11,8 @@
  *           |  it runs directly; models act only through the tools in
  *           |  tools.ts, which pass the permission gate.
  *  Note     |  The GitHub MCP preset adds the official server over
- *           |  stdio with the token from the secret store (or gh's).
+ *           |  stdio with the token from the secret store (or gh's), as
+ *           |  an app server (core.mcp_servers) people can then edit.
  * ------------------------------------------------------------------
  */
 
@@ -27,9 +28,8 @@ import {
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
-import type { McpManager } from '../mcp/manager';
+import type { McpService } from '../mcp/service';
 import type { SecretStore } from '../secrets';
-import type { SettingsStore } from '../settings';
 import {
   GITHUB_TOKEN_SECRET,
   type GitHubAccessor,
@@ -40,15 +40,13 @@ import {
 } from './github';
 import type { RepoService } from './service';
 
-export const MCP_ADDED_SETTING = 'mcp.added';
 export const GITHUB_MCP_SECRET = 'GITHUB_PERSONAL_ACCESS_TOKEN';
 
 export interface RepoRouteDeps {
   repos: RepoService;
   github: GitHubClient & Partial<Pick<GitHubAccessor, 'forget'>>;
   secrets: SecretStore;
-  settings: SettingsStore;
-  mcp?: Pick<McpManager, 'connect'>;
+  mcp?: Pick<McpService, 'savePreset'>;
   /** For the MCP preset: is docker or the server binary on PATH? Injected in tests. */
   run?: Runner;
 }
@@ -237,22 +235,13 @@ export function repoRoutes(deps: RepoRouteDeps) {
         status: 409,
         errorClass: 'permanent',
       });
-    await deps.secrets.set(GITHUB_MCP_SECRET, token);
-    const spec = {
+    const { view, health } = await deps.mcp.savePreset({
       name: 'github',
-      transport: 'stdio' as const,
       command: runner.command,
       args: runner.args,
-      env_secrets: [GITHUB_MCP_SECRET],
-      enabled: true,
-      tools: {},
-    };
-    const saved = ((await deps.settings.get<(typeof spec)[]>(MCP_ADDED_SETTING)) ?? []).filter(
-      (s) => s.name !== 'github',
-    );
-    await deps.settings.set(MCP_ADDED_SETTING, [...saved, spec]);
-    const health = await deps.mcp.connect(spec);
-    return c.json({ server: 'github', runner: runner.label, health }, 201);
+      secrets: [{ key: GITHUB_MCP_SECRET, value: token }],
+    });
+    return c.json({ server: 'github', runner: runner.label, health, view }, 201);
   });
 
   return r;

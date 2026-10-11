@@ -5,7 +5,7 @@ Ancile can be extended in four ways, most of them without writing code:
 | To add | Do this | Code? |
 |---|---|---|
 | A model | Settings → Models, or `config/models.yaml` | No |
-| An existing MCP server (GitHub, Slack, a database…) | Settings → Tools, or `config/mcp.yaml` | No |
+| An existing MCP server (GitHub, Slack, a database…) | Admin → Plugins, or `config/mcp.yaml` | No |
 | Your own tool | Write a small MCP server with `@nvx/plugin-sdk` | Yes, a few dozen lines |
 | A memory backend | Implement `MemoryProvider` | Yes |
 | A panel in the drawer or Admin | A web page in a plugin folder, plus `config/panels.yaml` | Yes, HTML/JS |
@@ -78,7 +78,7 @@ await server.connect(new StdioServerTransport());
 - `readOnlyHint` for auto tools
 - `destructiveHint` for critical or destructive ones
 
-Other MCP clients understand those too. It also puts Ancile's action and tier under `_meta['sh.nvx.ancile/…']`.
+Other MCP clients understand those too. It also puts Ancile's action and tier under `_meta['sh.nvx.ancile/…']`. Ancile reads that tier as the tool's default (an override you set still wins), and sends each call's idempotency key as `_meta['sh.nvx.ancile/idempotency_key']`, which arrives as `ctx.idempotencyKey`.
 
 ### 4. Turn it on
 
@@ -86,9 +86,26 @@ Other MCP clients understand those too. It also puts Ancile's action and tier un
 pnpm --filter @nvx/plugin-example-tool build
 ```
 
-Then enable it in Settings → Tools, or set `enabled: true` for `example-tool` in `config/mcp.yaml`. Ask "how long would this take to read?" with some text, and the tool runs without asking. Ask it to save a snippet, and you'll be asked once.
+Then add it in Admin → Plugins (command `node`, argument the path to `dist/index.js`), or set `enabled: true` for `example-tool` in `config/mcp.yaml`. Ask "how long would this take to read?" with some text, and the tool runs without asking. Ask it to save a snippet, and you'll be asked once.
 
 ## Using an existing MCP server
+
+### From the app
+
+Open Admin → Plugins and press Add server. Give it a name (lower-case letters, digits, `-` or `_`) and say how to reach it:
+
+- **Command (stdio):** the program and its arguments, plus any environment variables it needs.
+- **Web address (http):** the server's URL, plus any request headers.
+
+Tokens and keys go under **Secrets**: for a command they become environment variables, for a web address they become request headers (for example `Authorization` with `Bearer …`). Secrets are encrypted at rest and never shown again; the app only says whether each one is set. To change a secret, type a new value; leave it blank to keep the one stored.
+
+The server connects as soon as you save, and its tools are available straight away, with no restart. The list shows whether each server is connecting, connected, switched off or failing (with the reason). Press Test to reconnect now. Changing how a server connects reconnects it; removing it takes its tools away and deletes its secrets.
+
+Each tool has its own settings: change its tier (auto, gated or critical), go back to the server's own, or switch the tool off. A tool the server marks as destructive can never be auto. Changes apply at once. When a server adds or removes tools while connected, the list follows.
+
+The GitHub preset (Add GitHub) sets up the official GitHub server this way; you can edit it afterwards like any other.
+
+### From config/mcp.yaml
 
 ```yaml
 # config/mcp.yaml
@@ -103,7 +120,9 @@ servers:
       delete_repository: { disabled: true }
 ```
 
-With no override, a tool's tier comes from its MCP hints: read-only → auto, destructive → critical, anything else → gated. OAuth tokens are encrypted at rest.
+Servers in this file show in Admin → Plugins as read-only: edit the file and restart to change or remove them. You can still change their tools' tiers or switch tools off in the app; those settings sit on top of the file's. If the file and the app both have a server with the same name, the one in the file is used.
+
+With no override, a tool's tier comes from its MCP hints: read-only → auto, destructive → critical, anything else → gated. A tool built with `@nvx/plugin-sdk` brings its own tier. OAuth tokens are encrypted at rest.
 
 ## Memory providers
 

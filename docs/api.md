@@ -193,6 +193,23 @@ Knowledge calls back to Core's `/internal/v1/openai/chat/completions` and `/inte
 
 `/mcp` (Streamable HTTP). Tools: `ancile.search`, `ancile.read_source`, `ancile.list_notebooks`, `ancile.memory_read`, `ancile.add_note`. Every call is permission-checked with the client as an `external:<name>` principal.
 
+## MCP servers and tools
+
+Under `/api/v1` (shapes in `packages/contracts/src/mcp.ts`, docs/plugins.md). Servers from `config/mcp.yaml` have the id `file:<name>` and are read-only here, except for their tools.
+
+| Route | Does |
+|---|---|
+| `GET /tools` | Every tool the model can call, with tier and source |
+| `GET /mcp/servers` | `{items: McpServerView[]}`: app and file servers, live status and tools |
+| `POST /mcp/servers` (CreateMcpServerRequest) | 201 with the view; connects in the background (status `connecting`) |
+| `GET /mcp/servers/:id` | One server's view |
+| `PATCH /mcp/servers/:id` (UpdateMcpServerRequest) | Change an app server; reconnects when how it connects changed. `secrets` is the whole list: keys left out are deleted, a key without a value keeps the stored one |
+| `DELETE /mcp/servers/:id` | 204; disconnects, removes its tools and secrets |
+| `POST /mcp/servers/:id/test` | Reconnect now; the view after the attempt |
+| `PATCH /mcp/servers/:id/tools/:tool` (UpdateMcpToolRequest) | Tier (`null` goes back to the server's own) or switch a tool off; applied at once |
+
+Secret values are never returned: a secret is `{key, set}`. Changes are published as `mcp.server_changed`.
+
 ## Repositories and GitHub
 
 Under `/api/v1` (DESIGN §17, docs/repos.md):
@@ -207,4 +224,4 @@ Under `/api/v1` (DESIGN §17, docs/repos.md):
 | `GET /github/access` · `PUT /github/token {token or null}` | How GitHub is reached (gh, token, none); save or forget a token |
 | `GET /repos/:id/pulls` · `POST /repos/:id/pulls {title, body?, base?, draft?}` | Pull requests; open one from the current branch |
 | `GET /repos/:id/runs` · `/runs/:run/log` · `POST /runs/:run/rerun?failed=` | Actions runs, the failed log, re-run |
-| `POST /mcp/presets/github {token?, read_only?}` | Add the official GitHub MCP server |
+| `POST /mcp/presets/github {token?, read_only?}` | Add (or update) the official GitHub MCP server as an app server; answers `{server, runner, health, view}` |

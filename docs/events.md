@@ -42,6 +42,7 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `memory.proposal` | `proposal_id`, `target_path`, `auto_applied` | Toast with Undo, or the inbox count |
 | `node.operation` | `operation_id`, `node_id`, `action`, `status`, `detail` | The confirmation chain |
 | `health.changed` | `service`, `status`, `detail?` | Status bar health dot, Health page |
+| `mcp.server_changed` | `server_id`, `name`, `status` (connecting, connected, error, disabled, removed), `tools`, `detail?` | Admin → Plugins server list; also sent when a server's tools change |
 | `suggestion` | `kind` (branch, compact, model, duplicate_source, stale_source), `ref`, `message` | A quiet chip in context |
 | `repo.changed` | `repo_id`, `branch`, `previous_branch?`, `ahead`, `behind`, `changed` | Status bar branch, Repo panel; a branch switch also sends a notification |
 

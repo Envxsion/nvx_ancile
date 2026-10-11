@@ -48,7 +48,6 @@ export const PLANNED: [Method, string, number, string][] = [
   ['get', '/traces/:id/replay', 5, 'Replay'],
   ['post', '/runs/:id/rerun', 5, 'Re-running from a step'],
   // Tools
-  ['post', '/mcp/servers', 5, 'Adding an MCP server'],
   ['get', '/plugins', 5, 'Plugins'],
   // State and notifications
   ['post', '/license/activate', 5, 'Activating Pro'],

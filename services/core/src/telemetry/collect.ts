@@ -57,6 +57,7 @@ const ROUTES: [method: string, path: RegExp, feature: Feature][] = [
   ['POST', /^\/runs\/[^/]+\/use-cloud$/, 'compute_cloud_instead'],
   ['POST', /^\/mcp\/clients$/, 'mcp_add'],
   ['POST', /^\/mcp\/presets\//, 'mcp_add'],
+  ['POST', /^\/mcp\/servers$/, 'mcp_add'],
   ['POST', /^\/system\/diagnostics$/, 'diagnostics_run'],
   ['GET', /^\/logs$/, 'logs_open'],
   ['GET', /^\/traces$/, 'traces_open'],

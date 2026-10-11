@@ -77,6 +77,8 @@ import { mcpClientRoutes } from './mcp/clients';
 import { McpManager } from './mcp/manager';
 import { toolRoutes } from './mcp/routes';
 import { mcpEndpoint, PgMcpClientStore } from './mcp/server';
+import { McpService } from './mcp/service';
+import { PgMcpServerStore } from './mcp/store';
 import { MemoryIndex, PgMemoryIndexSink } from './memory/index';
 import { utilityFrom } from './memory/llm';
 import { PgProposalStore } from './memory/proposals';
@@ -104,7 +106,7 @@ import { proServices } from './pro/services';
 import { sqlSyncSource } from './pro/sync-source';
 import type { ProHooks } from './pro/types';
 import { GhCliClient, GitHubAccessor, GitHubRestClient, savedToken } from './repos/github';
-import { MCP_ADDED_SETTING, repoRoutes } from './repos/routes';
+import { repoRoutes } from './repos/routes';
 import { RepoService } from './repos/service';
 import { repoTools } from './repos/tools';
 import { PgRunEventLog } from './runs/events';
@@ -267,15 +269,18 @@ async function main() {
   await workspace.ensure();
   const tools = new ToolRegistry();
   for (const t of fsTools(workspace)) tools.register(t, overrideFor(config.tools?.tools, t.action));
-  const mcp = new McpManager(tools, { secrets, version: VERSION });
-  // Servers from config/mcp.yaml, plus ones added from the app (the GitHub
-  // preset); a name in the file wins.
-  const configured = config.mcp?.servers ?? [];
-  const added = ((await settings.get<typeof configured>(MCP_ADDED_SETTING)) ?? []).filter(
-    (a) => !configured.some((c) => c.name === a.name),
-  );
+  const mcp = new McpManager(tools, { secrets, version: VERSION, events });
+  // Servers from config/mcp.yaml (read-only in the app) and ones added in
+  // Admin → Plugins (core.mcp_servers); a name in the file wins.
+  const mcpServers = new McpService({
+    store: new PgMcpServerStore(sql),
+    secrets,
+    settings,
+    manager: mcp,
+    files: config.mcp?.servers ?? [],
+  });
   // In the background: a slow or broken MCP server never delays boot.
-  void mcp.start([...configured, ...added]).catch((err) => log.error({ err }, 'MCP start failed'));
+  void mcpServers.start().catch((err) => log.error({ err }, 'MCP start failed'));
   // Repositories (DESIGN §17): git folders, their state, and gated git and GitHub tools.
   const repos = new RepoService({ settings, bus: events });
   await repos.load();
@@ -919,8 +924,8 @@ async function main() {
         },
       }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
-      toolRoutes({ tools, mcp }),
-      repoRoutes({ repos, github, secrets, settings, mcp }),
+      toolRoutes({ tools, servers: mcpServers }),
+      repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       labRoutes({
         engine,
         repo: threads,

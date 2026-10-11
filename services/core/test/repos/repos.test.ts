@@ -339,18 +339,11 @@ describe('routes', { timeout: 30_000 }, () => {
         repos,
         github: new GhCliClient(fakeRun),
         secrets: new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64'))),
-        settings: new MemorySettings(),
         run: fakeRun,
         mcp: {
-          connect: async () => ({
-            server: 'github',
-            transport: 'stdio',
-            enabled: true,
-            connected: true,
-            tools: 3,
-            lastError: null,
-            connectedAt: null,
-          }),
+          savePreset: async () => {
+            throw new Error('not reached: nothing can run the server');
+          },
         },
       }),
     );

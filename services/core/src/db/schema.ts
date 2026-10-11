@@ -499,12 +499,19 @@ export const mcpServers = core.table('mcp_servers', {
   transport: text('transport', { enum: ['stdio', 'http'] }).notNull(),
   command: text('command'),
   args: jsonb('args').notNull().default([]),
+  /** Plain environment (stdio). */
+  env: jsonb('env').notNull().default({}),
   url: text('url'),
+  /** Plain request headers (http). */
+  headers: jsonb('headers').notNull().default({}),
+  /** Secret keys (env vars or headers); values are in core.secrets as mcp.<id>.<key>. */
   envSecretIds: text('env_secret_ids').array().notNull().default(sql`'{}'`),
   oauth: jsonb('oauth'),
   enabled: boolean('enabled').notNull().default(true),
   toolOverrides: jsonb('tool_overrides').notNull().default({}),
   health: jsonb('health'),
+  createdAt: created(),
+  updatedAt: updated(),
 });
 
 export const secrets = core.table('secrets', {

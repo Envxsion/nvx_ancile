@@ -186,6 +186,8 @@ You can change a chain without the file in **Admin → Routing**: drag models in
 
 Both take `enabled` and per-tool `tools` overrides. See [plugins.md](plugins.md).
 
+Servers in this file are read-only in **Admin → Plugins**; tool tiers and switches changed there are kept in Core's settings, on top of this file. Servers you add in the app live in Core's database (`core.mcp_servers`), with their secrets in the encrypted secret store. A name in this file wins over an app server with the same name.
+
 ### panels
 
 `panels[]: {id, title, placement: drawer|admin, plugin, entry, capabilities}`.

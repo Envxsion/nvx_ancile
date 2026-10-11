@@ -263,3 +263,10 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `repo.github_failed` | 502 | "GitHub refused to <do that>." with GitHub's words / `gh auth refresh -s repo,workflow`, or a token with those permissions. |
 | `mcp.github_runner_missing` | 409 | "Nothing can run the GitHub MCP server here." / Install Docker, or put github-mcp-server on your PATH. |
 | `mcp.unavailable` | 503 | "MCP servers are not available here." / Restart NVX Ancile and try again. |
+| `mcp.not_found` | 404 | "That MCP server was not found." / It may have been removed. Refresh the list in Admin → Plugins. |
+| `mcp.tool_not_found` | 404 | "<server> does not offer a tool called <tool>." / Its tools are listed once it is connected. Press Test to reconnect, then try again. |
+| `mcp.name_taken` | 409 | "There is already an MCP server called <name>." (or "config/mcp.yaml already has a server called <name>.") / Pick another name, or edit the server you have. |
+| `mcp.read_only` | 409 | "<name> comes from config/mcp.yaml." / Edit or remove it in config/mcp.yaml, then restart NVX Ancile. You can still change its tools here. |
+| `mcp.secret_missing` | 400 | "No value is stored for <key>." / Type the value for <key>, or take it out of the list. |
+| `mcp.tier_not_allowed` | 400 | "<tool> can delete or change things, so it always asks first." / Choose Gated or Critical for this tool. |
+| `mcp.transport_mismatch` | 400 | "A command (stdio) server has no <field>." (or a web address (http) one) / The way a server connects cannot change. Remove it and add it again. |
