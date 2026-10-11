@@ -82,9 +82,30 @@ const log = logFor('claude-code');
 const LIST_TTL_MS = 30_000;
 const ACTIVE_MS = 60_000;
 const CHUNK = 200;
+/** One insert carries at most about this much (characters of parts), so a chunk of big tool results never holds a connection for long. */
+const CHUNK_CHARS = 1_000_000;
 const SIGN_IN_WAIT_MS = 5 * 60_000;
 
 const yieldNow = () => new Promise<void>((r) => setImmediate(r));
+
+/** Up to CHUNK messages and about CHUNK_CHARS of parts per insert, never fewer than one message. */
+function chunksOf<T extends { parts: unknown }>(items: T[]): T[][] {
+  const out: T[][] = [];
+  let cur: T[] = [];
+  let chars = 0;
+  for (const item of items) {
+    const size = JSON.stringify(item.parts ?? null).length;
+    if (cur.length && (cur.length >= CHUNK || chars + size > CHUNK_CHARS)) {
+      out.push(cur);
+      cur = [];
+      chars = 0;
+    }
+    cur.push(item);
+    chars += size;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface ClaudeCodeServiceDeps {
@@ -106,7 +127,8 @@ export interface ClaudeCodeServiceDeps {
   /** Can a sign-in window open here (a desktop session)? */
   canOpenBrowser?: () => boolean;
   /** Auto-import timings. */
-  auto?: { startDelayMs?: number; debounceMs?: number; pauseMs?: number };
+  /** pauseMs between sessions; chunkPauseMs between inserts of a background pass (requests go first). */
+  auto?: { startDelayMs?: number; debounceMs?: number; pauseMs?: number; chunkPauseMs?: number };
   signInPollMs?: number;
   /** The home folder "~" stands for in excluded folders. */
   home?: string;
@@ -202,6 +224,8 @@ export class ClaudeCodeService {
   private autoRunning: Promise<void> | null = null;
   private autoAgain = false;
   private stopped = false;
+  /** Above zero while a background pass writes: inserts pause between chunks. */
+  private background = 0;
   private signingIn: Promise<void> | null = null;
   private sdkKicked = false;
   /** Sessions a live turn is writing: left to that turn (claudecode/live.ts). */
@@ -872,8 +896,8 @@ export class ClaudeCodeService {
     let firstRoot = null as string | null;
     const fresh = plan.planned.filter((p) => !p.extends);
     let clock = this.now() - fresh.length;
-    for (let i = 0; i < fresh.length; i += CHUNK) {
-      const rows: NewMessage[] = fresh.slice(i, i + CHUNK).map((p) => {
+    for (const chunk of chunksOf(fresh)) {
+      const rows: NewMessage[] = chunk.map((p) => {
         if (!p.parent_id && !firstRoot) firstRoot = p.id;
         const cc = provenanceOf(sessionId, p);
         return {
@@ -892,7 +916,9 @@ export class ClaudeCodeService {
       });
       await threads.insertMessages(rows);
       added += rows.length;
-      await yieldNow();
+      // A background pass (auto-import, a rebuild) lets requests in between inserts.
+      if (this.background > 0) await sleep(this.deps.auto?.chunkPauseMs ?? 15);
+      else await yieldNow();
     }
 
     for (const p of plan.planned.filter((x) => x.extends)) {
@@ -1094,6 +1120,7 @@ export class ClaudeCodeService {
     progress(true);
     for (const info of todo) {
       if (this.stopped) return;
+      this.background++;
       try {
         await this.syncSession(info);
         if (!bound.has(info.sessionId)) fresh++;
@@ -1102,6 +1129,8 @@ export class ClaudeCodeService {
           { session_id: info.sessionId, err: (err as Error).message },
           'auto-import skipped a session',
         );
+      } finally {
+        this.background--;
       }
       done++;
       progress();
