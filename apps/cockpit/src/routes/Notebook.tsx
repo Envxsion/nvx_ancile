@@ -23,6 +23,7 @@ import { useNotebooks, useNotes, useSources, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import { deleteNotebook, patchNotebook } from '../lib/notebooks';
+import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue } from '../lib/types';
 import { NOTEBOOK_HUES } from '../shell/NewNotebook';
@@ -107,7 +108,7 @@ export function NotebookScreen() {
       notify({
         level: 'info',
         title: 'Not sent: Core is not running',
-        body: 'Start NVX Ancile with pnpm start. Your draft is kept.',
+        body: `${startCoreHint()} Your draft is kept.`,
       });
       return false;
     }

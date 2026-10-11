@@ -23,6 +23,7 @@ import { api } from '../lib/api';
 import { useNotebooks, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
+import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue, NotebookView } from '../lib/types';
 import { notify } from '../state/notify';
@@ -125,7 +126,7 @@ export function HomeScreen() {
       notify({
         level: 'info',
         title: 'Not sent: Core is not running',
-        body: 'Start NVX Ancile with pnpm start. Your draft is kept.',
+        body: `${startCoreHint()} Your draft is kept.`,
       });
       return false;
     }

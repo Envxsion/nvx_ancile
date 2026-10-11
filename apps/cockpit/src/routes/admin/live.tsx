@@ -21,6 +21,7 @@ import { keys, useModels, useSystemHealth } from '../../lib/data';
 import { relative } from '../../lib/format';
 import { shortResource } from '../../lib/mappers';
 import { queryClient } from '../../lib/query';
+import { startCoreHint } from '../../lib/runtime';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
 import { notify } from '../../state/notify';
 import { ErrorState } from '../../ui/ErrorState';
@@ -91,7 +92,7 @@ export function LiveHealth() {
         <EmptyState
           icon="pulse"
           title={health.data?.summary ?? 'No health data yet'}
-          body="Start NVX Ancile with pnpm start, then check again."
+          body={`${startCoreHint()} Then check again.`}
         />
       ) : (
         <ul className="rows">

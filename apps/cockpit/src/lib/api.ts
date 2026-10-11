@@ -85,18 +85,14 @@ async function request<T>(method: string, path: string, body?: unknown, schema?:
     throw new OfflineError(cause);
   }
 
-  // The dev proxy answers 502/504 when Core is down: that is offline, not an API error.
-  if (res.status === 502 || res.status === 504) {
-    useConnection.getState().fail();
-    throw new OfflineError(res.statusText);
-  }
-
   if (!res.ok) {
     const json: unknown = await res.json().catch(() => null);
     const parsed = ApiError.safeParse(json);
     // Core always answers in the ApiError shape and always sets x-trace-id.
-    // A 5xx with neither came from something in front of Core (the Vite
-    // proxy answers 500 on ECONNREFUSED), so Core is offline, not failing.
+    // A 5xx with neither came from something in front of Core (the dev proxy
+    // answers 500, 502 or 504 when Core is down), so Core is offline. Core's
+    // own 502s ("Ollama isn't answering", "Anthropic rejected the key") are
+    // real answers and are shown as such.
     if (!parsed.success && res.status >= 500 && !res.headers.get('x-trace-id')) {
       useConnection.getState().fail();
       throw new OfflineError(res.statusText);

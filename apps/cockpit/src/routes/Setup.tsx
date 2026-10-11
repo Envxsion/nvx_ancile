@@ -26,6 +26,7 @@ import { keyText as bindingText } from '../keys/registry';
 import { ApiCallError, api } from '../lib/api';
 import { keys as queryKeys, useSetup } from '../lib/data';
 import { queryClient } from '../lib/query';
+import { startCoreHint } from '../lib/runtime';
 import { notify } from '../state/notify';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Icon } from '../ui/Icon';
@@ -123,7 +124,7 @@ export function SetupScreen() {
         [provider]: {
           state: 'failed',
           title: e?.title ?? 'Core did not answer',
-          hint: e?.hint ?? 'Check that NVX Ancile is running (pnpm start), then test again.',
+          hint: e?.hint ?? `NVX Ancile's Core did not answer. ${startCoreHint()} Then test again.`,
         },
       }));
     }
@@ -157,7 +158,7 @@ export function SetupScreen() {
         body:
           error instanceof ApiCallError
             ? error.body.error.hint
-            : 'Check that NVX Ancile is running (pnpm start), then try again.',
+            : `NVX Ancile's Core did not answer. ${startCoreHint()} Then try again.`,
       });
     } finally {
       setFinishing(false);

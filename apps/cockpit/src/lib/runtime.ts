@@ -22,6 +22,13 @@ declare global {
 
 export const isDesktop = (): boolean => typeof window !== 'undefined' && !!window.__NVX_DESKTOP__;
 
+/**
+ * How to get Core running again, in words that fit how NVX Ancile was
+ * started: the desktop app has no terminal, a source checkout does.
+ */
+export const startCoreHint = (): string =>
+  isDesktop() ? 'Quit NVX Ancile from its tray icon and open it again.' : 'Start NVX Ancile with pnpm start.';
+
 /** Mark the document so styles can follow (html[data-runtime="desktop"]). */
 export function markRuntime(): void {
   document.documentElement.dataset.runtime = isDesktop() ? 'desktop' : 'browser';
