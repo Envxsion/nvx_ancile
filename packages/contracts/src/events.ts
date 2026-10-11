@@ -297,6 +297,16 @@ export const GlobalEvent = z.discriminatedUnion('type', [
   }),
   z.object({
     ...base,
+    type: z.literal('mcp.server_changed'),
+    server_id: z.string(),
+    name: z.string(),
+    /** connecting | connected | error | disabled | removed */
+    status: z.enum(['connecting', 'connected', 'error', 'disabled', 'removed']),
+    tools: z.number().int(),
+    detail: z.string().optional(),
+  }),
+  z.object({
+    ...base,
     type: z.literal('repo.changed'),
     repo_id: z.string(),
     branch: z.string().nullable(),
