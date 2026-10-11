@@ -21,7 +21,7 @@ import { AncileMark } from '@nvx/aperture';
 import type { ProviderId, SetupStatus } from '@nvx/contracts';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keyText as bindingText } from '../keys/registry';
 import { ApiCallError, api } from '../lib/api';
 import { keys as queryKeys, useSetup } from '../lib/data';
@@ -31,6 +31,9 @@ import { notify } from '../state/notify';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Icon } from '../ui/Icon';
 import { Kbd } from '../ui/primitives';
+
+/** How often to look for Ollama again while it is missing. */
+const OLLAMA_POLL_MS = 4_000;
 
 const STEPS = ['Welcome', 'Models', 'Permissions', 'Memory', 'Shortcuts'] as const;
 
@@ -101,8 +104,9 @@ export function SetupScreen() {
     if (s.preset) setPreset(s.preset);
   }, [status.data]);
 
-  const test = async (provider: ProviderId) => {
-    setTests((t) => ({ ...t, [provider]: { state: 'testing' } }));
+  /** `quiet`: a background look (Ollama polling) that only speaks up when it succeeds. */
+  const test = async (provider: ProviderId, quiet = false) => {
+    if (!quiet) setTests((t) => ({ ...t, [provider]: { state: 'testing' } }));
     try {
       const r = await api.post<{ latency_ms: number; enabled: string[] }>('/setup/providers/test', {
         provider,
@@ -118,6 +122,7 @@ export function SetupScreen() {
       setKeyText((k) => ({ ...k, [provider]: '' }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.models });
     } catch (error) {
+      if (quiet) return;
       const e = error instanceof ApiCallError ? error.body.error : null;
       setTests((t) => ({
         ...t,
@@ -131,6 +136,17 @@ export function SetupScreen() {
   };
 
   const connected = Object.values(tests).some((t) => t?.state === 'ok');
+
+  // Ollama not found: keep looking every few seconds while this step is open,
+  // so installing it is noticed without another click.
+  const ollamaMissing = step === 1 && tests.ollama?.state === 'failed';
+  const latestTest = useRef(test);
+  latestTest.current = test;
+  useEffect(() => {
+    if (!ollamaMissing) return;
+    const timer = window.setInterval(() => void latestTest.current('ollama', true), OLLAMA_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [ollamaMissing]);
   const offline = status.data?.offline_model ?? false;
   const canNext = step !== 1 || connected || offline;
   const last = step === STEPS.length - 1;
@@ -283,18 +299,46 @@ export function SetupScreen() {
                     </p>
                   ) : null}
                   {tests.ollama?.state === 'failed' ? (
-                    <p className="provider__note" data-tone="fail" role="alert">
-                      <strong>{tests.ollama.title}.</strong> {tests.ollama.hint}
-                    </p>
+                    <div className="provider__note provider__ollama" data-tone="fail">
+                      <p role="alert">
+                        <strong>{tests.ollama.title}.</strong> If Ollama isn't on this computer yet, get it,
+                        open it once, and NVX Ancile finds it by itself.
+                      </p>
+                      <div className="provider__ollama-actions">
+                        <a
+                          className="btn btn--ghost btn--sm"
+                          href="https://ollama.com/download"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Get Ollama
+                          <Icon name="ext" size={11} />
+                        </a>
+                        <button
+                          type="button"
+                          className="btn btn--quiet btn--sm"
+                          onClick={() => void test('ollama')}
+                        >
+                          I've installed it, look again
+                        </button>
+                        <span className="mute provider__looking" aria-live="polite">
+                          Looking every few seconds
+                        </span>
+                      </div>
+                      <p className="mute">
+                        Nothing to install right now? The built-in try-out model works without anything
+                        installed. It doesn't use AI, but it shows how NVX Ancile works.
+                      </p>
+                    </div>
                   ) : null}
                 </div>
               </div>
               {!connected && offline ? (
                 <p className="setup__offline">
                   <Icon name="model" size={14} />
-                  No key yet? Continue with the offline test model. It can't think, but it streams, calls
-                  tools and asks for permission like a real one, so you can try everything. Add a key later in
-                  Settings.
+                  No key yet? Continue with the built-in try-out model. It doesn't use AI and needs nothing
+                  installed, but it streams, calls tools and asks for permission like a real one, so you can
+                  try everything. Add a key later in Settings → API keys.
                 </p>
               ) : null}
             </>

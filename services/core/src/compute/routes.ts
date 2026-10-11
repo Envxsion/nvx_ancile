@@ -53,6 +53,27 @@ export function providerSync(client: ControllerClient, secrets: SecretStore) {
   };
 }
 
+/** Connect RunPod: the Controller checks the key with RunPod first; only then is it saved here. */
+export async function connectRunPod(
+  client: ControllerClient,
+  secrets: SecretStore | undefined,
+  apiKey: string,
+): Promise<ProviderStatus> {
+  const status = await client.send<ProviderStatus>('PUT', '/provider', { kind: 'runpod', api_key: apiKey });
+  await secrets?.set(RUNPOD_KEY_SECRET, apiKey);
+  return status;
+}
+
+/** Back to sample nodes, and the saved key removed. */
+export async function disconnectRunPod(
+  client: ControllerClient,
+  secrets: SecretStore | undefined,
+): Promise<ProviderStatus> {
+  const status = await client.send<ProviderStatus>('DELETE', '/provider');
+  await secrets?.delete(RUNPOD_KEY_SECRET);
+  return status;
+}
+
 const enc = encodeURIComponent;
 
 const ActionBody = z
@@ -127,13 +148,11 @@ export function computeRoutes(deps: {
   });
   r.put('/compute/provider', async (c) => {
     const { api_key } = await body(c, z.object({ api_key: z.string().trim().min(8).max(400) }));
-    const status = await client.send<ProviderStatus>('PUT', '/provider', { kind: 'runpod', api_key });
-    await deps.secrets?.set(RUNPOD_KEY_SECRET, api_key);
+    const status = await connectRunPod(client, deps.secrets, api_key);
     return c.json({ ...status, key_saved: !!deps.secrets });
   });
   r.delete('/compute/provider', async (c) => {
-    const status = await client.send<ProviderStatus>('DELETE', '/provider');
-    await deps.secrets?.delete(RUNPOD_KEY_SECRET);
+    const status = await disconnectRunPod(client, deps.secrets);
     return c.json({ ...status, key_saved: false });
   });
 

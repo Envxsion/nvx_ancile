@@ -147,3 +147,38 @@ export async function importEnvKeys(
   }
   return imported;
 }
+
+/**
+ * A value set in the environment wins over the one saved in Settings, read
+ * at the moment of use (Settings → API keys shows that row as read-only).
+ * Writes still go to the store underneath, so removing the variable later
+ * falls back to what was saved.
+ */
+export class EnvFirstSecretStore implements SecretStore {
+  constructor(
+    private readonly inner: SecretStore,
+    private readonly env: Record<string, string | undefined>,
+    /** Secret name → the environment variable that overrides it. */
+    private readonly envFor: Record<string, string>,
+  ) {}
+
+  private fromEnv(name: string): string | undefined {
+    const v = this.envFor[name];
+    return v ? this.env[v]?.trim() || undefined : undefined;
+  }
+
+  async get(name: string) {
+    return this.fromEnv(name) ?? (await this.inner.get(name));
+  }
+  set(name: string, value: string) {
+    return this.inner.set(name, value);
+  }
+  delete(name: string) {
+    return this.inner.delete(name);
+  }
+  async names() {
+    const saved = await this.inner.names();
+    const env = Object.keys(this.envFor).filter((n) => this.fromEnv(n) !== undefined);
+    return [...new Set([...saved, ...env])].sort();
+  }
+}

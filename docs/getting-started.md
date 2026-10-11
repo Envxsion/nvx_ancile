@@ -73,7 +73,8 @@ The setup screens walk you through:
 
 1. **Models.**
    - Paste a key for any provider, then press **Test**. You'll see the latency and the model list.
-   - If Ollama is running locally, it's detected for you.
+   - For Ollama, press **Find it**. If it isn't installed, **Get Ollama** opens ollama.com/download; once it is installed and open, NVX Ancile notices by itself (it looks every few seconds while that step is open), or press **I've installed it, look again**.
+   - Nothing to connect yet? Continue with the built-in try-out model. It doesn't use AI and needs nothing installed, but you can try every part of NVX Ancile with it. Add keys later in **Settings → API keys**.
    - If you run the Controller with a GPU node, add its URL here. You can skip this entirely.
 2. **Permissions.** Choose how often Ancile asks before acting:
    - **Careful** asks before every write.

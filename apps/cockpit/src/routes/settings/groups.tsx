@@ -875,6 +875,19 @@ export function AdvancedGroup() {
         </Row>
         <Row
           group="advanced"
+          k="tryoutModels"
+          label="Show try-out models"
+          desc="Keep the built-in try-out models in the model switcher after a real model is ready. They don't use AI."
+          keywords="offline test echo model switcher try-out tryout"
+        >
+          <Switch
+            label="Show try-out models"
+            checked={v.tryoutModels}
+            onChange={(tryoutModels) => set({ tryoutModels })}
+          />
+        </Row>
+        <Row
+          group="advanced"
           k="developer"
           label="Developer details"
           desc="A menu under each message to copy its id, its run id and its raw JSON."

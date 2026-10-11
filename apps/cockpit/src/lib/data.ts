@@ -25,12 +25,14 @@ import type {
   ThreadSummary as WireThreadSummary,
 } from '@nvx/contracts';
 import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import * as demo from '../fixtures/demo';
+import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { ApiCallError, api, OfflineError } from './api';
 import { useConnection } from './connection';
 import {
+  hideTryout,
   toModelView,
   toNotebookView,
   toPendingApproval,
@@ -186,11 +188,19 @@ export function useThread(id: string | undefined) {
   return useQuery({ ...threadQuery(id ?? 'none'), enabled: Boolean(id) });
 }
 
-/** Every configured model with whether it can answer now. */
-export function useModels() {
+/**
+ * Every configured model with whether it can answer now. The try-out models
+ * leave the list once a real one is ready (unless you keep them); pass
+ * `all` where every model must show (Admin → Models, traces).
+ */
+export function useModels(opts: { all?: boolean } = {}) {
+  const keepTryout = usePrefs((s) => s.prefs.advanced.tryoutModels);
+  const all = opts.all === true;
+  const select = useCallback((ms: ModelView[]) => (all ? ms : hideTryout(ms, keepTryout)), [all, keepTryout]);
   return useQuery({
     queryKey: keys.models,
     staleTime: 60_000,
+    select,
     queryFn: () =>
       orDemo<ModelView[]>(
         () =>

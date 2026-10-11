@@ -28,7 +28,7 @@ Rules for new codes:
 
 | Code | HTTP | Title / hint |
 |---|---|---|
-| `provider.auth_failed` | 502 | "<Provider> rejected the API key." / Update it in Settings → Models → <Provider>. |
+| `provider.auth_failed` | 502 | "<Provider> rejected the API key." / Update it in Settings → API keys → <Provider>. |
 | `provider.unavailable` | 503 | "<Model> is unavailable." / Ancile fell back where it could; check Health for the provider's status. |
 | `provider.refused` | 502 | "<Model> declined to answer." / Another model answered if one was available. Rephrase, or pick a model in the switcher. |
 | `provider.context_overflow` | 413 | "This conversation is too long for <model>." / Compact it, or switch to a model with a larger window. |
@@ -216,6 +216,21 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `auth.role_too_low` | 403 | "Your role in this workspace cannot do that." / Ask the workspace's owner or an admin. Viewers read; members write; admins manage people and settings. `error.context.need` names the role. |
 
 The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer token is missing, unknown or disconnected. A tool an app has no grant for answers with `isError` and the way to allow it (Admin → Plugins).
+
+### Credentials {#credentials}
+
+Settings → API keys (`/api/v1/credentials`). A value is never echoed in an error: anything a provider says back is scrubbed of it first.
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `credentials.unknown` | 404 | "There is no key by that name." / Pick one from Settings → API keys. |
+| `credentials.from_environment` | 409 | "<Name> is set in the environment." / Change or remove <VARIABLE> where NVX Ancile is started, then restart it. |
+| `credentials.rejected` | 502 | "<Service> rejected the token." / Check you copied all of it and that it is still active, or make a new one at <where>. Nothing was saved. |
+| `credentials.check_failed` | 502 | "Couldn't reach <service> to check it." / Check your connection, then try again. Nothing was saved. |
+| `credentials.invalid` | 400 | "That doesn't look like a git remote." / Use an address git can push to, such as git@github.com:you/memory.git. |
+| `credentials.unavailable` | 503 | "Compute is not set up here." / RunPod is managed by the Controller. Start NVX Ancile with CONTROLLER_URL set, then add the key. |
+
+Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, as in setup; a RunPod key with the Controller's own codes (`compute.provider_auth`, `provider.auth`).
 
 ### Repositories and GitHub
 

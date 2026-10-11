@@ -2,6 +2,7 @@ export * from './api';
 export * from './branching';
 export * from './config';
 export * as controller from './controller';
+export * from './credentials';
 export * from './errors';
 export * from './events';
 export * from './factcheck';

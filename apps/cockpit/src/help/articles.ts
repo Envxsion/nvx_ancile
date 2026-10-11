@@ -107,9 +107,9 @@ When a message starts a clearly different topic, a quiet chip offers to name the
         title: 'Adding models',
         summary: 'Paste a key, test it, and choose which model answers.',
         keywords: 'api key provider anthropic openai google ollama openrouter model setup',
-        body: `Open **Settings → Models** (or Admin → Models) and paste a provider's key. **Test** makes a tiny call and shows how long it took, so you know it works before you rely on it. Keys are encrypted on this computer and never shown again.
+        body: `Open **Settings → API keys** and press **Add API key** beside a provider. The key is checked with one tiny call before it is saved, so you know it works before you rely on it. Keys are encrypted on this computer and never shown again. Admin → Models lists every model and switches each one on or off.
 
-Ollama running on this computer is found automatically.
+Ollama on this computer is found from the setup screen: press **Find it**. If it isn't installed, **Get Ollama** opens the download page, and NVX Ancile notices it by itself once it is running.
 
 Press **M** anywhere to change the model for the thread you are in. The next message uses it, and the conversation so far carries over.
 
@@ -117,17 +117,34 @@ If a model fails or declines, NVX Ancile asks the next one in its chain without 
       },
       {
         id: 'offline-model',
-        title: 'The offline test model',
-        summary: 'Try everything before you add a key.',
-        keywords: 'test offline fake say fail tool slow directive echo',
-        body: `Until you add a provider key, threads are answered by the **Offline test model**. It cannot think, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
+        title: 'The try-out models',
+        summary: 'Try everything before you add a key. They do not use AI.',
+        keywords: 'test offline fake say fail tool slow directive echo try-out tryout',
+        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Try-out** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
 
 - **/say** *text*: answer with exactly that text
 - **/slow** *text*: write one word every 150 ms
 - **/fail 500**, **/fail refusal**, **/fail auth**: fail on purpose, and watch NVX Ancile switch to the backup model (Offline echo) and say so
 - **/tool fs_write** *{"path":"note.md","content":"hi"}*: call a tool, which asks for your approval first
 
-Offline echo, the backup, only repeats what you wrote.`,
+Offline echo, the backup, only repeats what you wrote.
+
+Once a real model is ready, the try-out models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Show try-out models**.`,
+      },
+      {
+        id: 'api-keys',
+        title: 'API keys',
+        summary: 'Add, replace and remove every key NVX Ancile uses.',
+        keywords:
+          'api key token secret runpod hugging face github memory backup remote environment replace remove',
+        body: `**Settings → API keys** lists every credential: the model providers, RunPod, Hugging Face, GitHub and the memory backup remote.
+
+- **Add** or **Replace** opens a field (press **Show** to check what you pasted). The value is checked with the service before it is saved, then encrypted on this computer.
+- A saved value is never shown again: the row says **Saved** and its last four characters, so you can tell keys apart.
+- **Remove** asks first and says what stops working.
+- **Get a key** opens the provider's own page for making one.
+
+A row marked **Set in the environment** comes from a variable where NVX Ancile is started (for example in \`.env\`). It wins over anything saved here, so it is read-only: change it there and restart.`,
       },
     ],
   },

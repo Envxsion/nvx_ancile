@@ -66,7 +66,7 @@ export interface SetupRouteDeps {
 }
 
 /** Which configured models belong to a provider (Ollama models are any OpenAI-compatible model on its port, or ids under ollama/). */
-function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelConfig[] {
+export function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelConfig[] {
   return registry
     .all()
     .filter((m) =>
@@ -76,7 +76,7 @@ function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelConfig[] 
     );
 }
 
-function testFailed(provider: string, err: unknown): AncileError {
+export function testFailed(provider: string, err: unknown): AncileError {
   const msg = err instanceof Error ? err.message : String(err);
   const auth =
     (err instanceof ClassifiedError && (err.status === 401 || err.status === 403)) ||
@@ -86,7 +86,7 @@ function testFailed(provider: string, err: unknown): AncileError {
     return new AncileError({
       code: 'provider.unavailable',
       title: "Ollama isn't answering",
-      hint: 'Start Ollama (ollama serve), then test again. It listens on http://localhost:11434 by default.',
+      hint: "If it isn't installed, get it from ollama.com/download. If it is, start it (ollama serve) and look again. It listens on http://localhost:11434 by default.",
       detail: msg,
       status: 502,
       errorClass: 'transient',

@@ -5,6 +5,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { createLogger, setLogTap } from '../../src/obs/logger';
+import { fakeModel } from '../gateway/fake-provider';
+import { harness } from '../support/harness';
 
 const CANARIES = [
   'sk-ant-api03-CANARYcanary1234567890',
@@ -31,5 +33,49 @@ describe('log canary', () => {
     expect(lines.length).toBe(CANARIES.length * 5);
     const all = lines.join('\n');
     for (const key of CANARIES) expect(all).not.toContain(key.slice(-12));
+  });
+});
+
+describe('API keys canary', () => {
+  it('never returns or logs a key, whether it is saved or refused', async () => {
+    const lines: string[] = [];
+    setLogTap((l) => lines.push(JSON.stringify(l)));
+    const [good, bad, hf, gh, runpod] = CANARIES as [string, string, string, string, string];
+    const h = await harness({
+      models: [{ ...fakeModel('c', 'echo'), id: 'anthropic/c', provider: 'anthropic', enabled: false }],
+      // A provider that echoes the key back in its error, as some do.
+      tester: async ({ key }) => {
+        if (key === bad) throw Object.assign(new Error(`401 invalid x-api-key ${key}`), { status: 401 });
+        return { model: 'anthropic/c' };
+      },
+      credentials: {
+        serviceCheck: async (_id, token) => {
+          throw new Error(`could not check ${token}`);
+        },
+        runpod: {
+          connect: async (key) => {
+            throw new Error(`RunPod refused ${key}`);
+          },
+          disconnect: async () => undefined,
+        },
+      },
+    });
+    try {
+      const bodies: string[] = [];
+      const call = async (method: string, path: string, body?: unknown) =>
+        bodies.push(JSON.stringify((await h.call(method, path, body)).body));
+      await call('PUT', '/credentials/anthropic', { value: good });
+      await call('GET', '/credentials');
+      await call('PUT', '/credentials/anthropic', { value: bad });
+      await call('PUT', '/credentials/huggingface', { value: hf });
+      await call('PUT', '/credentials/github', { value: gh });
+      await call('PUT', '/credentials/runpod', { value: runpod });
+      await call('DELETE', '/credentials/anthropic');
+      expect(bodies).toHaveLength(7);
+      const all = `${bodies.join('\n')}\n${lines.join('\n')}`;
+      for (const key of CANARIES) expect(all).not.toContain(key.slice(-12));
+    } finally {
+      await h.close();
+    }
   });
 });

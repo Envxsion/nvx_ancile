@@ -17,7 +17,13 @@ NVX Ancile talks to models through APIs. There are four ways to connect one, and
 - **Your server.** Give the base URL (for example `http://192.168.1.20:11434/v1` for Ollama, or `https://<pod-id>-8000.proxy.runpod.net/v1` for vLLM on RunPod) and a key if the server wants one. Press **List its models**, then add the ones you want, or type a model id yourself.
 - **A provider.** Pick Anthropic, OpenAI or Google and type a model id the provider publishes (for example `claude-opus-5-5`) when it is newer than the built-in list.
 
-Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again; to change one, add it again. An added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
+Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again. Add, replace or remove any of them in **Settings → API keys** (see [configuration](configuration.md#api-keys)). An added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
+
+## Try-out models
+
+Before you connect a model, the switcher offers two built-in **try-out** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.
+
+Once any real model is ready, the model switcher and the flow pickers stop listing them. Turn on **Settings → Advanced → Show try-out models** to keep them. Admin → Models always lists them.
 
 ## GPU nodes
 

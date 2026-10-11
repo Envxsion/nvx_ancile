@@ -314,7 +314,7 @@ function ReplayView({ runId }: { runId: string }) {
     queryKey: ['ops', 'replay', runId],
     queryFn: () => api.get<RunReplay>(`/runs/${runId}/replay`),
   });
-  const models = useModels().data ?? [];
+  const models = useModels({ all: true }).data ?? [];
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [model, setModel] = useState('');

@@ -706,3 +706,21 @@
   margin-top: 2px;
   color: var(--mute);
 }
+.provider__note.provider__ollama {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: 8px;
+  color: var(--fg-2);
+}
+.provider__ollama strong {
+  color: var(--fail);
+}
+.provider__ollama-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.provider__looking {
+  font-size: 11px;
+}

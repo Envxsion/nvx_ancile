@@ -620,7 +620,9 @@ export function Palette() {
                           style={{ '--hue': hueVar(m.hue) } as CSSProperties}
                         />
                         <span className="palette__label">{m.name}</span>
-                        <span className="mute palette__meta">{m.note ?? m.provider}</span>
+                        <span className="mute palette__meta">
+                          {m.offline ? "Try-out · doesn't use AI" : (m.note ?? m.provider)}
+                        </span>
                         {m.id === currentModel ? <span className="palette__current">Current</span> : null}
                       </Command.Item>
                     ))}

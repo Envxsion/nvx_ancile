@@ -26,7 +26,8 @@ export function scheduledJobs(deps: {
   obs: ObsStore;
   kn?: KnowledgeClient;
   memoryDir: string;
-  memoryRemote?: string | undefined;
+  /** The backup remote: ANCILE_MEMORY_REMOTE, or the one saved in Settings → API keys. */
+  memoryRemote?: string | undefined | (() => Promise<string | undefined>);
   retention: { logsDays: number; spansDays: number; runEventsDays: number };
 }): Record<string, JobHandler> {
   return {
@@ -51,11 +52,15 @@ export function scheduledJobs(deps: {
     },
 
     memory_backup: async () => {
-      if (!deps.memoryRemote)
-        return { status: 'skipped', detail: 'No remote is set (ANCILE_MEMORY_REMOTE).' };
+      const remote = typeof deps.memoryRemote === 'function' ? await deps.memoryRemote() : deps.memoryRemote;
+      if (!remote)
+        return {
+          status: 'skipped',
+          detail: 'No remote is set (Settings → API keys, or ANCILE_MEMORY_REMOTE).',
+        };
       if (!existsSync(join(deps.memoryDir, '.git')))
         return { status: 'skipped', detail: 'The memory folder has no history yet.' };
-      await run('git', ['push', '--quiet', deps.memoryRemote, 'HEAD'], {
+      await run('git', ['push', '--quiet', remote, 'HEAD'], {
         cwd: deps.memoryDir,
         timeout: 120_000,
       });

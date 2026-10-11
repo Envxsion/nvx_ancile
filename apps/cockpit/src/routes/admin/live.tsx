@@ -266,7 +266,7 @@ export function LiveDecisions() {
 const STATUS_WORDS = { ready: 'Ready', needs_key: 'Needs its key', disabled: 'Off' } as const;
 
 export function LiveModels() {
-  const models = useModels();
+  const models = useModels({ all: true });
   const toggle = useMutation({
     mutationFn: (m: { id: string; enabled: boolean }) => api.put(`/models/${m.id}`, { enabled: m.enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.models }),
@@ -360,7 +360,7 @@ export function LiveRouting() {
         .get<{ items: { task_class: string; chain: string[]; ok: boolean }[] }>('/routing')
         .then((r) => r.items),
   });
-  const models = useModels().data ?? [];
+  const models = useModels({ all: true }).data ?? [];
   const name = (id: string) => models.find((m) => m.id === id)?.name ?? id;
   if (routing.isPending) return <Skeleton lines={3} label="Loading routing" />;
   if (routing.isError && !routing.data)

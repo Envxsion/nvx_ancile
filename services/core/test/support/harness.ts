@@ -11,6 +11,7 @@ import type { ModelConfig, RunEvent } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from '../../src/app';
 import { chatTurnHandler } from '../../src/conductor/pipeline';
+import { credentialRoutes } from '../../src/credentials/routes';
 import { MemoryEventBus } from '../../src/events/bus';
 import { factcheckHandler, startFactcheck } from '../../src/factcheck/handler';
 import { trustRoutes } from '../../src/factcheck/routes';
@@ -81,6 +82,12 @@ export interface HarnessOptions {
   ops?: boolean;
   /** Flows: spend so far this month, for rule tests. */
   monthSpendUsd?: number;
+  /** Settings → API keys: environment overrides, the service check, RunPod via a Controller. */
+  credentials?: {
+    env?: Record<string, string | undefined>;
+    serviceCheck?: import('../../src/credentials/routes').ServiceCheck;
+    runpod?: import('../../src/credentials/routes').CredentialRouteDeps['runpod'];
+  };
 }
 
 /** memory-template/ at the repository root. */
@@ -353,6 +360,14 @@ export async function harness(opts: HarnessOptions = {}) {
         settings,
         tester: opts.tester ?? (async ({ model }) => ({ model: model?.id ?? 'x' })),
         ...(opts.catalogue && { catalogue: opts.catalogue }),
+      }),
+      credentialRoutes({
+        secrets,
+        env: opts.credentials?.env ?? {},
+        registry,
+        tester: opts.tester ?? (async ({ model }) => ({ model: model?.id ?? 'x' })),
+        serviceCheck: opts.credentials?.serviceCheck ?? (async () => undefined),
+        runpod: opts.credentials?.runpod,
       }),
       stateRoutes(new MemoryStateStore()),
       ...(memory ? [memoryRoutes({ service: memory, threads: repo, registry })] : []),

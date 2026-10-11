@@ -61,10 +61,25 @@ const PROVIDER_NAME: Record<string, string> = {
   ollama: 'Ollama',
   controller: 'Your compute',
   node: 'Your GPU node',
-  fake: 'Built in',
+  fake: 'Try-out',
   local: 'On this computer',
   'openai-compatible': 'Your server',
 };
+
+/**
+ * The try-out models (built in, no AI) step out of the switcher and pickers
+ * once a real model can answer, unless "Show try-out models" is on.
+ */
+export function hideTryout<T extends { offline?: boolean; status?: string | undefined; chat?: boolean }>(
+  models: T[],
+  keep: boolean,
+): T[] {
+  if (keep) return models;
+  const real = models.some(
+    (m) => !m.offline && m.chat !== false && (m.status === undefined || m.status === 'ready'),
+  );
+  return real ? models.filter((m) => !m.offline) : models;
+}
 
 export function toModelView(m: ModelInfo): ModelView {
   return {
@@ -77,7 +92,7 @@ export function toModelView(m: ModelInfo): ModelView {
     status: m.status,
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
-    ...(m.offline && { note: 'Answers without a key, for trying NVX Ancile out' }),
+    ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null }),
   };

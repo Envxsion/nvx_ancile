@@ -85,6 +85,22 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` and `OPENROUTER_API_KEY` are imported into the secrets store on first boot. `OLLAMA_BASE_URL` defaults to `http://localhost:11434`.
 
+### API keys {#api-keys}
+
+**Settings → API keys** is where every credential is added, replaced and removed without editing a file. Each value is checked before it is saved, encrypted with `ANCILE_SECRET_KEY`, and never sent back to the browser: a row shows only **Saved · ends in 4f2a** (the last four characters, and nothing for a value shorter than 12) or **Not set**.
+
+| Row | Environment variable | Checked by |
+|---|---|---|
+| Anthropic, OpenAI, Google, OpenRouter | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `OPENROUTER_API_KEY` | One short request to the provider's cheapest configured model (the setup test). A first key switches that provider's models on; a replacement leaves your choices alone. |
+| RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it (the same path as Admin → Compute → Connect RunPod). Unavailable when Core has no `CONTROLLER_URL`. |
+| Hugging Face | `HF_TOKEN` | Hugging Face's `whoami`. For gated models on GPU nodes. |
+| GitHub | `GITHUB_TOKEN` | GitHub's `/user`. Used by Repositories when the `gh` command is not signed in. |
+| Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`). Read by the nightly memory backup each time it runs, so a change needs no restart. |
+
+**The environment wins.** When one of these variables is set where Core starts, Core uses it instead of the saved value, and its row says **Set in the environment** and is read-only. Change or remove the variable and restart. The routes are `GET /api/v1/credentials`, `PUT /api/v1/credentials/{id}` with `{ "value": "…" }`, and `DELETE /api/v1/credentials/{id}`, behind the same auth as every other route; errors are listed under [Credentials](errors.md#credentials).
+
+The Hugging Face token is stored and checked here, but is not yet handed to new GPU nodes by the Controller; until then set `HF_TOKEN` on the pod as well.
+
 ### Self-healing, memory, observability, licence
 
 | Variable | Default | Meaning |
@@ -93,7 +109,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `ANCILE_RESTART_AFTER_FAILURES` | `3` | Consecutive failed probes before an automatic restart. |
 | `ANCILE_HEALTH_INTERVAL_S` | `15` | Probe interval. |
 | `ANCILE_APPROVAL_TTL_AUTOMATION_S` | `86400` | Expiry for approvals raised by unattended automations. |
-| `ANCILE_MEMORY_REMOTE` | empty | Git remote for memory backups. |
+| `ANCILE_MEMORY_REMOTE` | empty | Git remote for memory backups. Can also be set in Settings → API keys; this variable wins. |
 | `ANCILE_MEMORY_AUTHOR_NAME` / `_EMAIL` | `NVX Ancile` / `memory@ancile.local` | Author of automatic memory commits. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | empty | Optional OTLP export, for example to Phoenix. |
 | `ANCILE_LOG_RETENTION_DAYS` / `_SPAN_` / `_RUN_EVENT_` | `14` / `30` / `7` | Retention. |
@@ -199,8 +215,11 @@ Every job: `enabled`, optional `cron`, `config`.
 ## The offline model, the workspace and the lab
 
 ```bash
-# The offline test model: answers without a key or a network, for trying
-# Ancile out and for tests. `pnpm start` turns it on; leave it off in production.
+# The try-out models (Offline test model, Offline echo): answer without a key
+# or a network, for trying NVX Ancile out and for tests. They don't use AI.
+# `pnpm start` and the desktop app turn them on. The model switcher and
+# pickers hide them once a real model is ready, unless Settings → Advanced →
+# Show try-out models is on.
 ANCILE_OFFLINE_MODELS=1
 
 # Where the file tools and the lab work. Models see it as /workspace.
@@ -216,7 +235,7 @@ ANCILE_OFFLINE_MODELS=1
 # AGENT_GATEWAY_TOKEN=
 ```
 
-Provider keys (`ANTHROPIC_API_KEY` and the others) are copied into Core's encrypted store the first time Core sees them, and are read from the store after that. A key changed in Settings → Models takes precedence over a stale value in `.env`.
+Provider keys (`ANTHROPIC_API_KEY` and the others) are copied into Core's encrypted store the first time Core sees them, and are read from the store after that. While the variable is still set, though, it wins over the saved key (see [API keys](#api-keys)); remove it from `.env` to manage the key in Settings → API keys.
 
 ## Requests, approvals and sources
 

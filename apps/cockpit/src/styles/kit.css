@@ -2436,3 +2436,79 @@ button.grounding:hover {
 .md-image-blocked:hover {
   background: var(--chalk);
 }
+
+/* ---- Settings → API keys ------------------------------------------------ */
+.credential__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: var(--wash-2);
+  color: var(--mute);
+  font-size: 11px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+.credential__status[data-source='saved'] {
+  color: var(--ok);
+  background: rgb(var(--ok-rgb) / 0.1);
+}
+.credential__status[data-source='environment'] {
+  color: var(--fg-2);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  background: transparent;
+}
+.credential__get {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg-2);
+  text-decoration: underline;
+  text-decoration-color: var(--hair);
+  text-underline-offset: 3px;
+  transition: color var(--d-micro) var(--ease);
+}
+.credential__get:hover {
+  color: var(--fg);
+  text-decoration-color: currentColor;
+}
+.credential__edit,
+.credential__confirm {
+  display: grid;
+  gap: 8px;
+  animation: tip-in var(--d-micro) var(--ease-out);
+}
+.credential__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.credential__field .input {
+  flex: 1;
+  padding-right: 72px;
+}
+.credential__reveal {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.credential__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.credential__confirm {
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: rgb(var(--fail-rgb) / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(var(--fail-rgb) / 0.25);
+  font-size: var(--t-small);
+}
+.credential__problem {
+  color: var(--fail);
+  font-size: var(--t-small);
+  line-height: 1.5;
+}

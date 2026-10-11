@@ -17,8 +17,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useNodes } from '../compute/data';
 import { api } from '../lib/api';
-import { hueFor } from '../lib/mappers';
+import { hideTryout, hueFor } from '../lib/mappers';
 import type { Hue } from '../lib/types';
+import { usePrefs } from '../state/prefs';
 
 export interface FlowModel {
   id: string;
@@ -46,6 +47,7 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
     queryFn: () => api.get<{ items: ModelInfo[] }>('/models').then((r) => r.items),
   });
   const nodes = useNodes();
+  const keepTryout = usePrefs((s) => s.prefs.advanced.tryoutModels);
   return useMemo(() => {
     const list: FlowModel[] = (models.data ?? []).map((m) => {
       const short = m.id.replace(/^controller\//, '');
@@ -71,8 +73,13 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         chat: !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
       };
     });
-    return { list, byId: new Map(list.map((m) => [m.id, m])), loading: models.isPending };
-  }, [models.data, models.isPending, nodes.data]);
+    // A flow that already names a try-out model still resolves it; only the picker list hides it.
+    return {
+      list: hideTryout(list, keepTryout),
+      byId: new Map(list.map((m) => [m.id, m])),
+      loading: models.isPending,
+    };
+  }, [models.data, models.isPending, nodes.data, keepTryout]);
 }
 
 /** "$3 / $15 per M" or "Free". */

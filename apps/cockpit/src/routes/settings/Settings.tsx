@@ -15,6 +15,7 @@
 import { DEFAULT_PREFERENCES, Preferences, type PrefGroup } from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ApiKeysGroup } from '../../credentials/ApiKeys';
 import { helpDone } from '../../help/store';
 import { ProSurfaceView } from '../../pro/slot';
 import { notify } from '../../state/notify';
@@ -36,7 +37,7 @@ import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
 const GROUPS: {
-  id: PrefGroup | 'about' | 'privacy' | 'sync';
+  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -78,6 +79,13 @@ const GROUPS: {
     icon: 'eye',
     body: AccessibilityGroup,
     lede: 'Motion, transparency and targets.',
+  },
+  {
+    id: 'keys',
+    label: 'API keys',
+    icon: 'key',
+    body: ApiKeysGroup,
+    lede: 'Keys and tokens for models, compute and GitHub, encrypted on this computer.',
   },
   {
     id: 'privacy',
@@ -348,7 +356,8 @@ export function SettingsScreen() {
             current &&
             current.id !== 'about' &&
             current.id !== 'privacy' &&
-            current.id !== 'sync' ? (
+            current.id !== 'sync' &&
+            current.id !== 'keys' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

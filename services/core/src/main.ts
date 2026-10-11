@@ -27,11 +27,12 @@ import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
-import { computeRoutes, providerSync } from './compute/routes';
+import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './compute/routes';
 import { chatTurnHandler } from './conductor/pipeline';
 import { knowledgeRetriever } from './conductor/retrieval';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
+import { credentialRoutes, ENV_FOR_SECRET, MEMORY_REMOTE_SECRET } from './credentials/routes';
 import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
 import { migrate } from './db/migrate';
@@ -102,7 +103,7 @@ import { repoTools } from './repos/tools';
 import { PgRunEventLog } from './runs/events';
 import { PgRunStore } from './runs/store';
 import { RunWorker } from './runs/worker';
-import { importEnvKeys, PgSecretStore, SecretBox } from './secrets';
+import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './secrets';
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
@@ -207,8 +208,10 @@ async function main() {
   const notifications = new PgNotificationStore(sql, owner.userId);
   startNotificationSink(events, notifications);
   const settings = new PgSettings(sql);
-  const secrets = new PgSecretStore(sql, new SecretBox(env.ANCILE_SECRET_KEY));
-  const imported = await importEnvKeys(secrets, process.env);
+  const savedSecrets = new PgSecretStore(sql, new SecretBox(env.ANCILE_SECRET_KEY));
+  const imported = await importEnvKeys(savedSecrets, process.env);
+  // A key set in the environment wins over the saved one (Settings → API keys shows it read-only).
+  const secrets = new EnvFirstSecretStore(savedSecrets, process.env, ENV_FOR_SECRET);
   if (imported.length) log.info({ secrets: imported }, 'stored provider keys from the environment');
 
   // Models: config, plus the offline test model when asked for.
@@ -583,7 +586,7 @@ async function main() {
       obs: obsStore,
       kn,
       memoryDir: resolve(env.ANCILE_DATA_DIR, 'memory'),
-      memoryRemote: process.env.ANCILE_MEMORY_REMOTE,
+      memoryRemote: () => secrets.get(MEMORY_REMOTE_SECRET),
       retention: {
         logsDays: env.ANCILE_LOG_RETENTION_DAYS,
         spansDays: env.ANCILE_SPAN_RETENTION_DAYS,
@@ -858,6 +861,21 @@ async function main() {
       stateRoutes(new PgStateStore(sql, owner.userId)),
       notificationRoutes(notifications),
       computeRoutes({ client: compute, secrets, hasFeature: hasProFeature }),
+      credentialRoutes({
+        secrets,
+        env: process.env,
+        registry,
+        tester: liveTester((m, key) => languageModelFor(m, { get: async () => key }, endpoints)),
+        ...(compute.configured && {
+          runpod: {
+            connect: (key: string) => connectRunPod(compute, savedSecrets, key),
+            disconnect: () => disconnectRunPod(compute, savedSecrets),
+          },
+        }),
+        onChange: (id) => {
+          if (id === 'github') github.forget?.();
+        },
+      }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, mcp }),
       repoRoutes({ repos, github, secrets, settings, mcp }),
