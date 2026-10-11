@@ -11,8 +11,11 @@
  *           |  WebSocket. A connection must carry Core's per-launch
  *           |  bearer token and no browser Origin; anything else is
  *           |  refused before the upgrade. The first request must be
- *           |  `hello`. Every other op is a thin, read-only call into
- *           |  the SDK: the bridge never writes to a session.
+ *           |  `hello`. The session-reading ops are thin, read-only
+ *           |  calls into the SDK. Protocol 2's live-session ops run
+ *           |  through SessionManager (src/session.ts), whose events
+ *           |  are pushed on the connection that opened the session;
+ *           |  a closed connection closes its sessions.
  *  Note     |  Logs name the op and timings, never message contents.
  * ------------------------------------------------------------------
  */
@@ -20,8 +23,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { type WebSocket, WebSocketServer } from 'ws';
-import { type ErrorCode, OPS, PROTOCOL, type Reply, type Request } from './protocol';
+import { type ErrorCode, OPS, PROTOCOLS, type Reply, type Request, SESSION_OPS } from './protocol';
 import type { ClaudeAgentSdk } from './sdk-types';
+import { type OpenParams, SessionError, SessionManager } from './session';
 import { log } from './util';
 
 export const BRIDGE_VERSION = '0.1.0';
@@ -39,6 +43,8 @@ export interface BridgeServerOptions {
   port?: number;
   /** Largest frame accepted from Core. */
   maxPayload?: number;
+  /** Live sessions (tests pass their own). */
+  sessions?: SessionManager;
 }
 
 class BridgeError extends Error {
@@ -124,6 +130,119 @@ export async function handle(
   }
 }
 
+const obj = (v: unknown, name: string): Record<string, unknown> | undefined => {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'object' || Array.isArray(v))
+    throw new BridgeError('bad_request', `${name} must be an object`);
+  return v as Record<string, unknown>;
+};
+
+const strMap = (v: unknown, name: string): Record<string, string> | undefined => {
+  const o = obj(v, name);
+  if (!o) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, x] of Object.entries(o)) {
+    if (typeof x !== 'string') throw new BridgeError('bad_request', `${name}.${k} must be a string`);
+    out[k] = x;
+  }
+  return out;
+};
+
+/** session.open's parameters, checked. */
+export function openParams(p: Record<string, unknown>): OpenParams {
+  const servers = obj(p.mcp_servers, 'mcp_servers');
+  const mcp: NonNullable<OpenParams['mcp_servers']> = {};
+  for (const [name, raw] of Object.entries(servers ?? {})) {
+    const c = obj(raw, `mcp_servers.${name}`) ?? {};
+    if (c.type !== 'http' || typeof c.url !== 'string')
+      throw new BridgeError('bad_request', 'mcp_servers: only { type: "http", url, headers } is accepted');
+    mcp[name] = {
+      type: 'http',
+      url: c.url,
+      ...(c.headers !== undefined && { headers: strMap(c.headers, 'headers') ?? {} }),
+    };
+  }
+  const opt = (k: string) => str(p[k], k, false);
+  const big = (k: string) => {
+    const v = p[k];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'string' || v.length > 20_000)
+      throw new BridgeError('bad_request', `${k} must be a string`);
+    return v;
+  };
+  const env = p.env !== undefined ? strMap(p.env, 'env') : undefined;
+  return {
+    cwd: str(p.cwd, 'cwd') as string,
+    path_to_cli: str(p.path_to_cli, 'path_to_cli') as string,
+    ...(opt('session_id') && { session_id: opt('session_id') }),
+    ...(opt('resume') && { resume: opt('resume') }),
+    ...(p.fork === true && { fork: true }),
+    ...(opt('resume_at') && { resume_at: opt('resume_at') }),
+    ...(opt('model') && { model: opt('model') }),
+    ...(opt('effort') && { effort: opt('effort') }),
+    ...(opt('permission_mode') && { permission_mode: opt('permission_mode') }),
+    ...(big('append_system_prompt') && { append_system_prompt: big('append_system_prompt') }),
+    ...(Object.keys(mcp).length && { mcp_servers: mcp }),
+    ...(env && { env }),
+    ...(p.persist === false && { persist: false }),
+  };
+}
+
+/** Run one live-session op for a connection. Exported for tests. */
+export async function handleSession(
+  sessions: SessionManager,
+  op: string,
+  params: Record<string, unknown>,
+  push: (event: string, data: unknown) => void,
+  owner: unknown,
+): Promise<unknown> {
+  try {
+    switch (op) {
+      case 'session.open':
+        return await sessions.openSession(openParams(params), push, owner);
+      case 'session.send': {
+        const text = params.text;
+        if (typeof text !== 'string' || !text) throw new BridgeError('bad_request', 'text is required');
+        const images = Array.isArray(params.images)
+          ? params.images.flatMap((i) => {
+              const o = obj(i, 'images[]') ?? {};
+              return typeof o.mime === 'string' && typeof o.data === 'string'
+                ? [{ mime: o.mime, data: o.data }]
+                : [];
+            })
+          : [];
+        return sessions.send(params.handle, text, {
+          ...(images.length && { images }),
+          ...(typeof params.uuid === 'string' && { uuid: params.uuid }),
+        });
+      }
+      case 'session.interrupt':
+        return await sessions.interrupt(params.handle);
+      case 'session.control':
+        return await sessions.control(params.handle, params.op, obj(params.args, 'args') ?? {});
+      case 'session.close':
+        return sessions.close(params.handle);
+      case 'session.permission_reply': {
+        if (params.behavior !== 'allow' && params.behavior !== 'deny')
+          throw new BridgeError('bad_request', 'behavior must be allow or deny');
+        const updated = obj(params.updated_input, 'updated_input');
+        return {
+          delivered: sessions.reply(params.handle, params.request_id, {
+            behavior: params.behavior,
+            ...(updated && { updated_input: updated }),
+            ...(typeof params.message === 'string' && { message: params.message.slice(0, 1000) }),
+          }),
+        };
+      }
+      default:
+        throw new BridgeError('unknown_op', `Unknown op ${op.slice(0, 60)}`);
+    }
+  } catch (err) {
+    if (err instanceof SessionError) throw new BridgeError(err.code, err.message);
+    throw err;
+  }
+}
+
 export interface RunningBridge {
   port: number;
   close(): Promise<void>;
@@ -148,11 +267,22 @@ export function startServer(opts: BridgeServerOptions): Promise<RunningBridge> {
     },
   });
 
+  const sessions =
+    opts.sessions ?? new SessionManager({ load: () => opts.sdk.load(), version: BRIDGE_VERSION });
+
   wss.on('connection', (ws: WebSocket) => {
     let greeted = false;
+    let protocol = 0;
     const send = (r: Reply) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(r));
     };
+    const push = (event: string, data: unknown) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ event, data }));
+    };
+    ws.on('close', () => {
+      const n = sessions.closeOwnedBy(ws);
+      if (n) log('info', 'closed the live sessions of a connection that went away', { sessions: n });
+    });
     ws.on('message', async (raw) => {
       let req: Request;
       try {
@@ -168,25 +298,34 @@ export function startServer(opts: BridgeServerOptions): Promise<RunningBridge> {
       try {
         if (req.op === 'hello') {
           const want = req.params?.protocol;
-          if (want !== PROTOCOL) {
+          if (typeof want !== 'number' || !(PROTOCOLS as readonly number[]).includes(want)) {
             send({
               id: req.id,
               ok: false,
-              error: { code: 'protocol_mismatch', message: `This bridge speaks protocol ${PROTOCOL}` },
+              error: {
+                code: 'protocol_mismatch',
+                message: `This bridge speaks protocol ${PROTOCOLS.join(' or ')}`,
+              },
             });
             ws.close(1002, 'protocol mismatch');
             return;
           }
           greeted = true;
+          protocol = want;
           send({
             id: req.id,
             ok: true,
-            result: { protocol: PROTOCOL, bridge: BRIDGE_VERSION, sdk: opts.sdk.status() },
+            result: { protocol: want, bridge: BRIDGE_VERSION, sdk: opts.sdk.status() },
           });
           return;
         }
         if (!greeted) throw new BridgeError('hello_first', 'Send hello first');
-        const result = await handle(opts.sdk, req.op, (req.params ?? {}) as Record<string, unknown>);
+        const params = (req.params ?? {}) as Record<string, unknown>;
+        let result: unknown;
+        if ((SESSION_OPS as readonly string[]).includes(req.op)) {
+          if (protocol < 2) throw new BridgeError('unknown_op', 'Live sessions need protocol 2');
+          result = await handleSession(sessions, req.op, params, push, ws);
+        } else result = await handle(opts.sdk, req.op, params);
         send({ id: req.id, ok: true, result });
         log('debug', 'answered', { op: req.op, ms: Date.now() - started, trace_id });
       } catch (err) {
@@ -206,6 +345,7 @@ export function startServer(opts: BridgeServerOptions): Promise<RunningBridge> {
         port,
         close: () =>
           new Promise<void>((r) => {
+            sessions.closeAll();
             for (const c of wss.clients) c.terminate();
             wss.close(() => r());
           }),

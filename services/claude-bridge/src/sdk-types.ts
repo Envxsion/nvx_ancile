@@ -84,3 +84,119 @@ export function isClaudeAgentSdk(m: unknown): m is ClaudeAgentSdk {
     'getSubagentMessages',
   ].every((k) => typeof o[k] === 'function');
 }
+
+/* ---- Live sessions (protocol 2) --------------------------------------------
+ * Our own minimal description of query() in streaming-input mode and the
+ * few control calls Ancile makes. Messages stay loosely typed: the bridge
+ * forwards them to Core as they are.
+ */
+
+/** A user message sent into a live session. */
+export interface SdkUserMessage {
+  type: 'user';
+  message: { role: 'user'; content: string | Record<string, unknown>[] };
+  parent_tool_use_id: null;
+  /** Ancile's id for the prompt, so the transcript entry can be matched. */
+  uuid?: string;
+  session_id: string;
+}
+
+export interface SdkPermissionAllow {
+  behavior: 'allow';
+  updatedInput?: Record<string, unknown>;
+  toolUseID?: string;
+}
+export interface SdkPermissionDeny {
+  behavior: 'deny';
+  message: string;
+  interrupt?: boolean;
+  toolUseID?: string;
+}
+export type SdkPermissionResult = SdkPermissionAllow | SdkPermissionDeny;
+
+export type SdkCanUseTool = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: {
+    signal: AbortSignal;
+    suggestions?: unknown[];
+    toolUseID?: string;
+    agentID?: string;
+    decisionReason?: string;
+    blockedPath?: string;
+  },
+) => Promise<SdkPermissionResult>;
+
+/** A PreToolUse hook: every tool call passes it, with its real input. */
+export type SdkHookCallback = (
+  input: {
+    hook_event_name: string;
+    tool_name?: string;
+    tool_input?: unknown;
+    tool_use_id?: string;
+    agent_id?: string;
+  },
+  toolUseID: string | undefined,
+  options: { signal: AbortSignal },
+) => Promise<Record<string, unknown>>;
+
+export interface SdkQueryOptions {
+  cwd?: string;
+  pathToClaudeCodeExecutable?: string;
+  resume?: string;
+  forkSession?: boolean;
+  resumeSessionAt?: string;
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+  includePartialMessages?: boolean;
+  settingSources?: ('user' | 'project' | 'local')[];
+  systemPrompt?: { type: 'preset'; preset: 'claude_code'; append?: string };
+  mcpServers?: Record<string, { type: 'http'; url: string; headers?: Record<string, string> }>;
+  env?: Record<string, string | undefined>;
+  canUseTool?: SdkCanUseTool;
+  hooks?: Record<string, { matcher?: string; hooks: SdkHookCallback[]; timeout?: number }[]>;
+  enableFileCheckpointing?: boolean;
+  persistSession?: boolean;
+  stderr?: (data: string) => void;
+}
+
+export interface SdkSlashCommand {
+  name: string;
+  description: string;
+  argumentHint: string;
+  aliases?: string[];
+  builtin?: boolean;
+}
+
+/** The running session query() returns. */
+export interface SdkQuery extends AsyncIterable<unknown> {
+  interrupt(): Promise<unknown>;
+  setPermissionMode(mode: string): Promise<void>;
+  setModel(model?: string): Promise<void>;
+  setMaxThinkingTokens(n: number | null): Promise<void>;
+  applyFlagSettings?(settings: Record<string, unknown>): Promise<void>;
+  supportedCommands(): Promise<SdkSlashCommand[]>;
+  supportedModels(): Promise<
+    { value: string; displayName: string; description: string; supportedEffortLevels?: string[] }[]
+  >;
+  mcpServerStatus(): Promise<{ name: string; status: string; error?: string }[]>;
+  getContextUsage(opts?: { detail?: 'summary' | 'full' }): Promise<{
+    totalTokens: number;
+    maxTokens: number;
+    percentage: number;
+    model?: string;
+  }>;
+  rewindFiles(userMessageId: string, options?: { dryRun?: boolean }): Promise<unknown>;
+  reconnectMcpServer?(name: string): Promise<void>;
+  toggleMcpServer?(name: string, enabled: boolean): Promise<void>;
+  close(): void;
+}
+
+export interface ClaudeAgentSdkLive extends ClaudeAgentSdk {
+  query(params: { prompt: AsyncIterable<SdkUserMessage>; options?: SdkQueryOptions }): SdkQuery;
+}
+
+export function hasLiveSessions(m: ClaudeAgentSdk): m is ClaudeAgentSdkLive {
+  return typeof (m as unknown as Record<string, unknown>).query === 'function';
+}

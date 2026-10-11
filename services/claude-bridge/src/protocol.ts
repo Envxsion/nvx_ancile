@@ -12,13 +12,17 @@
  *           |  Pushes    { event, data } (no id; phase 2 streams)
  *           |  The first request must be `hello` with the protocol
  *           |  version; a mismatch is refused and the socket closed.
- *  Note     |  Phase 2 adds session.start / session.send /
- *           |  session.interrupt / session.control and pushed
- *           |  session events on the same socket.
+ *  Note     |  Protocol 2 adds live sessions (src/session.ts):
+ *           |  session.open / send / interrupt / control / close /
+ *           |  permission_reply, and pushed events session.message,
+ *           |  session.permission and session.state. Protocol 1
+ *           |  clients still get the read-only ops.
  * ------------------------------------------------------------------
  */
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
+/** Protocol versions this bridge still answers. */
+export const PROTOCOLS = [1, 2] as const;
 
 /** Printed on stdout once listening: the line starts with this tag, then JSON. */
 export const READY_TAG = 'ANCILE_BRIDGE_READY';
@@ -31,6 +35,16 @@ export const OPS = [
   'sessions.messages',
   'subagents.list',
   'subagents.messages',
+] as const;
+
+/** Live-session ops (protocol 2). */
+export const SESSION_OPS = [
+  'session.open',
+  'session.send',
+  'session.interrupt',
+  'session.control',
+  'session.close',
+  'session.permission_reply',
 ] as const;
 export type Op = (typeof OPS)[number];
 
@@ -56,4 +70,5 @@ export type ErrorCode =
   | 'protocol_mismatch'
   | 'hello_first'
   | 'sdk_unavailable'
+  | 'unknown_handle'
   | 'failed';
