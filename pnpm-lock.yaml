@@ -244,6 +244,37 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.5)(jsdom@26.1.0)(tsx@4.23.15)(yaml@2.9.1)
 
+  services/claude-bridge:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.17.0
+        version: 1.32.1(zod@4.6.5)
+      ws:
+        specifier: ^8.18.0
+        version: 8.22.0
+      zod:
+        specifier: ^4.1.0
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.5
+      '@types/ws':
+        specifier: ^8.18.0
+        version: 8.18.2
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.29)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.1)
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.15
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.5)(jsdom@26.1.0)(tsx@4.23.15)(yaml@2.9.1)
+
   services/controller:
     dependencies:
       '@hono/node-server':
@@ -358,6 +389,9 @@ importers:
       ulid:
         specifier: ^3.0.1
         version: 3.0.2
+      ws:
+        specifier: ^8.18.0
+        version: 8.22.0
       yaml:
         specifier: ^2.8.0
         version: 2.9.1
@@ -368,6 +402,9 @@ importers:
       '@types/node':
         specifier: ^22.18.0
         version: 22.20.5
+      '@types/ws':
+        specifier: ^8.18.0
+        version: 8.18.2
       drizzle-kit:
         specifier: ^0.31.0
         version: 0.31.11
@@ -2271,6 +2308,9 @@ packages:
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@ungap/structured-clone@1.4.0':
     resolution: {integrity: sha512-1mEZtMKPM09vDmQt5y7YvmN2+DFTP7Tg0EWXdic8/C6VRnpb33e4ghisCIE3WZjsE2N8mf+QV1Zqh7ZFYLWInQ==}
@@ -5864,6 +5904,10 @@ snapshots:
   '@types/unist@2.0.11': {}
 
   '@types/unist@3.0.3': {}
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.5
 
   '@ungap/structured-clone@1.4.0': {}
 

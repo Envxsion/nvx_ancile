@@ -225,3 +225,42 @@ Under `/api/v1` (DESIGN §17, docs/repos.md):
 | `GET /repos/:id/pulls` · `POST /repos/:id/pulls {title, body?, base?, draft?}` | Pull requests; open one from the current branch |
 | `GET /repos/:id/runs` · `/runs/:run/log` · `POST /runs/:run/rerun?failed=` | Actions runs, the failed log, re-run |
 | `POST /mcp/presets/github {token?, read_only?}` | Add (or update) the official GitHub MCP server as an app server; answers `{server, runner, health, view}` |
+
+## Works with Claude Code
+
+Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudecode.ts`):
+
+| Route | Does |
+|---|---|
+| `GET /claude-code/status?fresh=1` | `ClaudeCodeStatus`: installed, version, path, sign-in (method and plan only, never the account's email or organisation), install state, `verification` of the install, the Agent SDK's state, settings. Cached for 10 s unless `fresh`. |
+| `PATCH /claude-code/settings {auto_install?, auto_import?, claude_telemetry?}` | Save and answer `ClaudeCodeSettings` |
+| `POST /claude-code/install` | 202 `{state, error}`: runs Anthropic's official installer in the background (`claude_code.changed {what: install}` as it goes) |
+| `POST /claude-code/sign-in {method?: claudeai, console or sso}` | 202 `{started}`: opens Claude Code's own sign-in (`claude auth login`); NVX Ancile watches `claude auth status` for up to 5 minutes |
+| `POST /claude-code/sign-out` | 204: `claude auth logout`, only when the person asks |
+| `GET /claude-code/sessions?q=&cwd=&limit=&cursor=` | `{items: ClaudeCodeSession[], next_cursor}`, newest first, across every project |
+| `POST /claude-code/sessions/import {session_ids, notebook_id?}` | `ImportClaudeCodeSessionsResult`. Idempotent: an imported session is synced instead |
+| `POST /claude-code/threads/:id/sync` | `{thread_id, session_id, added, gone}`: pull what is new; `gone` when the transcript is no longer on this computer (the thread stays) |
+| `GET /claude-code/projects` · `PUT /claude-code/projects {cwd, notebook_id}` · `DELETE /claude-code/projects?cwd=` | Folder → notebook bindings (`{items: ClaudeCodeProject[]}`) |
+
+### Core ↔ Claude bridge
+
+Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a separate program it starts on first use and stops after five idle minutes. One WebSocket on 127.0.0.1 at a random port; Core passes a per-launch bearer token in the environment, and the bridge refuses any other token or a browser `Origin`. It prints `ANCILE_BRIDGE_READY {port, protocol, version}` on stdout when listening and exits when its stdin closes.
+
+| Message | Shape |
+|---|---|
+| Request | `{id, op, params?, trace_id?}` |
+| Reply | `{id, ok: true, result}` or `{id, ok: false, error: {code, message}}`; codes `bad_request`, `unknown_op`, `protocol_mismatch`, `hello_first`, `sdk_unavailable`, `failed` |
+| Push (phase 2) | `{event, data}` with no id |
+
+| Op | Params → result |
+|---|---|
+| `hello` (first) | `{protocol: 1, client}` → `{protocol, bridge, sdk}` |
+| `status.sdk` | `{load?}` → `{ready, version, error, loading}`; `load` fetches the SDK when missing |
+| `sessions.list` | `{dir?, limit?, offset?}` → session infos |
+| `sessions.info` | `{session_id, dir?}` → a session info or null |
+| `sessions.messages` | `{session_id, dir?, limit?, offset?, include_system?}` → transcript entries of the current chain |
+| `subagents.list` | `{session_id, dir?}` → agent ids |
+| `subagents.messages` | `{session_id, agent_id, dir?, limit?, offset?}` → transcript entries |
+
+Phase 2 adds `session.start`, `session.send`, `session.interrupt` and `session.control`, with pushed session events, on the same socket.
+

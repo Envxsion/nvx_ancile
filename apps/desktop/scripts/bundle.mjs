@@ -29,9 +29,12 @@
  *           |          (build-lab.ts, a pinned Bun from npm).
  *           |  controller  the Controller as one esbuild bundle (its
  *           |          npm packages inlined) plus its migrations.
- *           |  licences  THIRD_PARTY_LICENSES.txt and NOTICE.md at the
- *           |          top of sidecars/ (third-party-licenses.mjs), after
- *           |          every build; a denied or unknown licence fails it.
+ *           |  claude-bridge  the Claude bridge (MIT, a separate
+ *           |          program Core starts) as one bundle with its
+ *           |          licence; never Anthropic's Agent SDK.
+ *           |  licences  THIRD_PARTY_LICENSES.txt at the top of
+ *           |          sidecars/ (third-party-licenses.mjs), after every
+ *           |          build; a denied or unknown licence fails it.
  *  Note     |  Why not a Node single-executable for Core: SEA takes one
  *           |  CommonJS script and cannot load Core's WebAssembly
  *           |  policy engine or native-free ESM dependencies from disk
@@ -253,6 +256,35 @@ if (want('controller')) {
   cpSync(join(ROOT, 'services', 'controller', 'migrations'), join(dir, 'migrations'), { recursive: true });
   writeFileSync(join(dir, 'package.json'), '{ "type": "module", "private": true }\n');
   done('controller');
+}
+
+// --- Claude bridge ------------------------------------------------------------
+// A separate MIT program (services/claude-bridge) that Core starts when Claude
+// Code is used. One bundle of its own code and its MIT dependencies, plus its
+// licence. Anthropic's Agent SDK is never bundled: the bridge fetches it on the
+// person's machine (pinned and checksummed) the first time it is needed.
+if (want('claude-bridge')) {
+  const dir = fresh(join(OUT, 'claude-bridge'));
+  const esbuild = createRequire(import.meta.url)('esbuild');
+  console.log('Claude bridge: bundle');
+  await esbuild.build({
+    entryPoints: [join(ROOT, 'services', 'claude-bridge', 'src', 'main.ts')],
+    outfile: join(dir, 'dist', 'main.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    minify: true,
+    logLevel: 'warning',
+    // The SDK is loaded from the data folder at run time, never from here.
+    external: ['@anthropic-ai/claude-agent-sdk'],
+    banner: {
+      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
+    },
+  });
+  cpSync(join(ROOT, 'services', 'claude-bridge', 'LICENSE'), join(dir, 'LICENSE'));
+  writeFileSync(join(dir, 'package.json'), '{ "type": "module", "private": true, "license": "MIT" }\n');
+  done('claude-bridge');
 }
 
 // --- Lab ----------------------------------------------------------------------

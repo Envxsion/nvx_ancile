@@ -272,3 +272,18 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `mcp.secret_missing` | 400 | "No value is stored for <key>." / Type the value for <key>, or take it out of the list. |
 | `mcp.tier_not_allowed` | 400 | "<tool> can delete or change things, so it always asks first." / Choose Gated or Critical for this tool. |
 | `mcp.transport_mismatch` | 400 | "A command (stdio) server has no <field>." (or a web address (http) one) / The way a server connects cannot change. Remove it and add it again. |
+
+### Claude Code
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `claude_code.not_installed` | 409 | "Claude Code is not installed on this computer." / Press Install in Settings → Claude Code, or install it from claude.ai/install and press Check again. |
+| `claude_code.version_old` | 409 | "Claude Code <version> is older than NVX Ancile supports." / Run `claude update` in a terminal (NVX Ancile needs 2.1.200 or later), then press Check again. |
+| `claude_code.signed_out` | 409 | "Claude Code is not signed in." / Press Sign in to open Claude Code's own sign-in, or run `claude auth login` in a terminal. Listing and bringing in sessions does not need sign-in. |
+| `claude_code.sdk_unavailable` | 503 | "NVX Ancile cannot read Claude Code sessions yet." with the reason / It needs Anthropic's Agent SDK, fetched from npm the first time. Check this computer can reach registry.npmjs.org, then press Check again. |
+| `claude_code.install_failed` | 502 | "Claude Code could not be installed." with the installer's words / Install it yourself from claude.ai/install (no admin rights needed), then press Check again. |
+| `claude_code.unverified` | 409 | "This Claude Code install could not be verified." with the reason / Reinstall Claude Code from claude.ai/install, then press Check again. Sessions are not run through an install that fails the check. |
+| `claude_code.sign_in_unavailable` | 409 | "Claude Code's sign-in cannot open from here." / Run `claude auth login` in a terminal on this computer, then press Check again. |
+| `claude_code.session_not_found` | 404 | "That Claude Code session is not on this computer." / It may have been deleted or moved. Refresh the list of sessions. |
+| `claude_code.not_bound` | 409 | "This thread did not come from Claude Code." / Only threads brought in from Claude Code can be synced. |
+| `claude_code.cli_failed` | 502 | "Claude Code could not <do that>." with its words / Run the same command in a terminal to see why, then try again. |

@@ -33,6 +33,10 @@ export interface NewMessage {
   edit_of_id?: string | null;
   run_id?: string | null;
   trace_id: string;
+  /** Imported messages keep their own time, usage and provenance (Claude Code). */
+  created_at?: string | null;
+  usage?: Usage | null;
+  provenance?: Record<string, unknown>;
 }
 
 export interface MessagePatch {
@@ -103,6 +107,8 @@ export interface ThreadRepo {
   messages(threadId: string): Promise<MessageRecord[]>;
   getMessage(id: string): Promise<MessageRecord | undefined>;
   insertMessage(m: NewMessage): Promise<MessageRecord>;
+  /** Many messages in one statement, parents before children (an import). */
+  insertMessages(ms: NewMessage[]): Promise<void>;
   updateMessage(id: string, patch: MessagePatch): Promise<void>;
   /** Soft-delete messages a turn wrote before it was refused (a second send that lost the race). */
   discardMessages(ids: string[]): Promise<void>;
@@ -313,6 +319,36 @@ export class PgThreadRepo implements ThreadRepo {
     return messageFromRow(rows[0] as MessageRow);
   }
 
+  async insertMessages(ms: NewMessage[]) {
+    if (!ms.length) return;
+    const rows = ms.map((m) => ({
+      id: m.id,
+      thread_id: m.thread_id,
+      parent_id: m.parent_id,
+      role: m.role,
+      parts: pgSafe(m.parts),
+      model_id: m.model_id ?? null,
+      requested_model_id: m.requested_model_id ?? null,
+      status: m.status,
+      edit_of_id: m.edit_of_id ?? null,
+      provenance: pgSafe(m.provenance ?? {}),
+      usage: m.usage ? pgSafe(m.usage) : null,
+      run_id: m.run_id ?? null,
+      trace_id: m.trace_id,
+      created_at: m.created_at ?? new Date().toISOString(),
+    }));
+    // One statement: the parent foreign key is checked when it ends, so
+    // children may sit beside their parents in the same batch.
+    await this.sql`
+      insert into core.messages (id, thread_id, parent_id, role, parts, model_id, requested_model_id, status,
+        edit_of_id, provenance, usage, run_id, trace_id, created_at)
+      select x.id, x.thread_id, x.parent_id, x.role, x.parts, x.model_id, x.requested_model_id, x.status,
+        x.edit_of_id, x.provenance, x.usage, x.run_id, x.trace_id, x.created_at
+      from jsonb_to_recordset(${this.sql.json(rows as never)}) as x(id text, thread_id text,
+        parent_id text, role text, parts jsonb, model_id text, requested_model_id text, status text,
+        edit_of_id text, provenance jsonb, usage jsonb, run_id text, trace_id text, created_at timestamptz)`;
+  }
+
   async updateMessage(id: string, p: MessagePatch) {
     await this.sql`
       update core.messages set
@@ -465,15 +501,22 @@ export class MemoryThreadRepo implements ThreadRepo {
       requested_model_id: m.requested_model_id ?? null,
       status: m.status,
       edit_of_id: m.edit_of_id ?? null,
-      provenance: {},
-      usage: null,
+      provenance: structuredClone(m.provenance ?? {}),
+      usage: m.usage ?? null,
       run_id: m.run_id ?? null,
       trace_id: m.trace_id,
-      created_at: this.stamp(),
+      created_at: m.created_at ? new Date(m.created_at).toISOString() : this.stamp(),
       deleted_at: null,
     };
     this.msgs.set(m.id, rec);
     return structuredClone(rec);
+  }
+
+  async insertMessages(ms: NewMessage[]) {
+    for (const m of ms) {
+      if (m.parent_id && !this.msgs.has(m.parent_id)) throw new Error(`parent ${m.parent_id} does not exist`);
+      await this.insertMessage(m);
+    }
   }
 
   async updateMessage(id: string, p: MessagePatch) {

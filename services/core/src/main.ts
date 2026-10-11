@@ -32,6 +32,9 @@ import {
 } from './automations';
 import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
+import { createClaudeCode } from './claudecode';
+import { claudeCodeRoutes } from './claudecode/routes';
+import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './compute/routes';
@@ -327,6 +330,18 @@ async function main() {
   const threads = new PgThreadRepo(sql);
   const branchStore = new PgBranchStore(sql);
   const notebooks = new PgNotebookRepo(sql);
+  // Works with Claude Code (docs/claude-code.md): the person's own CLI, read
+  // through the Claude bridge (a separate MIT program holding Anthropic's SDK).
+  const claudeCode = createClaudeCode({
+    workspaceId: owner.workspaceId,
+    dataDir: resolve(env.ANCILE_DATA_DIR),
+    logLevel: env.ANCILE_LOG_LEVEL,
+    settings,
+    bus: events,
+    threads,
+    notebooks,
+    store: new PgClaudeCodeStore(sql),
+  });
   const kn = knowledgeClient({ baseUrl: env.KNOWLEDGE_URL, serviceToken: env.ANCILE_SERVICE_TOKEN });
 
   // Memory: a git repository of markdown files, indexed, injected and learned into.
@@ -945,6 +960,7 @@ async function main() {
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, servers: mcpServers }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
+      claudeCodeRoutes({ service: () => claudeCode.service }),
       labRoutes({
         engine,
         repo: threads,
@@ -965,6 +981,9 @@ async function main() {
       `NVX Ancile Core ready on ${env.ANCILE_PUBLIC_URL}`,
     );
   });
+  // Claude Code sessions come in by themselves (Auto-import, on by default),
+  // shortly after start and only when Claude Code is installed here.
+  claudeCode.service.startAuto();
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');
@@ -979,6 +998,7 @@ async function main() {
     mirror?.stop();
     await labMcp?.close();
     repos.stop();
+    claudeCode.stop();
     await mcp.stop();
     server.close();
     await database.close();

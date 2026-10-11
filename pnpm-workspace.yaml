@@ -2,6 +2,7 @@ packages:
   - apps/*
   - services/core
   - services/controller
+  - services/claude-bridge
   - packages/*
   - plugins/*
 allowBuilds:

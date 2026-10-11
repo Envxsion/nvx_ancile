@@ -45,6 +45,7 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `mcp.server_changed` | `server_id`, `name`, `status` (connecting, connected, error, disabled, removed), `tools`, `detail?` | Admin → Plugins server list; also sent when a server's tools change |
 | `suggestion` | `kind` (branch, compact, model, duplicate_source, stale_source), `ref`, `message` | A quiet chip in context |
 | `repo.changed` | `repo_id`, `branch`, `previous_branch?`, `ahead`, `behind`, `changed` | Status bar branch, Repo panel; a branch switch also sends a notification |
+| `claude_code.changed` | `what` (install, auth, sessions, thread), `thread_id?`, `detail?` | Settings → Claude Code and the session list. `sessions` with `detail` `importing:<done>/<total>` while Auto-import runs, then `imported:<n>` once (only when n > 0); no detail means the list changed. `thread` names a thread that was brought in or synced. `install` carries the install state, `sdk` or `verification` in `detail` |
 
 ## Client example
 

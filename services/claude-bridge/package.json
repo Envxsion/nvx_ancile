@@ -1,0 +1,31 @@
+{
+  "name": "@nvx/claude-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "A separate MIT-licensed program that loads Anthropic's Claude Agent SDK at run time and answers NVX Ancile Core over a local WebSocket. The SDK itself is never bundled or distributed.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsup",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "ws": "^8.18.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/ws": "^8.18.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

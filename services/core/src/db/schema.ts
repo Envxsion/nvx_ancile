@@ -16,6 +16,7 @@
 
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   bigserial,
   boolean,
   customType,
@@ -490,6 +491,48 @@ export const claims = core.table('claims', {
   evidence: jsonb('evidence').notNull().default([]),
   rationale: text('rationale'),
 });
+
+/* ---- Works with Claude Code (docs/claude-code.md) ------------------------ */
+
+/** A folder's notebook; cwd_key compares folders the way the OS does. */
+export const claudeCodeProjects = core.table(
+  'claude_code_projects',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    cwdKey: text('cwd_key').notNull(),
+    cwd: text('cwd').notNull(),
+    notebookId: text('notebook_id')
+      .notNull()
+      .references(() => notebooks.id),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.cwdKey] })],
+);
+
+/** The thread a session was brought into, and where its last sync got to. */
+export const claudeCodeSessions = core.table(
+  'claude_code_sessions',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    sessionId: text('session_id').notNull(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id),
+    title: text('title'),
+    cwd: text('cwd'),
+    lastModified: bigint('last_modified', { mode: 'number' }).notNull().default(0),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.sessionId] }),
+    index('claude_code_sessions_thread').on(t.threadId),
+  ],
+);
 
 /* ---- Tools and integrations ---------------------------------------------- */
 

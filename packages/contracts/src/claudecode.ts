@@ -58,6 +58,17 @@ export const ClaudeCodeStatus = z.object({
     /** What went wrong, in words, when state is "failed". */
     error: z.string().nullable(),
   }),
+  /**
+   * Whether the installed Claude Code is Anthropic's published build (its
+   * checksum against Anthropic's release manifest, and its code signature on
+   * Windows and macOS). Sessions are not run through one that failed.
+   */
+  verification: z
+    .object({
+      state: z.enum(['unchecked', 'checking', 'verified', 'failed']),
+      error: z.string().nullable(),
+    })
+    .default({ state: 'unchecked', error: null }),
   /** The Agent SDK Ancile drives sessions through: ready, or why not. */
   sdk: z.object({ ready: z.boolean(), version: z.string().nullable(), error: z.string().nullable() }),
   settings: ClaudeCodeSettings,

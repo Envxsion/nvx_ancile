@@ -66,4 +66,6 @@ export const SETTING = {
   customModels: 'models.custom',
   /** { [taskClass]: modelId[] } chains saved in Admin → Routing; they win over config/routing.yaml. */
   routingChains: 'routing.chains',
+  /** ClaudeCodeSettings: Settings → Claude Code (docs/claude-code.md). */
+  claudeCode: 'claude_code',
 } as const;
