@@ -98,6 +98,10 @@ export interface OpenParams {
   path_to_cli: string;
   /** false: a session that writes no transcript (reading the command list). */
   persist?: boolean;
+  /** Built-in tools on; [] turns every one off (Claude Code as a model). */
+  tools?: string[];
+  /** Which settings load; [] none. Absent: user, project and local. */
+  setting_sources?: ('user' | 'project' | 'local')[];
 }
 
 export interface PermissionReply {
@@ -302,7 +306,8 @@ export class SessionManager {
       permissionMode: p.permission_mode ?? 'default',
       includePartialMessages: true,
       // What the interactive CLI loads, so the person's CLAUDE.md, settings, skills and plugins apply.
-      settingSources: ['user', 'project', 'local'],
+      settingSources: p.setting_sources ?? ['user', 'project', 'local'],
+      ...(p.tools && { tools: p.tools }),
       ...(p.append_system_prompt && {
         systemPrompt: { type: 'preset', preset: 'claude_code', append: p.append_system_prompt },
       }),

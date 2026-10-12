@@ -151,6 +151,8 @@ export interface SdkQueryOptions {
   permissionMode?: string;
   includePartialMessages?: boolean;
   settingSources?: ('user' | 'project' | 'local')[];
+  /** Built-in tools available; [] turns every one off. */
+  tools?: string[];
   systemPrompt?: { type: 'preset'; preset: 'claude_code'; append?: string };
   mcpServers?: Record<string, { type: 'http'; url: string; headers?: Record<string, string> }>;
   env?: Record<string, string | undefined>;

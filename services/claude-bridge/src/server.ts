@@ -148,6 +148,22 @@ const strMap = (v: unknown, name: string): Record<string, string> | undefined =>
   return out;
 };
 
+const SOURCES = ['user', 'project', 'local'] as const;
+
+/** A short list of tool names. */
+function names(v: unknown, k: string): string[] {
+  if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || !x || x.length > 100))
+    throw new BridgeError('bad_request', `${k} must be a list of tool names`);
+  return v as string[];
+}
+
+/** Which settings a session loads: a subset of user, project and local. */
+function sources(v: unknown): (typeof SOURCES)[number][] {
+  if (!Array.isArray(v) || v.some((x) => !SOURCES.includes(x as (typeof SOURCES)[number])))
+    throw new BridgeError('bad_request', 'setting_sources must list user, project or local');
+  return v as (typeof SOURCES)[number][];
+}
+
 /** session.open's parameters, checked. */
 export function openParams(p: Record<string, unknown>): OpenParams {
   const servers = obj(p.mcp_servers, 'mcp_servers');
@@ -185,6 +201,8 @@ export function openParams(p: Record<string, unknown>): OpenParams {
     ...(Object.keys(mcp).length && { mcp_servers: mcp }),
     ...(env && { env }),
     ...(p.persist === false && { persist: false }),
+    ...(p.tools !== undefined && { tools: names(p.tools, 'tools') }),
+    ...(p.setting_sources !== undefined && { setting_sources: sources(p.setting_sources) }),
   };
 }
 

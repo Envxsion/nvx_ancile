@@ -13,7 +13,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ModelConfig } from '@nvx/contracts';
+import { CLAUDE_CODE_MODEL_PREFIX, type ModelConfig } from '@nvx/contracts';
 import { ulid } from 'ulid';
 import type { FlowStore } from '../flows/store';
 import { runFlowOnce } from '../flows/try';
@@ -63,6 +63,12 @@ export function proAnswers(deps: {
   notebooks: Pick<NotebookRepo, 'list'>;
   memory?: Pick<MemoryService, 'log'>;
   pollMs?: number;
+  /**
+   * May Pro's features use this model now? Claude Code as a model is free in
+   * chat and routing, and Pro inside Beam and the Flow lab (docs/engines.md):
+   * main.ts answers from the licence at the moment of use.
+   */
+  allowModel?: (id: string) => boolean;
 }): ProAnswers {
   const { repo, registry } = deps;
   const turnDeps = {
@@ -71,6 +77,10 @@ export function proAnswers(deps: {
     worker: deps.worker,
     registry,
     ...(deps.branches && { branches: deps.branches }),
+  };
+  const allowed = (id: string | null | undefined) => !id || (deps.allowModel?.(id) ?? true);
+  const refuse = (id: string) => {
+    throw new Error(`${id} is not available to this feature without Pro`);
   };
   const ownThread = async (id: string) => {
     const t = await repo.getThread(id);
@@ -123,6 +133,7 @@ export function proAnswers(deps: {
       async start(req) {
         const thread = await ownThread(req.threadId);
         if (!thread) throw new Error(`no thread ${req.threadId}`);
+        if (req.model && !allowed(req.model)) refuse(req.model);
         return startTurn(turnDeps, {
           thread,
           user:
@@ -151,6 +162,7 @@ export function proAnswers(deps: {
         return registry
           .all()
           .filter(canChat)
+          .filter((m) => allowed(m.id))
           .map((m) => {
             const status = registry.status(m);
             return {
@@ -165,13 +177,14 @@ export function proAnswers(deps: {
       },
       defaultChat() {
         try {
-          return registry.chain('chat.default', null)[0]?.id ?? null;
+          return registry.chain('chat.default', null).find((m) => allowed(m.id))?.id ?? null;
         } catch {
           return null;
         }
       },
       async complete(model, req, signal) {
-        const chain = registry.chain('chat.default', model);
+        if (model && !allowed(model)) refuse(model);
+        const chain = registry.chain('chat.default', model).filter((m) => allowed(m.id));
         if (!chain.length) throw new Error('No model can answer: add a key in Settings → Models.');
         const started = Date.now();
         let text = '';
@@ -235,6 +248,9 @@ export function proAnswers(deps: {
             ? await deps.flowStore.getVersion(opts.flowId, opts.version)
             : await deps.flowStore.getLive(opts.flowId);
         if (!flow) throw new Error(`no flow ${opts.flowId}`);
+        // A flow with a Claude Code node runs in the Flow lab only with Pro (docs/engines.md).
+        const cc = `${CLAUDE_CODE_MODEL_PREFIX}default`;
+        if (JSON.stringify(flow).includes(CLAUDE_CODE_MODEL_PREFIX) && !allowed(cc)) refuse('Claude Code');
         return runFlowOnce(deps.flows, {
           flow,
           text: opts.text,

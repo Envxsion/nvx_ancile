@@ -238,6 +238,13 @@ describe('live sessions', () => {
     expect(() => openParams({ ...OPEN, mcp_servers: { x: { type: 'stdio', command: 'evil' } } })).toThrow(
       /http/,
     );
+    // Claude Code as a model: every built-in tool off, none of the person's settings.
+    expect(openParams({ ...OPEN, tools: [], setting_sources: [] })).toMatchObject({
+      tools: [],
+      setting_sources: [],
+    });
+    expect(() => openParams({ ...OPEN, tools: 'Bash' })).toThrow(/tool names/);
+    expect(() => openParams({ ...OPEN, setting_sources: ['everything'] })).toThrow(/setting_sources/);
     await expect(
       mgr.openSession(openParams({ ...OPEN, permission_mode: 'bypassPermissions' }), c.push),
     ).rejects.toThrow(/not offered/);

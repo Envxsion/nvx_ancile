@@ -103,6 +103,10 @@ export interface LiveOpenParams {
   path_to_cli: string;
   /** false: a session that writes no transcript (reading the command list). */
   persist?: boolean;
+  /** Built-in tools on; [] turns every one off (Claude Code as a model). Absent: all of them. */
+  tools?: string[];
+  /** Which of the person's settings load; [] none. Absent: user, project and local. */
+  setting_sources?: ('user' | 'project' | 'local')[];
 }
 
 /** A tool call the session asks about (pushed as session.permission). */

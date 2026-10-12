@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
+import { CLAUDE_CODE_PROVIDER, isClaudeCodeModel } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
 import {
@@ -52,6 +53,13 @@ import { migrate } from './db/migrate';
 import { buildChecks } from './diagnostics/checks';
 import { diagnosticRoutes, PgDiagnosticStore } from './diagnostics/routes';
 import { DiagnosticRunner } from './diagnostics/runner';
+import { ClaudeCodeEngine, Engines, GatewayEngine, scopeFromDb } from './engines';
+import { claudeHooks } from './engines/claude';
+import { gatewayContextHook } from './engines/gateway';
+import { ClaudeMemoryMirror } from './engines/memory';
+import { ClaudeCodeModelClient, syncClaudeCodeModels } from './engines/mode-a';
+import { engineRoutes } from './engines/routes';
+import { PgEngineStore } from './engines/store';
 import { loadEnv } from './env';
 import { PgEventBus } from './events/bus';
 import { factcheckHandler, startFactcheck } from './factcheck/handler';
@@ -101,11 +109,11 @@ import { traceRoutes } from './obs/routes';
 import { setSpanSink, startSpan } from './obs/spans';
 import { ObsPipeline, PgObsStore, toNewLog } from './obs/store';
 import { startTracing, stopTracing } from './obs/tracing';
-import { loadCedarEvaluator } from './permissions/cedar';
-import type { PolicyEvaluator } from './permissions/decide';
 import { AutoReview, PgPlanStore } from './permissions/auto';
 import { autoRoutes } from './permissions/auto/routes';
 import { coreReviewers } from './permissions/auto/wire';
+import { loadCedarEvaluator } from './permissions/cedar';
+import type { PolicyEvaluator } from './permissions/decide';
 import { createGate } from './permissions/gate';
 import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
@@ -123,9 +131,9 @@ import { repoTools } from './repos/tools';
 import { PgRunEventLog } from './runs/events';
 import { PgRunStore } from './runs/store';
 import { RunWorker } from './runs/worker';
-import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './secrets';
 import { PgScopeStore, scopeResolver } from './scopes';
 import { scopeRoutes } from './scopes/routes';
+import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './secrets';
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
@@ -259,8 +267,13 @@ async function main() {
   void syncProvider();
   setInterval(() => void syncProvider(), 60_000).unref();
   // ---- end Phase 5 ----
+  // Engines (docs/engines.md): Claude Code as a model registers its own client here once it is built.
+  const routingClient = new RoutingClient(
+    new AiSdkClient(secrets, endpoints),
+    new FakeProvider({ wordDelayMs: 25 }),
+  );
   const gateway = new Gateway({
-    client: new RoutingClient(new AiSdkClient(secrets, endpoints), new FakeProvider({ wordDelayMs: 25 })),
+    client: routingClient,
     breaker: new CircuitBreaker(),
   });
   const chatReady = registry
@@ -479,6 +492,11 @@ async function main() {
     traceOf: (threadId) => claudeLive.traceOf(threadId),
     sourceIdsOf: (threadId) => claudeLive.sourceIdsOf(threadId),
   });
+  // ---- Engines (docs/engines.md): one thread, any model ----
+  const engineStore = new PgEngineStore(sql);
+  /** Bridge handles Claude Code as a model drives (their events are not a live session's). */
+  const modeAHandles = new Set<string>();
+  // ---- end Engines ----
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
     workspaceId: owner.workspaceId,
     userId: owner.userId,
@@ -522,6 +540,22 @@ async function main() {
     },
     approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
     folderExists: async (cwd) => existsSync(cwd),
+    engines: claudeHooks({
+      threads,
+      branches: branchStore,
+      store: engineStore,
+      modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
+      memory: new ClaudeMemoryMirror({
+        memory,
+        notebook: async (id) => {
+          const n = await notebooks.get(id);
+          return n ? { id: n.id, slug: n.slug, title: n.title } : null;
+        },
+      }),
+      allow: (thread, model) => engines.allowClaude(thread, model),
+    }),
+    foreignHandle: (h) => modeAHandles.has(h),
+    keepAlive: () => modeAHandles.size > 0,
   });
   /** An answered approval goes to whoever is waiting on it: the lab, or a live Claude Code turn. */
   const relayAnswer = async (
@@ -565,6 +599,29 @@ async function main() {
   });
   // ---- end Flows ----
   const familyOf = (id: string | null) => (id ? (registry.get(id)?.family ?? null) : null);
+  // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
+  const engines: Engines = new Engines({
+    registry,
+    gateway: new GatewayEngine({
+      repo: threads,
+      runs: runStore,
+      worker: { kick: () => worker.kick() },
+      registry,
+      branches: branchStore,
+    }),
+    claudeCode: new ClaudeCodeEngine({
+      live: () => claudeLive,
+      installed: async () => {
+        const st = await claudeCode.service.status();
+        if (!st.installed)
+          return { available: false, reason: 'Claude Code is not installed on this computer' };
+        if (st.verification.state === 'failed')
+          return { available: false, reason: 'This Claude Code install could not be verified' };
+        return { available: true, reason: null };
+      },
+    }),
+    scopeOf: scopeFromDb(sql),
+  });
 
   // The reconciler resumes runs through the worker it belongs to (called only after start()).
   const worker: RunWorker = new RunWorker({
@@ -609,6 +666,7 @@ async function main() {
         branches: branchStore,
         flows,
         memory,
+        engineContext: gatewayContextHook({ threads, store: engineStore }),
         // Grounded mode (DESIGN.md §10.7): every answer in the notebook is fact-checked.
         afterAnswer: async (a) => {
           // Pro (Flow lab): a shadow flow answers the same question off the record. Never awaited.
@@ -871,6 +929,8 @@ async function main() {
             flowStore,
             notebooks,
             memory,
+            // Claude Code as a model inside Beam and the Flow lab is Pro (docs/engines.md).
+            allowModel: (id) => !isClaudeCodeModel(id) || hasProFeature('beam') || hasProFeature('flow_lab'),
           }),
         }),
       )
@@ -1094,6 +1154,7 @@ async function main() {
       toolRoutes({ tools, servers: mcpServers }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
+      engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),
       labRoutes({
         engine,
         repo: threads,
@@ -1117,6 +1178,35 @@ async function main() {
   // Claude Code sessions come in by themselves (Auto-import, on by default),
   // shortly after start and only when Claude Code is installed here.
   claudeCode.service.startAuto();
+  // ---- Engines (docs/engines.md): the front door, and Claude Code as a model ----
+  routingClient.register(
+    CLAUDE_CODE_PROVIDER,
+    new ClaudeCodeModelClient({
+      bridge: claudeCode.bridge,
+      cli: () => claudeCode.service.cliPath(),
+      env: () => claudeCode.service.cliEnv(),
+      cwd: resolve(env.ANCILE_DATA_DIR, 'claude-model'),
+      mcp: {
+        url: `http://${ccHost.includes(':') ? `[${ccHost}]` : ccHost}:${env.ANCILE_PORT}/mcp/claude`,
+        secret: claudeSecret,
+      },
+      gate: (root) =>
+        createGate({ policy: policyRef, store: permissions, workspaceRoot: root, fs: nativeProbe() }),
+      userId: owner.userId,
+      workspaceId: owner.workspaceId,
+      handles: modeAHandles,
+    }),
+  );
+  // Claude Code as a model: offered while Claude Code is installed and verified.
+  const offerClaudeModels = () =>
+    claudeCode.service
+      .status()
+      .then((st) => syncClaudeCodeModels(registry, st))
+      .catch((err: unknown) => log.warn({ err }, "Claude Code's models could not be offered"));
+  void offerClaudeModels();
+  events.subscribe(Number.MAX_SAFE_INTEGER, (e) => {
+    if (e.type === 'claude_code.changed' && e.what === 'install') void offerClaudeModels();
+  });
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');

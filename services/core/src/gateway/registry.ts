@@ -155,6 +155,16 @@ export class ModelRegistry {
     this.models.push(...models.map((m) => ({ ...m, provider: NODE_PROVIDER, via: 'controller' as const })));
   }
 
+  /**
+   * Models an engine provides by itself (Claude Code's, when it is installed):
+   * they replace that provider's previous set; configured models are never touched.
+   */
+  setProviderModels(provider: string, models: ModelConfig[]): void {
+    for (let i = this.models.length - 1; i >= 0; i--)
+      if (this.models[i]?.provider === provider) this.models.splice(i, 1);
+    this.models.push(...models.map((m) => ({ ...m, provider })));
+  }
+
   all(): ModelConfig[] {
     return this.models;
   }
@@ -245,12 +255,21 @@ export class ModelRegistry {
 
 /** One ModelClient over several: the fake provider for `fake`, the AI SDK for the rest. */
 export class RoutingClient implements ModelClient {
+  /** Providers served by their own client (Claude Code as a model). */
+  private readonly own = new Map<string, ModelClient>();
+
   constructor(
     private readonly sdk: ModelClient,
     private readonly fake: ModelClient,
   ) {}
 
+  register(provider: string, client: ModelClient): void {
+    this.own.set(provider, client);
+  }
+
   stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
+    const own = this.own.get(m.provider);
+    if (own) return own.stream(m, req, signal);
     return (m.provider === 'fake' ? this.fake : this.sdk).stream(m, req, signal);
   }
 }
