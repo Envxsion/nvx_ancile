@@ -254,6 +254,11 @@ export function importOrder(
   platform: NodeJS.Platform = process.platform,
 ): CcSessionInfo[] {
   const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified ?? 0;
+  // A fork made with /branch copies the entries it came from, timestamps
+  // included, so it reports the same createdAt as its origin. The one
+  // written to last is the fork: on a tie, the older lastModified goes first.
+  const older = (a: CcSessionInfo, b: CcSessionInfo) =>
+    age(a) - age(b) || (a.lastModified ?? 0) - (b.lastModified ?? 0);
   const updates = todo.filter(isBound).sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
   const families = new Map<string, CcSessionInfo[]>();
   const loose: CcSessionInfo[] = [];
@@ -270,9 +275,9 @@ export function importOrder(
   }
   const newest = (list: CcSessionInfo[]) => Math.max(...list.map((i) => i.lastModified ?? 0));
   const fams = [...families.values()]
-    .map((list) => ({ list: list.sort((a, b) => age(a) - age(b)), newest: newest(list) }))
+    .map((list) => ({ list: list.sort(older), newest: newest(list) }))
     .sort((a, b) => b.newest - a.newest);
-  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort((a, b) => age(a) - age(b))];
+  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort(older)];
 }
 
 export class ClaudeCodeService {

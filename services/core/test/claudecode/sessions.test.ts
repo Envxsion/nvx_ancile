@@ -861,6 +861,21 @@ describe('first-run import order and pacing', () => {
     expect(order).toEqual(['bound', 'new-a', 'new-fork', 'mid-a', 'old-a', 'nowhere']);
   });
 
+  it('puts a /branch fork after its origin when both report the same createdAt (copied entries keep their timestamps)', () => {
+    const t = (h: number) => Date.UTC(2026, 9, 1, h);
+    // The fork is listed first and shares its origin's first timestamp; only its last write is later.
+    const todo = [
+      info('fork', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(6) }),
+      info('origin', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(todo, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+    const loose = [
+      info('fork', { createdAt: t(1), lastModified: t(6) }),
+      info('origin', { createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(loose, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+  });
+
   it('orders a thousand sessions newest folder first, oldest first within each folder', () => {
     const t0 = Date.UTC(2026, 0, 1);
     const all = Array.from({ length: 1000 }, (_, i) =>
