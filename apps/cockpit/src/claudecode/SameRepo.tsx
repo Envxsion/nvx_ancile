@@ -8,19 +8,21 @@
  *           |  as another notebook's folder (a worktree, a WSL and a
  *           |  Windows path, a link) shows one line saying so, with
  *           |  "Show together" (the sidebar keeps them side by side)
- *           |  and "Keep apart" (remembered). Nothing is merged by
- *           |  itself.
+ *           |  and "Keep apart" (remembered). Where Core can merge
+ *           |  notebooks (can_merge), "Merge notebooks" opens the
+ *           |  merge preview with the other notebook chosen. Nothing
+ *           |  is merged by itself.
  *  How      |  GET/POST /claude-code/notebooks/:id/same-repo, and
  *           |  GET /claude-code/notebook-links for the sidebar.
- *  Note     |  TODO(phase-3): "Merge notebooks" when Core says it can
- *           |  (can_merge, notebook merge in track C).
  * ------------------------------------------------------------------
  */
 
 import type { NotebookLinks, SameRepoChoice, SameRepoList, SameRepoMatch } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { openEditor } from '../editors/store';
 import { ApiCallError, api } from '../lib/api';
+import { useNotebooks } from '../lib/data';
 import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
@@ -119,6 +121,7 @@ async function choose(notebookId: string, m: SameRepoMatch, choice: SameRepoChoi
 /** The one line on a notebook whose folder is the same repository as another notebook's. */
 export function SameRepoHint({ notebookId }: { notebookId: string }) {
   const q = useSameRepo(notebookId);
+  const notebooks = useNotebooks();
   const [busy, setBusy] = useState(false);
   const m = q.data?.items.find((x) => !x.together);
   if (!m) return null;
@@ -134,7 +137,25 @@ export function SameRepoHint({ notebookId }: { notebookId: string }) {
         {sameRepoLine(m)}
       </span>
       <span className="same-repo__acts">
-        {/* TODO(phase-3): "Merge notebooks" here once q.data.can_merge (notebook merge, track C). */}
+        {q.data?.can_merge ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={busy}
+            onClick={() =>
+              openEditor({
+                kind: 'merge',
+                into: {
+                  id: notebookId,
+                  title: notebooks.data?.find((n) => n.id === notebookId)?.title ?? 'this notebook',
+                },
+                from: m.notebook_id,
+              })
+            }
+          >
+            Merge notebooks
+          </button>
+        ) : null}
         <button
           type="button"
           className="btn btn--ghost btn--sm"

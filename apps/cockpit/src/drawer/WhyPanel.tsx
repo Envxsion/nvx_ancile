@@ -93,6 +93,7 @@ export function Retrieval({ x }: { x: Explain }) {
             >
               [{h.marker}] {h.source_title}
               {h.page != null ? `, p. ${h.page}` : ''}
+              {h.via ? <span className="mute why__via"> · from {h.via.notebook_title}</span> : null}
             </button>
             <span
               className="mute why__ranks"
@@ -113,6 +114,39 @@ export function Retrieval({ x }: { x: Explain }) {
         </p>
       ) : null}
     </>
+  );
+}
+
+const LINK_STATE: Record<Explain['links'][number]['state'], string> = {
+  used: 'Used',
+  empty: 'Nothing matched',
+  refused: 'Not read',
+};
+
+/** Which links (and context packs) this answer drew on, and which a scope kept out. */
+export function LinksUsed({ links }: { links: Explain['links'] }) {
+  return (
+    <ul className="why__links">
+      {links.map((l) => (
+        <li key={`${l.link_id}-${l.to_id}`} data-state={l.state}>
+          <Icon
+            name={l.kind === 'pack' ? 'archive' : l.kind === 'summary' ? 'thread' : 'notebook'}
+            size={12}
+          />
+          <span className="why__link-title" dir="auto">
+            {l.kind === 'pack' ? 'Context pack' : l.kind === 'summary' ? 'Thread' : 'Notebook'} “{l.title}”
+          </span>
+          <span className="mute why__link-via">
+            {l.via === 'notebook' ? 'linked on the notebook' : 'linked here'}
+          </span>
+          <span className="why__link-state">
+            {LINK_STATE[l.state]}
+            {l.state === 'used' && l.passages ? ` · ${l.passages} passages, ${l.cited} cited` : ''}
+          </span>
+          {l.reason ? <span className="mute why__link-reason">{l.reason}</span> : null}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -367,6 +401,12 @@ function Live({
       <Section title="Sources it read">
         <Retrieval x={x} />
       </Section>
+
+      {x.links.length ? (
+        <Section title="Context links">
+          <LinksUsed links={x.links} />
+        </Section>
+      ) : null}
 
       <Section title="Tools and decisions">
         {x.tools.length === 0 ? (

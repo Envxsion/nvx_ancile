@@ -17,7 +17,11 @@ import { create } from 'zustand';
 export type Editor =
   | { kind: 'scope'; level: 'notebook' | 'thread'; id: string }
   | { kind: 'instructions'; level: 'notebook' | 'thread'; id: string }
-  | { kind: 'new-claude-code'; notebookId: string | null; cwd: string | null };
+  | { kind: 'new-claude-code'; notebookId: string | null; cwd: string | null }
+  /** Context links of a thread or notebook (docs/notebooks.md). */
+  | { kind: 'links'; level: 'notebook' | 'thread'; id: string; title: string; notebookId: string | null }
+  /** Merge another notebook into this one, optionally with it chosen already. */
+  | { kind: 'merge'; into: { id: string; title: string }; from: string | null };
 
 interface EditorsState {
   open: Editor | null;

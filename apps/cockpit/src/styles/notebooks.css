@@ -1,0 +1,193 @@
+/* Notebook merge, context links and the context packs card (docs/notebooks.md). Tokens only. */
+
+.dialog.nbm,
+.dialog.ctx-links {
+  width: min(640px, calc(100vw - 32px));
+  top: 7vh;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.nbm__preview {
+  display: grid;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.nbm__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--d-short) var(--ease);
+}
+.nbm__row:hover {
+  background: var(--chalk);
+}
+.nbm__glyph {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  color: var(--fg-2);
+}
+.nbm__row-title {
+  margin: 0;
+  font-weight: 560;
+}
+.nbm__row-detail {
+  margin-top: 2px;
+  font-size: var(--t-small);
+}
+.nbm__scope {
+  width: 100%;
+  margin: 4px 0 2px;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+.nbm__scope th,
+.nbm__scope td {
+  padding: 5px 8px;
+  border-top: 1px solid var(--hair);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.nbm__scope thead th {
+  border-top: 0;
+  color: var(--mute);
+  font-weight: 500;
+}
+.nbm__narrow {
+  color: var(--fg);
+  font-weight: 560;
+}
+.nbm__warnings {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: var(--r-sm);
+  background: rgb(var(--warn-rgb) / 0.08);
+  font-size: var(--t-small);
+}
+.nbm__warnings .icon {
+  color: var(--warn);
+}
+.nbm__error {
+  margin-top: 12px;
+  color: var(--fg-2);
+}
+.nbm__instructions {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+}
+.nbm__legend {
+  padding: 0 4px;
+  font-weight: 560;
+}
+.nbm__choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  cursor: pointer;
+}
+.nbm__choice input {
+  margin-top: 3px;
+  accent-color: var(--signal);
+}
+.nbm__quote {
+  display: block;
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nbm__combine {
+  display: grid;
+  gap: 8px;
+}
+
+/* History of merges on the notebook page */
+.nbm-history {
+  display: grid;
+  gap: 6px;
+}
+.nbm-history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  font-size: var(--t-small);
+}
+.nbm-history__what {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.nbm-history .btn {
+  margin-left: auto;
+}
+
+/* Context links */
+.ctx-links__group {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+.ctx-links__h {
+  margin: 0;
+  font-size: var(--t-small);
+  font-weight: 560;
+  color: var(--fg-2);
+}
+.ctx-links__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ctx-links__list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  font-size: var(--t-small);
+}
+.ctx-links__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-links__status {
+  grid-column: 2 / -1;
+  color: var(--warn);
+}
+.ctx-links__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+.ctx-links__add .field {
+  flex: 1 1 240px;
+}

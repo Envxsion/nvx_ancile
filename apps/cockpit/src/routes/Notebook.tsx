@@ -30,6 +30,7 @@ import { deleteNotebook, patchNotebook } from '../lib/notebooks';
 import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue } from '../lib/types';
+import { MergeHistory } from '../notebooks/MergeHistory';
 import { NOTEBOOK_HUES } from '../shell/NewNotebook';
 import { AddSources } from '../sources/AddSources';
 import { SourceCard } from '../sources/SourceCard';
@@ -171,6 +172,22 @@ export function NotebookScreen() {
       label: 'Instructions and persona',
       icon: 'note',
       onSelect: () => openEditor({ kind: 'instructions', level: 'notebook', id: nb.id }),
+    },
+    {
+      label: 'Context links',
+      icon: 'link',
+      onSelect: () =>
+        openEditor({ kind: 'links', level: 'notebook', id: nb.id, title: nb.title, notebookId: nb.id }),
+    },
+    {
+      label: 'Context packs',
+      icon: 'archive',
+      onSelect: () => void navigate({ to: '/admin/$section', params: { section: 'context-packs' } }),
+    },
+    {
+      label: 'Merge a notebook into this one',
+      icon: 'merge',
+      onSelect: () => openEditor({ kind: 'merge', into: { id: nb.id, title: nb.title }, from: null }),
     },
     // A notebook a Claude Code folder lands in: start a new session there.
     ...(folders.length
@@ -441,6 +458,8 @@ export function NotebookScreen() {
             )}
           </section>
         </div>
+
+        <MergeHistory notebookId={nb.id} />
       </div>
 
       {over ? (

@@ -30,6 +30,7 @@ import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { EmptyState, Kbd, Skeleton, StatusDot, Tip } from '../ui/primitives';
+import { ContextPacksLocked } from './ContextPacksLocked';
 import { EngineInsightsLocked } from './EngineInsightsLocked';
 
 export type ProFeatureId = proContract.ProFeature;
@@ -70,6 +71,15 @@ export const PRO_SURFACES: ProSurface[] = [
     icon: 'sparkle',
     group: 'Models',
     locked: EngineInsightsLocked,
+  },
+  {
+    id: 'context-packs',
+    feature: 'context_packs',
+    place: 'admin',
+    label: 'Context packs',
+    icon: 'archive',
+    group: 'Extend',
+    locked: ContextPacksLocked,
   },
 ];
 

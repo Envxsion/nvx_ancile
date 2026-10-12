@@ -595,6 +595,42 @@
 .why__retrieval li[data-cited] .why__cited {
   color: var(--gilt);
 }
+.why__links {
+  display: grid;
+  gap: 4px;
+}
+.why__links li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  font-size: var(--t-small);
+}
+.why__link-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.why__link-via,
+.why__link-reason {
+  grid-column: 2 / -1;
+}
+.why__link-state {
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--mute);
+}
+.why__links li[data-state='used'] .why__link-state {
+  color: var(--gilt);
+}
+.why__links li[data-state='refused'] .why__link-state {
+  color: var(--warn);
+}
 .why__usage {
   display: flex;
   flex-wrap: wrap;

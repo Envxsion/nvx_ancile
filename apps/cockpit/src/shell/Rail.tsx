@@ -173,6 +173,18 @@ const ThreadRow = memo(function ThreadRow({
       icon: 'note',
       onSelect: () => openEditor({ kind: 'instructions', level: 'thread', id: t.id }),
     },
+    {
+      label: 'Context links',
+      icon: 'link',
+      onSelect: () =>
+        openEditor({
+          kind: 'links',
+          level: 'thread',
+          id: t.id,
+          title: t.title,
+          notebookId: t.notebookId ?? null,
+        }),
+    },
     ...(t.fromClaudeCode
       ? [
           {
