@@ -10,7 +10,9 @@
  How      |  Sources, notebook links, duplicates and maintenance live
           |  in sources/routes.py and are mounted here, so the token
           |  check covers them. Search is here, and /embeddings: the
-          |  model search reads and a background re-embed's progress.
+          |  model search reads and a background re-embed's progress;
+          |  /embeddings/local and /embeddings/prepare check for and
+          |  fetch a fastembed model (Core's one-click download).
  Note     |  TODO(phase-5): /tags/recompute and /transformations/run
           |  answer 501 in the standard error shape until then.
 ------------------------------------------------------------------
@@ -27,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import jobs
 from .errors import AncileError
-from .ingest import reembed
+from .ingest import embed, reembed
 from .search import evidence as evidence_service
 from .search import service as search_service
 from .settings import get_settings
@@ -145,6 +147,25 @@ async def embeddings_check() -> dict[str, Any]:
     out = await asyncio.to_thread(reembed.check)
     jobs.wake_worker()
     return out
+
+
+LocalModelName = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")]
+
+
+class PrepareEmbedderRequest(BaseModel):
+    model: LocalModelName
+
+
+@router.get("/embeddings/local")
+def embeddings_local(model: LocalModelName) -> dict[str, Any]:
+    """Whether a fastembed model is on this computer already (Core's local models list). Never downloads."""
+    return embed.local_embedder_status(model)
+
+
+@router.post("/embeddings/prepare")
+async def embeddings_prepare(body: PrepareEmbedderRequest) -> dict[str, Any]:
+    """Download a fastembed model with fastembed's own downloader, and load it (Core's one-click download)."""
+    return await asyncio.to_thread(embed.prepare_local_embedder, body.model)
 
 
 @router.post("/tags/recompute")

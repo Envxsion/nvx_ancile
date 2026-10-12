@@ -17,6 +17,7 @@ export * from './ids';
 export * from './interpreter';
 export * from './knowledge';
 export * as license from './license';
+export * from './localmodels';
 export * from './mcp';
 export * from './memory';
 export * from './messages';

@@ -205,3 +205,58 @@ def try_get_embedder(*, download: bool = False) -> Embedder | None:
         return get_embedder(download=download)
     except AncileError:
         return None
+
+
+# ---- one-click download (Admin → Models → Download a local model) ----------------
+
+_installed: set[str] = set()
+
+
+def local_embedder_status(model_name: str) -> dict[str, object]:
+    """Whether a fastembed model is already in the cache. Never downloads."""
+    from ..settings import get_settings
+
+    settings = get_settings()
+    downloadable = fastembed_available() and settings.model_download
+    if model_name in _installed:
+        return {"model": model_name, "installed": True, "downloadable": downloadable}
+    installed = False
+    if fastembed_available():
+        try:
+            loaded = LocalEmbedder(model_name, str(settings.model_cache), local_only=True)
+            with _lock:
+                _by_key.setdefault(loaded.model_key, loaded)
+            _installed.add(model_name)
+            installed = True
+        except Exception:
+            installed = False
+    return {"model": model_name, "installed": installed, "downloadable": downloadable}
+
+
+def prepare_local_embedder(model_name: str) -> dict[str, object]:
+    """Fetch a fastembed model into the cache (fastembed's own download) and load it once."""
+    from ..settings import get_settings
+
+    settings = get_settings()
+    if not fastembed_available():
+        raise unavailable("fastembed is not installed (uv sync --extra embed)")
+    if not settings.model_download:
+        raise AncileError(
+            "embed.download_off",
+            "Downloading models is switched off for the knowledge service",
+            "Set KNOWLEDGE_MODEL_DOWNLOAD=true, or put the model in KNOWLEDGE_MODEL_CACHE yourself.",
+            status=409,
+            error_class="permanent",
+        )
+    cache = settings.model_cache
+    cache.mkdir(parents=True, exist_ok=True)
+    try:
+        loaded = LocalEmbedder(model_name, str(cache), local_only=False)
+    except Exception as exc:
+        log.warning("embedder download failed", model=model_name, error=type(exc).__name__)
+        raise unavailable(f"{model_name}: {type(exc).__name__}") from exc
+    with _lock:
+        _by_key[loaded.model_key] = loaded
+    _installed.add(model_name)
+    log.info("embedder downloaded", model=loaded.model_key, dim=loaded.dim)
+    return {"model_key": loaded.model_key, "dim": loaded.dim}

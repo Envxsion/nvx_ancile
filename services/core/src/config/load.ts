@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import {
   AutomationsFile,
   FactcheckFile,
+  LocalModelsFile,
   McpFile,
   MemoryFile,
   ModelsFile,
@@ -40,6 +41,7 @@ const FILES = {
   automations: { file: 'automations.yaml', schema: AutomationsFile, required: false },
   factcheck: { file: 'factcheck.yaml', schema: FactcheckFile, required: false },
   retrieval: { file: 'retrieval.yaml', schema: RetrievalFile, required: false },
+  localModels: { file: 'local-models.yaml', schema: LocalModelsFile, required: false },
 } as const;
 
 type Files = typeof FILES;

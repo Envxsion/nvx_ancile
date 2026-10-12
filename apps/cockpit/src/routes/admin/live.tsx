@@ -25,6 +25,7 @@ import { shortResource } from '../../lib/mappers';
 import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
 import { ModelMenu } from '../../models/EditModel';
+import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
 import { notify } from '../../state/notify';
 import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
@@ -247,6 +248,7 @@ const STATUS_WORDS = { ready: 'Ready', needs_key: 'Needs its key', disabled: 'Of
 export function LiveModels() {
   const models = useModels({ all: true });
   const showAdd = useAddModel((s) => s.show);
+  const showLocal = useLocalModelsDialog((s) => s.show);
   if (models.isPending) return <Skeleton lines={6} label="Loading models" />;
   if (models.isError && !models.data)
     return <LoadFailed error={models.error} what="Models" onRetry={() => void models.refetch()} />;
@@ -257,12 +259,19 @@ export function LiveModels() {
           Models from config/models.yaml, your GPU nodes, and any you add: OpenRouter, your own server, or a
           provider's model id. A model with no key is skipped by routing, never tried and failed.
         </p>
-        <button type="button" className="btn btn--primary btn--sm" onClick={() => showAdd()}>
-          <Icon name="plus" size={14} />
-          Add a model
-        </button>
+        <div className="admin__bar-actions">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => showLocal()}>
+            <Icon name="download" size={14} />
+            Download a local model
+          </button>
+          <button type="button" className="btn btn--primary btn--sm" onClick={() => showAdd()}>
+            <Icon name="plus" size={14} />
+            Add a model
+          </button>
+        </div>
       </div>
       <AddModelDialog />
+      <LocalModelsDialog />
       <ul className="rows">
         {(models.data ?? []).map((m) => (
           <li

@@ -1,0 +1,142 @@
+# =============================================================================
+#  Local models: the recommended list behind Admin → Models → Download a
+#  local model (docs/models.md#download-a-local-model).
+#  Schema: packages/contracts/src/localmodels.ts → LocalModelsFile
+#  Optional: without this file the download list is empty.
+#
+#  Sizes are the download as the publisher lists it, rounded up. ram_gb is
+#  what the model needs to run on the processor alone (weights plus room for
+#  a working context); vram_gb is what it needs to run fully on a graphics
+#  card. Both are deliberately on the generous side: a model that only just
+#  fits is slow. via: ollama is fetched with Ollama's own pull; via:
+#  fastembed is the search embedder, fetched by the Knowledge service.
+# =============================================================================
+version: 1
+models:
+  - id: qwen3-8b
+    name: Qwen3 8B
+    via: ollama
+    source: "qwen3:8b"
+    size_gb: 5.2
+    ram_gb: 10
+    vram_gb: 7
+    licence: Apache 2.0
+    licence_url: https://www.apache.org/licenses/LICENSE-2.0
+    good_for: Everyday questions, drafting and tool use on an ordinary laptop with 16 GB of memory.
+    context_window: 40960
+    capabilities: [tools, json, reasoning]
+    family: qwen
+    recommended: true
+
+  - id: qwen3-4b
+    name: Qwen3 4B
+    via: ollama
+    source: "qwen3:4b"
+    size_gb: 2.6
+    ram_gb: 6
+    vram_gb: 4
+    licence: Apache 2.0
+    licence_url: https://www.apache.org/licenses/LICENSE-2.0
+    good_for: Quick answers and summaries on a machine with 8 GB of memory.
+    context_window: 40960
+    capabilities: [tools, json, reasoning]
+    family: qwen
+
+  - id: qwen3-14b
+    name: Qwen3 14B
+    via: ollama
+    source: "qwen3:14b"
+    size_gb: 9.3
+    ram_gb: 18
+    vram_gb: 12
+    licence: Apache 2.0
+    licence_url: https://www.apache.org/licenses/LICENSE-2.0
+    good_for: Longer reasoning and better writing when you have a graphics card with 12 GB or more.
+    context_window: 40960
+    capabilities: [tools, json, reasoning]
+    family: qwen
+
+  - id: gemma3-12b
+    name: Gemma 3 12B
+    via: ollama
+    source: "gemma3:12b"
+    size_gb: 8.1
+    ram_gb: 16
+    vram_gb: 11
+    licence: Gemma Terms of Use
+    licence_url: https://ai.google.dev/gemma/terms
+    good_for: Writing and reading images (screenshots, diagrams) on a 12 GB graphics card.
+    context_window: 131072
+    capabilities: [vision]
+    family: gemma
+
+  - id: llama3-2-3b
+    name: Llama 3.2 3B
+    via: ollama
+    source: "llama3.2:3b"
+    size_gb: 2.0
+    ram_gb: 5
+    vram_gb: 3
+    licence: Llama 3.2 Community Licence
+    licence_url: https://www.llama.com/llama3_2/license/
+    good_for: Small, fast helper work (titles, tags, short rewrites) on almost any computer.
+    context_window: 131072
+    capabilities: [tools]
+    family: llama
+
+  - id: phi4-14b
+    name: Phi-4 14B
+    via: ollama
+    source: "phi4:14b"
+    size_gb: 9.1
+    ram_gb: 18
+    vram_gb: 12
+    licence: MIT
+    licence_url: https://opensource.org/license/mit
+    good_for: Maths, logic and careful step-by-step answers.
+    context_window: 16384
+    capabilities: [json]
+    family: phi
+
+  - id: qwen2-5-coder-7b
+    name: Qwen2.5 Coder 7B
+    via: ollama
+    source: "qwen2.5-coder:7b"
+    size_gb: 4.7
+    ram_gb: 9
+    vram_gb: 6
+    licence: Apache 2.0
+    licence_url: https://www.apache.org/licenses/LICENSE-2.0
+    good_for: Reading and writing code without sending it anywhere.
+    context_window: 32768
+    capabilities: [tools, json]
+    family: qwen
+
+  - id: gpt-oss-20b
+    name: gpt-oss 20B
+    via: ollama
+    source: "gpt-oss:20b"
+    size_gb: 14
+    ram_gb: 24
+    vram_gb: 16
+    licence: Apache 2.0
+    licence_url: https://www.apache.org/licenses/LICENSE-2.0
+    good_for: Strong general reasoning and tool use on a 16 GB graphics card or a 32 GB Mac.
+    context_window: 131072
+    capabilities: [tools, json, reasoning]
+    family: gpt-oss
+
+  - id: bge-small-en
+    name: BGE small (English search)
+    kind: embedder
+    via: fastembed
+    source: BAAI/bge-small-en-v1.5
+    size_gb: 0.07
+    ram_gb: 1
+    licence: MIT
+    licence_url: https://opensource.org/license/mit
+    good_for: Searching your sources by meaning, on this computer. This is the default embedder.
+    context_window: 512
+    capabilities: [embeddings]
+    family: bge
+    recommended: true
