@@ -31,6 +31,7 @@ import './styles/ops.css';
 import './styles/repos.css';
 import './styles/engines.css';
 import './styles/auto.css';
+import './styles/code.css';
 
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';

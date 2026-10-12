@@ -21,6 +21,7 @@ import { type CSSProperties, useEffect } from 'react';
 import { ActivityHost } from '../activity/ActivityPanel';
 import { ApprovalDialog } from '../approvals/ApprovalDialog';
 import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
+import { FileEditorHost } from '../code/FileEditorHost';
 import { EditorsHost } from '../editors/EditorsHost';
 import { HelpCentre } from '../help/HelpCentre';
 import { TourOverlay } from '../help/TourOverlay';
@@ -221,6 +222,7 @@ export function AppShell() {
       <ClaudeCodeSessionsHost />
       <ActivityHost />
       <EditorsHost />
+      <FileEditorHost />
       <Toaster />
     </div>
   );

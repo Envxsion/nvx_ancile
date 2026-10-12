@@ -23,6 +23,7 @@ import type { Part } from '@nvx/contracts';
 import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { AutoRanBadge } from '../auto/AutoCards';
+import { OpenInEditor } from '../code/OpenInEditor';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
 import type { SubagentView } from '../lib/types';
@@ -505,18 +506,29 @@ function Failure({ result }: { result: ToolResult }) {
   );
 }
 
+/** The file a Read, Edit or Write step is about. */
+const stepPath = (a: Args): string | null =>
+  s(a.file_path) ?? s(a.path) ?? s(a.filePath) ?? s(a.notebook_path);
+
 function ReadBody({ a, result }: { a: Args; result: ToolResult | undefined }) {
+  const cwd = useContext(ToolCwd);
   const text = resultText(result);
   const { code, numbers } = useMemo(() => stripGutter(text), [text]);
   if (!result) return null;
   if (!result.ok) return <Failure result={result} />;
   if (!text.trim()) return <p className="tstep__note">The file is empty.</p>;
   const path = s(a.file_path) ?? s(a.path) ?? s(a.filePath);
-  return <CodeBlock code={code} lang={langOfPath(path)} numbers={numbers ?? true} />;
+  return (
+    <>
+      <CodeBlock code={code} lang={langOfPath(path)} numbers={numbers ?? true} />
+      <OpenInEditor path={path} cwd={cwd} />
+    </>
+  );
 }
 
 function EditBody({ kind, a, result }: { kind: Kind; a: Args; result: ToolResult | undefined }) {
   const rows = useMemo(() => editRows(kind, a), [kind, a]);
+  const cwd = useContext(ToolCwd);
   return (
     <>
       {a.replace_all === true ? <p className="tstep__note">Every occurrence</p> : null}
@@ -526,6 +538,7 @@ function EditBody({ kind, a, result }: { kind: Kind; a: Args; result: ToolResult
         <p className="tstep__note">No changes recorded.</p>
       )}
       {result && !result.ok ? <Failure result={result} /> : null}
+      <OpenInEditor path={stepPath(a)} cwd={cwd} tool={kind} args={a} />
     </>
   );
 }
@@ -534,6 +547,7 @@ const WRITE_LINES = 40;
 
 function WriteBody({ a, result }: { a: Args; result: ToolResult | undefined }) {
   const [all, setAll] = useState(false);
+  const cwd = useContext(ToolCwd);
   const content = (s(a.content) ?? '').replace(/\n$/, '');
   const lines = content ? content.split('\n') : [];
   const rows: DiffLine[] = (all ? lines : lines.slice(0, WRITE_LINES)).map((text, i) => ({
@@ -554,6 +568,7 @@ function WriteBody({ a, result }: { a: Args; result: ToolResult | undefined }) {
         </button>
       ) : null}
       {result && !result.ok ? <Failure result={result} /> : null}
+      <OpenInEditor path={stepPath(a)} cwd={cwd} tool="write" args={a} />
     </>
   );
 }
