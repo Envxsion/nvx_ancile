@@ -113,6 +113,8 @@ export interface ProviderEndpoints {
   controllerUrl?: string | undefined;
   controllerToken?: string | undefined;
   ollamaUrl?: string | undefined;
+  /** The fetch OpenAI-compatible providers use (tests). */
+  fetch?: typeof fetch;
 }
 
 export const DEFAULT_SECRET: Record<string, string> = {
@@ -150,6 +152,9 @@ export async function languageModelFor(
       name: 'controller',
       baseURL: `${ep.controllerUrl.replace(/\/$/, '')}/v1`,
       ...(!!ep.controllerToken && { apiKey: ep.controllerToken }),
+      // Token counts in a streamed answer come only when asked for (stream_options.include_usage).
+      includeUsage: true,
+      ...(ep.fetch && { fetch: ep.fetch }),
     })(m.provider_model);
   }
 
@@ -181,6 +186,9 @@ export async function languageModelFor(
         includeUsage: true,
         name: 'ollama',
         baseURL: m.base_url ?? `${(ep.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
+        // Ollama sends its counts (prompt_eval_count, eval_count) as usage in a stream only when asked.
+        includeUsage: true,
+        ...(ep.fetch && { fetch: ep.fetch }),
       })(m.provider_model);
     default:
       if (!m.base_url)
