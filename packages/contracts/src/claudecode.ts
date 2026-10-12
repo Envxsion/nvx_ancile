@@ -365,3 +365,16 @@ export const ClaudeCodeLiveState = z.object({
     .nullable(),
 });
 export type ClaudeCodeLiveState = z.infer<typeof ClaudeCodeLiveState>;
+
+/** The background import of Claude Code sessions, while one runs. */
+export const ImportProgress = z
+  .object({
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    /** The folder (last part) of the session being brought in now. */
+    project: z.string().nullable(),
+    /** Waiting while the person types. */
+    paused: z.boolean(),
+  })
+  .strict();
+export type ImportProgress = z.infer<typeof ImportProgress>;

@@ -1,3 +1,4 @@
+export * from './activity';
 export * from './api';
 export * from './auto';
 export * from './branching';

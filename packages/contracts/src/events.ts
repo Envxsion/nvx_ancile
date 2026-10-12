@@ -6,6 +6,7 @@
  * resumes exactly where it left off (DESIGN.md §4.1).
  */
 import { z } from 'zod';
+import { ImportProgress } from './claudecode';
 import { Attempt, ErrorClass } from './errors';
 import { Part, Usage } from './messages';
 
@@ -392,6 +393,14 @@ export const GlobalEvent = z.discriminatedUnion('type', [
     what: z.enum(['install', 'auth', 'sessions', 'thread', 'limits']),
     thread_id: z.string().optional(),
     detail: z.string().optional(),
+    /** A background import's progress (with `detail` "importing:<done>/<total>"); null once it ends. */
+    progress: ImportProgress.nullable().optional(),
+  }),
+  /** What is running moved (docs/activity.md): `running` rows now; GET /activity has them. */
+  z.object({
+    ...base,
+    type: z.literal('activity.changed'),
+    running: z.number().int().nonnegative(),
   }),
   z.object({
     ...base,
