@@ -289,7 +289,9 @@ describe("Claude Code's compaction in a mixed thread", () => {
     expect(isMixedThread(thread)).toBe(false);
     const pure = toMessageViews(thread);
     expect(pure.find((v) => v.id === 'cs')?.cc).toMatchObject({ kind: 'compact_summary' });
-    expect((pure.find((v) => v.id === 'cs')?.cc as { terminal?: boolean }).terminal).toBeUndefined();
+    expect(
+      (pure.find((v) => v.id === 'cs')?.cc as { terminal?: boolean } | undefined)?.terminal,
+    ).toBeUndefined();
 
     const mixed = [
       ...thread,
