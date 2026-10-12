@@ -15,8 +15,9 @@
  *           |  opens (or extends) a tool message. Reasoning, seams and
  *           |  citation markers are display-only and are not replayed.
  *           |  Per target: a model without tools gets past tool calls
- *           |  as text; images reach a model as their caption, marked.
- *           |  TODO(phase-5): real image input for vision models.
+ *           |  as text; a vision model gets a user's images as image
+ *           |  input (their bytes, loaded by the provider client before
+ *           |  this runs), any other model their caption, marked.
  *           |  The output is the AI SDK's ModelMessage shape, kept
  *           |  structural here so this file has no SDK import.
  * ------------------------------------------------------------------
@@ -38,9 +39,11 @@ type SdkContent =
         | { type: 'error-text'; value: string };
     };
 
+type UserContent = { type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string };
+
 export type SdkMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string | UserContent[] }
   | { role: 'assistant'; content: SdkContent[] }
   | { role: 'tool'; content: SdkContent[] };
 
@@ -112,6 +115,29 @@ function expandAssistant(parts: Part[]): SdkMessage[] {
 export interface TargetCaps {
   /** Without tools, past tool calls and results are replayed as text. */
   tools: boolean;
+  /** A vision model: images whose bytes are in `images` (by URL) go as image input. */
+  vision?: boolean;
+  images?: ReadonlyMap<string, { data: Uint8Array; mime: string }>;
+}
+
+/** A user message with images, for a vision model: text and pictures in their order. */
+function userContent(
+  parts: Part[],
+  images: ReadonlyMap<string, { data: Uint8Array; mime: string }>,
+): UserContent[] {
+  const out: UserContent[] = [];
+  for (const p of parts) {
+    const img = p.type === 'image' ? images.get(p.url) : undefined;
+    if (img) out.push({ type: 'image', image: img.data, mediaType: img.mime });
+    else {
+      const text = userText([p]);
+      if (!text) continue;
+      const last = out.at(-1);
+      if (last?.type === 'text') last.text += text;
+      else out.push({ type: 'text', text });
+    }
+  }
+  return out;
 }
 
 /** A tool exchange as plain text, for a model that cannot take tool parts. */
@@ -150,8 +176,11 @@ export function toSdkMessages(messages: ModelMessage[], caps: TargetCaps = { too
   for (const m of messages) {
     if (m.role === 'system') out.push({ role: 'system', content: m.content });
     else if (m.role === 'user') {
-      const text = m.parts ? userText(m.parts) : m.content;
-      out.push({ role: 'user', content: text });
+      const seen =
+        caps.vision && caps.images && m.parts?.some((p) => p.type === 'image' && caps.images?.has(p.url));
+      if (seen && m.parts && caps.images)
+        out.push({ role: 'user', content: userContent(m.parts, caps.images) });
+      else out.push({ role: 'user', content: m.parts ? userText(m.parts) : m.content });
     } else if (m.role === 'assistant') {
       if (m.parts) out.push(...expandAssistant(caps.tools ? m.parts : toolsAsText(m.parts)));
       else if (m.content) out.push({ role: 'assistant', content: [{ type: 'text', text: m.content }] });

@@ -1,0 +1,32 @@
+# =============================================================================
+#  Image providers for image_generate (docs/images.md).
+#  Schema: packages/contracts/src/images.ts → ImagesFile
+#  A cloud provider is ready once its key is stored (Settings → API keys).
+#  A local one (Automatic1111 or Forge started with --api) is ready once its
+#  address is set here. Private and local-only notebooks use local ones only.
+# =============================================================================
+version: 1
+providers:
+  - id: openai
+    display_name: OpenAI images
+    api: openai
+    kind: cloud
+    model: gpt-image-1
+    price_usd: 0.04          # an estimate per 1024x1024 image; the API does not say
+  - id: openrouter
+    display_name: OpenRouter images
+    api: openrouter
+    kind: cloud
+    model: google/gemini-2.5-flash-image
+  # - id: local
+  #   display_name: Forge on this computer
+  #   api: a1111
+  #   kind: local
+  #   model: default
+  #   base_url: http://127.0.0.1:7860
+  # - id: pod
+  #   display_name: Forge on my RunPod node
+  #   api: a1111
+  #   kind: node
+  #   model: default
+  #   base_url: https://<pod-id>-7860.proxy.runpod.net

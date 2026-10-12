@@ -18,7 +18,13 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodeEffort, EngineCapabilities, EngineKind, SendTurnResult } from '@nvx/contracts';
+import type {
+  ClaudeCodeEffort,
+  EngineCapabilities,
+  EngineKind,
+  ImagePart,
+  SendTurnResult,
+} from '@nvx/contracts';
 import type { ThreadRecord } from '../threads/repo';
 
 export interface EngineTurn {
@@ -32,6 +38,8 @@ export interface EngineTurn {
   requestedModelId: string | null;
   effort?: ClaudeCodeEffort | null;
   sourceIds?: string[];
+  /** Images attached to this turn (core.images ids), already checked against the model. */
+  images?: ImagePart[];
   asBranch?: boolean;
   taskClass?: string;
   idempotencyKey: string;

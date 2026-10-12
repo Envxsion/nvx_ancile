@@ -54,6 +54,7 @@ import {
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
   type EngineContextReport,
+  type ImagePart,
   type Part,
   type RetrievalTrace,
   type SearchHit,
@@ -126,6 +127,8 @@ export interface ClaudeCodeCheckpoint {
   userMessageId: string;
   assistantMessageId: string;
   text: string;
+  /** Images attached to the prompt (core.images ids), sent to Claude Code as image input. */
+  imageIds?: string[];
   /** The uuid the prompt is sent with; Claude Code writes its transcript entry under it. */
   promptUuid: string;
   /** The session the turn resumes (the one forked from, for a fork). */
@@ -228,6 +231,11 @@ export interface LiveServiceView {
 }
 
 export interface LiveDeps {
+  /** Images a turn carries (images/service.ts): their parts, and their bytes for Claude Code. */
+  images?: {
+    partsFor(threadId: string, ids: string[]): Promise<ImagePart[]>;
+    bytes(id: string): Promise<{ mime: string; data: string } | null>;
+  };
   workspaceId: string;
   userId: string;
   bridge: LiveBridge;
@@ -528,6 +536,16 @@ export class ClaudeCodeLive {
   }
 
   /** Is the session's folder still a folder on this computer? */
+  /** The bytes of a turn's images, base64, as Claude Code takes image input. */
+  private async imagesOf(ids: string[]): Promise<{ mime: string; data: string }[]> {
+    const out: { mime: string; data: string }[] = [];
+    for (const id of ids) {
+      const b = await this.deps.images?.bytes(id);
+      if (b) out.push(b);
+    }
+    return out;
+  }
+
   private async folderThere(cwd: string): Promise<boolean> {
     if (this.deps.folderExists) return this.deps.folderExists(cwd);
     return (await (this.deps.folderKind ?? folderKind)(cwd)) === 'dir';
@@ -656,6 +674,12 @@ export class ClaudeCodeLive {
     const info = pending ? null : await this.deps.sessionInfo(cc.session_id).catch(() => null);
     if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
 
+    // Images go with the prompt only when this Core can read them back for Claude Code.
+    const imageParts: ImagePart[] = req.image_ids?.length
+      ? this.deps.images
+        ? await this.deps.images.partsFor(thread.id, req.image_ids)
+        : []
+      : [];
     const msgs = await this.deps.threads.messages(thread.id);
     // parent_id null: from the start of the session (editing its first message). Claude Code
     // cannot fork before its first entry, so a new session starts in the same folder, bound to
@@ -718,7 +742,7 @@ export class ClaudeCodeLive {
       thread_id: thread.id,
       parent_id: parent?.id ?? null,
       role: 'user',
-      parts: [{ type: 'text', text: req.text }],
+      parts: [{ type: 'text', text: req.text }, ...imageParts],
       status: 'complete',
       trace_id: traceId,
       provenance: {
@@ -744,6 +768,7 @@ export class ClaudeCodeLive {
       userMessageId: userId,
       assistantMessageId: assistantId,
       text: req.text,
+      ...(imageParts.length && { imageIds: imageParts.flatMap((p) => (p.image_id ? [p.image_id] : [])) }),
       promptUuid,
       sessionId,
       resumeAt: fork ? resumeAt : null,
@@ -997,6 +1022,7 @@ export class ClaudeCodeLive {
         await ctx.once(0, 'claude_code_prompt', { promptUuid: cp.promptUuid }, async () => {
           await this.deps.bridge.send(handle, cp.prefix ? `${cp.prefix}\n\n${cp.text}` : cp.text, {
             uuid: cp.promptUuid,
+            ...(cp.imageIds?.length && { images: await this.imagesOf(cp.imageIds) }),
           });
           return true;
         });

@@ -16,10 +16,12 @@
  */
 
 import {
+  AncileError,
   CLAUDE_CODE_CONTEXT_NOTICE,
   CLAUDE_CODE_MODEL_PREFIX,
   type EffectiveScope,
   type EngineInfo,
+  type ImagePart,
   type SendTurnResult,
 } from '@nvx/contracts';
 import type { Sql } from 'postgres';
@@ -68,7 +70,7 @@ export class GatewayEngine implements Engine {
     const parentId = t.parentId === undefined ? (t.thread.active_head_id ?? null) : t.parentId;
     const r = await startTurn(this.deps, {
       thread: t.thread,
-      user: { parentId, parts: [{ type: 'text', text: t.text }] },
+      user: { parentId, parts: [{ type: 'text', text: t.text }, ...(t.images ?? [])] },
       ...(t.modelId !== null && { model: t.modelId }),
       ...(t.taskClass && { taskClass: t.taskClass }),
       mentions: (t.sourceIds ?? []).map((id) => ({ kind: 'source' as const, id })),
@@ -95,7 +97,8 @@ export class ClaudeCodeEngine implements Engine {
   ) {}
 
   capabilities() {
-    return { streaming: true, tools: true, images: false, own_context: true, context_window: null };
+    // Claude Code takes image input in its prompt (the bridge's image content blocks).
+    return { streaming: true, tools: true, images: true, own_context: true, context_window: null };
   }
 
   status() {
@@ -111,6 +114,7 @@ export class ClaudeCodeEngine implements Engine {
       ...(t.modelId && { model: t.modelId }),
       ...(t.effort && { effort: t.effort }),
       ...(t.sourceIds?.length && { source_ids: t.sourceIds }),
+      ...(t.images?.length && { image_ids: t.images.flatMap((p) => (p.image_id ? [p.image_id] : [])) }),
       ...(t.asBranch && { as_branch: true }),
       idempotency_key: t.idempotencyKey,
     });
@@ -131,6 +135,19 @@ export interface EnginesDeps {
   claudeCode: Engine;
   /** The thread's effective scope (scopes/getEffectiveScope). */
   scopeOf: (thread: ThreadRecord) => Promise<EffectiveScope>;
+  /** A turn's attached images (images/service.ts). */
+  images?: { partsFor(threadId: string, ids: string[]): Promise<ImagePart[]> };
+}
+
+/** The model chosen cannot see images: say so plainly instead of sending them as nothing. */
+export function noVision(model: string | null): AncileError {
+  return new AncileError({
+    code: 'image.model_no_vision',
+    title: `${model ?? 'The model answering here'} can't see images.`,
+    hint: 'Choose a model that reads images (marked vision in Admin → Models), or send the message without them.',
+    status: 422,
+    errorClass: 'permanent',
+  });
 }
 
 /** The engines a thread can use, and the one front door for a turn. */
@@ -172,16 +189,27 @@ export class Engines {
 
   async send(
     thread: ThreadRecord,
-    req: Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId'> & { model: string | null },
+    req: Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId' | 'images'> & {
+      model: string | null;
+      imageIds?: string[];
+    },
   ): Promise<SendTurnResult> {
     const s = selectEngine(thread, req.model, {
       registry: this.deps.registry,
       ...(req.taskClass && { taskClass: req.taskClass }),
     });
+    // The scope first: an image goes wherever the turn goes, so the engine and model checks cover it.
     await assertAllowed(this.deps.scopeOf, thread, s);
     const engine = s.mode === 'session' ? this.deps.claudeCode : this.deps.gateway;
+    const { imageIds, ...rest } = req;
+    let images: ImagePart[] = [];
+    if (imageIds?.length) {
+      if (!this.deps.images || !engine.capabilities(s.checkModel).images) throw noVision(s.checkModel);
+      images = await this.deps.images.partsFor(thread.id, imageIds);
+    }
     const r = await engine.start({
-      ...req,
+      ...rest,
+      ...(images.length && { images }),
       thread,
       modelId: s.mode === 'session' ? s.engineModel : s.modelId,
       requestedModelId: s.modelId,

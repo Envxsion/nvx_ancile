@@ -308,6 +308,8 @@ export const SendClaudeCodeRequest = z
      * somewhere else is never written to.
      */
     as_branch: z.boolean().optional(),
+    /** Images attached to this turn (docs/images.md); Claude Code receives them as image input. */
+    image_ids: z.array(z.string().max(60)).max(8).optional(),
     idempotency_key: z.string().min(8).max(200),
   })
   .strict();

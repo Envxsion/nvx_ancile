@@ -95,6 +95,10 @@ import { restartAdapterFor } from './health/restart';
 import { healthRoutes, recordHealth, systemHealthOf } from './health/routes';
 import { DEFAULT_SUPERVISOR, startSupervisor } from './health/supervisor';
 import { cockpitOrigins } from './http/guard';
+import { imageRoutes } from './images/routes';
+import { ImageService } from './images/service';
+import { ImageStore, PgImageRows } from './images/store';
+import { imageTool } from './images/tool';
 import { attachedFiles } from './interpreter/attached';
 import { interpreterRoutes } from './interpreter/routes';
 import { PyodideRuntime } from './interpreter/runtime';
@@ -373,8 +377,13 @@ async function main() {
   setInterval(() => void syncProvider(), 60_000).unref();
   // ---- end Phase 5 ----
   // Engines (docs/engines.md): Claude Code as a model registers its own client here once it is built.
+  // Images (docs/images.md): kept by content in the data folder; vision models read them by id.
+  const imageStore = new ImageStore(resolve(env.ANCILE_DATA_DIR, 'images'), new PgImageRows(sql));
   const routingClient = new RoutingClient(
-    new AiSdkClient(secrets, endpoints),
+    new AiSdkClient(secrets, endpoints, async (id) => {
+      const got = await imageStore.get(id);
+      return got ? { bytes: got.bytes, mime: got.record.mime } : null;
+    }),
     new FakeProvider({ wordDelayMs: 25 }),
   );
   const gateway = new Gateway({
@@ -535,6 +544,21 @@ async function main() {
     pythonTool(interpreter, attachedFiles({ threads, kn, scopes })),
     overrideFor(config.tools?.tools, 'code.run'),
   );
+  // image_generate (docs/images.md): a provider from config/images.yaml, behind the permission gate.
+  const images = new ImageService({
+    store: imageStore,
+    config: () => config.images,
+    secrets,
+    scopes,
+    threads,
+    onImage: (source, kind) => {
+      telemetry.feature(`image_${source}`);
+      if (kind) telemetry.feature(`image_provider_${kind}`);
+    },
+  });
+  await images.providers().catch(() => undefined);
+  tools.register(imageTool(images), overrideFor(config.tools?.tools, 'image.generate'));
+  setInterval(() => void imageStore.sweep().catch(() => undefined), 60 * 60_000).unref();
   // Passages per turn and per source (config/retrieval.yaml), and what became of cited sources (track G).
   const retrievalLimits = {
     k: config.retrieval?.k ?? DEFAULT_LIMITS.k,
@@ -746,6 +770,7 @@ async function main() {
     bus: events,
   });
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
+    images,
     limits: planLimits,
     workspaceId: owner.workspaceId,
     userId: owner.userId,
@@ -855,6 +880,7 @@ async function main() {
   const familyOf = (id: string | null) => (id ? (registry.get(id)?.family ?? null) : null);
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
   const engines: Engines = new Engines({
+    images,
     registry,
     gateway: new GatewayEngine({
       repo: threads,
@@ -1360,6 +1386,7 @@ async function main() {
         turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
       }),
       threadRoutes({
+        afterDelete: (id) => imageStore.deleteThread(id),
         repo: threads,
         runs: runStore,
         worker,
@@ -1542,6 +1569,7 @@ async function main() {
       }),
       artifactRoutes({ store: new PgArtifactStore(sql), threads, workspaceId: owner.workspaceId }),
       interpreterRoutes({ runtime: pyodide, service: interpreter, figures: interpreterFigures }),
+      imageRoutes({ images, threads, workspaceId: owner.workspaceId }),
     ],
     ...(env.NODE_ENV === 'production' && existsSync(cockpitDist) && { cockpitDist }),
   });

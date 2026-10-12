@@ -27,7 +27,13 @@ export const ImagePart = z.object({
   mime: z.string(),
   /** Generated caption, used for models without vision. */
   caption: z.string().optional(),
+  /** A stored image (core.images, docs/images.md); its url is then /api/v1/images/<id>. */
+  image_id: z.string().optional(),
+  alt: z.string().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
 });
+export type ImagePart = z.infer<typeof ImagePart>;
 export const ToolCallPart = z.object({
   type: z.literal('tool_call'),
   call_id: z.string(),

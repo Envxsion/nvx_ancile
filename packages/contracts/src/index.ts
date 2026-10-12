@@ -15,6 +15,7 @@ export * from './factcheck';
 export * from './files';
 export * from './flows';
 export * from './ids';
+export * from './images';
 export * from './interpreter';
 export * from './knowledge';
 export * as license from './license';

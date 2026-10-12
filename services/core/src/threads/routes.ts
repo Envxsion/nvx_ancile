@@ -74,6 +74,8 @@ export interface ThreadRouteDeps extends TurnDeps {
   notebookExists?: (id: string) => Promise<boolean>;
   /** Deleting a thread keeps its own flows as workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
+  /** After a thread is deleted (its images' files are swept, docs/images.md). */
+  afterDelete?: (threadId: string) => Promise<unknown>;
   /** One sender per thread across windows (send-lock.ts); absent: idempotency and the run index only. */
   sendLocks?: SendLocks;
 }
@@ -243,6 +245,7 @@ export function threadRoutes(deps: ThreadRouteDeps) {
     for (const run of await runs.activeForThread(t.id)) await deps.worker.cancel(run.id);
     await repo.deleteThread(t.id);
     await deps.flowStore?.orphan('thread', t.id);
+    await deps.afterDelete?.(t.id).catch(() => undefined);
     return c.body(null, 204);
   });
 

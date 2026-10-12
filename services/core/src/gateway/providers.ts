@@ -35,7 +35,33 @@ import {
   tool,
 } from 'ai';
 import { toSdkMessages } from './convert';
-import type { ModelClient, ModelRequest, StreamChunk } from './types';
+import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
+
+/** Reads a stored image's bytes by id (images/store.ts), for vision models. */
+export type ImageBytes = (id: string) => Promise<{ bytes: Buffer; mime: string } | null>;
+
+/** The bytes of every image in the users' messages, by URL: stored ones by id, data: URLs decoded. */
+export async function imagesFor(
+  messages: ModelMessage[],
+  read: ImageBytes | undefined,
+): Promise<Map<string, { data: Uint8Array; mime: string }>> {
+  const out = new Map<string, { data: Uint8Array; mime: string }>();
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    for (const p of m.parts ?? []) {
+      if (p.type !== 'image' || out.has(p.url)) continue;
+      const data = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(p.url);
+      if (data) {
+        out.set(p.url, { data: Buffer.from(data[2] as string, 'base64'), mime: data[1] as string });
+        continue;
+      }
+      if (!p.image_id || !read) continue;
+      const got = await read(p.image_id).catch(() => null);
+      if (got) out.set(p.url, { data: got.bytes, mime: got.mime });
+    }
+  }
+  return out;
+}
 
 export interface ProviderSecrets {
   /** Resolve a secret by name (from the encrypted store). */
@@ -135,14 +161,21 @@ export class AiSdkClient implements ModelClient {
   constructor(
     private readonly secrets: ProviderSecrets,
     private readonly endpoints: ProviderEndpoints,
+    private readonly images?: ImageBytes,
   ) {}
 
   async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     const model = await languageModelFor(m, this.secrets, this.endpoints);
+    const vision = m.capabilities.includes('vision');
+    const images = vision ? await imagesFor(req.messages, this.images) : undefined;
     const result = streamText({
       model,
       ...(req.system !== undefined && { system: req.system }),
-      messages: toSdkMessages(req.messages, { tools: m.capabilities.includes('tools') }) as SdkMessage[],
+      messages: toSdkMessages(req.messages, {
+        tools: m.capabilities.includes('tools'),
+        vision,
+        ...(images && { images }),
+      }) as SdkMessage[],
       ...(req.tools?.length && {
         tools: Object.fromEntries(
           req.tools.map((t) => [

@@ -83,6 +83,8 @@ export const SendTurnRequest = z
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).nullable().optional(),
     /** Source ids to ground this turn on. */
     source_ids: z.array(z.string()).max(50).optional(),
+    /** Images attached to this turn (POST /threads/:id/images); the model must see images (docs/images.md). */
+    image_ids: z.array(z.string().max(60)).max(8).optional(),
     /** Claude Code only: fork the session even from its latest message. */
     as_branch: z.boolean().optional(),
     /** Gateway only. */
