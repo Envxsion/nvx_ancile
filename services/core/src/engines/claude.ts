@@ -66,7 +66,7 @@ export async function summaryFor(
 
 export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
   return {
-    async plan({ thread, messages, parentId }): Promise<LiveTurnPlan> {
+    async plan({ thread, messages, parentId, fresh: restart }): Promise<LiveTurnPlan> {
       await deps.allow?.(thread, null);
       const cc = thread.settings.claude_code;
       const [summary, seen] = await Promise.all([
@@ -82,8 +82,9 @@ export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
         ...(deps.modelName && { names: deps.modelName }),
         cwd: cc?.cwd ?? null,
         ...(deps.budget !== undefined && { budget: deps.budget }),
+        ...(restart && { fresh: true }),
       });
-      const fresh = !!p.seed || (!p.anchor && parentId !== null);
+      const fresh = !!p.seed || (!p.anchor && parentId !== null) || restart === true;
       return {
         sessionId: p.sessionId,
         anchorId: p.anchor?.id ?? null,

@@ -41,12 +41,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { mkdir, realpath, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import {
   AncileError,
   CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
+  type ClaudeCodeFolderRequest,
+  type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
@@ -144,6 +147,10 @@ export interface ClaudeCodeCheckpoint {
   seedSummaryId?: string | null;
   /** Engines: provenance.engine_context for the answer. */
   engineContext?: EngineContextReport | null;
+  /** The new session becomes the thread's own (its folder was changed: fresh_next). */
+  rebind?: boolean;
+  /** Without files: Claude Code's own tools off, in NVX Ancile's empty folder. */
+  noFiles?: boolean;
 }
 
 /**
@@ -173,6 +180,8 @@ export interface LiveEngineHooks {
     thread: ThreadRecord;
     messages: MessageRecord[];
     parentId: string | null;
+    /** A new session must start (the folder changed): give it the thread so far. */
+    fresh?: boolean;
   }): Promise<LiveTurnPlan>;
   /** The appended system note: NVX Ancile's base note plus the thread's instructions and persona. */
   systemNote(a: { threadId: string; notebookId: string | null; base: string }): Promise<string>;
@@ -254,6 +263,8 @@ export interface LiveDeps {
   limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
   /** A Claude Code process outside NVX Ancile holding a session (holders.ts); absent: the 60 s rule only. */
   holders?: Pick<SessionHolders, 'holder'>;
+  /** The empty folder a thread that goes on without files runs in (made when first needed). */
+  noFilesDir?: string;
 }
 
 interface Turn {
@@ -490,6 +501,64 @@ export class ClaudeCodeLive {
     return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000 ? 'recent' : null;
   }
 
+  /** Is the session's folder still a folder on this computer? */
+  private async folderThere(cwd: string): Promise<boolean> {
+    if (this.deps.folderExists) return this.deps.folderExists(cwd);
+    return (await (this.deps.folderKind ?? folderKind)(cwd)) === 'dir';
+  }
+
+  /** NVX Ancile's own empty folder, for threads that go on without files. */
+  private async noFilesDir(): Promise<string> {
+    const dir = this.deps.noFilesDir ?? join(tmpdir(), 'nvx-ancile-no-folder');
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  /**
+   * The session's folder moved, was renamed or was deleted: point the
+   * thread at the folder where it is now (checked like a new thread's:
+   * a whole path, a folder that exists, not excluded, and inside what the
+   * notebook's scope allows), or go on without files. Either way the next
+   * turn starts a new session, given the thread so far.
+   */
+  async setFolder(threadId: string, req: ClaudeCodeFolderRequest): Promise<ClaudeCodeFolderResult> {
+    const thread = await this.thread(threadId);
+    const cc = thread.settings.claude_code;
+    if (!cc) throw ccErrors.notBound();
+    const active = (await this.deps.runs.activeForThread(thread.id))[0];
+    if (active) throw alreadyRunning(active.id);
+    let next: typeof cc;
+    if ('cwd' in req) {
+      const cwd = req.cwd.trim();
+      if (!isAbsolute(cwd) && !/^[a-zA-Z]:[\\/]/.test(cwd)) throw ccErrors.folderInvalid('relative');
+      const kind = await (this.deps.folderKind ?? folderKind)(cwd);
+      if (kind !== 'dir') throw ccErrors.folderInvalid(kind === 'missing' ? 'missing' : 'not_directory');
+      if (await this.deps.service.folderExcluded?.(cwd)) throw ccErrors.folderExcluded(cwd);
+      await this.deps.engines?.allowNew?.({
+        workspaceId: this.deps.workspaceId,
+        notebookId: thread.notebook_id,
+        cwd,
+      });
+      const { no_files: _off, ...rest } = cc;
+      next = { ...rest, cwd, fresh_next: true };
+    } else {
+      await this.noFilesDir();
+      next = { ...cc, no_files: true, fresh_next: true };
+    }
+    await this.deps.threads.patchThread(thread.id, { settings: { claude_code: next } });
+    // The open session (if any) belongs to the old folder.
+    const l = this.lives.get(thread.id);
+    if (l) {
+      await this.closeHandle(l);
+      l.cwd = next.no_files ? await this.noFilesDir() : (next.cwd ?? '');
+    }
+    log.info(
+      { thread_id: thread.id, no_files: next.no_files === true },
+      "a Claude Code thread's folder was changed",
+    );
+    return { cwd: next.cwd, no_files: next.no_files === true };
+  }
+
   /* ---- send -------------------------------------------------------------- */
 
   /**
@@ -543,8 +612,12 @@ export class ClaudeCodeLive {
 
     const thread = await this.thread(threadId);
     const cc = thread.settings.claude_code;
-    if (!cc?.cwd) throw ccErrors.noFolder();
-    if (this.deps.folderExists && !(await this.deps.folderExists(cc.cwd))) throw ccErrors.noFolder();
+    // Before every turn: the session's folder is still there (or the thread goes on without files).
+    const noFiles = cc?.no_files === true;
+    if (!noFiles && !cc?.cwd) throw ccErrors.noFolder();
+    if (!noFiles && cc?.cwd && !(await this.folderThere(cc.cwd))) throw ccErrors.folderMissing(cc.cwd);
+    if (!cc) throw ccErrors.notBound();
+    const cwd = noFiles ? await this.noFilesDir() : (cc.cwd as string);
     await this.deps.service.cliPath(); // installed and verified, or a clear error
     const active = (await this.deps.runs.activeForThread(thread.id))[0];
     if (active) throw alreadyRunning(active.id);
@@ -569,11 +642,18 @@ export class ClaudeCodeLive {
     const pc = parent?.provenance?.claude_code as CcProvenance | undefined;
     // Engines: a parent written by another model goes on from Claude Code's last message on
     // the path, with what the others said as a digest (engines/claude.ts).
+    // The folder was pointed somewhere new (or files turned off): a new session, given the thread so far.
+    const restart = cc.fresh_next === true;
     const plan = this.deps.engines
-      ? await this.deps.engines.plan({ thread, messages: msgs, parentId: parent?.id ?? null })
+      ? await this.deps.engines.plan({
+          thread,
+          messages: msgs,
+          parentId: parent?.id ?? null,
+          ...(restart && { fresh: true }),
+        })
       : null;
-    if (parent && !pc?.uuid && !plan) throw ccErrors.branchUnmapped();
-    const fresh = plan?.fresh === true || pending || fromStart;
+    if (parent && !pc?.uuid && !plan && !restart) throw ccErrors.branchUnmapped();
+    const fresh = plan?.fresh === true || pending || fromStart || restart;
     const sessionId = plan ? (plan.sessionId ?? cc.session_id) : (pc?.session_id ?? cc.session_id);
     const resumeAt = plan ? plan.resumeAt : pc?.uuid ? stripMarker(pc.uuid) : null;
     // Claude Code went on past the parent in the same session: carry on in a fork.
@@ -590,7 +670,7 @@ export class ClaudeCodeLive {
     // Open in a terminal (or an IDE) right now: never write to it; go on in a branch by itself.
     let branched: SendClaudeCodeResult['branched'];
     if (!fork && !fresh) {
-      const held = await this.heldElsewhere(sessionId, cc.cwd);
+      const held = await this.heldElsewhere(sessionId, cwd);
       if (held === 'process' && canFork) {
         fork = true;
         branched = 'open_in_terminal';
@@ -640,7 +720,7 @@ export class ClaudeCodeLive {
       sessionId,
       resumeAt: fork ? resumeAt : null,
       fork,
-      cwd: cc.cwd,
+      cwd,
       model: req.model ?? null,
       effort: req.effort ?? null,
       sourceIds: req.source_ids?.length ? req.source_ids : null,
@@ -651,6 +731,8 @@ export class ClaudeCodeLive {
         engineContext: fromStart ? null : plan.report,
       }),
       ...((plan || fresh) && { fresh }),
+      ...(restart && { rebind: true }),
+      ...(noFiles && { noFiles: true }),
     };
     try {
       await this.deps.runs.create({
@@ -721,6 +803,8 @@ export class ClaudeCodeLive {
       cwd: cp.cwd,
       ...(cp.model && { model: cp.model }),
       ...(effort && { effort }),
+      // Without files: none of Claude Code's own tools, and only the person's user settings.
+      ...(cp.noFiles && { tools: [], setting_sources: ['user' as const] }),
       permission_mode: 'default',
       append_system_prompt: note,
       ...(this.deps.mcp && {
@@ -791,6 +875,7 @@ export class ClaudeCodeLive {
         },
       };
     const l = this.live(thread);
+    if (!l.turn) l.cwd = cp.cwd; // the folder may have changed since the thread was first opened
     if (l.turn)
       return {
         kind: 'failed',
@@ -982,14 +1067,17 @@ export class ClaudeCodeLive {
       await threads.updateMessage(cp.userMessageId, {
         provenance: { claude_code: { session_id: sessionId, uuid: cp.promptUuid, uuids: [cp.promptUuid] } },
       });
-      // A thread started in NVX Ancile: the session Claude Code just started is the thread's own.
-      if (isPendingSession(cp.sessionId) && !isPendingSession(sessionId)) {
+      // A thread started in NVX Ancile, or one whose folder was changed: the session Claude Code
+      // just started is the thread's own.
+      if ((isPendingSession(cp.sessionId) || cp.rebind) && !isPendingSession(sessionId)) {
         const t = await threads.getThread(cp.threadId);
         const bound = t?.settings.claude_code;
-        if (bound && isPendingSession(bound.session_id))
+        if (bound && (isPendingSession(bound.session_id) || (cp.rebind && bound.fresh_next))) {
+          const { fresh_next: _done, ...rest } = bound;
           await threads.patchThread(cp.threadId, {
-            settings: { claude_code: { ...bound, session_id: sessionId } },
+            settings: { claude_code: { ...rest, session_id: sessionId } },
           });
+        }
       }
     }
 
@@ -1591,10 +1679,13 @@ export class ClaudeCodeLive {
         };
     }
     const held = cc?.session_id ? await this.heldElsewhere(cc.session_id, cc.cwd) : null;
+    const noFiles = cc?.no_files === true;
     return {
       state: l?.turn ? 'working' : (l?.state ?? 'idle'),
       locked_elsewhere: held !== null,
       open_in_terminal: held === 'process',
+      folder_missing: !!cc?.cwd && !noFiles && !(await this.folderThere(cc.cwd)),
+      no_files: noFiles,
       model: l?.model ?? null,
       effort: l?.effort ?? null,
       permission_mode: l?.permissionMode ?? null,
@@ -1613,7 +1704,9 @@ export class ClaudeCodeLive {
    */
   async commands(threadId: string, opts: { wait?: boolean } = {}): Promise<CommandList> {
     const thread = await this.thread(threadId);
-    const cwd = thread.settings.claude_code?.cwd;
+    const cwd = thread.settings.claude_code?.no_files
+      ? await this.noFilesDir()
+      : thread.settings.claude_code?.cwd;
     if (!cwd) throw ccErrors.noFolder();
     const cli = await this.deps.service.cliPath();
     const key = `${cli.version}|${cwd}`;

@@ -235,6 +235,12 @@ function reportSendFailure(threadId: string, error: unknown, retry: CcRetry): vo
       patchCc(threadId, { notice: { kind: 'busy', retry } });
       return;
     }
+    if (code === 'claude_code.folder_missing') {
+      const cwd = queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode?.cwd ?? null;
+      patchCc(threadId, { notice: { kind: 'folder_missing', cwd, retry } });
+      refreshLive(threadId);
+      return;
+    }
     const kind = FIXABLE[code as keyof typeof FIXABLE];
     if (kind) {
       patchCc(threadId, { notice: { kind, title, hint } });

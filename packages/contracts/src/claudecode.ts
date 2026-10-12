@@ -257,6 +257,26 @@ export const CreateClaudeCodeThreadResult = z.object({
 export type CreateClaudeCodeThreadResult = z.infer<typeof CreateClaudeCodeThreadResult>;
 
 /**
+ * POST /claude-code/threads/:id/folder: the session's folder moved, was
+ * renamed or was deleted. Either point the thread at the folder where it
+ * is now (absolute, existing, allowed by the notebook's scope), or go on
+ * without files. Either way the next turn starts a new Claude Code
+ * session, given the thread so far; the new path is kept on the thread.
+ */
+export const ClaudeCodeFolderRequest = z.union([
+  z.object({ cwd: z.string().min(1).max(1000) }).strict(),
+  z.object({ without_files: z.literal(true) }).strict(),
+]);
+export type ClaudeCodeFolderRequest = z.infer<typeof ClaudeCodeFolderRequest>;
+
+export const ClaudeCodeFolderResult = z.object({
+  /** The folder the thread runs in now (the one it came from, when without files). */
+  cwd: z.string().nullable(),
+  no_files: z.boolean(),
+});
+export type ClaudeCodeFolderResult = z.infer<typeof ClaudeCodeFolderResult>;
+
+/**
  * GET /claude-code/threads/:id/commands. Answers at once: until Claude
  * Code's own list has been read for that folder, `items` holds the
  * built-ins and `partial` is true; ask again shortly for the whole list.

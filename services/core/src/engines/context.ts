@@ -329,6 +329,11 @@ export function planClaudeTurn(opts: {
   names?: (id: string | null) => string | null;
   cwd?: string | null;
   budget?: number;
+  /**
+   * A new session must start whatever the path holds (the session's folder
+   * was changed): it is given the thread so far, like one joining it.
+   */
+  fresh?: boolean;
 }): ClaudeTurnPlan {
   const path = opts.parentId ? pathTo(opts.messages, opts.parentId) : [];
   let a = -1;
@@ -353,7 +358,7 @@ export function planClaudeTurn(opts: {
     path.some((m) => m.id === summary.uptoMessageId) &&
     !(sessionId && opts.seen(sessionId, summary.id));
   // With no Claude Code message on the path at all (and a parent), there is no session place to go on from.
-  const noPlace = !anchor && path.length > 0;
+  const noPlace = (!anchor || opts.fresh === true) && path.length > 0;
   if (summary && (seedable || noPlace)) {
     const i = path.findIndex((m) => m.id === summary.uptoMessageId);
     const since = i >= 0 ? path.slice(i + 1) : path;

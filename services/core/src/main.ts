@@ -553,6 +553,7 @@ async function main() {
     approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
     folderExists: async (cwd) => existsSync(cwd),
     holders: claudeCode.holders,
+    noFilesDir: claudeCode.noFilesDir,
     engines: claudeHooks({
       threads,
       branches: branchStore,

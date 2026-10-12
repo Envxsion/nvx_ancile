@@ -290,6 +290,63 @@ describe('when Claude Code refuses', () => {
     );
   });
 
+  it('folder gone: Continue without files is kept on the thread, then your message goes', async () => {
+    seedThread();
+    mocked.post.mockRejectedValueOnce(
+      apiErr(409, 'claude_code.folder_missing', "This session's folder has moved or been deleted", 'Point.'),
+    );
+    expect(await sendClaudeCode({ threadId: 'thr_1', parentId: 'm4', text: 'Carry on' })).toBe(false);
+    wrap(<CcNotices threadId="thr_1" />);
+    expect(screen.getByText(/folder has moved or been deleted/)).toBeInTheDocument();
+    expect(screen.getByText('/home/me/cyberfolio')).toBeInTheDocument();
+    mocked.post.mockImplementation(async (path: string) =>
+      path.endsWith('/folder')
+        ? { cwd: '/home/me/cyberfolio', no_files: true }
+        : { run_id: 'run_2', user_message_id: 'msg_u2' },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Continue without files' }));
+    await waitFor(() =>
+      expect(mocked.post).toHaveBeenCalledWith('/claude-code/threads/thr_1/folder', { without_files: true }),
+    );
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    expect(sent()[1]?.[1]).toMatchObject({ text: 'Carry on', parent_id: 'm4' });
+    expect(useNotify.getState().toasts.some((t) => t.title === 'Carrying on without files')).toBe(true);
+  });
+
+  it('folder gone: Point to new folder sends the path, and shows why Core refused one', async () => {
+    seedThread();
+    mocked.get.mockImplementation((path: string) =>
+      path.endsWith('/live')
+        ? Promise.resolve({ ...LIVE, cwd: '/home/me/old', folder_missing: true })
+        : Promise.resolve([]),
+    );
+    wrap(<CcNotices threadId="thr_1" />);
+    // Asked before you send: the live state already knows.
+    fireEvent.click(await screen.findByRole('button', { name: 'Point to new folder' }));
+    fireEvent.change(screen.getByLabelText(/^New folder/), { target: { value: '/elsewhere' } });
+    mocked.post.mockRejectedValueOnce(
+      apiErr(
+        403,
+        'claude_code.folder_out_of_scope',
+        'That folder is outside what this notebook allows',
+        'Choose.',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Use this folder' }));
+    expect(await screen.findByText(/outside what this notebook allows/)).toBeInTheDocument();
+    mocked.post.mockResolvedValueOnce({ cwd: '/home/me/new', no_files: false });
+    fireEvent.change(screen.getByLabelText(/^New folder/), { target: { value: '/home/me/new' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Use this folder' }));
+    await waitFor(() =>
+      expect(mocked.post).toHaveBeenLastCalledWith('/claude-code/threads/thr_1/folder', {
+        cwd: '/home/me/new',
+      }),
+    );
+    await waitFor(() => expect(useNotify.getState().toasts.at(-1)?.title).toBe('Folder updated'));
+    // Nothing was waiting to be sent.
+    expect(sent()).toHaveLength(0);
+  });
+
   it('a restart during a turn leaves a quiet notice', () => {
     noteRunWarning('thr_1', 'claude_code.recovered');
     wrap(<CcNotices threadId="thr_1" />);
