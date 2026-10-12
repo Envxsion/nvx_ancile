@@ -100,6 +100,8 @@ Type in a Claude Code thread and it carries the session on, in your own installe
 - **The answer's id.** A send answers with the run, your message and the answer it streams into (`assistant_message_id`), so the thread can show the answer at once.
 - **Telemetry.** With Claude Code usage reporting off, sessions run with `DISABLE_TELEMETRY` too.
 
+- **On a machine without Claude Code.** A notebook synced from another computer, or opened after Claude Code was uninstalled or signed out, still opens every Claude Code thread. Nothing fails: the thread reads as it is, and the composer is read-only for Claude Code with one line, "Install Claude Code to continue" or "Sign in to Claude Code to continue" (an install that fails the check: "Check Claude Code to continue"), with the same **Install** and **Sign in** actions as Settings → Claude Code. Choosing another model in the composer's picker works as in any Claude Code thread, and the thread keeps its session for when Claude Code is back. `GET /claude-code/threads/:id/live` has `availability` (`ready`, `not_installed`, `signed_out` or `unverified`); a turn sent to Claude Code anyway is refused with `claude_code.not_installed` or `claude_code.signed_out` and writes nothing; the "/" list is NVX Ancile's own commands only.
+
 ### Other models in a Claude Code thread
 
 A Claude Code thread can take a turn from any other model (pick it in the composer) and go back to Claude Code afterwards; the thread keeps its session (docs/engines.md).

@@ -221,6 +221,8 @@ export interface LiveServiceView {
   notebookForFolder?(cwd: string): Promise<string | null>;
   /** The folder is in Settings → Claude Code → Excluded folders. */
   folderExcluded?(cwd: string): Promise<boolean>;
+  /** Can Claude Code carry sessions on from here (installed, verified, signed in)? Absent: assume so. */
+  availability?(): Promise<'ready' | 'not_installed' | 'signed_out' | 'unverified'>;
   /** Keep the raw text of entries this version cannot show (and warn once per Claude Code version). */
   keepUnknown?(threadId: string, sessionId: string, items: UnknownRaw[]): Promise<void>;
 }
@@ -517,6 +519,14 @@ export class ClaudeCodeLive {
     return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000 ? 'recent' : null;
   }
 
+  /** Throw the error that says what to do when Claude Code cannot run sessions here. */
+  private async requireAvailable(): Promise<void> {
+    const a = await this.deps.service.availability?.().catch(() => 'ready' as const);
+    if (a === 'not_installed') throw ccErrors.notInstalled();
+    if (a === 'signed_out') throw ccErrors.signedOut();
+    // 'unverified': cliPath() says exactly why, with the verifier's own reason.
+  }
+
   /** Is the session's folder still a folder on this computer? */
   private async folderThere(cwd: string): Promise<boolean> {
     if (this.deps.folderExists) return this.deps.folderExists(cwd);
@@ -628,6 +638,8 @@ export class ClaudeCodeLive {
 
     const thread = await this.thread(threadId);
     const cc = thread.settings.claude_code;
+    // Claude Code is here and signed in (a notebook synced from another machine may have neither).
+    await this.requireAvailable();
     // Before every turn: the session's folder is still there (or the thread goes on without files).
     const noFiles = cc?.no_files === true;
     if (!noFiles && !cc?.cwd) throw ccErrors.noFolder();
@@ -1788,7 +1800,9 @@ export class ClaudeCodeLive {
     }
     const held = cc?.session_id ? await this.heldElsewhere(cc.session_id, cc.cwd) : null;
     const noFiles = cc?.no_files === true;
+    const availability = (await this.deps.service.availability?.().catch(() => null)) ?? 'ready';
     return {
+      availability,
       state: l?.turn ? 'working' : (l?.state ?? 'idle'),
       locked_elsewhere: held !== null,
       open_in_terminal: held === 'process',
@@ -1816,7 +1830,14 @@ export class ClaudeCodeLive {
       ? await this.noFilesDir()
       : thread.settings.claude_code?.cwd;
     if (!cwd) throw ccErrors.noFolder();
-    const cli = await this.deps.service.cliPath();
+    let cli: { path: string; version: string };
+    try {
+      cli = await this.deps.service.cliPath();
+    } catch (err) {
+      // Not installed, not verified: the thread is read-only for Claude Code; the list is NVX Ancile's own.
+      if (!(err instanceof AncileError)) throw err;
+      return { items: dedupeCommands(mergeCommands([], { models: [], mcp: [] })), partial: false };
+    }
     const key = `${cli.version}|${cwd}`;
     const load = () => this.readCommands(thread.id, cwd, cli.path);
     if (opts.wait) {
