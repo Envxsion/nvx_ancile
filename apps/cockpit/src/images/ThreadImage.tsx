@@ -20,7 +20,7 @@
  */
 
 import * as Dialog from '@radix-ui/react-dialog';
-import { createContext, type ReactNode, useContext, useState } from 'react';
+import { createContext, type ReactNode, type RefObject, useContext, useRef, useState } from 'react';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 import { allowImageHost, isLocalSrc, remoteImageSrc, useImageHosts } from './api';
@@ -82,12 +82,15 @@ export function Lightbox({
   caption,
   open,
   onOpenChange,
+  returnFocus,
 }: {
   src: string;
   alt: string;
   caption?: ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Where focus goes back to when it closes: the image that opened it. */
+  returnFocus?: RefObject<HTMLElement | null>;
 }) {
   // null: fit to the window.
   const [zoom, setZoom] = useState<number | null>(null);
@@ -121,6 +124,11 @@ export function Lightbox({
         <Dialog.Content
           className="lightbox"
           aria-describedby={undefined}
+          onCloseAutoFocus={(e) => {
+            if (!returnFocus?.current) return;
+            e.preventDefault();
+            returnFocus.current.focus();
+          }}
           onKeyDown={(e) => {
             if (e.key === '+' || e.key === '=') step(1);
             else if (e.key === '-') step(-1);
@@ -188,6 +196,7 @@ export function ImageFrame({
 }) {
   const [open, setOpen] = useState(false);
   const [broken, setBroken] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
   if (broken)
     return (
       <span className="img-missing" role="img" aria-label={alt || 'Image'}>
@@ -198,6 +207,7 @@ export function ImageFrame({
   return (
     <>
       <button
+        ref={opener}
         type="button"
         className={`img-frame${className ? ` ${className}` : ''}`}
         onClick={() => setOpen(true)}
@@ -217,7 +227,14 @@ export function ImageFrame({
           <Icon name="expand" size={12} />
         </span>
       </button>
-      <Lightbox src={src} alt={alt} caption={caption} open={open} onOpenChange={setOpen} />
+      <Lightbox
+        src={src}
+        alt={alt}
+        caption={caption}
+        open={open}
+        onOpenChange={setOpen}
+        returnFocus={opener}
+      />
     </>
   );
 }

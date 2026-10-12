@@ -13,7 +13,12 @@
  * ------------------------------------------------------------------
  */
 
-import { defaultRemarkPlugins } from 'streamdown';
+import {
+  defaultRehypePlugins,
+  defaultRemarkPlugins,
+  defaultUrlTransform,
+  type UrlTransform,
+} from 'streamdown';
 
 const KEEP = new Set(['br', 'kbd', 'sub', 'sup', 'details', 'summary', 'mark', 'ins', 'del', 'u', 's']);
 
@@ -57,3 +62,26 @@ export function htmlAsText() {
 }
 
 export const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText];
+
+/**
+ * Images written inline as data:image/… (a model's own picture, a chart) are
+ * local and safe in an <img>: let them through the sanitiser and the URL
+ * check, for image sources only. Remote images still go to ThreadImage, which
+ * never loads one without a yes (docs/images.md).
+ */
+type Schema = { protocols?: Record<string, string[]> } & Record<string, unknown>;
+const rehype = defaultRehypePlugins as Record<string, unknown>;
+const withDataImages = (entry: unknown) => {
+  if (!Array.isArray(entry)) return entry;
+  const [plugin, schema] = entry as [unknown, Schema];
+  const src = schema.protocols?.src ?? ['http', 'https'];
+  return [plugin, { ...schema, protocols: { ...schema.protocols, src: [...src, 'data'] } }];
+};
+export const REHYPE_PLUGINS = Object.entries(rehype).map(([name, entry]) =>
+  name === 'sanitize' ? withDataImages(entry) : entry,
+) as NonNullable<Parameters<typeof import('streamdown').Streamdown>[0]['rehypePlugins']>;
+
+export const urlTransform: UrlTransform = (url, key, node) =>
+  key === 'src' && node.tagName === 'img' && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(url)
+    ? url
+    : defaultUrlTransform(url, key, node);
