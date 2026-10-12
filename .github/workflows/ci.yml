@@ -116,6 +116,26 @@ jobs:
             factcheck-report.json
           if-no-files-found: ignore
 
+  a11y:
+    name: Accessibility
+    # Blocking: axe (WCAG 2.2 AA tags) on every Cockpit route and the open
+    # palette, dark and light, on the demo data. Any serious or critical
+    # violation fails the build. No backend, so it is quick; the crawl in the
+    # e2e job repeats the check against the real stack.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e a11y --project=chromium-dark --project=chromium-light
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: a11y-results, path: test-results, if-no-files-found: ignore }
+
   e2e:
     name: End to end, chaos and load
     runs-on: ubuntu-latest

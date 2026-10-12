@@ -45,11 +45,15 @@ export interface AdminSection {
 /** Sample screens show what a control will do; they never pretend to do it. */
 const SAMPLE = 'Sample data: start NVX Ancile to use this';
 
-/** The sample version in demo mode, the real (or not-yet) version otherwise. */
-const demoOr = (sample: () => ReactNode, real: () => ReactNode) =>
+/**
+ * The sample version in demo mode, the real (or not-yet) version otherwise.
+ * Each is rendered as its own component, never called: both have hooks, and
+ * calling them would make demo mode switching change this one's hook order.
+ */
+const demoOr = (Sample: () => ReactNode, Real: () => ReactNode) =>
   function DemoOr() {
     const demo = useUi((s) => s.demo);
-    return <>{demo ? sample() : real()}</>;
+    return demo ? <Sample /> : <Real />;
   };
 
 function Health() {
