@@ -325,6 +325,21 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `mcp.tools_changed` | 403 (gate) | A gate refusal, not an HTTP error: `via: "mcp_changed"`, logged as `policy_deny` with this policy id. "<server> added (or changed) <tool> after you approved its tools." / Review the change in Admin → Plugins before it can run. docs/plugins.md. |
 | `mcp.tools_changed_again` | 409 | "<server> changed its tools again." / Look over the new list, then approve it. (`POST /mcp/approvals/:key/approve` with a fingerprint that is no longer current.) |
 
+### Files (the code editor)
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `files.outside_roots` | 403 | "That file is outside the folders NVX Ancile can open." / Open files in the workspace, a repository added in the Repo panel, or a Claude Code project folder. |
+| `files.not_found` | 404 | "<name> does not exist." / It may have been moved or deleted since the thread mentioned it. |
+| `files.is_folder` | 400 | "<name> is a folder." / Open a file inside it instead. |
+| `files.too_large` | 413 | "<name> is too large to open here" (or "to save here"). / Open or save it in your own editor; the limit is 2 MB. |
+| `files.read_denied` | 403 | "Reading <name> is not allowed here." / Check this thread's scope, or the policy named in Admin → Decisions. |
+| `files.write_denied` | 403 | "Saving <name> is not allowed here." / Check this thread's scope, or the policy named in Admin → Decisions. |
+| `files.needs_confirm` | 409 | "Saving <name> needs your confirmation." / Choose "Save anyway" to write it, or cancel. The context carries the tier, the resource and the reason. |
+| `files.changed` | 409 | "<name> changed since you opened it." / Reload to see the new version, or keep editing and save again to replace it. |
+| `files.no_folder` | 404 | "The folder for <name> does not exist." / Create the folder first, then save again. |
+| `files.write_failed` | 500 | "<name> could not be saved." / Check the file is not open read-only elsewhere and the disk has space, then save again. |
+
 ### Claude Code
 
 | Code | HTTP | Title / hint |

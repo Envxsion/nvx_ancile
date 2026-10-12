@@ -75,6 +75,9 @@ import { PgEventBus } from './events/bus';
 import { factcheckHandler, startFactcheck } from './factcheck/handler';
 import { trustRoutes } from './factcheck/routes';
 import { PgFactcheckStore } from './factcheck/store';
+import { nativeProbe as filesProbe, rootSource } from './files/roots';
+import { fileRoutes } from './files/routes';
+import { FileService } from './files/service';
 import { flowRoutes, memoryText } from './flows/routes';
 import { PgFlowStore } from './flows/store';
 import { flowTryHandler } from './flows/try';
@@ -1330,6 +1333,30 @@ async function main() {
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       toolRoutes({ tools, servers: mcpServers, guard: mcpGuard }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
+      // The code editor: read and save files, through the same gate as fs.read and fs.write.
+      fileRoutes({
+        files: new FileService({
+          roots: rootSource({
+            workspace: { dir: workspace.dir, root: workspace.root },
+            repos: () => repos.list(),
+            claudeProjects: () => claudeCodeStore.projects(owner.workspaceId),
+          }),
+          workspace: { dir: workspace.dir, root: workspace.root },
+          gate,
+          gateFor: (root) =>
+            createGate({
+              policy: policyRef,
+              store: permissions,
+              workspaceRoot: root,
+              fs: filesProbe(),
+              scopes,
+            }),
+          store: permissions,
+          userId: owner.userId,
+          workspaceId: owner.workspaceId,
+          notebookOf: async (id) => (await threads.getThread(id))?.notebook_id ?? null,
+        }),
+      }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
       activityRoutes({ activity }),
       engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),

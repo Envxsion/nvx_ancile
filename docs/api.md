@@ -347,6 +347,15 @@ Under `/api/v1` (DESIGN §17, docs/repos.md):
 | `GET /repos/:id/runs` · `/runs/:run/log` · `POST /runs/:run/rerun?failed=` | Actions runs, the failed log, re-run |
 | `POST /mcp/presets/github {token?, read_only?}` | Add (or update) the official GitHub MCP server as an app server; answers `{server, runner, health, view}` |
 
+## Files (the code editor)
+
+Under `/api/v1` (packages/contracts/src/files.ts). Only the workspace (labs included), registered repositories and Claude Code project folders are reachable; paths are resolved with symlinks followed and must stay inside one of them.
+
+| Route | Does |
+|---|---|
+| `GET /files?path=&thread_id=` | Read one file (up to 2 MB): `{path, name, root {kind, path, label}, content, bytes, sha256, modified_at, binary}`. Runs the gate as `fs.read` (principal `person:editor`); only a refusal stops it |
+| `PUT /files {path, content, base_sha256, thread_id?, confirmed?}` | Save it. Runs the gate as `fs.write` on the real path. A refusal is `files.write_denied`; an ask is `409 files.needs_confirm` until the person sends `confirmed: true`, which is logged as an approved decision. A `base_sha256` that is not the file on disk is `409 files.changed`. Written to a temporary file, then renamed over the target |
+
 ## Works with Claude Code
 
 Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudecode.ts`):
