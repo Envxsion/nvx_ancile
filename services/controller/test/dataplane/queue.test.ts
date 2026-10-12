@@ -46,6 +46,20 @@ async function world(opts: { blocked?: boolean; transitionMs?: number } = {}) {
 }
 
 describe('data plane', () => {
+  it('asks the node for the model by the name it serves, not the route alias', async () => {
+    const w = await world({ transitionMs: 0 });
+    await w.provider.action('p1', 'start');
+    const seen: unknown[] = [];
+    const serve = w.provider.serve.bind(w.provider);
+    w.provider.serve = (ref, path, body) => {
+      seen.push((body as { model?: string }).model);
+      return serve(ref, path, body);
+    };
+    for (let i = 0; i < 50 && (await w.chat({ 'x-controller-wait': '5' })).status !== 200; i++)
+      await new Promise((r) => setTimeout(r, 20));
+    expect(seen.at(-1)).toBe('llama-70b');
+  });
+
   it('answers 503 node_waking with Retry-After and starts the node once', async () => {
     const w = await world({ transitionMs: 10_000 });
     const first = await w.chat();
