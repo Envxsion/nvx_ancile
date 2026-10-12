@@ -13,6 +13,9 @@
  *           |  two forms:
  *           |    ```html artifact id="pricing" title="Pricing table"
  *           |    <antArtifact identifier="x" type="text/html" title="…">
+ *           |  and two near misses: the attributes on the line after
+ *           |  ```html, and a bare ```html block that is a whole HTML
+ *           |  document (<!doctype html> … </html>, finished).
  *           |  An artifact still being written (no closing fence or
  *           |  tag yet) is returned with complete: false.
  *  Note     |  A version is one answer's copy of an artifact: the same
@@ -169,38 +172,55 @@ function fencedArtifacts(text: string, skip: Raw[]): Raw[] {
       continue;
     }
     const m = FENCE_OPEN.exec(line);
-    if (!m) {
-      const plain = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-      if (plain) plainFence = { ch: plain[1]?.[0] as string, len: plain[1]?.length ?? 3 };
+    // Also an artifact: ```html with the attributes on the line after it
+    // (`artifact id=… title=…`), or a bare ```html block holding a whole
+    // HTML document, which is what an artifact asked for and written
+    // without its marker looks like. Anything else is an ordinary fence.
+    const plainOpen = m ? null : FENCE_PLAIN.exec(line);
+    const lang = plainOpen?.[3]?.toLowerCase() ?? null;
+    let attrLine: { a: Record<string, string>; next: number } | null = null;
+    if (plainOpen && lang) {
+      const n2 = text.indexOf('\n', next);
+      const l2 = text.slice(next, n2 === -1 ? text.length : n2).replace(/\r$/, '');
+      const am = ATTR_LINE.exec(l2);
+      const a = am ? attrs(am[1] ?? '') : null;
+      if (a && (a.id || a.identifier || a.title)) attrLine = { a, next: n2 === -1 ? text.length : n2 + 1 };
+    }
+    if (!m && !attrLine) {
+      const fence = plainOpen?.[2];
+      if (fence && lang && LANG_TYPE[lang] === 'html') {
+        const close = closingFence(text, next, fence);
+        const body = close ? text.slice(next, close.at).replace(/\r?\n$/, '') : '';
+        if (close && WHOLE_HTML.test(body) && /<\/html>\s*$/i.test(body)) {
+          out.push({
+            start: at,
+            end: close.end,
+            type: 'html',
+            language: lang,
+            id: undefined,
+            title: /<title[^>]*>([^<]{1,120})<\/title>/i.exec(body)?.[1]?.trim() || undefined,
+            content: body,
+            complete: true,
+          });
+          at = close.end + 1;
+          continue;
+        }
+      }
+      const any = fence ?? /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (any) plainFence = { ch: any[0] as string, len: any.length };
       at = next;
       continue;
     }
-    const fence = m[2] as string;
-    const ch = fence[0] as string;
-    const a = attrs(m[4] ?? '');
-    const bodyStart = Math.min(next, text.length);
-    // Find the closing fence: the same character, at least as long, nothing after it.
-    let scan = bodyStart;
-    let closeAt = -1;
-    let closeEnd = text.length;
-    while (scan < text.length) {
-      const n2 = text.indexOf('\n', scan);
-      const e2 = n2 === -1 ? text.length : n2;
-      const l2 = text.slice(scan, e2).replace(/\r$/, '');
-      const c = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(l2);
-      if (c && c[1]?.[0] === ch && (c[1]?.length ?? 0) >= fence.length) {
-        closeAt = scan;
-        closeEnd = e2;
-        break;
-      }
-      scan = n2 === -1 ? text.length : n2 + 1;
-    }
-    const complete = closeAt !== -1;
-    const bodyEnd = complete ? closeAt : text.length;
-    const language = (m[3] as string).toLowerCase();
+    const fence = (m ? m[2] : plainOpen?.[2]) as string;
+    const a = m ? attrs(m[4] ?? '') : (attrLine?.a ?? {});
+    const bodyStart = Math.min(attrLine ? attrLine.next : next, text.length);
+    const close = closingFence(text, bodyStart, fence);
+    const complete = close !== null;
+    const bodyEnd = close ? close.at : text.length;
+    const language = ((m ? m[3] : lang) as string).toLowerCase();
     out.push({
       start: at,
-      end: complete ? closeEnd : text.length,
+      end: close ? close.end : text.length,
       type: typeOf(language, a.type),
       language,
       id: a.id ?? a.identifier,
@@ -208,9 +228,31 @@ function fencedArtifacts(text: string, skip: Raw[]): Raw[] {
       content: text.slice(bodyStart, bodyEnd).replace(/\r?\n$/, ''),
       complete,
     });
-    at = complete ? closeEnd + 1 : text.length + 1;
+    at = close ? close.end + 1 : text.length + 1;
   }
   return out;
+}
+
+/** An opening fence with only a language after it. */
+const FENCE_PLAIN = /^( {0,3})(`{3,}|~{3,})[ \t]*([\w+#.-]+)?[ \t]*$/;
+/** `artifact id="…" title="…"` on a line of its own, right after the opening fence. */
+const ATTR_LINE = /^[ \t]*artifact\b(.*)$/;
+/** A whole HTML document, from its first line. */
+const WHOLE_HTML = /^\s*<(!doctype\s+html|html)\b/i;
+
+/** The closing fence after `from`: the same character, at least as long, nothing after it. */
+function closingFence(text: string, from: number, fence: string): { at: number; end: number } | null {
+  const ch = fence[0];
+  let scan = from;
+  while (scan < text.length) {
+    const n2 = text.indexOf('\n', scan);
+    const e2 = n2 === -1 ? text.length : n2;
+    const l2 = text.slice(scan, e2).replace(/\r$/, '');
+    const c = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(l2);
+    if (c && c[1]?.[0] === ch && (c[1]?.length ?? 0) >= fence.length) return { at: scan, end: e2 };
+    scan = n2 === -1 ? text.length : n2 + 1;
+  }
+  return null;
 }
 
 /** Every artifact in one answer's text, in order. */

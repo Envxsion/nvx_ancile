@@ -16,7 +16,7 @@ Two forms are recognised, in Claude Code and gateway answers alike (`parseArtifa
 <antArtifact identifier="pricing" type="text/html" title="Pricing table">…</antArtifact>
 ```
 
-Languages map to types: `html` → web page, `svg` → image, `jsx`/`tsx` → React, `mermaid` → diagram, `md` → document, anything else → code. `type="…"` overrides. The key is the id, else the title's slug: the same key in a later or regenerated answer is the next version. Gateway models are told the fenced form in `prompts/system/base.md`.
+Languages map to types: `html` → web page, `svg` → image, `jsx`/`tsx` → React, `mermaid` → diagram, `md` → document, anything else → code. `type="…"` overrides. The key is the id, else the title's slug: the same key in a later or regenerated answer is the next version. Gateway models are told the fenced form in `prompts/system/base.md`. Two near misses are taken too: `artifact id=… title=…` on its own line right after a ```html (or any language) fence, and a finished bare ```html block that is a whole HTML document (its first line `<!doctype html>` or `<html>`, ending `</html>`), titled from its `<title>`. A fragment, an unfinished document or a document inside another fence stays an ordinary code block.
 
 ## Security
 

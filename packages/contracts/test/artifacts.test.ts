@@ -63,6 +63,32 @@ describe('findArtifacts', () => {
   });
 });
 
+describe('artifacts written slightly off the form', () => {
+  it('takes the attributes from the line after the opening fence', () => {
+    const text = 'See:\n\n```html\nartifact id="pricing" title="Pricing table"\n<p>Hi</p>\n```\nDone.';
+    const [a] = findArtifacts(text);
+    expect(a).toMatchObject({ key: 'pricing', type: 'html', title: 'Pricing table', content: '<p>Hi</p>' });
+    expect(text.slice(a?.start, a?.end)).toBe(
+      '```html\nartifact id="pricing" title="Pricing table"\n<p>Hi</p>\n```',
+    );
+  });
+
+  it('takes a bare html block that is a whole document, titled from it', () => {
+    const doc = '<!DOCTYPE html>\n<html><head><title>Timer</title></head><body>0:00</body></html>';
+    const [a] = findArtifacts(`Here:\n\n\`\`\`html\n${doc}\n\`\`\`\n`);
+    expect(a).toMatchObject({ key: 'timer', type: 'html', title: 'Timer', content: doc, complete: true });
+  });
+
+  it('leaves alone a fragment, an unfinished document, a word "artifact" in prose and other languages', () => {
+    expect(findArtifacts('```html\n<div>Just a snippet</div>\n```')).toEqual([]);
+    expect(findArtifacts('```html\n<!doctype html>\n<html><body>')).toEqual([]);
+    expect(findArtifacts('```js\nartifact\nconsole.log(1)\n```')).toEqual([]);
+    expect(findArtifacts('```python\n<!doctype html><html></html>\n```')).toEqual([]);
+    // A whole document inside another fence is not taken out of it.
+    expect(findArtifacts('````md\n```html\n<!doctype html><html></html>\n```\n````')).toEqual([]);
+  });
+});
+
 describe('splitArtifacts', () => {
   it('keeps the surrounding text exactly', () => {
     const text = 'Before\n```html artifact\n<p>x</p>\n```\nAfter';
