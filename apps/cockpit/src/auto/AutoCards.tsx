@@ -39,7 +39,6 @@ import { usePermissionPreset } from '../approvals/preset';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
-import { globMatch } from '../scopes/api';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -121,8 +120,9 @@ export async function decidePlan(
 }
 
 /** How many steps have been used: a step counts once a call that ran under the plan fits its action. */
-export function planProgress(plan: AutoPlan, ran: string[]): number {
-  return plan.steps.filter((st) => ran.some((a) => globMatch(st.action, a, '.'))).length;
+/** Steps of the plan that ran (their indices, from plan.step_ran). */
+export function planProgress(plan: AutoPlan, ran: number[]): number {
+  return plan.steps.filter((_, i) => ran.includes(i)).length;
 }
 
 function stepTitle(st: AutoPlan['steps'][number]): string {
@@ -212,8 +212,8 @@ export function PlanCard({
   );
 }
 
-export function PlanLine({ threadId, plan }: { threadId: string; plan: AutoPlan }) {
-  const ran = useAuto((s) => s.planRan[threadId]);
+export function PlanLine({ plan }: { threadId: string; plan: AutoPlan }) {
+  const ran = useAuto((s) => s.planRan[plan.id]);
   const [open, setOpen] = useState(false);
   const done = planProgress(plan, ran ?? []);
   const total = plan.steps.length;
@@ -240,7 +240,7 @@ export function PlanLine({ threadId, plan }: { threadId: string; plan: AutoPlan 
       {open ? (
         <ol className="plan-line__steps">
           {plan.steps.map((st, i) => {
-            const used = (ran ?? []).some((a) => globMatch(st.action, a, '.'));
+            const used = (ran ?? []).includes(i);
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: steps are ordered and may repeat
               <li key={i} data-used={used || undefined}>

@@ -74,7 +74,7 @@ The response is read as `answers.fits.noul` and `answers.injection.noul` (probab
 - **A step outside the plan.** With an approved plan in force, a call that fits none of its steps still goes to the cache and the reviewer as before; if it would ask, the ask is marked `out_of_plan` (with `plan_id`) on its `approval.batched` event. The Cockpit shows it as one grouped ask, "1 step outside your plan", with the reason and the action, and three answers: Allow once, Add to plan (`POST /auto/plans/:id/steps`, then allow once) and Deny. A floor's ask is never offered "Add to plan": a plan can't lift a floor.
 - **Verdict cache** per session (30 minutes), as above.
 - **Grouped asks.** Asks in one run within two minutes share a `batch_id` (`approval.batched` run event, before `approval.required`). `POST /approvals/batch` answers them all at once.
-- **Quiet markers.** A call that ran by itself leaves an `auto.ran` run event (plan, cache, reviewer or rules) for a small "ran automatically" badge. There is no prompt.
+- **Quiet markers.** A call that ran by itself leaves an `auto.ran` run event (plan, cache, reviewer or rules) for a small "ran automatically" badge. There is no prompt. A call that fits a step of the approved plan, however it was allowed (by itself, your scope or a grant), also leaves `plan.step_ran` with the step's index, which the plan line counts ("1 of 3").
 - **Silence on clean actions.** Reads and other AUTO-tier calls never reach the reviewer.
 
 ## The trace

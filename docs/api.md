@@ -108,7 +108,7 @@ POST /api/v1/approvals/batch
 → { "items": [{ "approval_id": "apr_01…", "status": "approved" }, { "approval_id": "apr_02…", "status": "missing" }] }
 ```
 
-Each is answered `once` (`BatchDecisionRequest`); nothing is remembered. An approval that is gone is `missing`; one already answered keeps its status. Auto mode groups its asks with the `approval.batched` run event (`batch_id`, `call_id`, `via`, `reason`) ahead of each `approval.required`; a call it ran by itself leaves an `auto.ran` event (`via`: plan, cache, reviewer or rules).
+Each is answered `once` (`BatchDecisionRequest`); nothing is remembered. An approval that is gone is `missing`; one already answered keeps its status. Auto mode groups its asks with the `approval.batched` run event (`batch_id`, `call_id`, `via`, `reason`) ahead of each `approval.required`; a call it ran by itself leaves an `auto.ran` event (`via`: plan, cache, reviewer or rules), and a call that fits a step of the approved plan leaves `plan.step_ran` (`plan_id`, `step`, its index).
 
 ### Auto mode plans
 

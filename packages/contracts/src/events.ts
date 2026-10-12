@@ -272,6 +272,18 @@ export const RunEvent = z.discriminatedUnion('type', [
     plan_id: z.string(),
     status: z.enum(['proposed', 'approved', 'rejected', 'superseded']),
   }),
+  /**
+   * A call ran that fits a step of the approved plan (by itself, by your
+   * scope or a grant): `step` is the step's index, for "1 of 3 steps".
+   */
+  z.object({
+    ...base,
+    type: z.literal('plan.step_ran'),
+    plan_id: z.string(),
+    step: z.number().int().min(0),
+    action: z.string(),
+    call_id: z.string().optional(),
+  }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;
 

@@ -234,6 +234,7 @@ export function createGate(
             resource: result.resource,
           };
           await record(req, allowed);
+          await auto.noteStep(ctx);
           return allowed;
         }
         if (out.verdict === 'block') {
@@ -261,6 +262,8 @@ export function createGate(
         return { ...result, reason: out.reason, ...(out.batch_id && { batchId: out.batch_id }) };
       }
       await record(req, result);
+      // Allowed by your scope or a grant: still a step of the plan done.
+      if (auto && ctx && norm.ok && result.outcome === 'allow') await auto.noteStep(ctx);
       return result;
     },
   };

@@ -211,6 +211,27 @@ export class AutoReview {
   }
 
   /** The deterministic floors (the scope's checks among them). */
+  /**
+   * A call that is going to run: when it fits a step of the approved plan,
+   * say which (plan.step_ran), however it was allowed, so the plan line
+   * counts the steps done.
+   */
+  async noteStep(ctx: AutoContext): Promise<void> {
+    if (!ctx.runId || !this.deps.emit) return;
+    const plan = await this.deps.plans.current(sessionKey(ctx) ?? 'none').catch(() => undefined);
+    const step = planStepFor(plan, ctx.call);
+    if (!plan || !step) return;
+    await this.deps
+      .emit(ctx.runId, {
+        type: 'plan.step_ran',
+        plan_id: plan.id,
+        step: plan.steps.indexOf(step),
+        action: ctx.call.action,
+        ...(ctx.callId && { call_id: ctx.callId }),
+      })
+      .catch(() => undefined);
+  }
+
   floors(ctx: Pick<AutoContext, 'call' | 'scope'>): FloorHit | null {
     return checkFloors({ call: ctx.call, scope: ctx.scope });
   }
