@@ -87,7 +87,10 @@ export function PythonBody({ call, result }: { call: ToolCall; result: ToolResul
           {run.stdout ? (
             <div className="pyrun__out">
               <span className="pyrun__label">Output</span>
-              <pre data-num>{run.stdout}</pre>
+              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable output must take focus */}
+              <pre data-num tabIndex={0}>
+                {run.stdout}
+              </pre>
             </div>
           ) : null}
           {run.figures.length ? (
@@ -120,7 +123,8 @@ export function PythonBody({ call, result }: { call: ToolCall; result: ToolResul
           {run.stderr ? (
             <div className="pyrun__out" data-tone="warn">
               <span className="pyrun__label">Messages</span>
-              <pre>{run.stderr}</pre>
+              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable output must take focus */}
+              <pre tabIndex={0}>{run.stderr}</pre>
             </div>
           ) : null}
           {run.error ? (
@@ -134,7 +138,8 @@ export function PythonBody({ call, result }: { call: ToolCall; result: ToolResul
                       ? 'Error'
                       : 'Could not run'}
               </span>
-              <pre>{run.error.message}</pre>
+              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable output must take focus */}
+              <pre tabIndex={0}>{run.error.message}</pre>
             </div>
           ) : null}
           {!run.stdout && !run.stderr && !run.error && !run.figures.length ? (

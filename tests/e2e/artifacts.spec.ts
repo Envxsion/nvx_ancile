@@ -15,6 +15,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, type Page, test } from '@playwright/test';
+import { expectAccessible } from './fixtures';
 import { BACKEND } from './playwright.config';
 
 let server: Server;
@@ -121,5 +122,17 @@ test.describe('artifact sandbox', () => {
     const frame = page.locator('iframe[title="Probe"]');
     await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
     await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
+  });
+
+  test('an answer with an artifact card and Python steps, and the open panel, pass axe', async ({ page }) => {
+    await page.route('**/api/v1/**', (r) =>
+      r.fulfill({ status: 404, json: { error: { code: 'request.not_found' } } }),
+    );
+    await page.goto('/testbed/answer.html');
+    await page.getByRole('button', { name: /Open Board summary/ }).waitFor();
+    await expectAccessible(page);
+    await page.getByRole('button', { name: /Open Board summary/ }).click();
+    await page.getByRole('complementary', { name: /Artifact: Board summary/ }).waitFor();
+    await expectAccessible(page);
   });
 });

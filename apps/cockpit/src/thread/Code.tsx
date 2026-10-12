@@ -113,7 +113,9 @@ export function CodeBlock({
           <CopyCode text={text} />
         </figcaption>
       ) : null}
-      <pre className="code__pre" data-clipped={(long && !all) || undefined}>
+      {/* Focusable: a long line scrolls sideways, and keyboard users must be able to scroll it too. */}
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus (WCAG 2.1.1) */}
+      <pre className="code__pre" data-clipped={(long && !all) || undefined} tabIndex={0}>
         <code>
           {shown.map((toks, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
