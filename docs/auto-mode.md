@@ -30,7 +30,7 @@ The first one available answers. A failure moves on to the next, and the trace r
 
 1. **Jev via OpenRouter.** `POST https://openrouter.ai/api/alpha/decisions` with your saved OpenRouter key, model `~typesafe/jev-latest`, falling back to `typesafe/jev-1.13` if the service doesn't know it.
 2. **Jev direct.** `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest`, with the TypeSafe key (Settings → API keys, or `TYPESAFE_API_KEY`).
-3. **A local model.** The first enabled Ollama or local model on the utility chain, with a strict JSON yes/no prompt. A yes counts as 0.92 for fits, not 1.
+3. **A local model.** The first ready Ollama or local model on the utility chain, else the smallest ready local chat model whose name gives its size, up to 14B (an Ollama model you pulled; never a GPU node), with a strict JSON yes/no prompt. It runs on this machine, so it is used whatever a scope allows. A yes counts as 0.92 for fits, not 1.
 4. **Rules only.** Recognises routine steps: file writes, git status, add and commit, tests, builds, linters, listing and searching. Anything else asks.
 
 When nothing may leave the machine (a private notebook, or `data_leaves_machine: false`), only 3 and 4 are asked.
