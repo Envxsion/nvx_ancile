@@ -1228,6 +1228,10 @@ export class ClaudeCodeService {
     if (!agents.length) return;
     const msgs = await this.deps.threads.messages(threadId);
     const byCall = new Map<string, { id: string; description: string | null }>();
+    // Without its .meta.json a subagent's entries do not name the call that started it:
+    // the call's result names the agent ("agentId: …"), and its prompt is the subagent's first.
+    const results: { callId: string; text: string }[] = [];
+    const byPrompt = new Map<string, string>();
     const seen = new Map<string, number>();
     for (const m of msgs) {
       for (const p of m.parts as Part[])
@@ -1240,7 +1244,9 @@ export class ClaudeCodeService {
                 ? a.prompt.slice(0, 120)
                 : null;
           byCall.set(p.call_id, { id: m.id, description: d });
-        }
+          if (typeof a.prompt === 'string' && a.prompt.trim()) byPrompt.set(a.prompt.trim(), p.call_id);
+        } else if (p.type === 'tool_result' && typeof p.result === 'string')
+          results.push({ callId: p.call_id, text: p.result });
       const cc = (m.provenance?.claude_code ?? {}) as { subagent?: SubagentDigest[] };
       for (const d of cc.subagent ?? []) seen.set(d.agent_id, d.count);
     }
@@ -1249,6 +1255,18 @@ export class ClaudeCodeService {
       const sub = await this.deps.source.subagentMessages(sessionId, agentId).catch(() => []);
       if (!sub.length || seen.get(agentId) === sub.length) continue;
       const digest = digestSubagent(agentId, sub);
+      if (!digest.call_id || !byCall.has(digest.call_id)) {
+        const named = new RegExp(`\\bagentId:\\s*${agentId.replace(/[^\w-]/g, '')}\\b`);
+        const first = digest.messages.find((x) => x.role === 'user');
+        const prompt = first?.parts
+          .flatMap((x) => (x.type === 'text' ? [x.text] : []))
+          .join('\n')
+          .trim();
+        digest.call_id =
+          results.find((r) => named.test(r.text))?.callId ??
+          (prompt ? byPrompt.get(prompt) : undefined) ??
+          digest.call_id;
+      }
       const host = digest.call_id ? byCall.get(digest.call_id) : undefined;
       if (!host) {
         log.debug(

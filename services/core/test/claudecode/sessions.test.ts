@@ -335,6 +335,44 @@ describe('importing', () => {
     // Synced again: nothing changes.
     expect((await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.added).toBe(0);
   });
+
+  it('nests a subagent without its .meta.json under the call whose result names it, or whose prompt it got', async () => {
+    const chain = [
+      user('u1', 'Research it'),
+      assistant('a1', [
+        {
+          type: 'tool_use',
+          id: 'task1',
+          name: 'Task',
+          input: { description: 'Find the docs', prompt: 'Look' },
+        },
+        {
+          type: 'tool_use',
+          id: 'task2',
+          name: 'Agent',
+          input: { description: 'Check tests', prompt: 'Run them' },
+        },
+      ]),
+      toolResult('r1', 'task1', 'Found them\nagentId: a1b2c3 (use SendMessage to continue)'),
+      toolResult('r2', 'task2', 'All green'),
+    ];
+    // No meta: the subagent's entries do not say which call started them.
+    w.sessions.set('s1', {
+      info: info('s1'),
+      chain,
+      subagents: {
+        a1b2c3: [user('su1', 'Look'), assistant('sa1', [{ type: 'text', text: 'Reading docs' }])],
+        d4e5f6: [user('sv1', 'Run them'), assistant('sb1', [{ type: 'text', text: 'Running' }])],
+      },
+    });
+    const r = await svc.importSessions({ session_ids: ['s1'] });
+    const host = (await threads.messages(r.imported[0]?.thread_id as string))[1];
+    const cc = host?.provenance.claude_code as { subagent: { call_id: string; description: string }[] };
+    expect(cc.subagent.map((s) => [s.call_id, s.description])).toEqual([
+      ['task1', 'Find the docs'],
+      ['task2', 'Check tests'],
+    ]);
+  });
 });
 
 describe('syncing', () => {
