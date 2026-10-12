@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { ClassifiedError, classifyStatus, guarded } from '@nvx/resilience';
 import { tracedFetch } from '../context';
 import { logFor } from '../obs/logger';
@@ -92,6 +93,8 @@ export class ClaudeVerifier {
   private readonly cache = new Map<string, Verification>();
   private readonly running = new Map<string, Promise<Verification>>();
   private last: Verification = { state: 'unchecked', error: null };
+  /** Executables that passed once: a later read failure means something removed or locked them. */
+  private readonly passed = new Set<string>();
 
   constructor(private readonly opts: VerifierOptions = {}) {}
 
@@ -154,7 +157,14 @@ export class ClaudeVerifier {
     let actual: string;
     try {
       actual = (await (this.opts.hash ?? sha256File)(exe)).toLowerCase();
-    } catch {
+    } catch (err) {
+      // Gone, or locked, after it was found (or after it passed before): security software, usually.
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (this.passed.has(exe) || ['ENOENT', 'EPERM', 'EACCES', 'EBUSY'].includes(code))
+        return {
+          state: 'failed',
+          error: `${FAIL}: the program at ${exe} was removed or blocked after it was checked. Security software may have quarantined it: allow the folder ${dirname(exe)} in your antivirus, then press Check again.`,
+        };
       return { state: 'failed', error: `${FAIL}: the program at ${exe} could not be read.` };
     }
     if (actual !== expected) {
@@ -166,6 +176,7 @@ export class ClaudeVerifier {
     }
     const sig = await (this.opts.signature ?? ((p) => this.osSignature(p, platform)))(exe);
     if (sig) return { state: 'failed', error: `${FAIL}: ${sig}` };
+    this.passed.add(exe);
     return { state: 'verified', error: null };
   }
 
