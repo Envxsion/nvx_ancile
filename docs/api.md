@@ -173,7 +173,7 @@ Context: `GET /threads/:id/context-budget?head=&model=` answers `PathBudget`: th
 GET /api/v1/messages/msg_01J9ZR…/explain
 ```
 
-This returns the `Explain` schema: the answering model and every attempt, the memory pack (files, commits, entries), retrieved chunks with scores and whether each was cited, tool calls with their permission outcomes, compaction, usage, and fact-check.
+This returns the `Explain` schema: the answering model and every attempt, the memory pack (files, commits, entries), retrieved chunks with scores and whether each was cited, tool calls with their permission outcomes, compaction, usage, and fact-check. `origin` says where it was written: `ancile`, `claude_code_live` (a Claude Code turn sent from NVX Ancile), or `claude_code_import` (written by Claude Code in a terminal and brought in from its transcript, so there is no retrieval or citation record; the Why panel says "Written before import, no citation record").
 
 ### Routing chains
 

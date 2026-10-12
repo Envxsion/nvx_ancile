@@ -49,9 +49,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Retrieval({ x }: { x: Explain }) {
+export function Retrieval({ x }: { x: Explain }) {
   const openViewer = useUi((s) => s.openViewer);
   const r = x.retrieval;
+  // Written by Claude Code in a terminal and brought in: nothing was recorded about sources.
+  if (!r && x.origin === 'claude_code_import')
+    return (
+      <p className="mute why__imported">
+        <Icon name="terminal" size={12} /> Written before import, no citation record. Claude Code wrote this
+        in a terminal; NVX Ancile brought it in from the session, so which sources it read is not known.
+      </p>
+    );
   if (!r)
     return (
       <p className="mute">

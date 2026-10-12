@@ -5,7 +5,7 @@
  * that opens onto the right view, long runs fold into a group, thinking is
  * folded, raw HTML is text, and a long paste starts short.
  */
-import type { Message, Part, PathBudget } from '@nvx/contracts';
+import type { Explain, Message, Part, PathBudget } from '@nvx/contracts';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -18,6 +18,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 });
 
 import { CcEventRow } from '../src/claudecode/ThreadMarker';
+import { Retrieval } from '../src/drawer/WhyPanel';
 import { api } from '../src/lib/api';
 import { highlight } from '../src/lib/highlight';
 import { toMessageViews } from '../src/lib/mappers';
@@ -204,6 +205,17 @@ describe("Claude Code's events are quiet rows, not bubbles", () => {
   it('an interruption is a tiny marker', () => {
     render(<CcEventRow e={ev('s4')} />);
     expect(screen.getByText('Stopped by you')).toBeInTheDocument();
+  });
+
+  it('Why says an answer brought in from the terminal has no citation record', () => {
+    const base = {
+      retrieval: null,
+      retrieval_error: null,
+    } as unknown as Explain;
+    const { container, rerender } = wrap(<Retrieval x={{ ...base, origin: 'claude_code_import' }} />);
+    expect(container.textContent).toContain('Written before import, no citation record');
+    rerender(<Retrieval x={{ ...base, origin: 'claude_code_live' }} />);
+    expect(container.textContent).not.toContain('Written before import');
   });
 
   it('entries this version cannot show are a quiet marker, and an answer holding one says so under it', () => {
