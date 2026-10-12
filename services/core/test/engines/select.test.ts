@@ -70,6 +70,18 @@ describe('choosing an engine', () => {
     );
   });
 
+  it('lets a turn with no route through a local-only scope, for a flow of local steps to answer', () => {
+    const none = {
+      get: () => undefined,
+      chain: () => {
+        throw new Error('no route');
+      },
+    } as never;
+    expect(selectEngine(thread(), null, { registry: none })).toMatchObject({ checkModel: null, local: true });
+    // A model id NVX Ancile does not know is never taken for local.
+    expect(selectEngine(thread(), 'mystery/model', { registry: none }).local).toBe(false);
+  });
+
   it('counts a GPU node on your network as local, and a rented pod as not', () => {
     expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'your_network' })).toBe(true);
     expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'rented' })).toBe(false);

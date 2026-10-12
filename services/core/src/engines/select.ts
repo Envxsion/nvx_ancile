@@ -116,7 +116,11 @@ export function selectEngine(
     modelId: asked,
     engineModel: null,
     checkModel: resolved,
-    local: m ? isLocalModel(m) : false,
+    // No model resolved: nothing is sent by this choice. A flow's steps are each
+    // checked against the scope when they run (flows/turn.ts), and with no flow
+    // the turn ends with "No model is ready", so a local-only scope must not
+    // refuse a flow of local steps up front. An unknown model id stays refused.
+    local: m ? isLocalModel(m) : resolved === null,
   };
 }
 
