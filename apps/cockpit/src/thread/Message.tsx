@@ -20,6 +20,7 @@ import type { RetrievalTrace } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { type CSSProperties, memo, type ReactNode, useMemo, useState } from 'react';
 import { UnknownMark } from '../claudecode/ThreadMarker';
+import { StartNodeButton } from '../compute/StartNodeButton';
 import { WakingNotice } from '../compute/WakingNotice';
 import { useBinding } from '../keys/dispatch';
 import { useFactcheck, useProgress } from '../lib/factcheck';
@@ -114,6 +115,7 @@ function ErrorActions({ m, threadId }: { m: MessageView; threadId: string }) {
   const flow = m.provenance?.flow;
   return (
     <div className="msg__error-actions">
+      {m.error?.code === 'compute.node_stopped' ? <StartNodeButton /> : null}
       {toModels ? (
         <Link to="/admin/$section" params={{ section: 'models' }} className="btn btn--primary btn--sm">
           Open Models

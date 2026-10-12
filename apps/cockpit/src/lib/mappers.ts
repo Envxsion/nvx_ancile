@@ -392,7 +392,7 @@ export function toMessageView(m: Message): MessageView | null {
     provenance: prov,
     status: m.status === 'pending' || m.status === 'streaming' ? 'streaming' : m.status,
     runId: m.run_id,
-    ...(prov.error && { error: { title: prov.error.title, hint: prov.error.hint } }),
+    ...(prov.error && { error: { title: prov.error.title, hint: prov.error.hint, code: prov.error.code } }),
     ...(prov.lab &&
       m.run_id && {
         lab: { runId: m.run_id, undone: !!prov.lab_undone_at },

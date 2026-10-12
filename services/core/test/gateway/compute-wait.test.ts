@@ -129,3 +129,19 @@ describe('waiting for a GPU node', () => {
     expect(r.text).toBe('from the cloud');
   });
 });
+
+describe('a node that says how long it needs', () => {
+  it('is waited for up to its estimate plus the margin, past the usual wait', async () => {
+    const c = client(3);
+    const g = new Gateway({
+      client: c,
+      breaker: new CircuitBreaker({ clock: instantClock() }),
+      computeWaitMs: 1,
+      computePollMs: 1,
+      computeEtaMarginMs: 60_000,
+    });
+    const r = await run(g, [model('node/llama', 'controller'), model('fake/cloud', 'direct')], 'run_eta');
+    expect(r.text).toBe('from the node');
+    expect(r.events.some((e) => e.type === 'fallback')).toBe(false);
+  });
+});

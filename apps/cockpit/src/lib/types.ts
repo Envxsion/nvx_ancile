@@ -119,8 +119,8 @@ export interface MessageView {
   modelName?: string | null;
   /** A lab answer: its run (for changes and undo) and whether it was undone. */
   lab?: { runId: string; undone: boolean } | null;
-  /** Shown under a failed answer. */
-  error?: { title: string; hint: string } | null;
+  /** Shown under a failed answer; `code` picks its action (Start node for compute.node_stopped). */
+  error?: { title: string; hint: string; code?: string } | null;
   /** What Core recorded about how this answer was made (models tried, sources found). */
   provenance?: import('./mappers').Provenance;
   /** Only tool results, already shown in the answer before it: kept for the branch, not drawn. */

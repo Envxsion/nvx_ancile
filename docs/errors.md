@@ -250,6 +250,7 @@ Validation issues (shown in the editor, not as HTTP errors): `flow.no_input`, `f
 | Code | HTTP | Title / hint |
 |---|---|---|
 | `compute.node_waking` | 503 | "Your GPU node is waking up." / Wait about N s, or use a cloud model. |
+| `compute.node_stopped` | 409 | "Your GPU node is stopped." / Start node to wake it (usually a minute or two), then try again. Shown on the answer, with a Start node button, when the thread's model runs on a stopped node and no route can answer meanwhile. While a woken node's server is still loading its model, the Controller answers `node_waking` with `phase: "loading"`, never the proxy's own 502 or 404 page. |
 | `compute.cost_cap` | 402 | "This month's compute cap is reached." / Raise it in Admin → Compute → Rules, or use cloud models. |
 | `compute.no_capacity` | 502 | "RunPod has no capacity for this GPU here." / Try another region with your volume's datacentre, or another GPU type. |
 | `compute.invalid_transition` | 409 | "The node can't <action> while <state>." / Wait for the current operation to finish. |

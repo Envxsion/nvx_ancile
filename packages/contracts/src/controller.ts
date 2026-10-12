@@ -247,5 +247,7 @@ export const ControllerRoutingError = z.object({
     message: z.string(),
     eta_s: z.number().nullable().optional(),
     node_id: z.string().optional(),
+    /** node_waking: 'loading' once the node is up but its server does not list the model yet. */
+    phase: z.enum(['starting', 'loading']).optional(),
   }),
 });

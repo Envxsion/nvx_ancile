@@ -428,6 +428,8 @@ export const FlowStepRecord = z.object({
   output: z.string().default(''),
   reasoning: z.string().optional(),
   error: z.string().optional(),
+  /** Something to see about how the step ran, such as which model stood in for its own. */
+  note: z.string().optional(),
   /** Tools the node called, in order, and how each went. */
   tool_calls: z
     .array(

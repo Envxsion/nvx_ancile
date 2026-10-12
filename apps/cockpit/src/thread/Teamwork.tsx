@@ -361,6 +361,12 @@ const StepRow = memo(function StepRow({
         </div>
       ) : null}
 
+      {step.note ? (
+        <p className="tw-note">
+          <Icon name="regenerate" size={11} />
+          {step.note}
+        </p>
+      ) : null}
       {step.error ? (
         <p className="tw-error" role="alert">
           <Icon name="warn" size={11} />

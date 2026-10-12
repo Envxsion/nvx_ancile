@@ -1085,7 +1085,16 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         // A later round follows tool calls: read again so nothing is stale.
         if (cp.rounds > 0) historyRead = null;
         const all = await messages();
-        const chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
+        let chain: ModelConfig[];
+        try {
+          chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
+        } catch (err) {
+          // The thread's model runs on a GPU node that is stopped (its models are not
+          // offered while it is): say that, with Start node, not "No model is ready".
+          const asked = cp.input.explicitModel ?? cp.input.threadModelUnready ?? null;
+          if (err instanceof NoRouteError && asked?.startsWith('node/')) throw nodeStopped(asked);
+          throw err;
+        }
         cp.chain = chain.map((m) => m.id);
         const tools: ToolDef[] = deps.tools.list().map((t) => ({
           name: t.name,
@@ -1424,6 +1433,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       await deps.repo.patchThread(cp.input.threadId, {});
     },
   };
+}
+
+/** A turn for a GPU node's model that no route can answer while the node is stopped. */
+export function nodeStopped(modelId: string): AncileError {
+  return new AncileError({
+    code: 'compute.node_stopped',
+    title: 'Your GPU node is stopped',
+    hint: `Start node to wake it (usually a minute or two), then try again. It serves ${modelId.replace(/^node\//, '')}.`,
+    status: 409,
+    errorClass: 'permanent',
+    context: { model_id: modelId },
+  });
 }
 
 function describeFailure(

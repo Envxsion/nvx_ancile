@@ -412,6 +412,8 @@ async function main() {
   const gateway = new Gateway({
     client: routingClient,
     breaker: new CircuitBreaker(),
+    // A cold node says how long it needs; wait that long plus two minutes.
+    computeEtaMarginMs: 120_000,
   });
   const chatReady = registry
     .info()

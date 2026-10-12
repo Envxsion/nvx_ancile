@@ -50,7 +50,14 @@ export async function streamCall(
   };
   let current: ModelConfig | undefined = chain[0];
   for await (const ev of deps.gateway.stream(chain, req, signal, opts)) {
-    if (ev.type === 'model') {
+    if (ev.type === 'fallback') {
+      // Name the step's own model (the first that could not answer) and the one that did.
+      out.fellBack = {
+        from: out.fellBack?.from ?? ev.from,
+        to: ev.to,
+        reason: out.fellBack?.reason ?? ev.reason,
+      };
+    } else if (ev.type === 'model') {
       current = deps.registry.get(ev.modelId) ?? chain.find((m) => m.id === ev.modelId);
       out.modelId = ev.modelId;
     } else if (ev.type === 'chunk') {

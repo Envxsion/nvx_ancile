@@ -57,6 +57,8 @@ export interface ModelCallResult {
   costUsd: number;
   /** Tools the model asked to call this round. */
   toolCalls?: { callId: string; tool: string; args: unknown }[];
+  /** The step's own model could not answer and another did (the gateway's fallback). */
+  fellBack?: { from: string; to: string; reason: string };
 }
 
 export type Waitable<T> = { status: 'done'; value: T } | { status: 'waiting' };
@@ -572,6 +574,13 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       { ...(params.wait_for_wake_s !== undefined && { waitForWakeS: params.wait_for_wake_s }) },
     );
     flush();
+    if (result.fellBack) {
+      const name = (id: string) => rt.model(id)?.display_name ?? id;
+      notes.set(
+        node.id,
+        `${name(result.fellBack.from)} could not answer (${result.fellBack.reason}), so ${name(result.fellBack.to)} answered instead.`,
+      );
+    }
     if (key) callCache.set(key, { at: now(), result });
     return { ...result, cached: false };
   };
@@ -842,6 +851,9 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
     return { output };
   };
 
+  /** A visible note per node: which model stood in for the step's own. */
+  const notes = new Map<string, string>();
+
   const recordStep = async (
     n: FlowNode,
     started: number,
@@ -865,6 +877,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       cost_usd: Math.round(u.cost * 1e6) / 1e6,
       output: output.slice(0, 20_000),
       ...(error && { error }),
+      ...(notes.has(n.id) && { note: notes.get(n.id) }),
       ...(toolCalls?.length && { tool_calls: toolCalls }),
     });
     state.stepsRun += 1;
@@ -878,6 +891,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       tokens_out: u.tokensOut,
       cost_usd: Math.round(u.cost * 1e6) / 1e6,
       ...(error && { error }),
+      ...(notes.has(n.id) && { note: notes.get(n.id) }),
     });
   };
 

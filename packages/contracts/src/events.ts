@@ -215,6 +215,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     tokens_out: z.number().int(),
     cost_usd: z.number(),
     error: z.string().optional(),
+    /** Which model stood in when the step's own could not answer, and why. */
+    note: z.string().optional(),
   }),
   z.object({
     ...base,
