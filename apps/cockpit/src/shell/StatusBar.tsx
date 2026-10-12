@@ -24,6 +24,7 @@ import { useConnection } from '../lib/connection';
 import { useApprovals, useSystemHealth } from '../lib/data';
 import { usd } from '../lib/format';
 import { useCurrentModel, useThreadIdFromRoute } from '../lib/models';
+import { EditionMark } from '../pro/edition';
 import { RepoSegment } from '../repos/RepoSegment';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -156,6 +157,8 @@ export function StatusBar() {
           <span>{approvals === 1 ? 'decision waiting' : 'decisions waiting'}</span>
         </button>
       ) : null}
+
+      <EditionMark />
 
       {show.health ? (
         <Link

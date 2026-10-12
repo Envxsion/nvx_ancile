@@ -37,6 +37,7 @@ import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
 import { Palette } from '../palette/Palette';
 import { BeamHost } from '../pro/beam';
+import { EditionSync } from '../pro/edition';
 import { SignInGate, useSignInGate } from '../pro/gate';
 import { ADMIN_SECTIONS } from '../routes/admin/sections';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
@@ -167,6 +168,7 @@ export function AppShell() {
     return (
       <>
         <Runtime />
+        <EditionSync />
         <SignInGate />
         <Toaster />
       </>
@@ -177,6 +179,7 @@ export function AppShell() {
     return (
       <>
         <Runtime />
+        <EditionSync />
         <Outlet />
         <Toaster />
       </>
@@ -193,6 +196,7 @@ export function AppShell() {
       style={{ '--rail-w': `${railWidth}px`, '--drawer-w': `${drawerWidth}px` } as CSSProperties}
     >
       <Runtime />
+      <EditionSync />
       <a href="#main" className="skip-link">
         Skip to content
       </a>

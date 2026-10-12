@@ -16,9 +16,11 @@ import { LOOK_KEY } from './prefs';
 
 export type ThemeChoice = 'system' | 'dark' | 'light';
 export const THEME_KEY = 'nvx.ancile.theme';
+/** The edition last seen ('pro' | 'free'), replayed before first paint so Pro never flashes in. */
+export const EDITION_KEY = 'nvx.ancile.edition';
 
 /** Inline in <head>. Kept tiny and dependency-free on purpose. */
-export const BOOT_SCRIPT = `(function(){var r=document.documentElement;try{var c=localStorage.getItem('${THEME_KEY}')||'system';var d=c==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):c;r.dataset.theme=d;r.dataset.themeChoice=c;var l=JSON.parse(localStorage.getItem('${LOOK_KEY}')||'null');if(l){for(var k in l.attrs)r.dataset[k]=l.attrs[k];for(var v in l.vars)r.style.setProperty(v,l.vars[v])}}catch(e){r.dataset.theme=r.dataset.theme||'dark'}})();`;
+export const BOOT_SCRIPT = `(function(){var r=document.documentElement;try{var c=localStorage.getItem('${THEME_KEY}')||'system';var d=c==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):c;r.dataset.theme=d;r.dataset.themeChoice=c;if(localStorage.getItem('${EDITION_KEY}')==='pro')r.dataset.edition='pro';var l=JSON.parse(localStorage.getItem('${LOOK_KEY}')||'null');if(l){for(var k in l.attrs)r.dataset[k]=l.attrs[k];for(var v in l.vars)r.style.setProperty(v,l.vars[v])}}catch(e){r.dataset.theme=r.dataset.theme||'dark'}})();`;
 
 function resolve(choice: ThemeChoice): 'dark' | 'light' {
   if (choice !== 'system') return choice;

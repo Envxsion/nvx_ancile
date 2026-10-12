@@ -292,6 +292,8 @@
   --gilt-hair: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.3), rgb(var(--gilt-rgb) / 0.12));
   --gilt-sheen: linear-gradient(100deg, #8f7d5a 0%, #b3a07c 40%, #cfc2a6 55%, #8f7d5a 100%);
   --gilt-glow: 0 0 0 1px rgb(179 160 124 / 0.16);
+  --gilt-frame: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.4), rgb(var(--gilt-rgb) / 0.16));
+  --gilt-glow-strong: 0 0 0 1px rgb(179 160 124 / 0.24);
 }
 :root[data-theme='light'][data-gilt='subtle'] {
   --gilt: #7d6a48;
@@ -309,6 +311,10 @@
   --gilt-hair: linear-gradient(var(--hair-2), var(--hair-2));
   --gilt-sheen: linear-gradient(var(--fg-3), var(--fg-3));
   --gilt-glow: 0 0 0 1px var(--hair-2);
+  --gilt-frame: linear-gradient(var(--edge), var(--edge));
+  --gilt-fill: linear-gradient(var(--chalk-3), var(--chalk-3));
+  --on-gilt: var(--fg);
+  --gilt-glow-strong: 0 0 0 1px var(--edge);
 }
 
 /* Zoom: the whole interface, persisted (Mod+= / Mod+-) */

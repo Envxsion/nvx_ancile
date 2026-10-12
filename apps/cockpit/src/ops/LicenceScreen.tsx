@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react';
 import { ApiCallError, api } from '../lib/api';
 import { relative } from '../lib/format';
 import { queryClient } from '../lib/query';
+import { awakenPro } from '../pro/edition';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
@@ -113,6 +114,8 @@ export function LicenceScreen() {
       void queryClient.invalidateQueries({ queryKey: ['license'] });
       setKey('');
       setSeatTaken(null);
+      // Pro is on in this build: the one moment it arrives (pro/edition.tsx).
+      if (d.build === 'pro' && d.status.tier !== 'free') awakenPro();
       notify(
         d.build === 'free'
           ? {
@@ -167,14 +170,14 @@ export function LicenceScreen() {
 
   return (
     <div className="ops licence">
-      <section className="edition" data-pro={pro || undefined}>
+      <section className={pro ? 'edition gilt-frame' : 'edition'} data-pro={pro || undefined}>
         <div className="edition__seal" aria-hidden="true">
           <Icon name={pro ? 'seal' : 'key'} size={22} />
         </div>
         <div className="edition__text">
           <h2 className="edition__title">
             {pro ? 'NVX Ancile Pro' : 'NVX Ancile'}
-            {pro ? <span className="edition__badge">{tester ? 'Tester' : 'Pro'}</span> : null}
+            {pro ? <span className="edition__badge gilt-pill">{tester ? 'Tester' : 'Pro'}</span> : null}
           </h2>
           <p className="mute">
             {pro
@@ -332,7 +335,7 @@ export function LicenceScreen() {
           </label>
           <button
             type="submit"
-            className="btn btn--primary"
+            className="btn btn--primary gilt-action"
             disabled={!valid || activate.isPending}
             data-busy={activate.isPending || undefined}
           >

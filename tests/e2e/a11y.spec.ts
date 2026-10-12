@@ -30,6 +30,36 @@ test.describe('accessibility', () => {
       await expectAccessible(page);
     });
 
+  // The Pro edition: the brighter palette and the gilt kit hold AA too.
+  for (const route of ['/admin/license', '/admin/engine-insights', '/admin/fleet'])
+    test(`${route} in the Pro edition has no serious or critical axe violation`, async ({ page }) => {
+      const features = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights'];
+      await page.addInitScript(() => localStorage.setItem('nvx.ancile.pro-awakened', '1'));
+      await page.route('**/api/v1/license/details', (r) =>
+        r.fulfill({
+          json: {
+            status: {
+              tier: 'pro',
+              features,
+              verified: true,
+              offline_grace: false,
+              expires_at: '2030-01-01T00:00:00Z',
+              lapse: null,
+            },
+            build: 'pro',
+            device_id: 'dev_1',
+            key_held: true,
+            checked_at: null,
+            problem: null,
+            features: features.map((id) => ({ id, title: id, body: id, unlocked: true })),
+          },
+        }),
+      );
+      await open(page, route);
+      await expect(page.locator('html')).toHaveAttribute('data-edition', 'pro');
+      await expectAccessible(page);
+    });
+
   test('the command palette, open', async ({ page }) => {
     await open(page, '/');
     await page.keyboard.press(`${mod}+k`);

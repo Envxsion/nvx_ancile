@@ -82,6 +82,34 @@ States change speed, distance and colour, never the geometry. All of them respec
 
 **Favicon** (`icons/favicon.svg`): the two halves and core only. The inner ring disappears at 16 px.
 
+## Pro: gilt and a brighter palette
+
+Gold is the Pro accent and means owned, kept or earned; violet stays Ancile's identity and the only colour for focus, the primary action and live state. Gold is never a status, an error, a link or a focus ring. `packages/aperture/src/pro.css` holds both halves.
+
+**The Pro palette** applies on `<html data-edition="pro">`, which the Cockpit sets from the licence (a Pro build with a Pro tier) and the theme script replays before first paint. Text is a step brighter on dark and a step deeper on light, edges a little firmer, the ultraviolet signal (default accent only) a little more luminous, the brass richer. Grounds and the lift ladder do not change, so a chosen ground tint holds, and High contrast still wins.
+
+| Token | Pro dark | Worst ground | Ratio | Pro light | Worst ground | Ratio |
+|---|---|---|---|---|---|---|
+| `--fg-2` | `#dde0e2` | lift-3 | 12.05 | `#20262c` | void-deep | 11.97 |
+| `--fg-3` | `#c6cacd` | lift-3 | 9.69 | `#3b434b` | void-deep | 7.87 |
+| `--mute` | `#adb3b9` | lift-3 | 7.55 | `#454c53` | void-deep | 6.82 |
+| `--mute-2` | `#939da6` | lift-3 | 5.79 | `#4b5259` | void-deep | 6.21 |
+| `--signal-ink` | `#c2b4ff` | lift-3 | 8.57 | `#4c30cc` | void-deep | 6.32 |
+| `--gilt` (text) | `#e6c784` | lift-3 | 9.79 | `#6b4d14` | void-deep | 6.10 |
+| `--on-signal` on `--signal` | `#08090a` on `#ab97ff` | | 8.16 | `#fff` on `#6043e6` | | 6.10 |
+
+`--on-gilt` (`#1a1306`) on every stop of `--gilt-fill` holds 8.72:1 or more, in both themes and both editions; the light theme's gilt frame stroke holds 4.52:1 on lift-2 (3:1 needed for a non-text edge). The free edition's gilt was already AA (9.61 dark, 6.35 light on lift).
+
+**The gilt kit**, in both editions:
+
+- `.gilt-frame` a 1 px gilded edge that follows any radius (`--gilt-frame-o` sets its strength); `.gilt-frame--quiet` for a locked Pro card in the free edition.
+- `.pro-card` depth that answers a hand: 2 px up and the frame brightens on hover, settles on press.
+- `.gilt-action` one sheen over a primary Pro action when it is reached; the fill stays violet.
+- `.gilt-pill` dark ink on the gilt fill (never light text on gold).
+- `.edition-mark` the status bar's Pro mark, and `.pro-awaken`, the one moment Pro arrives: a gilded line runs round the window once (a key turns Pro on, or a Pro build opens for the first time). Nothing moves with reduced motion.
+
+Budget: one gilded thing per cluster. A screen Pro has unlocked wears one frame (its headline) and one sheen (its primary action); its cards gild only under the hand.
+
 ## Naming
 
 | Where | Write |
@@ -116,4 +144,4 @@ Plain, concrete, second person, British spelling. Say what something does, not h
 - **Do** use the radius ladder. Controls are tight (5–7 px), surfaces soft (10–14 px), state is a pill. One radius on everything is the generic-SaaS tell.
 - **Don't** put gradients on surfaces, glassmorphism on scrolling content, or a warm cream light theme.
 - **Don't** set words in Martian Mono.
-- **Don't** add a "PRO" badge to every Pro feature. The family shows Pro once, as a pill in Settings, and lights unlocked items in signal.
+- **Don't** add a "PRO" badge to every Pro feature. Pro is named once per view: the pill on the licence (or on a locked feature's card) and the edition mark in the status bar.

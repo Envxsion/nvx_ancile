@@ -1,0 +1,268 @@
+/* ==========================================================================
+   The Pro layer
+
+   Loads after prefs.css. Two halves:
+
+   1. The Pro palette, on <html data-edition="pro"> (set from the licence by
+      the Cockpit, replayed before first paint by BOOT_SCRIPT). Text a step
+      brighter on dark and a step deeper on light, edges a little firmer,
+      the ultraviolet signal a little more luminous, the brass a little
+      richer. Grounds and the lift ladder are untouched, so a ground tint
+      a person chose still holds. Every pair is AA: the figures are in
+      docs/brand.md (Pro).
+
+   2. The gilt kit, in both editions: a gilded 1 px frame, depth that
+      answers a hand on a Pro card, one sheen on a primary Pro action, the
+      edition mark, and the single moment Pro arrives. Gold is the Pro
+      accent and means owned; it is never a status, an error or a focus
+      ring (those stay --ok/--warn/--fail and violet).
+
+   Budget, as for all gilt: one gilded thing per cluster. A locked Pro card
+   in the free edition wears the quiet frame; the Pro screens wear it full.
+   ========================================================================== */
+
+/* ---- 1. The Pro palette ------------------------------------------------- */
+
+:root[data-edition='pro']:not([data-theme='light']) {
+  --fg: #f6f7f2;
+  --fg-rgb: 246 247 242;
+  --fg-2: #dde0e2;
+  --fg-3: #c6cacd;
+  --mute: #adb3b9;
+  --mute-2: #939da6;
+  --hair: rgb(246 247 242 / 0.12);
+  --hair-2: rgb(246 247 242 / 0.19);
+  --edge: rgb(246 247 242 / 0.19);
+  --edge-2: rgb(246 247 242 / 0.3);
+  --hi: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+:root[data-edition='pro']:not([data-theme='light']):is([data-accent='ultraviolet'], :not([data-accent])) {
+  --signal: #ab97ff;
+  --signal-rgb: 171 151 255;
+  --signal-ink: #c2b4ff;
+  --signal-mid: #8670f0;
+}
+:root[data-edition='pro']:not([data-theme='light']):not([data-gilt='subtle']):not([data-gilt='off']) {
+  --gilt: #e6c784;
+  --gilt-rgb: 230 199 132;
+  --gilt-hi: #f6e7c1;
+  --gilt-glow: 0 0 0 1px rgb(230 199 132 / 0.28), 0 10px 28px -14px rgb(230 199 132 / 0.42);
+}
+
+:root[data-edition='pro'][data-theme='light'] {
+  --fg: #090c0f;
+  --fg-rgb: 9 12 15;
+  --fg-2: #20262c;
+  --fg-3: #3b434b;
+  --mute: #454c53;
+  --mute-2: #4b5259;
+  --hair: rgb(9 12 15 / 0.1);
+  --hair-2: rgb(9 12 15 / 0.15);
+  --edge: rgb(9 12 15 / 0.15);
+  --edge-2: rgb(9 12 15 / 0.24);
+}
+:root[data-edition='pro'][data-theme='light']:is([data-accent='ultraviolet'], :not([data-accent])) {
+  --signal: #6043e6;
+  --signal-rgb: 96 67 230;
+  --signal-ink: #4c30cc;
+  --signal-mid: #4c30cc;
+}
+:root[data-edition='pro'][data-theme='light']:not([data-gilt='subtle']):not([data-gilt='off']) {
+  --gilt: #6b4d14;
+  --gilt-rgb: 107 77 20;
+  --gilt-glow: 0 0 0 1px rgb(107 77 20 / 0.24), 0 10px 26px -14px rgb(107 77 20 / 0.3);
+}
+
+/* High contrast still wins where it asked for more */
+:root[data-edition='pro'][data-contrast='high'] {
+  --mute: var(--fg-3);
+  --mute-2: var(--fg-3);
+  --hair: rgb(var(--fg-rgb) / 0.2);
+  --hair-2: rgb(var(--fg-rgb) / 0.3);
+  --edge: rgb(var(--fg-rgb) / 0.32);
+  --edge-2: rgb(var(--fg-rgb) / 0.45);
+}
+
+/* ---- 2. The gilt kit ---------------------------------------------------- */
+
+/* A gilded 1 px edge that follows any radius (a masked ::before, so it
+   never takes layout or the element's own border). --gilt-frame-o sets
+   its strength; the quiet frame is for locked cards in the free edition. */
+.gilt-frame {
+  position: relative;
+  isolation: isolate;
+}
+.gilt-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--gilt-frame);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: var(--gilt-frame-o, 0.9);
+  pointer-events: none;
+  transition: opacity var(--d-short) var(--ease-out);
+}
+.gilt-frame--quiet {
+  --gilt-frame-o: 0.42;
+}
+
+/* Depth that answers a hand: a Pro card lifts 2 px and its frame brightens
+   on hover; pressing a card that is a control settles it back. */
+.pro-card {
+  transition:
+    transform var(--d-short) var(--ease-out),
+    box-shadow var(--d-short) var(--ease-out);
+}
+.pro-card:hover {
+  --gilt-frame-o: 1;
+  transform: translateY(-2px);
+  box-shadow: var(--elev-2), var(--gilt-glow);
+}
+:is(a, button).pro-card:active,
+.pro-card:has(> :is(a, button):active) {
+  transform: translateY(0) scale(0.995);
+  transition-duration: var(--d-instant);
+}
+
+/* One sheen across a primary Pro action when a hand or the keyboard
+   reaches it. The fill stays violet (the primary action's colour); the
+   sheen is light passing over it, and a hairline of brass at rest. */
+.gilt-action {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.45),
+    var(--elev-1);
+}
+.gilt-action::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgb(var(--gilt-shine-rgb) / 0.42) 50%,
+    transparent 62%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.gilt-action:is(:hover, :focus-visible)::after {
+  animation: gilt-pass 900ms var(--ease-out) 1;
+}
+@keyframes gilt-pass {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+/* A pill that carries gilt text the right way round: dark ink on the fill */
+.gilt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  border-radius: var(--r-pill);
+  color: var(--on-gilt);
+  background: var(--gilt-fill);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+/* The status bar's edition mark: brass words and the seal, no fill */
+.edition-mark {
+  color: var(--gilt);
+}
+.edition-mark svg {
+  color: var(--gilt-hi);
+}
+:root[data-theme='light'] .edition-mark svg {
+  color: var(--gilt);
+}
+
+/* ---- The moment Pro arrives -------------------------------------------- */
+
+/* A gilded line runs once round the window's edge, then fades: drawn by
+   ProAwaken in the Cockpit (an SVG rect with pathLength 1), never with
+   reduced motion. */
+.pro-awaken {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  pointer-events: none;
+  animation: pro-awaken-out 1900ms var(--ease) both;
+}
+.pro-awaken svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.pro-awaken rect {
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  fill: none;
+  stroke: url(#pro-awaken-gilt);
+  stroke-width: 2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pro-awaken-draw 1300ms var(--ease-inout) 120ms both;
+}
+.pro-awaken stop {
+  stop-color: var(--gilt-2);
+}
+.pro-awaken stop.hi {
+  stop-color: var(--gilt-1);
+}
+.pro-awaken__glow {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 120px -40px rgb(var(--gilt-rgb) / 0.55);
+}
+@keyframes pro-awaken-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pro-awaken-out {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-card,
+  .pro-card:hover,
+  .pro-card:active {
+    transform: none;
+    transition: none;
+  }
+  .gilt-action::after,
+  .pro-awaken {
+    display: none;
+  }
+}
+:root[data-motion='reduced'] .pro-awaken,
+:root[data-motion='reduced'] .gilt-action::after {
+  display: none;
+}
+:root[data-motion='reduced'] .pro-card:hover {
+  transform: none;
+}

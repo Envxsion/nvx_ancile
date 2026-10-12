@@ -1692,13 +1692,6 @@ button.logline__row:hover {
   background: radial-gradient(140% 160% at 0% 0%, rgb(var(--gilt-rgb) / 0.14), transparent 55%), var(--lift);
   box-shadow: var(--elev-2), var(--gilt-glow);
 }
-.edition[data-pro]::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto;
-  height: 1px;
-  background: var(--gilt-hair);
-}
 .edition__seal {
   display: grid;
   place-items: center;
@@ -1735,12 +1728,7 @@ button.logline__row:hover {
   gap: 8px;
 }
 .edition__badge {
-  padding: 1px 7px;
-  border-radius: var(--r-pill);
-  font-size: var(--t-micro);
-  font-weight: 600;
-  color: var(--gilt);
-  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.4);
+  padding: 1px 8px;
 }
 .edition__text .edition__lapse {
   margin-top: 8px;
@@ -1815,9 +1803,8 @@ button.logline__row:hover {
 .feature .mute {
   font-size: var(--t-small);
 }
-.feature[data-unlocked] {
-  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
-}
+/* Unlocked: the check is brass; the card keeps its hairline (the edition
+   card above is this screen's one gilded frame). */
 .feature[data-unlocked] > svg {
   color: var(--gilt);
 }
