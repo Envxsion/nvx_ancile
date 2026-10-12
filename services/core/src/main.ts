@@ -48,6 +48,7 @@ import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { PlanLimits } from './claudecode/plan-limits';
 import { claudeCodeRoutes } from './claudecode/routes';
+import { PgRepoPairStore, SameRepoFinder } from './claudecode/same-repo';
 import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
@@ -470,6 +471,15 @@ async function main() {
   const runStore = new PgRunStore(sql);
   // One sender per thread across windows (threads/send-lock.ts).
   const sendLocks = new PgSendLocks(sql);
+  // One repository in two folders: folder notebooks that are one repository (claudecode/same-repo.ts).
+  const sameRepo = new SameRepoFinder({
+    projects: () => claudeCodeStore.projects(owner.workspaceId),
+    notebook: async (id) => {
+      const n = await notebooks.get(id);
+      return n && n.workspace_id === owner.workspaceId && !n.archived_at ? { title: n.title } : null;
+    },
+    pairs: new PgRepoPairStore(sql),
+  });
   // Anonymous usage statistics (docs/telemetry.md): off until you say yes.
   let tierNow: () => 'free' | 'pro' | 'max_access' = () => 'free';
   const telemetry = new Telemetry({
@@ -1379,7 +1389,12 @@ async function main() {
           notebookOf: async (id) => (await threads.getThread(id))?.notebook_id ?? null,
         }),
       }),
-      claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive, sendLocks }),
+      claudeCodeRoutes({
+        service: () => claudeCode.service,
+        live: () => claudeLive,
+        sendLocks,
+        sameRepo: () => sameRepo,
+      }),
       activityRoutes({ activity }),
       engineRoutes({
         engines: () => engines,

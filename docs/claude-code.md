@@ -30,6 +30,15 @@ Claude Code's usage counts against whichever account Claude Code is signed into 
 - Each thread remembers the folder its session runs in, exactly as Claude Code recorded it, so it can carry on in that folder later.
 - A notebook made for a folder gets its own colour: the first of azure, coral, jade, amber, cyan and magenta that no other notebook (not archived) uses. When all six are taken it gets the least used one, and the same folder always gets the same one. Folder notebooks made before colours get theirs on the next import pass. A notebook you already had, or chose, keeps its colour.
 
+### One repository in two folders
+
+One repository opened from two folders gives two notebooks: a git worktree (`app` and `app-feature`), a WSL path and its Windows path (`\\wsl$\Ubuntu\home\you\app` and `/home/you/app`), another casing on Windows, or a link. NVX Ancile notices and asks; it never merges notebooks by itself.
+
+- **How it tells.** Two folders are one repository when their paths resolve to one folder (links resolved; on Windows case and slash direction do not matter; `\\wsl$\<distro>\…` or `\\wsl.localhost\<distro>\…` is the same as the Linux path, and `/mnt/c/…` the same as `C:\…`), when git says they share one repository (`git rev-parse --git-common-dir`, which every worktree of a repository shares), or when they have the same first commit and the same `origin` remote. git is only read: optional locks off, a few seconds at most, never a write. A folder that is not on this computer only has its path compared.
+- **What you see.** The notebook shows one line, "Same repository as app (a worktree)" (or "(the same folder)", "(the same history)"), with **Show together** and **Keep apart**. Show together keeps the two notebooks next to each other in the sidebar, the second marked as the same repository. Keep apart hides the line for that pair for good. Either choice is kept for the pair, from both sides (`core.claude_code_repo_pairs`).
+- **Merging.** Notebook merge is not in this release. TODO(phase-3): **Merge notebooks** replaces Show together once notebook merge exists (`can_merge` in `GET /claude-code/notebooks/:id/same-repo`).
+- **API.** `GET /claude-code/notebooks/:id/same-repo` → `SameRepoList {items: [{notebook_id, title, reason: same_folder | worktree | same_history, cwd, other_cwd, together}], can_merge}`; `POST` the same path with `SameRepoChoice {other_notebook_id, choice: keep_apart | show_together}`; `GET /claude-code/notebook-links` → `{groups: [[notebook ids]]}`, for the sidebar.
+
 ## Excluded folders
 
 Some sessions are not yours: the claude-mem plugin, for example, runs automated "observer" sessions in `~/.claude-mem`. Sessions from an excluded folder (or any folder inside it) are never listed, never brought in automatically, and bringing one in by hand says "Sessions from that folder are not brought in".

@@ -25,6 +25,7 @@ import {
   ExcludeClaudeCodeFolderRequest as ExcludeFolderRequest,
   ImportClaudeCodeSessionsRequest,
   PatchClaudeCodeSettings,
+  SameRepoChoice,
   SendClaudeCodeRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
@@ -35,6 +36,7 @@ import { badRequest } from '../obs/errors';
 import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import { ccErrors } from './errors';
 import type { ClaudeCodeLive } from './live';
+import type { SameRepoFinder } from './same-repo';
 import type { ClaudeCodeService } from './service';
 
 const SignInRequest = z.object({ method: z.enum(['claudeai', 'console', 'sso']).optional() }).strict();
@@ -44,6 +46,8 @@ export function claudeCodeRoutes(deps: {
   live?: () => ClaudeCodeLive | null;
   /** One sender per thread across windows (threads/send-lock.ts). */
   sendLocks?: SendLocks;
+  /** One repository in two folders: matches between folder notebooks (same-repo.ts). */
+  sameRepo?: () => SameRepoFinder | null;
 }) {
   const r = new Hono<AppEnv>();
   const svc = deps.service;
@@ -130,6 +134,23 @@ export function claudeCodeRoutes(deps: {
   r.post('/claude-code/threads/:id/sync', async (c) => c.json(await svc().syncThread(c.req.param('id'))));
 
   r.get('/claude-code/projects', async (c) => c.json({ items: await svc().projects() }));
+
+  // One repository in two folders: never merged by itself; the person shows them together or keeps them apart.
+  const same = () => deps.sameRepo?.() ?? null;
+  r.get('/claude-code/notebooks/:id/same-repo', async (c) => {
+    const f = same();
+    return c.json(f ? await f.matchesFor(c.req.param('id')) : { items: [], can_merge: false });
+  });
+  r.post('/claude-code/notebooks/:id/same-repo', async (c) => {
+    const req = await body(c, SameRepoChoice);
+    const f = same();
+    if (!f) throw ccErrors.sdkUnavailable('same-repository matching is not running in this Core');
+    return c.json(await f.choose(c.req.param('id'), req.other_notebook_id, req.choice));
+  });
+  r.get('/claude-code/notebook-links', async (c) => {
+    const f = same();
+    return c.json(f ? await f.links() : { groups: [] });
+  });
 
   r.put('/claude-code/projects', async (c) => {
     const req = await body(c, ClaudeCodeProject.strict());
