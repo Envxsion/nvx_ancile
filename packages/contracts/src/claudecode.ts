@@ -349,6 +349,13 @@ export const ClaudeCodeLiveState = z.object({
   folder_missing: z.boolean().optional(),
   /** The thread goes on without files (after its folder went missing). */
   no_files: z.boolean().optional(),
+  /**
+   * Can Claude Code carry this session on from this computer? Anything but
+   * "ready" (a notebook opened on a machine without Claude Code, or signed
+   * out) shows the thread read-only for Claude Code; another model can
+   * still answer it. Absent from an older Core: assume ready.
+   */
+  availability: z.enum(['ready', 'not_installed', 'signed_out', 'unverified']).optional(),
   model: z.string().nullable(),
   effort: z.string().nullable(),
   permission_mode: z.string().nullable(),
@@ -365,6 +372,54 @@ export const ClaudeCodeLiveState = z.object({
     .nullable(),
 });
 export type ClaudeCodeLiveState = z.infer<typeof ClaudeCodeLiveState>;
+
+/**
+ * Two notebooks whose folders are the same repository (one repo in two
+ * folders: a git worktree, a WSL path and its Windows path, another
+ * casing or a link). Never merged by itself: the notebook shows a
+ * one-line suggestion until the person chooses.
+ *   same_folder:  the paths resolve to one folder
+ *   worktree:     git says they share one repository (git-common-dir)
+ *   same_history: the same first commit and the same remote
+ */
+export const SameRepoReason = z.enum(['same_folder', 'worktree', 'same_history']);
+export type SameRepoReason = z.infer<typeof SameRepoReason>;
+
+export const SameRepoMatch = z.object({
+  notebook_id: z.string(),
+  title: z.string(),
+  reason: SameRepoReason,
+  /** This notebook's folder and the other one's, as Claude Code recorded them. */
+  cwd: z.string(),
+  other_cwd: z.string(),
+  /** The person chose "Show together": the rail keeps the two side by side. */
+  together: z.boolean(),
+});
+export type SameRepoMatch = z.infer<typeof SameRepoMatch>;
+
+/** GET /claude-code/notebooks/:id/same-repo */
+export const SameRepoList = z.object({
+  items: z.array(SameRepoMatch),
+  /**
+   * Notebooks can be merged here. False until notebook merge exists
+   * (TODO(phase-3): track C), so the Cockpit offers "Show together".
+   */
+  can_merge: z.boolean(),
+});
+export type SameRepoList = z.infer<typeof SameRepoList>;
+
+/** POST /claude-code/notebooks/:id/same-repo: the person's choice, remembered for the pair. */
+export const SameRepoChoice = z
+  .object({
+    other_notebook_id: z.string().min(1).max(64),
+    choice: z.enum(['keep_apart', 'show_together']),
+  })
+  .strict();
+export type SameRepoChoice = z.infer<typeof SameRepoChoice>;
+
+/** GET /claude-code/notebook-links: notebooks the person chose to show together, in groups. */
+export const NotebookLinks = z.object({ groups: z.array(z.array(z.string())) });
+export type NotebookLinks = z.infer<typeof NotebookLinks>;
 
 /** The background import of Claude Code sessions, while one runs. */
 export const ImportProgress = z

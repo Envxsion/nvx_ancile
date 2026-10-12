@@ -10,10 +10,13 @@
  *           |  with the contract schema when one is given.
  *  Note     |  Network failure (Core not running) throws OfflineError
  *           |  and tells lib/connection.ts, which drives the banner.
+ *           |  Every request names this window (CLIENT_ID_HEADER, a
+ *           |  random id made when the window opens), so Core can tell
+ *           |  two windows sending into one thread apart.
  * ------------------------------------------------------------------
  */
 
-import { ApiError } from '@nvx/contracts';
+import { ApiError, CLIENT_ID_HEADER } from '@nvx/contracts';
 import type { z } from 'zod';
 import { useSignInGate } from '../pro/signin-state';
 import { useConnection } from './connection';
@@ -25,6 +28,9 @@ function hex(bytes: number): string {
   crypto.getRandomValues(a);
   return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/** This window's own id: random, made when it opens, never stored. */
+export const WINDOW_ID = `w${hex(12)}`;
 
 /** A fresh trace per user action; spans hang off it in every service. */
 export function newTraceparent(): { header: string; traceId: string } {
@@ -76,6 +82,7 @@ async function request<T>(method: string, path: string, body?: unknown, schema?:
       headers: {
         accept: 'application/json',
         traceparent: header,
+        [CLIENT_ID_HEADER]: WINDOW_ID,
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,

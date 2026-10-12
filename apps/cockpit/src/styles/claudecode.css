@@ -591,3 +591,35 @@ li[data-cc='command'] > .cc-row {
 .cc-unknown > .icon {
   margin: 0 3px;
 }
+
+/* One repository in two folders: the one line on a notebook. */
+.same-repo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 4px 0 16px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
+.same-repo__icon {
+  flex: none;
+  color: var(--fg-3);
+}
+.same-repo__text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.same-repo__acts {
+  display: flex;
+  gap: 4px;
+}
+/* In the sidebar: a notebook shown together with the one above it (same repository). */
+.rail__item--joined {
+  padding-left: 22px;
+}

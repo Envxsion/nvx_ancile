@@ -18,6 +18,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type CSSProperties, type DragEvent, useMemo, useState } from 'react';
 import { folderOf, useClaudeCodeProjects } from '../claudecode/api';
 import { useExcludeFolder } from '../claudecode/ExcludeFolder';
+import { SameRepoHint } from '../claudecode/SameRepo';
 import { UploadQueue } from '../drawer/SourcesPanel';
 import { openEditor } from '../editors/store';
 import { useLayer } from '../keys/dispatch';
@@ -307,6 +308,7 @@ export function NotebookScreen() {
             />
           </div>
         </header>
+        {demo ? null : <SameRepoHint notebookId={nb.id} />}
 
         <section className="nbk__ask" data-tour="notebook-ask" aria-label="Ask this notebook">
           <Composer

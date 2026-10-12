@@ -705,6 +705,19 @@ export class ClaudeCodeService {
     return this.sessionInfos(false, 2 * 60_000).catch(() => []);
   }
 
+  /**
+   * Can Claude Code carry a session on from this computer? A notebook
+   * opened on a machine without Claude Code (or signed out) shows its
+   * Claude Code threads read-only instead of failing on every turn.
+   */
+  async availability(): Promise<'ready' | 'not_installed' | 'signed_out' | 'unverified'> {
+    const cli = await this.deps.cli.status().catch(() => null);
+    if (!cli?.installed || !cli.path || !cli.version) return 'not_installed';
+    const v = await this.deps.verifier.verify(cli.path, cli.version).catch(() => null);
+    if (v?.state !== 'verified') return 'unverified';
+    return cli.signed_in ? 'ready' : 'signed_out';
+  }
+
   /** The verified Claude Code program, for live sessions. */
   async cliPath(): Promise<{ path: string; version: string }> {
     await this.requireVerified();

@@ -51,6 +51,43 @@ function fileBlocked(path: string, what: string): AncileError {
   });
 }
 
+const two = (n: number) => String(n).padStart(2, '0');
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * "Claude Code limit reached, resets at 14:00" (local time, 24-hour);
+ * "resets Mon 09:00" when that is not today; no time when none is known.
+ */
+export function planLimitTitle(resetsAt: string | null, now: number = Date.now()): string {
+  const at = resetsAt ? new Date(resetsAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return 'Claude Code limit reached';
+  const time = `${two(at.getHours())}:${two(at.getMinutes())}`;
+  const today = new Date(now).toDateString() === at.toDateString();
+  return today
+    ? `Claude Code limit reached, resets at ${time}`
+    : `Claude Code limit reached, resets ${DAYS[at.getDay()]} ${time}`;
+}
+
+/**
+ * Does a turn's result (or its words) say the plan's limit was reached?
+ * Returns when it resets, if it says (Claude Code's "…limit reached|<epoch>").
+ */
+export function limitFromResult(result: Record<string, unknown> | null): { resetsAt: string | null } | null {
+  if (!result) return null;
+  const text = typeof result.result === 'string' ? result.result : '';
+  const errors = Array.isArray(result.errors)
+    ? result.errors.filter((e) => typeof e === 'string').join(' ')
+    : '';
+  const words = `${text} ${errors}`;
+  if (!/usage limit reached|limit reached|hit your (?:usage )?limit|rate[_ ]limit(?:ed)?/i.test(words))
+    return null;
+  if (result.is_error !== true && !/error/.test(String(result.subtype ?? ''))) return null;
+  const epoch = /\|(\d{10,13})\b/.exec(words)?.[1];
+  if (!epoch) return { resetsAt: null };
+  const n = Number(epoch);
+  return { resetsAt: new Date(n < 1e12 ? n * 1000 : n).toISOString() };
+}
+
 export const ccErrors = {
   notInstalled: () =>
     new AncileError({
@@ -175,6 +212,20 @@ export const ccErrors = {
       status: 502,
       errorClass: 'transient',
       detail: said.slice(0, 500),
+    }),
+  /**
+   * Claude Code's plan limit was reached during a turn. The title names the
+   * reset in this computer's local time (the Cockpit says it again in the
+   * viewer's own, from `context.resets_at`).
+   */
+  planLimit: (resetsAt: string | null, now: number = Date.now()) =>
+    new AncileError({
+      code: 'claude_code.plan_limit',
+      title: planLimitTitle(resetsAt, now),
+      hint: 'Finish on another model, or wait for the limit to reset. What Claude Code wrote so far is kept.',
+      status: 429,
+      errorClass: 'capacity',
+      ...(resetsAt && { context: { resets_at: resetsAt } }),
     }),
   notLive: () =>
     new AncileError({

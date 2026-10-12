@@ -7,7 +7,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ModelConfig, RunEvent } from '@nvx/contracts';
+import { CLIENT_ID_HEADER, type ModelConfig, type RunEvent } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from '../../src/app';
 import { automationRoutes } from '../../src/automations/routes';
@@ -62,6 +62,7 @@ import { MemoryBranchStore } from '../../src/threads/branches';
 import { branchRoutes } from '../../src/threads/branchRoutes';
 import { MemoryThreadRepo } from '../../src/threads/repo';
 import { threadRoutes } from '../../src/threads/routes';
+import { MemorySendLocks } from '../../src/threads/send-lock';
 import { branchSuggester } from '../../src/threads/suggest';
 import { fsTools, Workspace } from '../../src/tools/builtin/fs';
 import { ToolRegistry } from '../../src/tools/registry';
@@ -132,6 +133,7 @@ export async function harness(opts: HarnessOptions = {}) {
     return !!m && !m.deleted_at;
   };
   const runs = new MemoryRunStore();
+  const sendLocks = new MemorySendLocks(runs);
   const events = new MemoryRunEventLog();
   const bus = new MemoryEventBus();
   const perms = new MemoryPermissionStore();
@@ -387,6 +389,7 @@ export async function harness(opts: HarnessOptions = {}) {
         workspaceId: WORKSPACE_ID,
         branches,
         flowStore,
+        sendLocks,
         afterSend: branchSuggester({ gateway, registry, promptsDir: PROMPTS_DIR, repo, bus }),
       }),
       branchRoutes({
@@ -470,14 +473,16 @@ export async function harness(opts: HarnessOptions = {}) {
     ],
   });
 
+  /** One Cockpit window by default; pass another client id to be a second window. */
   const call = async <T = unknown>(
     method: string,
     path: string,
     body?: unknown,
+    client = 'harness-window-1',
   ): Promise<{ status: number; body: T }> => {
     const res = await app.request(`/api/v1${path}`, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', [CLIENT_ID_HEADER]: client },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     const text = await res.text();

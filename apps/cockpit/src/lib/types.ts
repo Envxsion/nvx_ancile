@@ -133,8 +133,9 @@ export interface MessageView {
 
 /** What Claude Code recorded besides prompts and answers, drawn as quiet rows. */
 export type CcEvent =
-  | { kind: 'compact_boundary'; summary: string | null }
-  | { kind: 'compact_summary'; summary: string }
+  /** `terminal`: in a thread other models answer too, shown as one folded terminal entry. */
+  | { kind: 'compact_boundary'; summary: string | null; terminal?: boolean }
+  | { kind: 'compact_summary'; summary: string; terminal?: boolean }
   | { kind: 'command'; name: string | null; args: string | null; output: string | null }
   | {
       kind: 'notification';

@@ -24,6 +24,7 @@
 import { useRouterState } from '@tanstack/react-router';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AutoSlot } from '../auto/AutoCards';
+import { LimitNotice, limitOf, NearLimitLine } from '../claudecode/LimitNotice';
 import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
 import {
   interruptClaudeCode,
@@ -34,6 +35,7 @@ import {
 } from '../claudecode/live';
 import { patchCc, useCcThread } from '../claudecode/store';
 import { ClaudeCodeMarker } from '../claudecode/ThreadMarker';
+import { ClaudeCodeUnavailable, unavailableLine } from '../claudecode/Unavailable';
 import { ContextNotice } from '../engines/ContextNotice';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
@@ -58,6 +60,7 @@ import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { nextAnnouncement } from './announce';
+import { BusyNotice } from './BusyNotice';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { MessageList } from './MessageList';
@@ -328,10 +331,15 @@ export function ThreadView({ threadId }: { threadId: string }) {
             bar: <CcPickers threadId={threadId} live={ccLive.data} commands={ccCommands.data} />,
             working: ccWorking,
             onStop: () => void interruptClaudeCode(threadId),
+            // Claude Code not here (or signed out): read-only for it; another model can still answer.
+            readOnly: ccState.other ? null : unavailableLine(ccLive.data),
           }
         : undefined,
-    [cc, ccCommands.data, ccAct, threadId, ccLive.data, ccWorking],
+    [cc, ccCommands.data, ccAct, threadId, ccLive.data, ccWorking, ccState.other],
   );
+
+  // A message sent for you later (as a branch, or to finish on another model) leaves the composer empty.
+  const clearComposer = useCallback(() => setReplace((r) => ({ text: '', n: r.n + 1 })), []);
 
   // "Change" on a plan: say what to change, and the agent revises it from your words.
   const changePlan = useCallback(() => {
@@ -515,7 +523,11 @@ export function ThreadView({ threadId }: { threadId: string }) {
 
       <div className="thread__composer">
         <div className="thread__measure">
+          {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
           {cc ? <CcNotices threadId={threadId} /> : null}
+          {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
+          {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}
+          {cc && !limitOf(last) && !unavailableLine(ccLive.data) ? <NearLimitLine /> : null}
           <ContextNotice threadId={threadId} />
           <AutoSlot threadId={threadId} onChangePlan={changePlan} />
           {demo ? null : (

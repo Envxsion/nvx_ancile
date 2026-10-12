@@ -64,6 +64,13 @@ Why not Claude Code's own `/compact <summary as instructions>`: it would spend a
 
 Seen summaries are tracked per session, and a session is one branch's place in Claude Code, so two branches each get the summary once.
 
+### When Claude Code compacts by itself
+
+Claude Code may compact its own session in the terminal (auto-compact, or `/compact` typed there). Its divider and summary come in from the transcript as Claude Code's own rows (`provenance.claude_code.kind` `compact_boundary` and `compact_summary`), and in a mixed thread the Cockpit shows them as one folded terminal entry, "Claude Code compacted its context in the terminal" (docs/claude-code.md).
+
+- **NVX Ancile's summary stays the record.** A gateway model never reads Claude Code's summary: it reads NVX Ancile's compaction summary and the turns, as above. Claude Code's rows are not counted in NVX Ancile's context budget either, so they never bring on an NVX Ancile compaction by themselves.
+- **No second seeding.** When the session compacted itself after everything an NVX Ancile summary covers, the next Claude Code turn goes on in the same session, with only the usual digest. Starting a fresh session from NVX Ancile's summary would compact the same turns twice and throw away the context Claude Code just kept. A later NVX Ancile summary that reaches past Claude Code's compaction seeds a fresh session as usual.
+
 ## Instructions and persona
 
 A thread and a notebook can each have instructions and a persona (`AncileInstructions`), and every engine follows them. The thread's own value wins over its notebook's, field by field.

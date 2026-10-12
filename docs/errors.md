@@ -129,6 +129,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `message.restore_parent_first` | 409 | "Undo the later delete first." / These messages hang from one deleted afterwards; undo that delete, then this one. |
 | `thread.nothing_to_compact` | 409 | "This path is already short." / Compaction keeps the latest 4 messages verbatim; there is nothing older to summarise yet. |
 | `thread.merge_no_model` | 503 | "No model could write the combined answer." / Pick the messages to keep yourself, or add a model in Settings → Models. |
+| `thread.busy` | 409 | "Another window is sending in this thread." / Wait for it to finish, or send as a branch. Another Cockpit window (by its `x-ancile-client` id) holds the thread's send lock: from its send until the run it started ends. The Cockpit offers **Send as a branch**, which sends once that turn ends. docs/api.md, One sender at a time. |
 
 ### Memory
 
@@ -396,5 +397,6 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `claude_code.live_failed` | 502 | "Claude Code stopped before it answered." with its words / Try again. If it keeps happening, run the same session in a terminal to see why. |
 | `claude_code.folder_invalid` | 400 | "Give the whole path to the folder", "That folder is not on this computer" or "That is a file, not a folder" / Starting a session (POST /claude-code/threads) needs a full path to a folder that exists on this computer. |
 | `claude_code.folder_out_of_scope` | 403 | "That folder is outside what this notebook allows." / Choose a folder inside the notebook's allowed folders (its scope's `folders`), or add the folder to them. |
+| `claude_code.plan_limit` | 429 (run error) | "Claude Code limit reached, resets at 14:00" (local time; "resets Mon 09:00" when not today; no time when none is known) / Finish on another model, or wait for the limit to reset. What Claude Code wrote so far is kept. A turn stopped by the plan's limit: a rejected `rate_limit_event`, or Claude Code's own "limit reached" result. The run's `error` event and the answer's `provenance.error` carry `resets_at`; the Cockpit offers **Finish on another model**. |
 | `claude_code.not_live` | 409 | "Nothing is running in this Claude Code thread." / There is nothing to stop. |
 | `claude_code.recovered` | (warning) | A run event, not an error: NVX Ancile restarted during a turn; what Claude Code wrote was brought in from its session. |

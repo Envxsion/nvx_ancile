@@ -118,6 +118,22 @@ export type SendTurnResult = z.infer<typeof SendTurnResult>;
 export const CLAUDE_CODE_CONTEXT_NOTICE = "This thread's context will be sent to Claude Code";
 
 /**
+ * The turn "Finish on another model" sends after Claude Code stopped at its
+ * plan limit. The other model reads the thread through the engines'
+ * context assembly (the summary, digests of Claude Code's steps), so it
+ * can carry the work on.
+ */
+export const CONTINUE_AFTER_LIMIT = 'Continue from where Claude Code stopped';
+
+/**
+ * Header every Cockpit window sends with its own random id, so Core can
+ * tell two windows (or later a phone) sending into one thread apart
+ * (the per-thread send lock, docs/api.md). Never a secret, never stored
+ * beyond the lock's lease.
+ */
+export const CLIENT_ID_HEADER = 'x-ancile-client';
+
+/**
  * provenance.engine_context on an answer: what its engine was given and
  * why, for the "Why did the AI say this?" view.
  */
