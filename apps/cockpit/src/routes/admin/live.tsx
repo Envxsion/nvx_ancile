@@ -244,7 +244,12 @@ export function LiveDecisions() {
   );
 }
 
-const STATUS_WORDS = { ready: 'Ready', needs_key: 'Needs its key', disabled: 'Off' } as const;
+const STATUS_WORDS = {
+  ready: 'Ready',
+  needs_key: 'Needs its key',
+  disabled: 'Off',
+  not_pulled: 'Not pulled',
+} as const;
 
 export function LiveModels() {
   const models = useModels({ all: true });

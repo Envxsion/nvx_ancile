@@ -32,6 +32,8 @@ Before anything downloads, NVX Ancile checks this computer and says plainly whet
 
 Chat models download through [Ollama](https://ollama.com), using its own pull. You see progress, can **Cancel**, and **Resume** carries on from what Ollama already has. When Ollama confirms the model is there, the model is switched on, or added as `ollama/<tag>`, in every model picker, ready.
 
+An Ollama model that Ollama on this computer does not have yet is never offered or chosen: it shows as **Not pulled** (`not_pulled` in `GET /models`), routing skips it, and finding Ollama during setup switches on only the models it has. NVX Ancile asks Ollama for its list (`/api/tags`) at most every 30 seconds, and again as soon as a download finishes.
+
 If Ollama is missing, NVX Ancile never installs it for you. The dialog links to the official download page for your system (on Linux it shows the official install command to copy). If it is installed but not running, open it and press **Check again**.
 
 The search embedder (BGE small) downloads through the knowledge service, with fastembed's own downloader into `KNOWLEDGE_MODEL_CACHE`. It needs `KNOWLEDGE_MODEL_DOWNLOAD` left on (`embed.download_off`).

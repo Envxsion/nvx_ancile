@@ -35,7 +35,7 @@ import type { AppEnv } from '../app';
 import { tracedFetch } from '../context';
 import type { CatalogueSource } from '../gateway/catalogue';
 import { DEFAULT_SECRET } from '../gateway/providers';
-import { canChat, type ModelRegistry } from '../gateway/registry';
+import { canChat, type ModelRegistry, ollamaName } from '../gateway/registry';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { SecretStore } from '../secrets';
@@ -56,7 +56,8 @@ export type ProviderTester = (input: {
   key?: string;
   baseUrl?: string;
   model?: ModelConfig;
-}) => Promise<{ model: string }>;
+  /** Ollama: the models it has pulled (its tag names). */
+}) => Promise<{ model: string; available?: string[] }>;
 
 export interface SetupRouteDeps {
   registry: ModelRegistry;
@@ -148,7 +149,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
     const candidates = modelsOf(registry, req.provider);
     const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
     const started = performance.now();
-    let tested: { model: string };
+    let tested: { model: string; available?: string[] };
     try {
       tested = await deps.tester({
         provider: req.provider,
@@ -166,8 +167,14 @@ export function setupRoutes(deps: SetupRouteDeps) {
     if (req.save) {
       const secret = DEFAULT_SECRET[req.provider];
       if (secret && req.key) await secrets.set(secret, req.key.trim());
-      enabled = candidates.map((m) => m.id);
+      // Ollama: only the models it has pulled; one it does not have could not answer.
+      const pulled = tested.available ? new Set(tested.available.map(ollamaName)) : null;
+      const ready = pulled
+        ? candidates.filter((m) => m.base_url || pulled.has(ollamaName(m.provider_model)))
+        : candidates;
+      enabled = ready.map((m) => m.id);
       await registry.setEnabled(Object.fromEntries(enabled.map((id) => [id, true])));
+      await registry.refreshOllama();
     }
     const out: z.infer<typeof ProviderTestResponse> = {
       ok: true,
@@ -297,7 +304,10 @@ export function liveTester(
       const res = await tracedFetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4_000) });
       if (!res.ok) throw new Error(`Ollama answered ${res.status}`);
       const tags = (await res.json()) as { models?: { name: string }[] };
-      return { model: tags.models?.[0]?.name ?? 'ollama' };
+      return {
+        model: tags.models?.[0]?.name ?? 'ollama',
+        available: (tags.models ?? []).map((m) => m.name).filter(Boolean),
+      };
     }
     if (!model) throw new Error(`No ${provider} model is configured in models.yaml to test with`);
     const { generateText } = await import('ai');

@@ -97,6 +97,7 @@ export function toModelView(m: ModelInfo): ModelView {
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
+    ...(m.status === 'not_pulled' && { note: 'Not in Ollama yet: pull it in Settings → Models' }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
     local: isLocalWire(m.provider, m.via, m.base_url ?? null),
     ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),

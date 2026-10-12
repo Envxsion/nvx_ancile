@@ -36,7 +36,15 @@ export interface RegistryOptions {
   settings: SettingsStore;
   /** Serve the offline test models (dev stack, e2e, no keys yet). */
   offline: boolean;
+  /** The models Ollama has pulled (its /api/tags names), or null when it cannot be asked. */
+  ollamaTags?: () => Promise<string[] | null>;
 }
+
+/** How long Ollama's list of pulled models is trusted before refresh() asks again. */
+export const OLLAMA_TAGS_TTL_MS = 30_000;
+
+/** Ollama names a model `name:tag`; `name` alone is `name:latest`. */
+export const ollamaName = (n: string) => (n.includes(':') ? n : `${n}:latest`);
 
 /** The secret a model needs, or null when it needs none (Ollama, local, offline). */
 /** Embedding and rerank models are listed for settings, but never answer a chat turn. */
@@ -52,6 +60,9 @@ export function secretFor(m: ModelConfig): string | null {
 /** Classes Knowledge runs on this computer (fastembed); they are not edited in Admin → Routing. */
 const LOCAL_CLASSES = new Set(['embed', 'rerank']);
 
+/** A model Ollama on this computer serves (not one on a GPU node, nor another endpoint). */
+const isLocalOllama = (m: ModelConfig) => m.provider === 'ollama' && m.via === 'direct' && !m.base_url;
+
 /** The provider name for models discovered on your GPU nodes. */
 export const NODE_PROVIDER = 'node';
 
@@ -65,6 +76,9 @@ export class ModelRegistry {
   private savedChains: Record<string, string[]> = {};
   /** Ids of the models you added (Settings → Models), merged in on refresh. */
   private customIds = new Set<string>();
+  /** What Ollama has pulled, when known: a model it does not have cannot answer. */
+  private ollamaPulled: Set<string> | null = null;
+  private ollamaAt = 0;
 
   constructor(private readonly opts: RegistryOptions) {
     // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
@@ -78,6 +92,23 @@ export class ModelRegistry {
     this.hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
     this.mergeCustom((await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? []);
     this.savedChains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
+    await this.lookAtOllama();
+  }
+
+  /** Ask Ollama what it has pulled, at most every OLLAMA_TAGS_TTL_MS; unknown when it does not answer. */
+  private async lookAtOllama(force = false): Promise<void> {
+    const look = this.opts.ollamaTags;
+    if (!look || !this.models.some(isLocalOllama)) return;
+    const now = Date.now();
+    if (!force && now - this.ollamaAt < OLLAMA_TAGS_TTL_MS) return;
+    this.ollamaAt = now;
+    const names = await look().catch(() => null);
+    this.ollamaPulled = names ? new Set(names.map(ollamaName)) : null;
+  }
+
+  /** A pull finished or Ollama came back: ask it again now. */
+  async refreshOllama(): Promise<void> {
+    await this.lookAtOllama(true);
   }
 
   /** Task classes you can edit in Admin → Routing: the YAML's chat-shaped classes, plus the three every install has. */
@@ -179,6 +210,8 @@ export class ModelRegistry {
     if (!this.enabled(m)) return 'disabled';
     const secret = secretFor(m);
     if (secret && !this.secretNames.has(secret)) return 'needs_key';
+    if (isLocalOllama(m) && this.ollamaPulled && !this.ollamaPulled.has(ollamaName(m.provider_model)))
+      return 'not_pulled';
     return 'ready';
   }
 

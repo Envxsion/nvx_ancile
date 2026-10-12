@@ -46,7 +46,8 @@ const log = logFor('local-models');
 export interface LocalModelsDeps {
   catalogue: LocalModelEntry[];
   ollamaUrl: string;
-  registry: Pick<ModelRegistry, 'all' | 'custom' | 'saveCustom' | 'setEnabled'>;
+  registry: Pick<ModelRegistry, 'all' | 'custom' | 'saveCustom' | 'setEnabled'> &
+    Partial<Pick<ModelRegistry, 'refreshOllama'>>;
   ollama?: OllamaClient;
   kn?: Pick<KnowledgeClient, 'get' | 'stream'>;
   probe?: HardwareProbe;
@@ -384,6 +385,8 @@ export class LocalModels {
   /** Switch the model on in every picker, adding it as an Ollama model if it is new here. */
   private async register(e: LocalModelEntry): Promise<string | null> {
     const reg = this.deps.registry;
+    // Ollama has it now: ask again, so it is ready at once, not when the list is next read.
+    if (e.via !== 'fastembed') await reg.refreshOllama?.().catch(() => undefined);
     const known = reg
       .all()
       .find((x) =>

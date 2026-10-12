@@ -84,6 +84,8 @@ export interface HarnessOptions {
   offline?: boolean;
   cedar?: Record<string, string>;
   tester?: ProviderTester;
+  /** What Ollama has pulled (the registry asks it); absent: never asked. */
+  ollamaTags?: () => Promise<string[] | null>;
   /** A real git memory repository (seeded from memory-template/) and its routes. */
   memory?: boolean;
   /** Memory export and import: the notebooks there are, and those whose scope keeps memory out. */
@@ -149,6 +151,7 @@ export async function harness(opts: HarnessOptions = {}) {
     secrets,
     settings,
     offline: opts.offline ?? true,
+    ...(opts.ollamaTags && { ollamaTags: opts.ollamaTags }),
   });
   await registry.refresh();
   const gateway = new Gateway({ client: provider, breaker: new CircuitBreaker() });
