@@ -143,6 +143,7 @@ const REPORT: UsageReport = {
       answers: 4,
     },
   ],
+  by_provider: [],
   estimated_cost_usd: 0.3,
 };
 

@@ -26,6 +26,7 @@ import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
 import { ModelMenu } from '../../models/EditModel';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
+import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
 import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
@@ -260,6 +261,7 @@ export function LiveModels() {
           provider's model id. A model with no key is skipped by routing, never tried and failed.
         </p>
         <div className="admin__bar-actions">
+          <AdvisorButton />
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => showLocal()}>
             <Icon name="download" size={14} />
             Download a local model

@@ -335,3 +335,9 @@
     display: none;
   }
 }
+
+.u-head-controls {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}

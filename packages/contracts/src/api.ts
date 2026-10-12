@@ -242,6 +242,8 @@ export const ModelInfo = z.object({
   id: z.string(),
   display_name: z.string(),
   provider: z.string(),
+  /** The provider's own id ("qwen/qwen3-coder" on OpenRouter); the endpoint explorer asks by it. */
+  provider_model: z.string().optional(),
   family: z.string(),
   via: z.enum(['direct', 'controller']),
   context_window: z.number().int(),

@@ -99,6 +99,7 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
     local: isLocalWire(m.provider, m.via, m.base_url ?? null),
+    ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
   };
 }
 

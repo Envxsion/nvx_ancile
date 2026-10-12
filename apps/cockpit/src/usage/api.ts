@@ -23,7 +23,7 @@ import { queryClient } from '../lib/query';
 export const USAGE_KEYS = {
   all: ['usage'] as const,
   limits: ['usage', 'plan-limits'] as const,
-  report: (range: UsageRange) => ['usage', 'report', range] as const,
+  report: (range: UsageRange, provider = '') => ['usage', 'report', range, provider] as const,
 };
 
 export function localZone(): string {
@@ -51,10 +51,14 @@ export async function refreshPlanLimits(): Promise<ClaudeCodePlanLimits> {
   return fresh;
 }
 
-export function useUsageReport(range: UsageRange, opts: { enabled?: boolean } = {}) {
+export function useUsageReport(range: UsageRange, opts: { enabled?: boolean; provider?: string } = {}) {
+  const provider = opts.provider ?? '';
   return useQuery({
-    queryKey: USAGE_KEYS.report(range),
-    queryFn: () => api.get<UsageReport>(`/usage?range=${range}&tz=${encodeURIComponent(localZone())}`),
+    queryKey: USAGE_KEYS.report(range, provider),
+    queryFn: () =>
+      api.get<UsageReport>(
+        `/usage?range=${range}&tz=${encodeURIComponent(localZone())}${provider ? `&provider=${encodeURIComponent(provider)}` : ''}`,
+      ),
     enabled: opts.enabled ?? true,
     staleTime: 30_000,
     refetchInterval: 120_000,

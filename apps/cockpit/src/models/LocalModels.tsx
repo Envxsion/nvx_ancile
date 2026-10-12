@@ -19,10 +19,10 @@
  * ------------------------------------------------------------------
  */
 
-import type { LocalDownload, LocalModelsView, LocalModelView } from '@nvx/contracts';
+import type { LocalDownload, LocalModelsView, LocalModelView, OllamaQuant } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { create } from 'zustand';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
@@ -31,6 +31,7 @@ import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
+import { QuantPicker } from './QuantPicker';
 
 export const useLocalModelsDialog = create<{ open: boolean; show: () => void; hide: () => void }>((set) => ({
   open: false,
@@ -78,8 +79,11 @@ function errorWords(e: unknown) {
 
 function useStart() {
   return useMutation({
-    mutationFn: (v: { id: string; anyway?: boolean }) =>
-      api.post<LocalDownload>(`/local-models/${v.id}/download`, { anyway: v.anyway ?? false }),
+    mutationFn: (v: { id: string; anyway?: boolean; quant?: OllamaQuant | null }) =>
+      api.post<LocalDownload>(`/local-models/${v.id}/download`, {
+        anyway: v.anyway ?? false,
+        ...(v.quant && { quant: v.quant }),
+      }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: KEY }),
     onError: (e) => notify({ level: 'error', ...errorWords(e) }),
   });
@@ -157,6 +161,7 @@ function Row({ m, ollamaRunning }: { m: LocalModelView; ollamaRunning: boolean }
   const pct = d?.total && d.completed !== null ? Math.round((d.completed / d.total) * 100) : null;
   const needsOllama = m.via === 'ollama' && !ollamaRunning;
   const stopped = d && (d.status === 'failed' || d.status === 'cancelled');
+  const [quant, setQuant] = useState<OllamaQuant | null>(null);
 
   let action: ReactNode;
   if (ready)
@@ -193,7 +198,7 @@ function Row({ m, ollamaRunning }: { m: LocalModelView; ollamaRunning: boolean }
               `${m.name} needs more memory than this computer has. It may not run at all. Download it anyway?`,
             )
           )
-            start.mutate({ id: m.id, anyway: true });
+            start.mutate({ id: m.id, anyway: true, quant });
         }}
       >
         Download anyway
@@ -205,7 +210,7 @@ function Row({ m, ollamaRunning }: { m: LocalModelView; ollamaRunning: boolean }
         type="button"
         className="btn btn--primary btn--sm"
         disabled={needsOllama || start.isPending}
-        onClick={() => start.mutate({ id: m.id })}
+        onClick={() => start.mutate({ id: m.id, quant })}
       >
         <Icon name="download" size={12} />
         {stopped ? 'Resume' : `Download ${gb(m.size_gb)}`}
@@ -232,6 +237,7 @@ function Row({ m, ollamaRunning }: { m: LocalModelView; ollamaRunning: boolean }
             m.licence
           )}
         </p>
+        {!ready && !isActive(d) ? <QuantPicker m={m} value={quant} onChange={setQuant} /> : null}
         <p className="local-models__fit" data-tone={verdict.tone}>
           <span className="local-models__verdict">{verdict.label}</span> {m.fit.reasons.join(' ')}
         </p>

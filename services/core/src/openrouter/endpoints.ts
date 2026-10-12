@@ -82,7 +82,6 @@ export function labPrecision(
 
 export function warningsFor(
   e: Omit<OrEndpoint, 'warnings'>,
-  native: number | null,
   need: Need | null,
   modelMaxOutput: number | null,
 ): EndpointWarning[] {
@@ -164,7 +163,7 @@ export function parseEndpoints(
         uptime: typeof r.uptime_last_30m === 'number' ? Math.max(0, Math.min(100, r.uptime_last_30m)) : null,
         supported_parameters: r.supported_parameters ?? [],
       };
-      return { ...base, warnings: warningsFor(base, native, need, maxOut) };
+      return { ...base, warnings: warningsFor(base, need, maxOut) };
     });
   return {
     model,

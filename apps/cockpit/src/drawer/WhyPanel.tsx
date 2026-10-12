@@ -24,6 +24,7 @@ import { startFactcheck, useExplain } from '../lib/factcheck';
 import { modelName, percent, usd } from '../lib/format';
 import { reasonWords, shortResource } from '../lib/mappers';
 import { useMemoryFile } from '../memory/api';
+import { ServedBy } from '../openrouter/ServedBy';
 import { useUi } from '../state/ui';
 import { ScoreRing } from '../thread/Claims';
 import { Icon } from '../ui/Icon';
@@ -340,6 +341,7 @@ function Live({
             ? ` You asked for ${modelName(x.model.requested)}.`
             : ''}
         </p>
+        <ServedBy usage={x.usage} threadId={x.thread_id} messageId={messageId} />
         {x.attempts.length ? (
           <ol className="why__attempts">
             {x.attempts.map((a, i) => (

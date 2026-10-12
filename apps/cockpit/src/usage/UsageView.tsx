@@ -175,6 +175,20 @@ export function AncileUsage({ report }: { report: UsageReport }) {
         <div className="u-breaks">
           <Breakdown title="By engine" rows={engines} total={tokens} />
           <Breakdown title="By model" rows={models} total={tokens} />
+          {report.by_provider.length ? (
+            <Breakdown
+              title="By OpenRouter provider"
+              rows={report.by_provider.map((p) => ({
+                key: p.provider,
+                label: p.provider,
+                engine: 'gateway',
+                tokens: p.input_tokens + p.output_tokens,
+                cost: p.cost_usd,
+                answers: p.answers,
+              }))}
+              total={tokens}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -204,7 +218,10 @@ function ComputeMonth() {
 export function UsageGroup() {
   const q = useContext(SearchContext);
   const [range, setRange] = useState<UsageRange>('day');
-  const report = useUsageReport(range);
+  const [provider, setProvider] = useState('');
+  const all = useUsageReport(range);
+  const report = useUsageReport(range, { provider });
+  const providers = all.data?.by_provider.map((p) => p.provider) ?? [];
   const insights = useProFeature('insights');
   if (!matches(q, 'Usage', 'plan limits session week tokens cost context Claude Code')) return null;
   return (
@@ -229,7 +246,24 @@ export function UsageGroup() {
               Tokens and recorded cost on this computer, across chat, flows, the lab and Claude Code.
             </p>
           </div>
-          <Segmented label="Range" value={range} options={RANGES} onChange={setRange} size="sm" />
+          <div className="u-head-controls">
+            {providers.length || provider ? (
+              <select
+                className="input input--sm"
+                aria-label="OpenRouter provider"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+              >
+                <option value="">Every provider</option>
+                {[...new Set([...providers, ...(provider ? [provider] : [])])].map((p) => (
+                  <option key={p} value={p}>
+                    Served by {p}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <Segmented label="Range" value={range} options={RANGES} onChange={setRange} size="sm" />
+          </div>
         </header>
         <div className="u-card m-raised">
           {report.data ? (

@@ -23,6 +23,7 @@ import { keys } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { queryClient } from '../lib/query';
 import type { Hue, ModelView } from '../lib/types';
+import { OpenRouterDialog } from '../openrouter/OpenRouterDialog';
 import { notify } from '../state/notify';
 import { type ConfirmCopy, ConfirmDialog } from '../ui/Confirm';
 import { Switch } from '../ui/controls';
@@ -264,9 +265,13 @@ export function ModelMenu({ model }: { model: ModelView }) {
     },
     onError: (e) => failed(e, 'Removing the model'),
   });
+  const [routing, setRouting] = useState(false);
   const off = model.status === 'disabled';
   const items: MenuEntry[] = [
     { label: 'Edit', icon: 'edit', onSelect: () => setEditing(true) },
+    ...(model.openrouter
+      ? [{ label: 'Providers, routing and cost', icon: 'node' as const, onSelect: () => setRouting(true) }]
+      : []),
     ...(model.offline
       ? []
       : [
@@ -308,6 +313,14 @@ export function ModelMenu({ model }: { model: ModelView }) {
         }
       />
       {editing ? <EditModelDialog model={model} onClose={() => setEditing(false)} /> : null}
+      {routing && model.openrouter ? (
+        <OpenRouterDialog
+          model={model.openrouter}
+          modelId={model.id}
+          name={model.name}
+          onClose={() => setRouting(false)}
+        />
+      ) : null}
       <ConfirmDialog copy={confirm} onConfirm={() => remove.mutate()} onClose={() => setConfirm(null)} />
     </>
   );

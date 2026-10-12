@@ -10,6 +10,8 @@
  *           |  /openrouter/routing (?scope=&id= to read) · POST
  *           |  /openrouter/routing/preview[?model_id=] · POST
  *           |  /cost/estimate[?model_id=] · POST /advisor.
+ *  Note     |  TODO(phase-5b): connect `explain` to a running local
+ *           |  model in main.ts; until then explanation is null.
  * ------------------------------------------------------------------
  */
 

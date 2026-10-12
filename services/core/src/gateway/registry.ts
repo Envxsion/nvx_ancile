@@ -187,6 +187,7 @@ export class ModelRegistry {
       id: m.id,
       display_name: m.display_name,
       provider: m.provider,
+      provider_model: m.provider_model,
       family: m.family,
       via: m.via,
       context_window: m.context_window,

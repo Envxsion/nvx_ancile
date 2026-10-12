@@ -49,6 +49,9 @@ Rules for new codes:
 | `local_model.ollama_missing` | 409 | "Ollama is not installed" (or "installed but not running", or "Ollama at <url> is not answering") / Install it from its official page (never done for you), or open it, then try again. `error.context.ollama` and `download_url` say which. |
 | `local_model.no_disk` | 507 | "Not enough disk for <model>." / Says how much it needs and how much is free, and where. Never overridden. |
 | `local_model.too_big` | 422 | "<Model> needs more memory than this computer has." / Says how much it needs; pick a smaller model, or start it anyway (`anyway: true`). |
+| `local_model.quant_unavailable` | 400 | "<Model> is not offered at <precision>." / Choose one of the precisions listed for it (its `quant_tags` in config/local-models.yaml), or the default. |
+| `openrouter.endpoints_unavailable` | 502 | "Could not read this model's providers from OpenRouter." / Check the connection and try again. Only when nothing was saved before: once read, the list is kept for offline use (docs/openrouter.md). Routing never fails on it; it builds without the endpoint exclusions. |
+| `openrouter.model_invalid` | 400 | "That is not an OpenRouter model id." / Use the form author/model, for example qwen/qwen3-coder. |
 | `local_model.embedder_unavailable` | 503 | "The knowledge service is not connected." / Start NVX Ancile with its knowledge service, then try again. |
 | `local_model.download_not_found` | 404 | "That download is not running." / It may have finished before NVX Ancile last restarted. Start it again to carry on. |
 | `local_model.pull_failed` | 502 | "The download of <model> stalled" (or "stopped") / Check your connection, then press Resume: Ollama carries on from what it already has. Shown on the download, not as a response. |

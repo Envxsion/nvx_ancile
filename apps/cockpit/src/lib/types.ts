@@ -41,6 +41,8 @@ export interface ModelView {
   keyName?: string | null;
   /** It runs on this computer or a node you control (scopes count it as local). */
   local?: boolean;
+  /** OpenRouter models: the OpenRouter id, for the endpoint explorer and routing. */
+  openrouter?: string;
 }
 
 export interface NotebookView {
