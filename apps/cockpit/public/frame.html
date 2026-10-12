@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  NVX Ancile frame host (packages/contracts/src/csp.ts, docs/desktop.md).
+  Artifacts and the Python sandbox are written into this empty page: it is
+  fetched, so it does not inherit the Cockpit's strict policy the way a
+  srcdoc frame would. It does nothing unless it is a sandboxed frame (an
+  opaque origin) inside the Cockpit, takes exactly one document from its
+  parent, and writes it; writing it removes this listener, so nothing can
+  replace the document afterwards. The CSP below must equal FRAME_HOST_CSP
+  (apps/cockpit/test/csp.test.ts fails if they drift).
+-->
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https:; style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; media-src data: blob: https:; connect-src https:; worker-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <script>
+      (function () {
+        if (self.origin !== 'null' || window.parent === window) return;
+        var channel = 'nvx-ancile-frame';
+        var done = false;
+        window.addEventListener('message', function (e) {
+          var d = e.data;
+          if (done || e.source !== window.parent || !d || d.channel !== channel || typeof d.doc !== 'string') return;
+          done = true;
+          document.open();
+          document.write(d.doc);
+          document.close();
+        });
+        window.parent.postMessage({ channel: channel, ready: true }, '*');
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
