@@ -12,8 +12,10 @@
  * ------------------------------------------------------------------
  */
 
+import { FULL_CONTEXT } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
 import { systemPrompt, withTurnContext } from '../../src/conductor/context';
+import { assemble } from '../../src/flows/context';
 import type { ModelMessage } from '../../src/gateway/types';
 
 describe('a cache-friendly prompt', () => {
@@ -41,5 +43,21 @@ describe('a cache-friendly prompt', () => {
     const round2 = withTurnContext([...history, { role: 'assistant', content: 'calling a tool' }], 'S');
     expect(round2[2]?.content).toBe('S\n\n---\n\nsecond');
     expect(withTurnContext(history, '')).toBe(history);
+  });
+
+  it("keeps a flow step's passages out of its system prompt too", async () => {
+    const p = await assemble({
+      policy: FULL_CONTEXT,
+      role: 'You check budgets.',
+      input: 'Is it compliant?',
+      upstream: [],
+      src: {
+        conversation: async () => [{ role: 'user', content: 'earlier' }],
+        sources: async () => '[1] budget\n"""\nGBP 452,300\n"""',
+        memory: async () => 'memory',
+      },
+    });
+    expect(p.system).toBe('You check budgets.\n\nmemory');
+    expect(p.messages.at(-1)?.content).toBe('[1] budget\n"""\nGBP 452,300\n"""\n\n---\n\nIs it compliant?');
   });
 });

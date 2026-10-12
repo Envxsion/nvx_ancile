@@ -131,8 +131,11 @@ export async function assemble(opts: {
     }
   }
 
-  const system = [opts.role.trim() || TEAM_NOTE, memoryText, sourcesText].filter(Boolean).join('\n\n');
-  const userTurn = [task, upstreamText].filter(Boolean).join('\n\n---\n\n');
+  // The passages change every turn, so they ride on this turn's message, not the
+  // system prompt: the role, memory and earlier turns stay a stable prefix that
+  // providers' prompt caches can hold (conductor/context.ts, withTurnContext).
+  const system = [opts.role.trim() || TEAM_NOTE, memoryText].filter(Boolean).join('\n\n');
+  const userTurn = [sourcesText, task, upstreamText].filter(Boolean).join('\n\n---\n\n');
   return {
     system,
     messages: [...convo, { role: 'user', content: userTurn }],
