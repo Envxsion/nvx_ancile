@@ -160,6 +160,25 @@ describe('listing sessions', () => {
     expect((await svc.listSessions({ limit: 1, cursor: first.next_cursor })).items[0]?.session_id).toBe('s2');
   });
 
+  it('marks a session a terminal has open right now, however long it has been idle', async () => {
+    svc.stop();
+    svc = make({
+      holders: {
+        holder: async (q) => (q.sessionId === 's2' ? { pid: 4242, how: 'session' as const } : null),
+      },
+    });
+    w.sessions.set('s1', { info: info('s1', { cwd: 'C:\\Code\\a', lastModified: NOW - 10_000 }), chain: [] });
+    w.sessions.set('s2', {
+      info: info('s2', { cwd: 'C:\\Code\\b', lastModified: NOW - 3_600_000 }),
+      chain: [],
+    });
+    const page = await svc.listSessions();
+    expect(page.items.map((s) => [s.session_id, s.open_in_terminal, s.active_elsewhere])).toEqual([
+      ['s1', false, true],
+      ['s2', true, false],
+    ]);
+  });
+
   it('says clearly when the SDK cannot be loaded', async () => {
     w.sdkError = 'registry.npmjs.org unreachable';
     await expect(svc.listSessions()).rejects.toMatchObject({ code: 'claude_code.sdk_unavailable' });

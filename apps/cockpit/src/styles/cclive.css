@@ -37,7 +37,8 @@
   box-shadow: 0 0 0 3px rgb(var(--signal-rgb) / 0.18);
   animation: cc-live-pulse 1.6s var(--ease) infinite;
 }
-.cc-live[data-state='elsewhere'] .cc-live__dot {
+.cc-live[data-state='elsewhere'] .cc-live__dot,
+.cc-live[data-state='missing'] .cc-live__dot {
   background: var(--warn);
 }
 .cc-live[data-state='working'] .cc-live__text {

@@ -87,7 +87,12 @@ export function CcLiveLine({
   const pct = ctx ? Math.max(0, Math.min(100, ctx.percent)) : null;
   const effort = st.effort ?? (isEffort(live?.effort) ? live.effort : null);
   const model = st.model ?? live?.model ?? null;
-  const state = live?.locked_elsewhere ? 'elsewhere' : (live?.state ?? 'idle');
+  const state =
+    live?.folder_missing && !live.no_files
+      ? 'missing'
+      : live?.locked_elsewhere
+        ? 'elsewhere'
+        : (live?.state ?? 'idle');
   const at = ctx?.compacts_at ?? null;
   const tone = pct === null ? 'calm' : contextTone(pct, at);
 

@@ -163,7 +163,12 @@ function SessionRow({
           ) : null}
           {size ? <span data-num>{size}</span> : null}
         </div>
-        {s.active_elsewhere ? (
+        {s.open_in_terminal ? (
+          <p className="cc-session__note mute">
+            {onPick ? 'Importing it now is fine. ' : ''}Continuing it in NVX Ancile goes on in a branch, so
+            the terminal's session is never written to.
+          </p>
+        ) : s.active_elsewhere ? (
           <p className="cc-session__note mute">
             {onPick ? 'Importing it now is fine. ' : ''}Continuing it in NVX Ancile waits until that terminal
             closes.
@@ -209,7 +214,16 @@ function SessionRow({
             Coming in
           </span>
         ) : null}
-        {s.active_elsewhere ? (
+        {s.open_in_terminal ? (
+          <span
+            className="tag cc-tag"
+            data-tone="live"
+            title="A Claude Code process outside NVX Ancile has this session open"
+          >
+            <Icon name="terminal" size={11} />
+            Open in a terminal
+          </span>
+        ) : s.active_elsewhere ? (
           <span className="tag cc-tag" data-tone="live">
             Open in a terminal right now
           </span>

@@ -30,10 +30,13 @@
  *           |  never answers with Claude Code's own "always" choices.
  *           |  The notebook's sources are offered as Ancile's MCP server
  *           |  (mcp-server.ts); passages it returns become citations.
- *  Note     |  A session written to by another process in the last
- *           |  minute is not opened (claude_code.session_busy); a fork
- *           |  is offered instead. Logs carry ids and counts, never
- *           |  prompts, answers or tool input.
+ *  Note     |  A session a Claude Code process outside NVX Ancile holds
+ *           |  (holders.ts: a terminal, an IDE) is never written to: the
+ *           |  turn goes on in a fork by itself. One merely written to by
+ *           |  another process in the last minute is not opened
+ *           |  (claude_code.session_busy); a fork is offered instead.
+ *           |  Logs carry ids and counts, never prompts, answers or
+ *           |  tool input.
  * ------------------------------------------------------------------
  */
 
@@ -85,6 +88,7 @@ import type {
 } from './bridge-protocol';
 import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } from './commands';
 import { ccErrors } from './errors';
+import type { SessionHolders } from './holders';
 import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
 import { type Passage, threadToken } from './mcp-server';
 import {
@@ -248,6 +252,8 @@ export interface LiveDeps {
   keepAlive?: () => boolean;
   /** Plan limits: sees every pushed message (rate_limit_event) and each turn's end. */
   limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
+  /** A Claude Code process outside NVX Ancile holding a session (holders.ts); absent: the 60 s rule only. */
+  holders?: Pick<SessionHolders, 'holder'>;
 }
 
 interface Turn {
@@ -469,13 +475,19 @@ export class ClaudeCodeLive {
     return t;
   }
 
-  /** Another process wrote the session's transcript within the last minute. */
-  private async lockedElsewhere(sessionId: string): Promise<boolean> {
-    if (isPendingSession(sessionId)) return false;
+  /**
+   * Is the session open somewhere else? 'process': a Claude Code process
+   * outside NVX Ancile holds it (seen running); 'recent': another process
+   * wrote its transcript within the last minute (the fallback guess).
+   */
+  private async heldElsewhere(sessionId: string, cwd: string | null): Promise<'process' | 'recent' | null> {
+    if (isPendingSession(sessionId)) return null;
     const mtime = await this.deps.service.transcriptModified(sessionId).catch(() => null);
-    if (mtime === null) return false;
+    const held = await this.deps.holders?.holder({ sessionId, cwd, modifiedMs: mtime }).catch(() => null);
+    if (held) return 'process';
+    if (mtime === null) return null;
     const own = this.ownWrites.get(sessionId) ?? 0;
-    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000;
+    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000 ? 'recent' : null;
   }
 
   /* ---- send -------------------------------------------------------------- */
@@ -573,8 +585,17 @@ export class ClaudeCodeLive {
             m.parent_id === parent.id &&
             (m.provenance?.claude_code as CcProvenance | undefined)?.session_id === sessionId,
         );
-    const fork = !fresh && (plan ? !!plan.anchorId : !!parent) && (goneOn || req.as_branch === true);
-    if (!fork && !fresh && (await this.lockedElsewhere(sessionId))) throw ccErrors.sessionBusy(sessionId);
+    const canFork = plan ? !!plan.anchorId : !!parent;
+    let fork = !fresh && canFork && (goneOn || req.as_branch === true);
+    // Open in a terminal (or an IDE) right now: never write to it; go on in a branch by itself.
+    let branched: SendClaudeCodeResult['branched'];
+    if (!fork && !fresh) {
+      const held = await this.heldElsewhere(sessionId, cc.cwd);
+      if (held === 'process' && canFork) {
+        fork = true;
+        branched = 'open_in_terminal';
+      } else if (held) throw ccErrors.sessionBusy(sessionId);
+    }
     for (const other of this.lives.values())
       if (other.threadId !== thread.id && other.handle && other.sessionId === sessionId && !fork && !fresh)
         throw ccErrors.sessionBusy(sessionId);
@@ -651,6 +672,7 @@ export class ClaudeCodeLive {
       user_message_id: userId,
       assistant_message_id: assistantId,
       ...(checkpoint.prefix && { context_shared: true }),
+      ...(branched && { branched }),
     };
     this.sent.set(key, { at: this.now(), result });
     log.info({ thread_id: thread.id, run_id: runId, fork, fresh }, 'a Claude Code turn was sent');
@@ -1568,9 +1590,11 @@ export class ClaudeCodeLive {
           compacts_at: typeof u.compacts_at === 'number' ? u.compacts_at : null,
         };
     }
+    const held = cc?.session_id ? await this.heldElsewhere(cc.session_id, cc.cwd) : null;
     return {
       state: l?.turn ? 'working' : (l?.state ?? 'idle'),
-      locked_elsewhere: cc?.session_id ? await this.lockedElsewhere(cc.session_id) : false,
+      locked_elsewhere: held !== null,
+      open_in_terminal: held === 'process',
       model: l?.model ?? null,
       effort: l?.effort ?? null,
       permission_mode: l?.permissionMode ?? null,

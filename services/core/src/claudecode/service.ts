@@ -59,6 +59,7 @@ import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
 import type { CcSessionInfo, CcSessionMessage, SessionSource } from './bridge-protocol';
 import { type ClaudeCli, MIN_VERSION } from './cli';
 import { ccErrors } from './errors';
+import type { SessionHolders } from './holders';
 import type { ClaudeInstaller } from './install';
 import {
   addUsage,
@@ -137,6 +138,8 @@ export interface ClaudeCodeServiceDeps {
   home?: string;
   /** Read full history from transcript files (default on; tests may turn it off). */
   transcripts?: boolean;
+  /** Claude Code processes outside NVX Ancile holding sessions (holders.ts). */
+  holders?: Pick<SessionHolders, 'holder'>;
 }
 
 /** A session's history: its chains (old branches first, the active one last). */
@@ -510,10 +513,21 @@ export class ClaudeCodeService {
     const offset = Math.max(Number.parseInt(f.cursor ?? '0', 10) || 0, 0);
     const page = filtered.slice(offset, offset + limit);
     const missing = new Map<string, boolean>();
+    // One read of the process list (cached) answers for the whole page.
+    const held = new Set<string>();
+    if (this.deps.holders)
+      for (const s of page)
+        if (
+          await this.deps.holders
+            .holder({ sessionId: s.sessionId, cwd: s.cwd ?? null, modifiedMs: s.lastModified })
+            .catch(() => null)
+        )
+          held.add(s.sessionId);
     const items = page.map((s): ClaudeCodeSession => {
       const b = bindings.get(s.sessionId);
       if (s.cwd && !missing.has(s.cwd)) missing.set(s.cwd, !exists(s.cwd));
       return {
+        open_in_terminal: held.has(s.sessionId),
         session_id: s.sessionId,
         title: titleOf(s),
         cwd: s.cwd ?? null,

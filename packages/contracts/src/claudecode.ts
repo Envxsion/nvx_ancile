@@ -102,6 +102,11 @@ export const ClaudeCodeSession = z.object({
   behind: z.boolean(),
   /** Written to within the last minute: probably open in a terminal right now. */
   active_elsewhere: z.boolean(),
+  /**
+   * A Claude Code process NVX Ancile did not start (a terminal, an IDE)
+   * has it open right now. A turn from NVX Ancile goes on in a branch.
+   */
+  open_in_terminal: z.boolean().default(false),
 });
 export type ClaudeCodeSession = z.infer<typeof ClaudeCodeSession>;
 
@@ -300,6 +305,12 @@ export const SendClaudeCodeResult = z.object({
   assistant_message_id: z.string(),
   /** The turn sends Claude Code a digest of other models' turns (docs/engines.md). */
   context_shared: z.boolean().optional(),
+  /**
+   * The turn went on in a branch (a fork of the session) by itself:
+   * "open_in_terminal", a Claude Code process outside NVX Ancile has the
+   * session open, so it is never written to.
+   */
+  branched: z.enum(['open_in_terminal']).optional(),
 });
 export type SendClaudeCodeResult = z.infer<typeof SendClaudeCodeResult>;
 
@@ -309,6 +320,15 @@ export const ClaudeCodeLiveState = z.object({
   state: z.enum(['idle', 'starting', 'ready', 'working']),
   /** Another Claude Code process has the session open; Ancile will not write to it. */
   locked_elsewhere: z.boolean(),
+  /**
+   * That process was seen running (a terminal, an IDE), not only guessed
+   * from a recent write: the next message goes on in a branch by itself.
+   */
+  open_in_terminal: z.boolean().optional(),
+  /** The session's folder is not on this computer any more (moved, renamed or deleted). */
+  folder_missing: z.boolean().optional(),
+  /** The thread goes on without files (after its folder went missing). */
+  no_files: z.boolean().optional(),
   model: z.string().nullable(),
   effort: z.string().nullable(),
   permission_mode: z.string().nullable(),

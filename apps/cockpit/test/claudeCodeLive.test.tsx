@@ -421,6 +421,29 @@ describe('the status line', () => {
     expect(liveWords(LIVE, 'cyberfolio')).toBe('Claude Code ready in cyberfolio');
     expect(liveWords({ ...LIVE, state: 'starting' }, 'cyberfolio')).toBe('Starting Claude Code…');
     expect(liveWords({ ...LIVE, state: 'working' }, 'cyberfolio')).toBe('Working…');
+    expect(liveWords({ ...LIVE, locked_elsewhere: true, open_in_terminal: true }, 'cyberfolio')).toBe(
+      'Open in a terminal: your next message starts a branch',
+    );
+    expect(liveWords({ ...LIVE, folder_missing: true }, 'cyberfolio')).toBe(
+      "This session's folder has moved or been deleted",
+    );
+    expect(liveWords({ ...LIVE, folder_missing: true, no_files: true }, 'cyberfolio')).toBe(
+      'Claude Code ready without files',
+    );
+  });
+
+  it('a session open in a terminal is sent as a branch, and says so once', async () => {
+    seedThread();
+    mocked.post.mockResolvedValue({
+      run_id: 'run_1',
+      user_message_id: 'msg_u1',
+      engine: 'claude_code',
+      model_id: null,
+      context_notice: null,
+      branched: 'open_in_terminal',
+    });
+    expect(await sendClaudeCode({ threadId: 'thr_1', parentId: 'm4', text: 'Go on' })).toBe(true);
+    expect(useNotify.getState().toasts.at(-1)?.title).toBe('Sent as a branch');
   });
 
   it('shows the model, effort and Claude Code’s own context meter', () => {

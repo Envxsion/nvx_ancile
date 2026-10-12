@@ -417,6 +417,43 @@ describe('sending a turn', () => {
     expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
   });
 
+  it('goes on in a branch by itself when a terminal has the session open, however long it has been idle', async () => {
+    // Idle for an hour: the 60 s rule would not see it, the process list does.
+    modified = NOW - 3_600_000;
+    const asked: { sessionId: string; cwd: string | null }[] = [];
+    live.stop();
+    live = makeLive({
+      holders: {
+        holder: async (q) => {
+          asked.push({ sessionId: q.sessionId, cwd: q.cwd });
+          return q.sessionId === S ? { pid: 4242, how: 'session' } : null;
+        },
+      },
+    });
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000101' });
+    expect(sent.branched).toBe('open_in_terminal');
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
+    expect(asked[0]).toEqual({ sessionId: S, cwd: CWD });
+    const state = await live.state('thr_1');
+    expect(state).toMatchObject({ locked_elsewhere: true, open_in_terminal: true });
+  });
+
+  it('keeps the 60 s rule when no process holds the session, and says it is a guess', async () => {
+    live.stop();
+    live = makeLive({ holders: { holder: async () => null } });
+    modified = NOW - 10_000;
+    expect(await live.state('thr_1')).toMatchObject({ locked_elsewhere: true, open_in_terminal: false });
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000102' }),
+    ).rejects.toMatchObject({
+      code: 'claude_code.session_busy',
+    });
+    modified = null;
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000103' });
+    expect(sent.branched).toBeUndefined();
+  });
+
   it('branches from an earlier message by forking the session there, and binds the fork to the thread', async () => {
     bridge.script = textAnswer(S, 'a2', 'First way');
     const first = await live.send('thr_1', { text: 'Do it one way', idempotency_key: 'key-00000004' });

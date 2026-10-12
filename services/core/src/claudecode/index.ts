@@ -6,7 +6,9 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Build the Claude Code feature from its parts for main.ts:
  *           |  the CLI, the installer, the install check, the bridge
- *           |  (started only when sessions are read) and the service.
+ *           |  (started only when sessions are read), the read-only
+ *           |  look at which Claude Code processes hold sessions, and
+ *           |  the service.
  *  Note     |  Constructing it starts nothing; startAuto() does, and
  *           |  only when Claude Code is installed.
  * ------------------------------------------------------------------
@@ -19,6 +21,7 @@ import type { SettingsStore } from '../settings';
 import type { ThreadRepo } from '../threads/repo';
 import { BridgeClient, processLauncher } from './bridge';
 import { ClaudeCli } from './cli';
+import { SessionHolders, systemLister } from './holders';
 import { ClaudeInstaller } from './install';
 import { ClaudeCodeService } from './service';
 import type { ClaudeCodeStore } from './store';
@@ -27,6 +30,10 @@ import { ClaudeVerifier } from './verify';
 export interface ClaudeCodeAssembly {
   service: ClaudeCodeService;
   bridge: BridgeClient;
+  /** Claude Code processes outside NVX Ancile holding sessions (read-only). */
+  holders: SessionHolders;
+  /** The empty folder a thread that goes on without files runs in. */
+  noFilesDir: string;
   stop(): void;
 }
 
@@ -56,7 +63,9 @@ export function createClaudeCode(deps: {
   const bridge = new BridgeClient({
     launch: processLauncher({ dataDir: join(deps.dataDir, 'claude-bridge'), logLevel: deps.logLevel }),
   });
+  const holders = new SessionHolders({ lister: systemLister() });
   service = new ClaudeCodeService({
+    holders,
     workspaceId: deps.workspaceId,
     settings: deps.settings,
     bus: deps.bus,
@@ -72,6 +81,8 @@ export function createClaudeCode(deps: {
   return {
     service: svc,
     bridge,
+    holders,
+    noFilesDir: join(deps.dataDir, 'claude-code', 'no-folder'),
     stop: () => {
       svc.stop();
       bridge.stop();

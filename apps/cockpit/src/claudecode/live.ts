@@ -212,6 +212,12 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     return false;
   }
   patchCc(o.threadId, { notice: null });
+  if (s.branched === 'open_in_terminal')
+    notify({
+      level: 'info',
+      title: 'Sent as a branch',
+      body: "This session is open in a terminal, so it carries on in a branch here. The terminal's session is left as it is.",
+    });
   const answerId = placeTurn(o.threadId, o.parentId, s, o.text, other);
   if (s.context_notice) showContextNotice(o.threadId, s.context_notice, s.assistant_message_id ?? null);
   if (s.assistant_message_id) attachRun({ runId: s.run_id, threadId: o.threadId, messageId: answerId });
@@ -437,8 +443,10 @@ export function parseTyped(
 
 /** "Claude Code ready in cyberfolio", "Starting Claude Code…", "Working…". */
 export function liveWords(live: ClaudeCodeLiveState | undefined, folder: string | null): string {
-  const where = folder ? ` in ${folder}` : '';
+  const where = live?.no_files ? ' without files' : folder ? ` in ${folder}` : '';
   if (!live) return `Claude Code${where}`;
+  if (live.folder_missing && !live.no_files) return "This session's folder has moved or been deleted";
+  if (live.open_in_terminal) return 'Open in a terminal: your next message starts a branch';
   if (live.locked_elsewhere) return 'Open in Claude Code somewhere else';
   switch (live.state) {
     case 'starting':
