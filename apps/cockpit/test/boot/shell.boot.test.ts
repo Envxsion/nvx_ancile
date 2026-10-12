@@ -10,6 +10,10 @@ import { BOOT_SCRIPT } from '@nvx/aperture';
 import { describe, expect, it } from 'vitest';
 import { BINDINGS, findConflicts } from '../../src/keys/registry';
 import { PRO_SURFACES } from '../../src/pro/slot';
+// Imported with the file, not inside the test: loading every screen is the
+// slow part, and under a full parallel run it overran the 5 s test budget
+// although the routes themselves resolve at once.
+import { router } from '../../src/router';
 import { ADMIN_SECTIONS } from '../../src/routes/admin/sections';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -46,8 +50,7 @@ describe('boot: keymap', () => {
 });
 
 describe('boot: routes', () => {
-  it('resolves every route', async () => {
-    const { router } = await import('../../src/router');
+  it('resolves every route', () => {
     const ids = Object.keys(router.routesById);
     for (const id of ['/', '/t/$threadId', '/n/$notebookId', '/setup', '/admin', '/admin/$section']) {
       expect(ids).toContain(id);
