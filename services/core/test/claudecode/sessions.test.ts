@@ -386,6 +386,73 @@ describe('syncing', () => {
     expect((await threads.getThread(id))?.active_head_id).toBe(a.id);
   });
 
+  it('adopts a prompt a resumed live turn sent: no second copy, and no context block shown', async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // What a live turn in a resumed session wrote: the prompt under the uuid Ancile gave it
+    // (or none at all), and the answer under the entries Claude Code streamed.
+    for (const [n, prov] of [
+      ['1', { claude_code: { session_id: 's1', uuid: 'ours-1', uuids: ['ours-1'] } }],
+      ['2', {}],
+    ] as const) {
+      const parent = (await threads.messages(id)).at(-1)?.id ?? null;
+      await threads.insertMessage({
+        id: `msg_live_u${n}`,
+        thread_id: id,
+        parent_id: parent,
+        role: 'user',
+        parts: [{ type: 'text', text: `Now add test ${n}` }],
+        trace_id: 't',
+        status: 'complete',
+        provenance: prov,
+      });
+      await threads.insertMessage({
+        id: `msg_live_a${n}`,
+        thread_id: id,
+        parent_id: `msg_live_u${n}`,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Added.' }],
+        trace_id: 't',
+        status: 'complete',
+        provenance: {
+          claude_code: { session_id: 's1', uuid: `a-live-${n}`, uuids: [`a-live-${n}`], live: true },
+        },
+      });
+      // Claude Code wrote the prompt under a uuid of its own, with the context block in front.
+      chain.push(
+        user(`own-${n}`, `<ancile-context>\nWhat the others said.\n</ancile-context>\n\nNow add test ${n}`),
+        assistant(`a-live-${n}`, [{ type: 'text', text: 'Added.' }]),
+      );
+    }
+    await svc.syncThread(id);
+    const msgs = await threads.messages(id);
+    expect(msgs).toHaveLength(before.length + 4);
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+    expect((await threads.getMessage('msg_live_u1'))?.provenance?.claude_code).toMatchObject({
+      uuid: 'own-1',
+      uuids: ['ours-1', 'own-1'],
+    });
+    expect((await threads.getMessage('msg_live_u2'))?.provenance?.claude_code).toMatchObject({
+      session_id: 's1',
+      uuid: 'own-2',
+    });
+    // A second sync adds nothing either.
+    expect((await svc.syncThread(id)).added).toBe(0);
+  });
+
+  it('never shows the context block on a prompt it brings in', async () => {
+    const chain = [
+      user('u1', '<ancile-context>\nWhat the others said.\n</ancile-context>\n\nHello'),
+      assistant('a1', [{ type: 'text', text: 'Hi' }]),
+    ];
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const msgs = await threads.messages(id);
+    expect(textOf(msgs[0]?.parts ?? [])).toBe('Hello');
+  });
+
   it('carries on an assistant turn that was still going at the last sync', async () => {
     const chain = [
       user('u1', 'go'),

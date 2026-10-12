@@ -1464,3 +1464,34 @@ describe('the command list after a turn', () => {
     expect(dedupeCommands([plain, ours])).toEqual([ours]);
   });
 });
+
+describe('a resumed session that writes the prompt under its own uuid', () => {
+  it("takes the echoed prompt as the person's message, never a second one, and never shows the context block", async () => {
+    const answer = textAnswer(S, 'a2', 'Hello world');
+    bridge.script = (b, h, text, uuid) => {
+      // Claude Code ignores the uuid it was given and echoes the prompt (context block and all).
+      b.msg(h, {
+        type: 'user',
+        uuid: 'own-prompt-uuid',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: `<ancile-context>\nWhat other models said.\n</ancile-context>\n\n${text}`,
+        },
+      });
+      return answer(b, h, text, uuid);
+    };
+    const sent = await live.send('thr_1', {
+      text: 'Thanks, now add a test',
+      idempotency_key: 'key-echo-0001',
+    });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const msgs = await threads.messages('thr_1');
+    expect(msgs.filter((m) => m.role === 'user')).toHaveLength(2);
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parts).toEqual([{ type: 'text', text: 'Thanks, now add a test' }]);
+    expect(user?.provenance?.claude_code).toMatchObject({ uuid: 'own-prompt-uuid' });
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+  });
+});

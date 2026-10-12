@@ -94,6 +94,7 @@ import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } fr
 import { ccErrors, limitFromResult } from './errors';
 import type { SessionHolders } from './holders';
 import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
+import { stripReminders } from './markup';
 import { type Passage, threadToken } from './mcp-server';
 import {
   ANCILE_MCP_SERVER,
@@ -307,6 +308,8 @@ interface Turn {
   limit: { resetsAt: string | null } | null;
   stopped: boolean;
   sessionId: string | null;
+  /** The uuid Claude Code gave the prompt when it echoed it under one of its own (a resumed session). */
+  promptEntry: string | null;
   seq: number;
   settle: (() => void) | null;
 }
@@ -345,6 +348,18 @@ const preview = (v: unknown): string => {
   return s.length > PREVIEW ? `${s.slice(0, PREVIEW)}…` : s;
 };
 const stripMarker = (u: string) => u.replace(/\+$/, '');
+
+/** A user entry that is the prompt just sent (context block and reminders left out); never a slash command. */
+export function isPromptEcho(e: CcSessionMessage, sent: string): boolean {
+  if (e.type !== 'user' || /^[/!]/.test(sent.trim())) return false;
+  const msg = isObj(e.message) ? e.message : {};
+  const c = msg.content;
+  const blocks =
+    typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c.filter(isObj) : [];
+  if (!blocks.length || blocks.some((b) => b.type !== 'text' && b.type !== 'image')) return false;
+  const text = blocks.map((b) => (b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('\n');
+  return stripReminders(text).trim() === sent.trim();
+}
 
 /**
  * A thread started in NVX Ancile (POST /claude-code/threads) is bound to a
@@ -987,6 +1002,7 @@ export class ClaudeCodeLive {
       limit: null,
       stopped: false,
       sessionId: null,
+      promptEntry: null,
       seq: 1_000,
       settle: null,
     };
@@ -1138,6 +1154,16 @@ export class ClaudeCodeLive {
       }
     }
 
+    if (turn.promptEntry)
+      await threads.updateMessage(cp.userMessageId, {
+        provenance: {
+          claude_code: {
+            session_id: sessionId,
+            uuid: turn.promptEntry,
+            uuids: [cp.promptUuid, turn.promptEntry],
+          } satisfies CcProvenance,
+        },
+      });
     const mirror = await this.deps.store.mirror(cp.threadId);
     const plan = planSync(turn.entries, mirror, () => `msg_${ulid()}`, cp.userMessageId);
     await this.adoptCommand(cp, plan, sessionId);
@@ -1467,6 +1493,11 @@ export class ClaudeCodeLive {
         if (!top || m.isReplay === true || m.uuid === t.cp.promptUuid) return;
         const entry = this.entryOf(m);
         if (!entry) return;
+        // The prompt itself, echoed under a uuid of Claude Code's own: it is the person's message, not a new one.
+        if (!t.promptEntry && !t.entries.length && isPromptEcho(entry, t.cp.text)) {
+          t.promptEntry = entry.uuid;
+          return;
+        }
         t.entries.push(entry);
         const msg = isObj(m.message) ? m.message : {};
         const content = Array.isArray(msg.content) ? msg.content.filter(isObj) : [];

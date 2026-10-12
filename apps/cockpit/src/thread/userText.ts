@@ -78,12 +78,22 @@ export function fenceLogs(text: string): string {
   return out.join('\n\n');
 }
 
-/** Your message's parts with pasted output fenced, for display. */
+/**
+ * NVX Ancile's context block for Claude Code (<ancile-context>…) and Claude
+ * Code's own notes (<system-reminder>…) are never the person's words.
+ * Core leaves them out when it brings a prompt in; this is the backstop.
+ */
+export function hideContextBlocks(text: string): string {
+  if (!text.includes('<')) return text;
+  return text.replace(/<(ancile-context|system-reminder)>[\s\S]*?<\/\1>\s*/g, '');
+}
+
+/** Your message's parts with context blocks hidden and pasted output fenced, for display. */
 export function displayUserParts(parts: Part[]): Part[] {
   let changed = false;
   const next = parts.map((p) => {
     if (p.type !== 'text') return p;
-    const text = fenceLogs(p.text);
+    const text = fenceLogs(hideContextBlocks(p.text));
     if (text === p.text) return p;
     changed = true;
     return { ...p, text };

@@ -59,9 +59,13 @@ const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u00
 
 export const stripAnsi = (s: string) => s.replace(ANSI, '');
 
-/** Remove <system-reminder> blocks (Claude Code's notes to the model, never the person's words). */
+/**
+ * Remove <system-reminder> blocks (Claude Code's notes to the model) and
+ * <ancile-context> blocks (NVX Ancile's digest of the thread, sent before
+ * the person's words): neither is something the person said.
+ */
 export function stripReminders(s: string): string {
-  return s.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, '');
+  return s.replace(/<(system-reminder|ancile-context)>[\s\S]*?<\/\1>\s*/g, '');
 }
 
 export function isInterruption(s: string): boolean {

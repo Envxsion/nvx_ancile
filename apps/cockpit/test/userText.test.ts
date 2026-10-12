@@ -11,6 +11,18 @@ AssertionError: expected 3 calls, got 2
      41|     expect(fetchMock).toHaveBeenCalledTimes(3);
        |                       ^`;
 
+describe('context blocks', () => {
+  it('never shows the context block sent to Claude Code, or its reminders', () => {
+    const parts = displayUserParts([
+      {
+        type: 'text',
+        text: '<ancile-context>\nWhat the others said.\n</ancile-context>\n\n<system-reminder>x</system-reminder>\nNow add a test',
+      },
+    ]);
+    expect(parts).toEqual([{ type: 'text', text: 'Now add a test' }]);
+  });
+});
+
 describe('fenceLogs', () => {
   it('fences a pasted log and keeps the lead-in as prose', () => {
     const text = `Here's the output from CI:\n\n${LOG}\n\nFix it properly.`;
