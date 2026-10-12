@@ -86,7 +86,7 @@ export const CREDENTIAL_META: CredentialMeta[] = [
     desc: 'Reviews actions in Auto mode when there is no OpenRouter key. Only the action and its plan are sent.',
     noun: 'API key',
     placeholder: 'ts_…',
-    getUrl: 'https://typesafe.ai',
+    getUrl: 'https://console.typesafe.ai/settings/keys',
     getLabel: 'Get a key',
     removes: 'Auto mode reviews with OpenRouter, a local model or rules only.',
   },
