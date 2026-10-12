@@ -172,7 +172,6 @@ export async function languageModelFor(
         name: 'openrouter',
         baseURL: m.base_url ?? 'https://openrouter.ai/api/v1',
         apiKey: needKey('OpenRouter'),
-        includeUsage: true,
         metadataExtractor: servedExtractor,
       })(m.provider_model);
     case 'ollama':
