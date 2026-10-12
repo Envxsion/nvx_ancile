@@ -64,6 +64,7 @@ import { BusyNotice } from './BusyNotice';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { MessageList } from './MessageList';
+import { ModelGoneNotice } from './ModelGoneNotice';
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 /** Load the page before when the view is this close to the top of what is loaded (pixels). */
@@ -534,6 +535,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       <div className="thread__composer">
         <div className="thread__measure">
           {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
+          {demo ? null : <ModelGoneNotice threadId={threadId} />}
           {cc ? <CcNotices threadId={threadId} /> : null}
           {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
           {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}

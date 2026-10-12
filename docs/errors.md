@@ -36,6 +36,7 @@ Rules for new codes:
 | `model.chain_exhausted` | 503 | "No model could answer." / Each attempt and its reason are listed. Check your keys and Health. |
 | `model.not_configured` | 422 | "<Model> isn't set up." / Add a key in Settings → Models. |
 | `model.not_chat` | 422 | "<Model> can't answer messages." / It is an embedding or rerank model; pick a chat model in the model switcher. |
+| `model.gone` | 409 | "<model> is no longer available." / It was removed or renamed; pick another model and send again. Raised when a message, edit or regenerate names a model that is no longer in the list. `error.context` has `model_id` and `suggested_model` (the thread's model, else the default route's first), and the Cockpit offers a model picker on the error, preset to it. |
 | `model.exists` | 409 | "<id> is already in your models." / Edit the one you have, or remove it first. |
 | `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |

@@ -45,7 +45,14 @@ import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
 import { cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
 import { holderOf, type SendLocks, withSendLock } from './send-lock';
-import { assertChatModel, startTurn, type TurnDeps, usableChatModel } from './service';
+import {
+  assertChatModel,
+  modelGone,
+  startTurn,
+  suggestedModel,
+  type TurnDeps,
+  usableChatModel,
+} from './service';
 
 /** Longest text part a person can send (characters); far beyond any context window. */
 export const MAX_TEXT_PART = 1_000_000;
@@ -219,7 +226,7 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       const m = await repo.getMessage(req.active_head_id);
       if (!m || m.thread_id !== t.id) throw notFound('That message');
     }
-    if (req.model) assertChatModel(deps.registry, req.model);
+    if (req.model) assertChatModel(deps.registry, req.model, t.settings.model);
     if (req.notebook_id && deps.notebookExists && !(await deps.notebookExists(req.notebook_id)))
       throw notFound('That notebook');
     // Flows (Phase 5b): the thread's own flow ('off' for none, null to follow the notebook) and its node overrides.
@@ -349,6 +356,10 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       if (req.route === 'same') flowReplay = replayFrom(m.provenance);
       else routeAgain = { flowId: recorded.flow_id };
     } else if (!req.model) {
+      // The model it asked for is gone (removed, or renamed on its server):
+      // say so by name and let the person pick, rather than answer as another.
+      if (m.requested_model_id && !deps.registry.get(m.requested_model_id))
+        throw modelGone(m.requested_model_id, suggestedModel(deps.registry, t.settings.model));
       model = usableChatModel(deps.registry, m.requested_model_id)
         ? (m.requested_model_id ?? undefined)
         : usableChatModel(deps.registry, t.settings.model)

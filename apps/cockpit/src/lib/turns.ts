@@ -27,6 +27,7 @@ import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
 import { isThreadBusy, markBusy } from '../thread/busy-store';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
+import { isModelGone, markModelGone } from '../thread/model-gone-store';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
 import { queryClient } from './query';
@@ -208,6 +209,11 @@ export async function sendMessage(opts: {
       markBusy(opts.threadId, () => sendMessage(opts));
       return false;
     }
+    // The model named is gone: a picker on the notice sends it again with another.
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(opts.threadId, error.body.error.context, (model) => sendMessage({ ...opts, model }));
+      return false;
+    }
     reportFailure(error, 'Your message');
     return false;
   }
@@ -231,32 +237,42 @@ export async function sendMessage(opts: {
   return true;
 }
 
-export async function regenerate(threadId: string, m: MessageView, model?: string): Promise<void> {
-  if (!m.parentId) return;
+export async function regenerate(threadId: string, m: MessageView, model?: string): Promise<boolean> {
+  if (!m.parentId) return false;
   if (claudeCodeThread(threadId)) {
     // Ask Claude Code the same prompt again, from where it was first asked.
     const t = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
     const prompt = t?.messages.find((x) => x.id === m.parentId);
     const text = prompt ? partsText(prompt) : '';
-    if (!prompt || !text.trim()) return;
-    await sendFromHere(threadId, prompt.parentId, text);
-    return;
+    if (!prompt || !text.trim()) return false;
+    return sendFromHere(threadId, prompt.parentId, text);
   }
   try {
     const s = await api.post<Started>(`/messages/${m.id}/regenerate`, model ? { model } : {});
     placeTurn(threadId, m.parentId, [assistantRow(s, m.parentId, model ?? null)]);
     attachRun({ runId: s.run_id, threadId, messageId: s.assistant_message_id });
     helpDone('branch');
+    return true;
   } catch (error) {
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(threadId, error.body.error.context, (picked) => regenerate(threadId, m, picked));
+      return false;
+    }
     reportFailure(error, 'Regenerate');
+    return false;
   }
 }
 
-export async function editMessage(threadId: string, m: MessageView, text: string): Promise<boolean> {
+export async function editMessage(
+  threadId: string,
+  m: MessageView,
+  text: string,
+  model?: string,
+): Promise<boolean> {
   if (claudeCodeThread(threadId)) return sendFromHere(threadId, m.parentId, text);
   const parts: Part[] = [{ type: 'text', text }];
   try {
-    const s = await api.post<Started>(`/messages/${m.id}/edit`, { parts });
+    const s = await api.post<Started>(`/messages/${m.id}/edit`, { parts, ...(model && { model }) });
     placeTurn(threadId, m.parentId, [
       {
         id: s.user_message_id,
@@ -274,6 +290,10 @@ export async function editMessage(threadId: string, m: MessageView, text: string
     helpDone('branch');
     return true;
   } catch (error) {
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(threadId, error.body.error.context, (picked) => editMessage(threadId, m, text, picked));
+      return false;
+    }
     reportFailure(error, 'The edit');
     return false;
   }

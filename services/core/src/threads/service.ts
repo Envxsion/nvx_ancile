@@ -108,17 +108,40 @@ export function modelNotChat(m: ModelConfig): AncileError {
   });
 }
 
+/**
+ * A model that answered (or was picked) before is no longer in the list:
+ * removed, or renamed on its server. The Cockpit offers a picker on the
+ * error, preset to `suggested`, and sends again with the one chosen.
+ */
+export function modelGone(id: string, suggested: string | null): AncileError {
+  return new AncileError({
+    code: 'model.gone',
+    title: `${id} is no longer available`,
+    hint: 'It was removed or renamed. Pick another model and send again.',
+    status: 409,
+    errorClass: 'permanent',
+    context: { model_id: id, suggested_model: suggested },
+  });
+}
+
+/** The model to offer in place of a gone one: the thread's, else the first the default route would use. */
+export function suggestedModel(registry: ModelRegistry, threadModel?: string | null): string | null {
+  if (threadModel && usableChatModel(registry, threadModel)) return threadModel;
+  try {
+    return registry.chain('chat.default').find((m) => canChat(m))?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A model a person picked must exist, be a chat model, and be ready. */
-export function assertChatModel(registry: ModelRegistry, id: string): ModelConfig {
+export function assertChatModel(
+  registry: ModelRegistry,
+  id: string,
+  threadModel?: string | null,
+): ModelConfig {
   const m = registry.get(id);
-  if (!m)
-    throw new AncileError({
-      code: 'request.not_found',
-      title: `There is no model called ${id}`,
-      hint: 'Pick one from the model switcher.',
-      status: 404,
-      errorClass: 'permanent',
-    });
+  if (!m) throw modelGone(id, suggestedModel(registry, threadModel));
   if (!canChat(m)) throw modelNotChat(m);
   const status = registry.status(m);
   if (status !== 'ready') throw modelNotReady(m.display_name, status);
@@ -150,7 +173,7 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
   const threadModel = saved && usableChatModel(registry, saved) ? saved : null;
   const explicit = req.model === undefined ? (threadModel ?? fallback) : req.model;
   const modelFrom = req.model ? 'message' : threadModel ? 'thread' : null;
-  if (explicit) assertChatModel(registry, explicit);
+  if (explicit) assertChatModel(registry, explicit, threadModel ?? fallback);
 
   const written: string[] = [];
   let userId: string;
