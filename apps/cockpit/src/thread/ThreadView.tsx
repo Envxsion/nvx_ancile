@@ -23,6 +23,7 @@
 
 import { useRouterState } from '@tanstack/react-router';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AutoSlot } from '../auto/AutoCards';
 import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
 import {
   interruptClaudeCode,
@@ -33,6 +34,7 @@ import {
 } from '../claudecode/live';
 import { patchCc, useCcThread } from '../claudecode/store';
 import { ClaudeCodeMarker } from '../claudecode/ThreadMarker';
+import { ContextNotice } from '../engines/ContextNotice';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
 import { useThread, useThreads } from '../lib/data';
@@ -47,6 +49,7 @@ import {
 } from '../lib/threadPages';
 import { sendMessage } from '../lib/turns';
 import type { MessageView } from '../lib/types';
+import { ScopeChip } from '../scopes/ScopeChip';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -310,6 +313,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       sourceIds: q.sourceIds,
       model: ccState.model,
       effort: ccState.effort,
+      other: ccState.other,
     }).then((ok) => {
       if (!ok) setReplace((r) => ({ text: q.text, n: r.n + 1 }));
     });
@@ -328,6 +332,12 @@ export function ThreadView({ threadId }: { threadId: string }) {
         : undefined,
     [cc, ccCommands.data, ccAct, threadId, ccLive.data, ccWorking],
   );
+
+  // "Change" on a plan: say what to change, and the agent revises it from your words.
+  const changePlan = useCallback(() => {
+    setReplace((r) => ({ text: 'About the plan: ', n: r.n + 1 }));
+    requestAnimationFrame(() => document.getElementById('composer-input')?.focus());
+  }, []);
 
   const send = async (text: string, extras?: SendExtras): Promise<boolean> => {
     following.current = true;
@@ -371,9 +381,13 @@ export function ThreadView({ threadId }: { threadId: string }) {
         effort: ccState.effort,
         sourceIds,
         asBranch: ccState.forkNext,
+        other: ccState.other,
       });
       if (ok && ccState.forkNext) patchCc(threadId, { forkNext: false });
-      if (ok) setAnnounce('Message sent to Claude Code.');
+      if (ok)
+        setAnnounce(
+          ccState.other ? `Message sent to ${ccState.other.name}.` : 'Message sent to Claude Code.',
+        );
       return ok;
     }
     if (busy) {
@@ -437,9 +451,12 @@ export function ThreadView({ threadId }: { threadId: string }) {
     <div className="thread">
       <div className="thread__scroll" data-scrollable ref={scroller} onScroll={onScroll}>
         <div className="thread__measure">
-          <h1 className="thread__title" data-display dir="auto">
-            {listTitle ?? thread.data?.title}
-          </h1>
+          <div className="thread__head">
+            <h1 className="thread__title" data-display dir="auto">
+              {listTitle ?? thread.data?.title}
+            </h1>
+            <ScopeChip threadId={threadId} />
+          </div>
           {thread.data?.claudeCode ? (
             <div className="thread__origin">
               <ClaudeCodeMarker threadId={threadId} binding={thread.data.claudeCode} />
@@ -499,6 +516,8 @@ export function ThreadView({ threadId }: { threadId: string }) {
       <div className="thread__composer">
         <div className="thread__measure">
           {cc ? <CcNotices threadId={threadId} /> : null}
+          <ContextNotice threadId={threadId} />
+          <AutoSlot threadId={threadId} onChangePlan={changePlan} />
           {demo ? null : (
             <ComposerHints
               threadId={threadId}

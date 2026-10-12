@@ -73,7 +73,7 @@ export const CREDENTIAL_META: CredentialMeta[] = [
   {
     id: 'openrouter',
     name: 'OpenRouter',
-    desc: 'Hundreds of models through one key.',
+    desc: "Hundreds of models through one key. It also powers Auto mode's reviewer.",
     noun: 'API key',
     placeholder: 'sk-or-…',
     getUrl: 'https://openrouter.ai/settings/keys',
@@ -83,7 +83,7 @@ export const CREDENTIAL_META: CredentialMeta[] = [
   {
     id: 'typesafe',
     name: 'TypeSafe (Jev)',
-    desc: 'Reviews actions in Auto mode when there is no OpenRouter key. Only the action and its plan are sent.',
+    desc: "Powers Auto mode's reviewer, Jev, which checks actions that are not clearly safe. Your OpenRouter key works too, and is tried first. Only the action, the approved plan and the scope's switches are sent.",
     noun: 'API key',
     placeholder: 'ts_…',
     getUrl: 'https://console.typesafe.ai/settings/keys',
@@ -141,7 +141,7 @@ const GROUPS: { title: string; lede: string; ids: CredentialId[] }[] = [
   { title: 'Compute', lede: 'Your own GPU nodes.', ids: ['runpod', 'huggingface'] },
   {
     title: 'Auto mode review',
-    lede: 'An independent reviewer for actions that are not clearly safe.',
+    lede: 'Jev, the independent reviewer behind Auto mode. A TypeSafe key or your OpenRouter key powers it.',
     ids: ['typesafe'],
   },
   {

@@ -7,19 +7,25 @@
  *  Purpose  |  The four things you do to a conversation, each ending
  *           |  the same way: your message and an empty reply appear in
  *           |  the thread at once, and the reply fills in from its run.
- *  How      |  Core answers 202 with the ids it created; those rows go
+ *  How      |  A turn goes through POST /threads/:id/turns, the one
+ *           |  front door for every engine (docs/engines.md); only a
+ *           |  message that needs a flow or an @notebook or @repo
+ *           |  mention still uses POST /threads/:id/messages. Core
+ *           |  answers 202 with the ids it created; those rows go
  *           |  straight into the cached thread (no flash of a refetch)
  *           |  and attachRun() streams the reply. A failure leaves the
  *           |  draft where it was and says what to do.
  * ------------------------------------------------------------------
  */
 
-import type { Part } from '@nvx/contracts';
+import type { Part, SendTurnResult } from '@nvx/contracts';
 import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
 import { useCcStore } from '../claudecode/store';
+import { newIdempotencyKey } from '../engines/api';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
+import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
 import { queryClient } from './query';
@@ -62,18 +68,21 @@ function claudeCodeThread(threadId: string): boolean {
   return !!queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode;
 }
 
-/** A Claude Code turn from an earlier point: Claude Code forks the session there. */
+/**
+ * A Claude Code turn from an earlier point: Claude Code forks the session
+ * there. From the very start (parent null, editing the first message) it
+ * starts a new session in the same folder, as a branch at the root.
+ */
 function sendFromHere(threadId: string, parentId: string | null, text: string): Promise<boolean> {
-  if (!parentId) {
-    notify({
-      level: 'info',
-      title: "The session's first message can't be changed here",
-      body: 'Branch from a later message instead, or start the session again in Claude Code.',
-    });
-    return Promise.resolve(false);
-  }
   const chosen = useCcStore.getState().byThread[threadId];
-  return sendClaudeCode({ threadId, parentId, text, model: chosen?.model, effort: chosen?.effort });
+  return sendClaudeCode({
+    threadId,
+    parentId,
+    text,
+    model: chosen?.model,
+    effort: chosen?.effort,
+    other: chosen?.other ?? null,
+  });
 }
 
 function assistantRow(s: Started, parentId: string, modelId: string | null): MessageView {
@@ -107,6 +116,21 @@ export async function createThread(
   }
 }
 
+/**
+ * What a plain turn asks for. A model picked for this message wins; else
+ * the thread's own model decides on Core's side (null). With neither, your
+ * default goes along only when no flow answers here: a flow must keep the
+ * turn. Undefined: the flow is not known yet, so the older route decides.
+ */
+function turnModelFor(threadId: string, model?: string | null, defaultModel?: string | null) {
+  if (model) return model;
+  const t = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
+  if (t?.model || !defaultModel) return null;
+  const resolved = queryClient.getQueryData<ResolvedFlow>(flowKeys.resolve(threadId));
+  if (resolved === undefined) return undefined;
+  return resolved.flow ? null : defaultModel;
+}
+
 /** Send a message as a reply to `parentId`. Resolves false when nothing was sent. */
 export async function sendMessage(opts: {
   threadId: string;
@@ -122,16 +146,36 @@ export async function sendMessage(opts: {
   flowId?: string | null;
 }): Promise<boolean> {
   const parts: Part[] = [{ type: 'text', text: opts.text }];
+  const sourceIds = (opts.mentions ?? []).filter((m) => m.kind === 'source').map((m) => m.id);
+  const turnModel = turnModelFor(opts.threadId, opts.model, opts.defaultModel);
+  // /turns takes sources only; a flow, a notebook or a repo still go the older way.
+  const viaTurns =
+    !opts.flowId && turnModel !== undefined && (opts.mentions ?? []).every((m) => m.kind === 'source');
   let s: Started;
   try {
-    s = await api.post<Started>(`/threads/${opts.threadId}/messages`, {
-      parent_id: opts.parentId,
-      parts,
-      ...(opts.model && { model: opts.model }),
-      ...(opts.defaultModel && !opts.model && { default_model: opts.defaultModel }),
-      ...(opts.mentions?.length && { mentions: opts.mentions }),
-      ...(opts.flowId && { flow_id: opts.flowId }),
-    });
+    if (viaTurns) {
+      const r = await api.post<SendTurnResult>(`/threads/${opts.threadId}/turns`, {
+        text: opts.text,
+        parent_id: opts.parentId,
+        ...(turnModel && { model: turnModel }),
+        ...(sourceIds.length && { source_ids: sourceIds }),
+        idempotency_key: newIdempotencyKey(),
+      });
+      s = {
+        run_id: r.run_id,
+        user_message_id: r.user_message_id,
+        assistant_message_id: r.assistant_message_id ?? `pending-${r.run_id}`,
+      };
+    } else {
+      s = await api.post<Started>(`/threads/${opts.threadId}/messages`, {
+        parent_id: opts.parentId,
+        parts,
+        ...(opts.model && { model: opts.model }),
+        ...(opts.defaultModel && !opts.model && { default_model: opts.defaultModel }),
+        ...(opts.mentions?.length && { mentions: opts.mentions }),
+        ...(opts.flowId && { flow_id: opts.flowId }),
+      });
+    }
   } catch (error) {
     reportFailure(error, 'Your message');
     return false;

@@ -19,7 +19,9 @@
 
 import { type Part, RunEvent, type RunStatus } from '@nvx/contracts';
 import { create } from 'zustand';
+import { noteAutoEvent } from '../auto/store';
 import { noteRunWarning } from '../claudecode/store';
+import { showContextNotice } from '../engines/notice';
 import { finishTeam, isFlowEvent, pushFlowEvent } from '../thread/teamworkState';
 import { keys } from './data';
 import { queryClient } from './query';
@@ -182,6 +184,10 @@ export function attachRun(t: { runId: string; threadId: string; messageId: strin
       if (e.type === 'done') finishTeam(t.messageId, e.at);
       // A restart during a Claude Code turn: the composer says what was brought in.
       if (e.type === 'warning') noteRunWarning(t.threadId, e.code);
+      // Auto mode's quiet marks, grouped asks and plan changes (auto/store.ts).
+      noteAutoEvent(t.threadId, t.runId, e);
+      // A turn that sends this thread to Claude Code says so once (engines/notice.ts).
+      if (e.type === 'context.shared') showContextNotice(t.threadId, e.notice, e.message_id);
       useRuns.getState().apply(t.messageId, e);
       if (e.type === 'approval.required' || e.type === 'approval.resolved') {
         void queryClient.invalidateQueries({ queryKey: keys.approvals });

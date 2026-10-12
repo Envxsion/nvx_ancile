@@ -39,6 +39,8 @@ export interface ModelView {
   chosenHue?: Hue;
   /** The name of the stored key it uses, if any. */
   keyName?: string | null;
+  /** It runs on this computer or a node you control (scopes count it as local). */
+  local?: boolean;
 }
 
 export interface NotebookView {

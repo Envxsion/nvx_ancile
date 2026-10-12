@@ -34,6 +34,7 @@ import {
   useState,
 } from 'react';
 import { syncThread } from '../claudecode/api';
+import { openEditor } from '../editors/store';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
 import { threadQuery, useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
@@ -159,6 +160,17 @@ const ThreadRow = memo(function ThreadRow({
       label: 'Copy link',
       icon: 'link',
       onSelect: () => void navigator.clipboard?.writeText(`${location.origin}/t/${t.id}`),
+    },
+    { kind: 'separator' },
+    {
+      label: 'Scope',
+      icon: 'shield',
+      onSelect: () => openEditor({ kind: 'scope', level: 'thread', id: t.id }),
+    },
+    {
+      label: 'Instructions and persona',
+      icon: 'note',
+      onSelect: () => openEditor({ kind: 'instructions', level: 'thread', id: t.id }),
     },
     ...(t.fromClaudeCode
       ? [

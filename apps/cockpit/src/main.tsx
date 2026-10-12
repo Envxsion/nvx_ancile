@@ -29,6 +29,8 @@ import './styles/branching.css';
 import './styles/compute.css';
 import './styles/ops.css';
 import './styles/repos.css';
+import './styles/engines.css';
+import './styles/auto.css';
 
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
@@ -42,6 +44,19 @@ import { router } from './router';
 import { useUi } from './state/ui';
 
 markRuntime();
+// Dev only: the screenshot scripts (scripts/shoot-*.mjs) seed the stores to draw states demo data cannot reach.
+if (import.meta.env.DEV)
+  void Promise.all([import('./auto/store'), import('./editors/store'), import('./engines/notice')]).then(
+    ([auto, editors, notice]) => {
+      (window as unknown as { __ancile: unknown }).__ancile = {
+        queryClient,
+        useUi,
+        useAuto: auto.useAuto,
+        openEditor: editors.openEditor,
+        showContextNotice: notice.showContextNotice,
+      };
+    },
+  );
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing #root');
 

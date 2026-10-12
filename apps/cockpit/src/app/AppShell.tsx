@@ -20,6 +20,7 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { type CSSProperties, useEffect } from 'react';
 import { ApprovalDialog } from '../approvals/ApprovalDialog';
 import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
+import { EditorsHost } from '../editors/EditorsHost';
 import { HelpCentre } from '../help/HelpCentre';
 import { TourOverlay } from '../help/TourOverlay';
 import { installKeys, useBinding } from '../keys/dispatch';
@@ -217,6 +218,7 @@ export function AppShell() {
       <TourOverlay />
       <BeamHost />
       <ClaudeCodeSessionsHost />
+      <EditorsHost />
       <Toaster />
     </div>
   );

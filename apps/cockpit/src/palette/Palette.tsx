@@ -25,6 +25,8 @@ import { Command } from 'cmdk';
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { CC_KEYS, syncThread } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
+import { openEditor } from '../editors/store';
+import { useModelGroups } from '../engines/api';
 import { searchHelp } from '../help/articles';
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
@@ -32,9 +34,9 @@ import { useBinding, useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { api } from '../lib/api';
 import { compactNow } from '../lib/branching';
-import { useModels, useNotebooks, useThreads } from '../lib/data';
+import { useNotebooks, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
-import { chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
+import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
 import { queryClient } from '../lib/query';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
@@ -205,8 +207,9 @@ export function Palette() {
   const openPalette = useUi((s) => s.openPalette);
   const close = useUi((s) => s.closePalette);
   const threadId = useThreadIdFromRoute();
-  const models = useModels();
   const currentModel = useCurrentModel(threadId)?.id;
+  // Claude Code, cloud and local models, with what this thread's scope rules out (docs/engines.md).
+  const modelGroups = useModelGroups(threadId, currentModel ?? null);
   const navigate = useNavigate();
   const notebooks = useNotebooks();
   const threads = useThreads();
@@ -457,6 +460,30 @@ export function Palette() {
       },
     },
     {
+      id: 'thread-scope',
+      label: 'What this thread may use',
+      icon: 'shield',
+      words: 'scope private local only limits network tools engines',
+      when: !!thread,
+      run: () => thread && openEditor({ kind: 'scope', level: 'thread', id: thread.id }),
+    },
+    {
+      id: 'thread-instructions',
+      label: 'Instructions and persona for this thread',
+      icon: 'note',
+      words: 'system prompt persona instructions behaviour',
+      when: !!thread,
+      run: () => thread && openEditor({ kind: 'instructions', level: 'thread', id: thread.id }),
+    },
+    {
+      id: 'new-claude-code',
+      label: 'New Claude Code thread in a folder',
+      icon: 'terminal',
+      words: 'claude code session folder project start',
+      when: !!ccStatus?.installed,
+      run: () => openEditor({ kind: 'new-claude-code', notebookId: thread?.notebookId ?? null, cwd: null }),
+    },
+    {
       id: 'archive',
       label: 'Archive this thread',
       icon: 'archive',
@@ -626,43 +653,57 @@ export function Palette() {
                 </Command.Group>
               ) : null}
 
-              {show('models') && (scope === 'models' || typed) ? (
-                <Command.Group heading="Models">
-                  {(models.data ?? [])
-                    .filter((m) => m.chat !== false)
-                    .map((m) => (
-                      <Command.Item
-                        key={m.id}
-                        value={`model ${m.name} ${m.provider} ${m.id}`}
-                        data-unavailable={m.status && m.status !== 'ready' ? true : undefined}
-                        onSelect={() =>
-                          run(() => {
-                            if (threadId) void chooseModel(m, threadId);
-                            else {
-                              void chooseModel(m);
-                              if (!m.status || m.status === 'ready')
-                                notify({
-                                  level: 'success',
-                                  title: `New threads use ${m.name}`,
-                                  body: 'Change it any time with M.',
-                                });
-                            }
-                          })
-                        }
-                      >
-                        <span
-                          className="palette__swatch"
-                          style={{ '--hue': hueVar(m.hue) } as CSSProperties}
-                        />
-                        <span className="palette__label">{m.name}</span>
-                        <span className="mute palette__meta">
-                          {m.offline ? "Try-out · doesn't use AI" : (m.note ?? m.provider)}
-                        </span>
-                        {m.id === currentModel ? <span className="palette__current">Current</span> : null}
-                      </Command.Item>
-                    ))}
-                </Command.Group>
-              ) : null}
+              {show('models') && (scope === 'models' || typed)
+                ? modelGroups.map((g) => (
+                    <Command.Group key={g.kind} heading={g.label}>
+                      {g.items.map((e) => (
+                        <Command.Item
+                          key={e.id}
+                          value={`model ${e.name} ${e.badge} ${e.id}`}
+                          disabled={!!e.disabled}
+                          data-unavailable={
+                            e.disabled || (e.model?.status && e.model.status !== 'ready') ? true : undefined
+                          }
+                          onSelect={() =>
+                            run(() => {
+                              if (!e.model) {
+                                if (threadId) chooseInClaudeCodeThread(threadId, e);
+                                return;
+                              }
+                              const m = e.model;
+                              if (threadId) void chooseModel(m, threadId);
+                              else {
+                                void chooseModel(m);
+                                if (!m.status || m.status === 'ready')
+                                  notify({
+                                    level: 'success',
+                                    title: `New threads use ${m.name}`,
+                                    body: 'Change it any time with M.',
+                                  });
+                              }
+                            })
+                          }
+                        >
+                          <span
+                            className="palette__swatch"
+                            style={{ '--hue': hueVar(e.hue) } as CSSProperties}
+                          />
+                          <span className="palette__label">{e.name}</span>
+                          <span className="mute palette__meta">
+                            {e.disabled ??
+                              (e.model?.offline
+                                ? "Try-out · doesn't use AI"
+                                : (e.note ?? e.model?.provider ?? ''))}
+                          </span>
+                          <span className="model-badge" data-kind={e.kind}>
+                            {e.badge}
+                          </span>
+                          {e.current ? <span className="palette__current">Current</span> : null}
+                        </Command.Item>
+                      ))}
+                    </Command.Group>
+                  ))
+                : null}
 
               {show('notebooks') && (scope === 'notebooks' || typed) ? (
                 <Command.Group heading="Notebooks">

@@ -9,40 +9,39 @@
  *           |  own "/" command list, and turn that list into the
  *           |  composer's menu (grouped, fuzzy, with a second level
  *           |  for a command's values).
- *  How      |  POST /claude-code/threads/:id/send answers the run and
- *           |  your message; the answer row comes from the thread
- *           |  refetch, whose active run ThreadView attaches to, so
- *           |  the turn streams exactly like chat. Refusals that have
+ *  How      |  Every turn goes through POST /threads/:id/turns (the
+ *           |  one front door, docs/engines.md): a `claude-code/…`
+ *           |  model carries the session on, any other model answers
+ *           |  through the gateway and the thread keeps its session.
+ *           |  The answer's id comes back, so the turn streams at
+ *           |  once, exactly like chat. Refusals that have
  *           |  a fix (busy elsewhere, signed out, not installed, not
  *           |  verified) become the notice above the composer, not a
  *           |  toast. Live state polls quickly while a turn works and
  *           |  slowly otherwise; commands are cached for ten minutes.
- *  Note     |  Core does not answer the assistant message id on send
- *           |  (TODO(phase-3): add it, so the stream attaches without
- *           |  waiting for the refetch).
+ *  Note     |  A turn that sends this thread's context to Claude Code
+ *           |  says so once, in one quiet line (engines/notice.ts).
  * ------------------------------------------------------------------
  */
 
-import type {
-  ClaudeCodeCommand,
-  ClaudeCodeCommandList,
-  ClaudeCodeLiveState,
-  Part,
-  SendClaudeCodeRequest,
+import {
+  CLAUDE_CODE_MODEL_PREFIX,
+  type ClaudeCodeCommand,
+  type ClaudeCodeCommandList,
+  type ClaudeCodeLiveState,
+  type Part,
+  type SendTurnRequest,
+  type SendTurnResult,
 } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
+import { showContextNotice } from '../engines/notice';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
+import { attachRun } from '../lib/run';
 import type { MessageView, ThreadView } from '../lib/types';
 import { notify } from '../state/notify';
 import { type CcRetry, type Effort, patchCc } from './store';
-
-/** SendClaudeCodeResult (the contract exports the schema only). */
-interface SendClaudeCodeResult {
-  run_id: string;
-  user_message_id: string;
-}
 
 export const CC_LIVE_KEYS = {
   live: (threadId: string) => ['claude-code', 'live', threadId] as const,
@@ -121,10 +120,17 @@ function newKey(): string {
   }
 }
 
-/** Your message (and a placeholder answer) on the cached path at once. */
-function placeTurn(threadId: string, parentId: string | null, s: SendClaudeCodeResult, text: string): void {
+/** Your message (and its answer, still empty) on the cached path at once. */
+function placeTurn(
+  threadId: string,
+  parentId: string | null,
+  s: Pick<SendTurnResult, 'run_id' | 'user_message_id'> & { assistant_message_id?: string | null },
+  text: string,
+  other: { id: string; name: string } | null,
+): string {
   const now = new Date().toISOString();
   const parts: Part[] = [{ type: 'text', text }];
+  const answerId = s.assistant_message_id ?? `cc-pending-${s.run_id}`;
   const rows: MessageView[] = [
     {
       id: s.user_message_id,
@@ -137,13 +143,13 @@ function placeTurn(threadId: string, parentId: string | null, s: SendClaudeCodeR
       status: 'complete',
     },
     {
-      id: `cc-pending-${s.run_id}`,
+      id: answerId,
       parentId: s.user_message_id,
       role: 'assistant',
       blocks: [],
       parts: [],
-      modelId: null,
-      modelName: 'Claude Code',
+      modelId: other?.id ?? null,
+      ...(!other && { modelName: 'Claude Code' }),
       createdAt: now,
       status: 'pending',
       runId: s.run_id,
@@ -155,34 +161,47 @@ function placeTurn(threadId: string, parentId: string | null, s: SendClaudeCodeR
     const kept = parentId ? (cut >= 0 ? t.messages.slice(0, cut + 1) : t.messages) : [];
     return { ...t, messages: [...kept, ...rows], activeRun: null };
   });
+  return answerId;
 }
 
 export interface CcSend {
   threadId: string;
-  /** The message this turn answers; Claude Code forks there when it is not the latest. */
+  /**
+   * The message this turn answers; Claude Code forks there when it is not
+   * the latest. null: the start of the session (editing its first message
+   * starts a new session in the same folder, as a branch at the root).
+   */
   parentId: string | null;
   text: string;
   model?: string | null;
   effort?: Effort | null;
   sourceIds?: string[];
   asBranch?: boolean;
+  /** Another model answers this turn instead of Claude Code; the thread keeps its session. */
+  other?: { id: string; name: string } | null;
 }
 
-/** One turn in the thread's live session. Resolves false when nothing was sent. */
+/** What the turn asks for: another model as it is, else Claude Code on the chosen model. */
+export function turnModel(o: Pick<CcSend, 'model' | 'other'>): string {
+  return o.other?.id ?? `${CLAUDE_CODE_MODEL_PREFIX}${o.model ?? 'default'}`;
+}
+
+/** One turn in a Claude Code thread, through POST /threads/:id/turns. Resolves false when nothing was sent. */
 export async function sendClaudeCode(o: CcSend): Promise<boolean> {
-  const body: SendClaudeCodeRequest = {
+  const other = o.other ?? null;
+  const body: SendTurnRequest = {
     text: o.text,
     parent_id: o.parentId,
     idempotency_key: newKey(),
-    ...(o.model && { model: o.model }),
+    model: turnModel(o),
     // "auto" is Claude Code's own choice: send nothing.
-    ...(o.effort && o.effort !== 'auto' && { effort: o.effort }),
+    ...(!other && o.effort && o.effort !== 'auto' && { effort: o.effort }),
     ...(o.sourceIds?.length && { source_ids: o.sourceIds }),
-    ...(o.asBranch && { as_branch: true }),
+    ...(!other && o.asBranch && { as_branch: true }),
   };
-  let s: SendClaudeCodeResult;
+  let s: SendTurnResult;
   try {
-    s = await api.post<SendClaudeCodeResult>(`/claude-code/threads/${o.threadId}/send`, body);
+    s = await api.post<SendTurnResult>(`/threads/${o.threadId}/turns`, body);
   } catch (error) {
     const retry: CcRetry = {
       text: o.text,
@@ -193,8 +212,10 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     return false;
   }
   patchCc(o.threadId, { notice: null });
-  placeTurn(o.threadId, o.parentId, s, o.text);
-  // The refetch brings the answer row and its active run, which ThreadView attaches to.
+  const answerId = placeTurn(o.threadId, o.parentId, s, o.text, other);
+  if (s.context_notice) showContextNotice(o.threadId, s.context_notice, s.assistant_message_id ?? null);
+  if (s.assistant_message_id) attachRun({ runId: s.run_id, threadId: o.threadId, messageId: answerId });
+  // The refetch brings the saved rows (and, from an older Core, the answer's run).
   void queryClient.invalidateQueries({ queryKey: keys.thread(o.threadId) });
   void queryClient.invalidateQueries({ queryKey: keys.threads });
   refreshLive(o.threadId);
@@ -227,7 +248,7 @@ function reportSendFailure(threadId: string, error: unknown, retry: CcRetry): vo
 export function continueAsBranch(
   threadId: string,
   retry: CcRetry,
-  opts: { model?: string | null; effort?: Effort | null } = {},
+  opts: { model?: string | null; effort?: Effort | null; other?: CcSend['other'] } = {},
 ): Promise<boolean> {
   return sendClaudeCode({ threadId, ...retry, ...opts, asBranch: true });
 }

@@ -15,6 +15,7 @@
 import * as demo from '../fixtures/demo';
 import { modelName, usd } from '../lib/format';
 import { Icon } from '../ui/Icon';
+import { EngineContextSection } from './EngineContext';
 
 export function WhyDemo() {
   const x = demo.explain;
@@ -47,6 +48,8 @@ export function WhyDemo() {
           ))}
         </ol>
       </section>
+
+      <EngineContextSection report={demo.engineContext} threadId={null} />
 
       <section className="why__section">
         <h3 className="why__h">Memory it was given</h3>

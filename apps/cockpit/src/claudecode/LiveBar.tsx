@@ -26,8 +26,11 @@ import * as Popover from '@radix-ui/react-popover';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useState } from 'react';
+import { useModelGroups } from '../engines/api';
+import { ModelMenu } from '../engines/ModelMenu';
 import { branchHere } from '../lib/branching';
 import { keys } from '../lib/data';
+import { chooseInClaudeCodeThread } from '../lib/models';
 import { queryClient } from '../lib/query';
 import { createThread } from '../lib/turns';
 import type { MessageView } from '../lib/types';
@@ -38,7 +41,7 @@ import { Icon } from '../ui/Icon';
 import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
 import { PlanLimits } from '../usage/PlanLimits';
 import { startClaudeCodeSignIn } from './api';
-import { continueAsBranch, liveWords, modelOptions, tokensShort } from './live';
+import { continueAsBranch, liveWords, tokensShort } from './live';
 import { type CcNotice, EFFORTS, type Effort, isEffort, patchCc, useCcThread } from './store';
 import { folderName } from './ThreadMarker';
 import '../styles/claudecode.css';
@@ -186,98 +189,83 @@ export function UsageBody({
 export function CcPickers({
   threadId,
   live,
-  commands,
 }: {
   threadId: string;
   live: ClaudeCodeLiveState | undefined;
-  commands: ClaudeCodeCommand[] | undefined;
+  /** Claude Code's own list; the picker reads the session's models from the same query. */
+  commands?: ClaudeCodeCommand[] | undefined;
 }) {
   const st = useCcThread(threadId);
   const currentModel = st.model ?? live?.model ?? null;
   const currentEffort: Effort = st.effort ?? (isEffort(live?.effort) ? live.effort : 'auto');
-  const models = modelOptions(commands, live?.model ?? null);
+  // One picker for every model: Claude Code's own, then cloud and local (docs/engines.md).
+  const groups = useModelGroups(threadId, null);
   const setOpen = (which: 'model' | 'effort') => (o: boolean) =>
     patchCc(threadId, { picker: o ? which : null });
+  const label = st.other ? st.other.name : (currentModel ?? 'Default model');
+  const otherBadge = st.other
+    ? groups.flatMap((g) => g.items).find((i) => i.id === st.other?.id)?.badge
+    : undefined;
 
   return (
     <>
-      <DM.Root modal={false} open={st.picker === 'model'} onOpenChange={setOpen('model')}>
-        <DM.Trigger asChild>
+      <ModelMenu
+        threadId={threadId}
+        groups={groups}
+        open={st.picker === 'model'}
+        onOpenChange={setOpen('model')}
+        onPick={(e) => chooseInClaudeCodeThread(threadId, e)}
+        trigger={
           <button
             type="button"
             className="cc-pick"
-            aria-label={`Claude Code model: ${currentModel ?? 'the session default'}. Change model`}
+            data-other={st.other ? true : undefined}
+            aria-label={
+              st.other
+                ? `${st.other.name} answers the next message instead of Claude Code. Change model`
+                : `Claude Code model: ${currentModel ?? 'the session default'}. Change model`
+            }
           >
             <Icon name="model" size={12} />
-            <span className="cc-pick__label">{currentModel ?? 'Default model'}</span>
+            <span className="cc-pick__label">{label}</span>
+            {otherBadge ? <span className="model-badge model-badge--xs">{otherBadge}</span> : null}
             <Icon name="chevronDown" size={10} />
           </button>
-        </DM.Trigger>
-        <DM.Portal>
-          <DM.Content
-            className="menu cc-pick__menu"
-            side="top"
-            align="start"
-            sideOffset={6}
-            collisionPadding={8}
-          >
-            <DM.Label className="menu__label">Model for the next message</DM.Label>
-            {models.length === 0 ? (
-              <DM.Item className="menu__item" disabled>
-                <span className="menu__noicon" />
-                <span className="menu__text">Claude Code lists no models here</span>
-              </DM.Item>
-            ) : (
-              models.map((m) => (
-                <DM.Item
-                  key={m.value}
-                  className="menu__item"
-                  onSelect={() => patchCc(threadId, { model: m.value })}
-                >
-                  {m.value === currentModel ? (
-                    <Icon name="check" size={14} />
-                  ) : (
-                    <span className="menu__noicon" />
-                  )}
+        }
+      />
+      {st.other ? null : (
+        <DM.Root modal={false} open={st.picker === 'effort'} onOpenChange={setOpen('effort')}>
+          <DM.Trigger asChild>
+            <button type="button" className="cc-pick" aria-label={`Effort: ${currentEffort}. Change effort`}>
+              <Icon name="zap" size={12} />
+              <span className="cc-pick__label">
+                {currentEffort === 'auto' ? 'Auto effort' : currentEffort}
+              </span>
+              <Icon name="chevronDown" size={10} />
+            </button>
+          </DM.Trigger>
+          <DM.Portal>
+            <DM.Content
+              className="menu cc-pick__menu"
+              side="top"
+              align="start"
+              sideOffset={6}
+              collisionPadding={8}
+            >
+              <DM.Label className="menu__label">Effort for the next message</DM.Label>
+              {EFFORTS.map((e) => (
+                <DM.Item key={e} className="menu__item" onSelect={() => patchCc(threadId, { effort: e })}>
+                  {e === currentEffort ? <Icon name="check" size={14} /> : <span className="menu__noicon" />}
                   <span className="menu__text">
-                    {m.value}
-                    {m.description ? <span className="cc-pick__desc">{m.description}</span> : null}
+                    {e}
+                    <span className="cc-pick__desc">{EFFORT_WORDS[e]}</span>
                   </span>
                 </DM.Item>
-              ))
-            )}
-          </DM.Content>
-        </DM.Portal>
-      </DM.Root>
-      <DM.Root modal={false} open={st.picker === 'effort'} onOpenChange={setOpen('effort')}>
-        <DM.Trigger asChild>
-          <button type="button" className="cc-pick" aria-label={`Effort: ${currentEffort}. Change effort`}>
-            <Icon name="zap" size={12} />
-            <span className="cc-pick__label">{currentEffort === 'auto' ? 'Auto effort' : currentEffort}</span>
-            <Icon name="chevronDown" size={10} />
-          </button>
-        </DM.Trigger>
-        <DM.Portal>
-          <DM.Content
-            className="menu cc-pick__menu"
-            side="top"
-            align="start"
-            sideOffset={6}
-            collisionPadding={8}
-          >
-            <DM.Label className="menu__label">Effort for the next message</DM.Label>
-            {EFFORTS.map((e) => (
-              <DM.Item key={e} className="menu__item" onSelect={() => patchCc(threadId, { effort: e })}>
-                {e === currentEffort ? <Icon name="check" size={14} /> : <span className="menu__noicon" />}
-                <span className="menu__text">
-                  {e}
-                  <span className="cc-pick__desc">{EFFORT_WORDS[e]}</span>
-                </span>
-              </DM.Item>
-            ))}
-          </DM.Content>
-        </DM.Portal>
-      </DM.Root>
+              ))}
+            </DM.Content>
+          </DM.Portal>
+        </DM.Root>
+      )}
     </>
   );
 }
@@ -299,7 +287,7 @@ export function CcNotices({ threadId }: { threadId: string }) {
 
   const branch = async (notice: Extract<CcNotice, { kind: 'busy' }>) => {
     setBusy(true);
-    await continueAsBranch(threadId, notice.retry, { model: st.model, effort: st.effort });
+    await continueAsBranch(threadId, notice.retry, { model: st.model, effort: st.effort, other: st.other });
     setBusy(false);
   };
 

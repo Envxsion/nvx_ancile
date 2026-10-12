@@ -98,7 +98,22 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
+    local: isLocalWire(m.provider, m.via, m.base_url ?? null),
   };
+}
+
+const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'fake', 'node']);
+const LOOPBACK = /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/i;
+
+/** The same test Core's engine selection makes (engines/select.ts): local providers, GPU nodes, loopback servers. */
+export function isLocalWire(provider: string, via: string, baseUrl: string | null): boolean {
+  if (LOCAL_PROVIDERS.has(provider) || via === 'controller') return true;
+  if (!baseUrl) return false;
+  try {
+    return LOOPBACK.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function toThreadSummary(t: WireThreadSummary): ThreadSummary {
@@ -205,6 +220,8 @@ export interface Provenance {
   flow?: FlowProvenance;
   /** How the answer was routed and why (DESIGN §16.3): a flow or one model, and who chose it. */
   route?: AnswerRoute;
+  /** What its engine was given and why (docs/engines.md): recalled, digested, dropped, seeded. */
+  engine_context?: import('@nvx/contracts').EngineContextReport;
   /**
    * Mirrored from a Claude Code session. `kind: 'compact_boundary'` marks where
    * Claude Code compacted; `subagent` carries a subagent's transcript (one or a

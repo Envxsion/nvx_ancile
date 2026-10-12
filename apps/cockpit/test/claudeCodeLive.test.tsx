@@ -154,7 +154,8 @@ function seedThread(): ThreadView {
   return t;
 }
 
-const sent = () => mocked.post.mock.calls.filter(([path]) => String(path).endsWith('/send'));
+// Every turn goes through the one front door (docs/engines.md).
+const sent = () => mocked.post.mock.calls.filter(([path]) => String(path).endsWith('/turns'));
 const apiErr = (status: number, code: string, title: string, hint: string) =>
   new ApiCallError(status, localError(code, title, hint, 'trace-1'));
 
@@ -195,8 +196,15 @@ describe('sending a turn', () => {
     const calls = sent() as [string, Record<string, unknown>][];
     const [path, first] = calls[0] ?? [];
     const second = calls[1]?.[1];
-    expect(path).toBe('/claude-code/threads/thr_1/send');
-    expect(first).toMatchObject({ text: 'Fix it', parent_id: 'm4', model: 'opus', effort: 'high' });
+    expect(path).toBe('/threads/thr_1/turns');
+    expect(first).toMatchObject({
+      text: 'Fix it',
+      parent_id: 'm4',
+      model: 'claude-code/opus',
+      effort: 'high',
+    });
+    // No model chosen: Claude Code carries the session on with its own default.
+    expect(second).toMatchObject({ model: 'claude-code/default' });
     expect(typeof first?.idempotency_key).toBe('string');
     expect(String(first?.idempotency_key).length).toBeGreaterThanOrEqual(8);
     expect(second?.idempotency_key).not.toBe(first?.idempotency_key);
@@ -244,7 +252,7 @@ describe('sending a turn', () => {
     act(() => result.current(COMMANDS[3] as ClaudeCodeCommand, 'sonnet'));
     expect(mocked.post).not.toHaveBeenCalled();
     await editMessage('thr_1', msg({ id: 'm3', role: 'user', parentId: 'm2' }), 'Go');
-    expect(sent()[0]?.[1]).toMatchObject({ model: 'sonnet', effort: 'max' });
+    expect(sent()[0]?.[1]).toMatchObject({ model: 'claude-code/sonnet', effort: 'max' });
   });
 });
 

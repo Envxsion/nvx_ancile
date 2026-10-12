@@ -17,7 +17,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { AnswerRoute, Explain, FlowProvenance } from '@nvx/contracts';
+import type { AnswerRoute, EngineContextReport, Explain, FlowProvenance } from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useThread } from '../lib/data';
 import { startFactcheck, useExplain } from '../lib/factcheck';
@@ -28,6 +28,7 @@ import { useUi } from '../state/ui';
 import { ScoreRing } from '../thread/Claims';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
+import { DecisionRule, EngineContextSection, ScopeLine } from './EngineContext';
 import { WhyDemo } from './WhyDemo';
 
 const OUTCOME: Record<NonNullable<Explain['tools'][number]['decision']>['outcome'], string> = {
@@ -251,11 +252,14 @@ function Live({
   flow,
   route,
   notebookId,
+  engineContext,
 }: {
   messageId: string;
   flow?: FlowProvenance | undefined;
   route?: AnswerRoute | undefined;
   notebookId: string | null;
+  /** What the answer's engine was given (docs/engines.md), from the message itself. */
+  engineContext?: EngineContextReport | undefined;
 }) {
   const q = useExplain(messageId);
   if (q.isPending) return <Skeleton lines={6} label="Gathering why" />;
@@ -322,6 +326,9 @@ function Live({
         ) : null}
       </Section>
 
+      {engineContext ? <EngineContextSection report={engineContext} threadId={x.thread_id} /> : null}
+      <ScopeLine scope={x.scope} />
+
       <Section title="Memory it was given">
         {!x.memory || x.memory.files.length === 0 ? (
           <p className="mute">No memory was given to this answer.</p>
@@ -376,6 +383,7 @@ function Live({
                     {t.decision ? OUTCOME[t.decision.outcome] : 'No decision was recorded'}
                     {t.declined_reason ? `: ${t.declined_reason}` : ''}
                   </p>
+                  {t.decision ? <DecisionRule rule={t.decision.rule} scope={t.decision.scope} /> : null}
                 </div>
               </li>
             ))}
@@ -497,6 +505,7 @@ export function WhyPanel() {
       flow={m.provenance?.flow}
       route={m.provenance?.route}
       notebookId={thread.data?.notebookId ?? null}
+      engineContext={m.provenance?.engine_context}
     />
   );
 }

@@ -43,6 +43,12 @@ export type CcNotice =
 export interface CcThreadState {
   /** Chosen for the next send; null: what the session already uses. */
   model: string | null;
+  /**
+   * Another model answering this thread's turns instead of Claude Code
+   * (docs/engines.md): any gateway model. null: Claude Code answers. The
+   * thread keeps its session either way.
+   */
+  other: { id: string; name: string } | null;
   effort: Effort | null;
   notice: CcNotice | null;
   /** One message waiting for the running turn to end. */
@@ -56,6 +62,7 @@ export interface CcThreadState {
 
 export const CC_EMPTY: CcThreadState = {
   model: null,
+  other: null,
   effort: null,
   notice: null,
   queued: null,

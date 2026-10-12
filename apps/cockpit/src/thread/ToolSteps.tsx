@@ -22,6 +22,7 @@
 import type { Part } from '@nvx/contracts';
 import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
+import { AutoRanBadge } from '../auto/AutoCards';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
 import type { SubagentView } from '../lib/types';
@@ -947,6 +948,7 @@ export function ToolStep({
             {line.meta}
           </span>
         ) : null}
+        <AutoRanBadge callId={call.call_id} />
         <span className="tool-step__status" title={STATUS_WORD[state]}>
           <Icon name={STATUS_ICON[state]} size={12} />
           <span className="sr-only">{STATUS_WORD[state]}</span>

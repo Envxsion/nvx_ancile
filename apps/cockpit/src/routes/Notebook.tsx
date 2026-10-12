@@ -19,6 +19,7 @@ import { type CSSProperties, type DragEvent, useMemo, useState } from 'react';
 import { folderOf, useClaudeCodeProjects } from '../claudecode/api';
 import { useExcludeFolder } from '../claudecode/ExcludeFolder';
 import { UploadQueue } from '../drawer/SourcesPanel';
+import { openEditor } from '../editors/store';
 import { useLayer } from '../keys/dispatch';
 import { api } from '../lib/api';
 import { useNotebooks, useNotes, useSources, useThreads } from '../lib/data';
@@ -159,6 +160,32 @@ export function NotebookScreen() {
       icon: 'pin',
       onSelect: () => void patchNotebook(nb.id, { pinned: !nb.pinned }),
     },
+    { kind: 'separator' },
+    {
+      label: 'Scope',
+      icon: 'shield',
+      onSelect: () => openEditor({ kind: 'scope', level: 'notebook', id: nb.id }),
+    },
+    {
+      label: 'Instructions and persona',
+      icon: 'note',
+      onSelect: () => openEditor({ kind: 'instructions', level: 'notebook', id: nb.id }),
+    },
+    // A notebook a Claude Code folder lands in: start a new session there.
+    ...(folders.length
+      ? [
+          {
+            label: 'New Claude Code thread in a folder',
+            icon: 'terminal' as const,
+            onSelect: () =>
+              openEditor({
+                kind: 'new-claude-code',
+                notebookId: nb.id,
+                cwd: folders.length === 1 ? (folders[0] ?? null) : null,
+              }),
+          },
+        ]
+      : []),
     // Only a notebook a Claude Code folder lands in; one entry per folder when several do.
     ...folders.map(
       (cwd): MenuEntry => ({

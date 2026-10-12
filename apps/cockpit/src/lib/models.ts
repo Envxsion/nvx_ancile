@@ -18,7 +18,10 @@
  * ------------------------------------------------------------------
  */
 
+import { isClaudeCodeModel } from '@nvx/contracts';
 import { useRouterState } from '@tanstack/react-router';
+import { patchCc } from '../claudecode/store';
+import { ccName } from '../engines/api';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
@@ -53,7 +56,35 @@ export function useCurrentModel(threadId?: string): ModelView | undefined {
   return direct.find((m) => canAnswer(m) && !m.offline) ?? direct.find(canAnswer) ?? models.find(canAnswer);
 }
 
+/**
+ * A thread bound to a Claude Code session keeps it whichever model answers
+ * next (docs/engines.md): a Claude Code model carries the session on, any
+ * other answers through the gateway until you switch back.
+ */
+export function chooseInClaudeCodeThread(threadId: string, entry: { id: string; name: string }): void {
+  const toClaude = isClaudeCodeModel(entry.id);
+  if (toClaude) patchCc(threadId, { model: ccName(entry.id), other: null });
+  else patchCc(threadId, { other: { id: entry.id, name: entry.name } });
+  helpDone('switch-model');
+  notify({
+    level: 'success',
+    title: toClaude
+      ? `Next message goes to Claude Code (${entry.name})`
+      : `Next message goes to ${entry.name}`,
+    body: toClaude
+      ? 'The session carries on, with what other models said since given as context.'
+      : 'The thread keeps its Claude Code session. Switch back any time.',
+  });
+}
+
+const boundToClaudeCode = (threadId: string) =>
+  !useUi.getState().demo && !!queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode;
+
 export async function chooseModel(model: ModelView, threadId?: string): Promise<void> {
+  if (threadId && boundToClaudeCode(threadId) && canAnswer(model)) {
+    chooseInClaudeCodeThread(threadId, model);
+    return;
+  }
   if (!canAnswer(model)) {
     notify({
       level: 'warn',

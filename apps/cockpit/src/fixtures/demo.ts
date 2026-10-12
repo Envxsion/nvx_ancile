@@ -795,3 +795,18 @@ export const logs = [
     msg: 'ollama unreachable · 3 consecutive failures · restart adapter is "none"',
   },
 ];
+
+/** What a gateway model was given in a mixed thread (docs/engines.md), for the Why panel. */
+export const engineContext: import('@nvx/contracts').EngineContextReport = {
+  engine: 'gateway',
+  window: 400_000,
+  reserve: 32_000,
+  tokens: 18_400,
+  summary_id: 'cmp_01J9ZK0000000000000000SUMM',
+  verbatim: 6,
+  digested: 14,
+  recalled: ['msg_01J9ZK00000000000000000R01', 'msg_01J9ZK00000000000000000R02'],
+  dropped: 3,
+  foreign_turns: 0,
+  seeded_from_summary: false,
+};

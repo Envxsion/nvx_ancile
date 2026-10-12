@@ -24,12 +24,15 @@ export function Switch({
   label,
   disabled,
   id,
+  describedBy,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
   id?: string;
+  /** The id of the line that explains it (why it is off, what it does). */
+  describedBy?: string;
 }) {
   return (
     <button
@@ -39,6 +42,7 @@ export function Switch({
       className="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       onClick={() => onChange(!checked)}
     />
