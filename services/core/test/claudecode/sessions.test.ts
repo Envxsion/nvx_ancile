@@ -18,6 +18,7 @@ import { claudeCodeRoutes } from '../../src/claudecode/routes';
 import {
   ClaudeCodeService,
   expandHome,
+  importOrder,
   NOTEBOOK_HUES,
   notebookNames,
   pickHue,
@@ -841,6 +842,94 @@ describe('terminal forks', () => {
     w.sessions.set('x1', { info: info('x1'), chain: chainOf('x1') });
     const other = (await svc.importSessions({ session_ids: ['x1'] })).imported[0];
     expect(other?.thread_id).not.toBe(tid);
+  });
+});
+
+describe('first-run import order and pacing', () => {
+  it('orders families newest first, keeps each folder oldest first, and puts updates before new sessions', () => {
+    const t = (h: number) => Date.UTC(2026, 9, 1, h);
+    const todo = [
+      info('old-a', { cwd: 'C:\\Code\\old', createdAt: t(1), lastModified: t(2) }),
+      info('new-a', { cwd: 'C:\\Code\\new', createdAt: t(3), lastModified: t(9) }),
+      // A terminal fork of new-a: made later, written earlier than new-a's last write.
+      info('new-fork', { cwd: 'c:/code/NEW', createdAt: t(5), lastModified: t(6) }),
+      info('mid-a', { cwd: 'C:\\Code\\mid', createdAt: t(4), lastModified: t(7) }),
+      info('bound', { cwd: 'C:\\Code\\old', createdAt: t(0), lastModified: t(8) }),
+      info('nowhere', { lastModified: t(1) }),
+    ];
+    const order = importOrder(todo, (i) => i.sessionId === 'bound', 'win32').map((i) => i.sessionId);
+    expect(order).toEqual(['bound', 'new-a', 'new-fork', 'mid-a', 'old-a', 'nowhere']);
+  });
+
+  it('orders a thousand sessions newest folder first, oldest first within each folder', () => {
+    const t0 = Date.UTC(2026, 0, 1);
+    const all = Array.from({ length: 1000 }, (_, i) =>
+      info(`s${i}`, {
+        cwd: `C:\\Code\\p${i % 10}`,
+        createdAt: t0 + i * 60_000,
+        lastModified: t0 + i * 60_000 + 1,
+      }),
+    );
+    const order = importOrder(all, () => false, 'win32');
+    // p9 holds the newest session (s999): its family comes first, oldest first within it.
+    expect(order[0]?.sessionId).toBe('s9');
+    expect(order[1]?.sessionId).toBe('s19');
+    expect(order[99]?.sessionId).toBe('s999');
+    expect(order[100]?.sessionId).toBe('s8');
+    expect(order.at(-1)?.sessionId).toBe('s990');
+    expect(new Set(order.map((i) => i.sessionId)).size).toBe(1000);
+  });
+
+  it('brings a terminal fork in after the session it came from, even when its folder is newest', async () => {
+    svc = make();
+    const fork = [
+      ...chainOf('p'),
+      user('f-u2', 'Now try it another way'),
+      assistant('f-a2', [{ type: 'text', text: 'Another way.' }]),
+    ];
+    w.sessions.set('older', {
+      info: info('older', { cwd: 'C:\\Code\\old', createdAt: NOW - 9e6, lastModified: NOW - 9e6 }),
+      chain: chainOf('o'),
+    });
+    w.sessions.set('parent', {
+      info: info('parent', { cwd: 'C:\\Code\\app', createdAt: NOW - 5e6, lastModified: NOW - 1_000 }),
+      chain: chainOf('p'),
+    });
+    w.sessions.set('fork', {
+      info: info('fork', { cwd: 'C:\\Code\\app', createdAt: NOW - 3e6, lastModified: NOW - 2e6 }),
+      chain: fork,
+    });
+    svc.kick();
+    await svc.idle();
+    const list = await threads.listThreads(WS);
+    expect(list).toHaveLength(2); // the fork joined its parent's thread
+    // …and the thread is the parent's: it came in first, so the fork is the branch.
+    const sessions = list.map((t) => t.settings.claude_code?.session_id).sort();
+    expect(sessions).toEqual(['older', 'parent']);
+  });
+
+  it('waits while the person types, says so, and carries on after', async () => {
+    let typing = true;
+    svc = make({ auto: { startDelayMs: 0, debounceMs: 50, pauseMs: 0, typingPollMs: 10 } });
+    svc.setTypingProbe(() => typing);
+    w.sessions.set('s1', { info: info('s1', { cwd: 'C:\\Code\\app' }), chain: basicChain() });
+    w.sessions.set('s2', { info: info('s2', { cwd: 'C:\\Code\\app' }), chain: chainOf('s2') });
+    svc.kick();
+    const until = Date.now() + 3000;
+    while (!svc.importProgress()?.paused && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
+    expect(svc.importProgress()).toMatchObject({ done: 0, total: 2, project: 'app', paused: true });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(await threads.listThreads(WS)).toHaveLength(0); // nothing written while typing
+    typing = false;
+    await svc.idle();
+    expect(await threads.listThreads(WS)).toHaveLength(2);
+    expect(svc.importProgress()).toBeNull();
+    const progress = bus.events.flatMap((e) =>
+      e.type === 'claude_code.changed' && e.what === 'sessions' && 'progress' in e ? [e.progress] : [],
+    );
+    expect(progress).toContainEqual(expect.objectContaining({ paused: true, project: 'app' }));
+    expect(progress).toContainEqual(expect.objectContaining({ paused: false }));
+    expect(progress.at(-1)).toBeNull(); // the line clears at the end
   });
 });
 

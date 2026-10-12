@@ -46,6 +46,7 @@ import {
   type ClaudeCodeStatus,
   type ImportClaudeCodeSessionsRequest,
   type ImportClaudeCodeSessionsResult,
+  type ImportProgress,
   type Part,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
@@ -132,7 +133,15 @@ export interface ClaudeCodeServiceDeps {
   canOpenBrowser?: () => boolean;
   /** Auto-import timings. */
   /** pauseMs between sessions; chunkPauseMs between inserts of a background pass (requests go first). */
-  auto?: { startDelayMs?: number; debounceMs?: number; pauseMs?: number; chunkPauseMs?: number };
+  auto?: {
+    startDelayMs?: number;
+    debounceMs?: number;
+    pauseMs?: number;
+    chunkPauseMs?: number;
+    /** While the person types: how often to look again, and the longest wait. */
+    typingPollMs?: number;
+    typingMaxWaitMs?: number;
+  };
   signInPollMs?: number;
   /** The home folder "~" stands for in excluded folders. */
   home?: string;
@@ -220,6 +229,52 @@ export function expandHome(path: string, home: string, temp: string = tmpdir()):
     .replace(/^<temp>(?=$|[\\/])/, temp);
 }
 
+/** A folder's last part, for progress ("nvx_ancile"). */
+function projectOf(cwd: string | null | undefined): string | null {
+  return cwd
+    ? (cwd
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .at(-1) ?? cwd)
+    : null;
+}
+
+/**
+ * The order a pass brings sessions in. Sessions already brought in (only
+ * new messages to add) come first, newest first. Sessions never brought in
+ * come next, newest folder first: a folder's place is its newest session,
+ * so today's work arrives before last year's. Within a folder they stay
+ * oldest first, so a session forked in a terminal (/branch keeps the
+ * folder) comes after the one it came from and joins its thread as a
+ * branch (forkedFrom). Sessions with no folder go last, oldest first.
+ */
+export function importOrder(
+  todo: CcSessionInfo[],
+  isBound: (i: CcSessionInfo) => boolean,
+  platform: NodeJS.Platform = process.platform,
+): CcSessionInfo[] {
+  const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified ?? 0;
+  const updates = todo.filter(isBound).sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
+  const families = new Map<string, CcSessionInfo[]>();
+  const loose: CcSessionInfo[] = [];
+  for (const i of todo) {
+    if (isBound(i)) continue;
+    if (!i.cwd) {
+      loose.push(i);
+      continue;
+    }
+    const k = cwdKey(i.cwd, platform);
+    const list = families.get(k);
+    if (list) list.push(i);
+    else families.set(k, [i]);
+  }
+  const newest = (list: CcSessionInfo[]) => Math.max(...list.map((i) => i.lastModified ?? 0));
+  const fams = [...families.values()]
+    .map((list) => ({ list: list.sort((a, b) => age(a) - age(b)), newest: newest(list) }))
+    .sort((a, b) => b.newest - a.newest);
+  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort((a, b) => age(a) - age(b))];
+}
+
 export class ClaudeCodeService {
   private listing: { at: number; items: CcSessionInfo[] } | null = null;
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -236,6 +291,10 @@ export class ClaudeCodeService {
   private sdkKicked = false;
   /** Sessions a live turn is writing: left to that turn (claudecode/live.ts). */
   private liveGuard: (sessionId: string) => boolean = () => false;
+  /** Is the person typing in the Cockpit (activity/service.ts)? A background pass waits. */
+  private typing: () => boolean = () => false;
+  /** The background pass's progress, while one runs. */
+  private progressNow: ImportProgress | null = null;
   /** Claude Code versions already warned about entries this version cannot show. */
   private readonly warnedVersions = new Set<string>();
   private readonly now: () => number;
@@ -248,7 +307,7 @@ export class ClaudeCodeService {
 
   private emit(
     what: 'install' | 'auth' | 'sessions' | 'thread',
-    extra: { thread_id?: string; detail?: string } = {},
+    extra: { thread_id?: string; detail?: string; progress?: ImportProgress | null } = {},
   ) {
     void this.deps.bus
       .publish({ type: 'claude_code.changed', what, ...extra })
@@ -472,8 +531,8 @@ export class ClaudeCodeService {
 
   /* ---- sessions -------------------------------------------------------- */
 
-  private async sessionInfos(fresh = false): Promise<CcSessionInfo[]> {
-    if (!fresh && this.listing && this.now() - this.listing.at < LIST_TTL_MS) return this.listing.items;
+  private async sessionInfos(fresh = false, ttlMs = LIST_TTL_MS): Promise<CcSessionInfo[]> {
+    if (!fresh && this.listing && this.now() - this.listing.at < ttlMs) return this.listing.items;
     let items: CcSessionInfo[];
     try {
       items = await this.deps.source.listSessions();
@@ -619,6 +678,31 @@ export class ClaudeCodeService {
   /** Let the live layer say which sessions it is writing now. */
   setLiveGuard(fn: (sessionId: string) => boolean): void {
     this.liveGuard = fn;
+  }
+
+  /** Is a live turn in NVX Ancile writing this session now? */
+  isLive(sessionId: string): boolean {
+    return this.liveGuard(sessionId);
+  }
+
+  /** Let the Activity service say when the person is typing: a background pass waits for them. */
+  setTypingProbe(fn: () => boolean): void {
+    this.typing = fn;
+  }
+
+  /** The background import's progress, while one runs (null otherwise). */
+  importProgress(): ImportProgress | null {
+    return this.progressNow ? { ...this.progressNow } : null;
+  }
+
+  /**
+   * The session list, newest first, for the Activity panel: a listing up to
+   * two minutes old is used (a change in the projects folder drops it, so
+   * new writes are seen at once). Empty when Claude Code is not here.
+   */
+  async recentSessions(): Promise<CcSessionInfo[]> {
+    if (!this.deps.cli.where()) return [];
+    return this.sessionInfos(false, 2 * 60_000).catch(() => []);
   }
 
   /** The verified Claude Code program, for live sessions. */
@@ -1017,9 +1101,12 @@ export class ClaudeCodeService {
       });
       await threads.insertMessages(rows);
       added += rows.length;
-      // A background pass (auto-import, a rebuild) lets requests in between inserts.
-      if (this.background > 0) await sleep(this.deps.auto?.chunkPauseMs ?? 15);
-      else await yieldNow();
+      // A background pass (auto-import, a rebuild) lets requests in between inserts,
+      // and waits while the person types.
+      if (this.background > 0) {
+        await sleep(this.deps.auto?.chunkPauseMs ?? 15);
+        await this.waitWhileTyping();
+      } else await yieldNow();
     }
 
     for (const p of plan.planned.filter((x) => x.extends)) {
@@ -1195,6 +1282,32 @@ export class ClaudeCodeService {
     while (this.autoRunning) await this.autoRunning;
   }
 
+  /**
+   * While the person types, a background pass waits (looking again every
+   * typingPollMs), and its progress says so. Capped, so a stuck hint never
+   * stops the import for good.
+   */
+  private async waitWhileTyping(): Promise<void> {
+    if (!this.typing()) return;
+    const poll = this.deps.auto?.typingPollMs ?? 500;
+    const until = this.now() + (this.deps.auto?.typingMaxWaitMs ?? 5 * 60_000);
+    const shown = this.progressNow;
+    if (shown && !shown.paused) {
+      this.progressNow = { ...shown, paused: true };
+      this.emitProgress();
+    }
+    while (this.typing() && !this.stopped && this.now() < until) await sleep(poll);
+    if (this.progressNow?.paused) {
+      this.progressNow = { ...this.progressNow, paused: false };
+      this.emitProgress();
+    }
+  }
+
+  private emitProgress() {
+    const p = this.progressNow;
+    if (p) this.emit('sessions', { detail: `importing:${p.done}/${p.total}`, progress: { ...p } });
+  }
+
   private async pass(): Promise<void> {
     if (!(await this.settings()).auto_import) return;
     if (!this.deps.cli.where()) return;
@@ -1211,44 +1324,43 @@ export class ClaudeCodeService {
       return !b || b.last_modified < i.lastModified || b.mapper_version < MAPPER_VERSION;
     });
     if (!todo.length) return;
-    // Sessions never brought in go oldest first, so a session forked in a terminal comes
-    // after the one it came from and joins its thread as a branch (forkedFrom).
-    const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified;
-    todo.sort((a, b) => {
-      const na = bound.has(a.sessionId) ? 0 : 1;
-      const nb = bound.has(b.sessionId) ? 0 : 1;
-      return na !== nb ? na - nb : na === 1 ? age(a) - age(b) : 0;
-    });
+    const ordered = importOrder(todo, (i) => bound.has(i.sessionId), this.platform);
     let done = 0;
     let fresh = 0;
     let lastEmit = 0;
-    const progress = (force = false) => {
+    const progress = (project: string | null, force = false) => {
+      this.progressNow = { done, total: ordered.length, project, paused: false };
       if (!force && this.now() - lastEmit < 400) return;
       lastEmit = this.now();
-      this.emit('sessions', { detail: `importing:${done}/${todo.length}` });
+      this.emitProgress();
     };
-    progress(true);
-    for (const info of todo) {
-      if (this.stopped) return;
-      this.background++;
-      try {
-        await this.syncSession(info);
-        if (!bound.has(info.sessionId)) fresh++;
-      } catch (err) {
-        log.warn(
-          { session_id: info.sessionId, err: (err as Error).message },
-          'auto-import skipped a session',
-        );
-      } finally {
-        this.background--;
+    progress(projectOf(ordered[0]?.cwd), true);
+    try {
+      for (const info of ordered) {
+        if (this.stopped) return;
+        await this.waitWhileTyping();
+        progress(projectOf(info.cwd));
+        this.background++;
+        try {
+          await this.syncSession(info);
+          if (!bound.has(info.sessionId)) fresh++;
+        } catch (err) {
+          log.warn(
+            { session_id: info.sessionId, err: (err as Error).message },
+            'auto-import skipped a session',
+          );
+        } finally {
+          this.background--;
+        }
+        done++;
+        progress(projectOf(info.cwd));
+        await sleep(this.deps.auto?.pauseMs ?? 50);
       }
-      done++;
-      progress();
-      await sleep(this.deps.auto?.pauseMs ?? 50);
+    } finally {
+      this.progressNow = null;
     }
-    if (fresh) {
-      log.info({ sessions: fresh }, 'Claude Code sessions brought in');
-      this.emit('sessions', { detail: `imported:${fresh}` });
-    }
+    if (fresh) log.info({ sessions: fresh }, 'Claude Code sessions brought in');
+    // Always said, so the progress line clears even when only updates came in.
+    this.emit('sessions', { detail: `imported:${fresh}`, progress: null });
   }
 }
