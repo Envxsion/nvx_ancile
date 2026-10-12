@@ -139,4 +139,28 @@ export const ccErrors = {
       errorClass: 'transient',
       detail: said.slice(0, 500),
     }),
+  folderInvalid: (why: 'relative' | 'missing' | 'not_directory') =>
+    new AncileError({
+      code: 'claude_code.folder_invalid',
+      title:
+        why === 'relative'
+          ? 'Give the whole path to the folder'
+          : why === 'missing'
+            ? 'That folder is not on this computer'
+            : 'That is a file, not a folder',
+      hint:
+        why === 'relative'
+          ? 'Claude Code needs a full path, such as C:\\code\\app or /home/you/app.'
+          : 'Choose a folder that exists on this computer. Claude Code runs the session there.',
+      status: 400,
+      errorClass: 'permanent',
+    }),
+  folderOutOfScope: (cwd: string) =>
+    new AncileError({
+      code: 'claude_code.folder_out_of_scope',
+      title: 'That folder is outside what this notebook allows',
+      hint: `Choose a folder inside the notebook's allowed folders, or add ${cwd} to them in the notebook's scope.`,
+      status: 403,
+      errorClass: 'permanent',
+    }),
 };

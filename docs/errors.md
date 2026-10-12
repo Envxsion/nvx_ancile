@@ -329,5 +329,7 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `claude_code.branch_unmapped` | 409 | "That message is not part of the Claude Code session." / Send from a message that came from Claude Code, or from the latest message in the thread. Only without the engines module: with it, a parent written by another model goes on from Claude Code's latest message (docs/engines.md). |
 | `claude_code.no_folder` | 409 | "This session's folder is not on this computer." / Claude Code runs a session in its own folder. Restore the folder, or start a new session in Claude Code. |
 | `claude_code.live_failed` | 502 | "Claude Code stopped before it answered." with its words / Try again. If it keeps happening, run the same session in a terminal to see why. |
+| `claude_code.folder_invalid` | 400 | "Give the whole path to the folder", "That folder is not on this computer" or "That is a file, not a folder" / Starting a session (POST /claude-code/threads) needs a full path to a folder that exists on this computer. |
+| `claude_code.folder_out_of_scope` | 403 | "That folder is outside what this notebook allows." / Choose a folder inside the notebook's allowed folders (its scope's `folders`), or add the folder to them. |
 | `claude_code.not_live` | 409 | "Nothing is running in this Claude Code thread." / There is nothing to stop. |
 | `claude_code.recovered` | (warning) | A run event, not an error: NVX Ancile restarted during a turn; what Claude Code wrote was brought in from its session. |

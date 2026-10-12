@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { EngineCapabilities, EngineKind, SendTurnResult } from '@nvx/contracts';
+import type { ClaudeCodeEffort, EngineCapabilities, EngineKind, SendTurnResult } from '@nvx/contracts';
 import type { ThreadRecord } from '../threads/repo';
 
 export interface EngineTurn {
@@ -30,7 +30,7 @@ export interface EngineTurn {
   modelId: string | null;
   /** The model id as the person gave it, kept on the answer. */
   requestedModelId: string | null;
-  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null;
+  effort?: ClaudeCodeEffort | null;
   sourceIds?: string[];
   asBranch?: boolean;
   taskClass?: string;

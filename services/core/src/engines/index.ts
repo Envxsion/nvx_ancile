@@ -117,7 +117,7 @@ export class ClaudeCodeEngine implements Engine {
     return {
       run_id: r.run_id,
       user_message_id: r.user_message_id,
-      assistant_message_id: null,
+      assistant_message_id: r.assistant_message_id,
       model_id: t.requestedModelId,
       context_notice: r.context_shared ? CLAUDE_CODE_CONTEXT_NOTICE : null,
     };

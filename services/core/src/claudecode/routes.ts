@@ -8,8 +8,8 @@
  *           |  /api/v1/claude-code: status and settings, install,
  *           |  sign-in and sign-out (Claude Code's own flow), the
  *           |  session list, import and sync, and folder → notebook
- *           |  bindings, and live sessions: send a turn, stop it, its
- *           |  live state and the "/" command list.
+ *           |  bindings, and live sessions: start one in a folder, send
+ *           |  a turn, stop it, its live state and the "/" command list.
  *  How      |  Behind the normal /api/v1 guard. Every button here is
  *           |  the person acting. Only send runs anything: a turn in the
  *           |  person's own Claude Code, as a run (claudecode/live.ts).
@@ -18,6 +18,7 @@
 
 import {
   ClaudeCodeProject,
+  CreateClaudeCodeThreadRequest,
   ExcludeClaudeCodeFolderRequest as ExcludeFolderRequest,
   ImportClaudeCodeSessionsRequest,
   PatchClaudeCodeSettings,
@@ -45,6 +46,12 @@ export function claudeCodeRoutes(deps: {
     if (!l) throw ccErrors.sdkUnavailable('live sessions are not running in this Core');
     return l;
   };
+
+  // A new thread bound to a new session in a folder; the session starts with the first turn.
+  r.post('/claude-code/threads', async (c) => {
+    const req = await body(c, CreateClaudeCodeThreadRequest);
+    return c.json(await live().createThread(req), 201);
+  });
 
   r.post('/claude-code/threads/:id/send', async (c) => {
     const req = await body(c, SendClaudeCodeRequest);

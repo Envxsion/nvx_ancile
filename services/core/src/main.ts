@@ -553,6 +553,7 @@ async function main() {
         },
       }),
       allow: (thread, model) => engines.allowClaude(thread, model),
+      scopeOf: (notebookId) => scopeFromDb(sql)({ id: '', notebook_id: notebookId }),
     }),
     foreignHandle: (h) => modeAHandles.has(h),
     keepAlive: () => modeAHandles.size > 0,

@@ -23,7 +23,11 @@
  * ------------------------------------------------------------------
  */
 
+import type { EffectiveScope } from '@nvx/contracts';
+import { ccErrors } from '../claudecode/errors';
 import type { LiveEngineHooks, LiveTurnPlan } from '../claudecode/live';
+import { gateRoot } from '../claudecode/permission-map';
+import { checkToolCall } from '../scopes';
 import type { BranchStore } from '../threads/branches';
 import { compactedPath } from '../threads/compact';
 import type { MessageRecord, ThreadRecord, ThreadRepo } from '../threads/repo';
@@ -41,6 +45,8 @@ export interface ClaudeHookDeps {
   memory?: ClaudeMemoryMirror;
   /** Throws an AncileError when the thread's scope refuses Claude Code (engines/select.ts). */
   allow?: (thread: ThreadRecord, modelId: string | null) => Promise<void>;
+  /** A notebook's effective scope (scopes/getEffectiveScope), for a new thread's folder. */
+  scopeOf?: (notebookId: string | null) => Promise<EffectiveScope>;
   budget?: number;
 }
 
@@ -96,6 +102,23 @@ export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
         notebookId ? deps.store.notebookInstructions(notebookId) : Promise.resolve(null),
       ]);
       return claudeSystemNote(base, effective(thread?.settings.ancile, nb));
+    },
+
+    async allowNew({ workspaceId, notebookId, cwd }) {
+      // The thread does not exist yet: the notebook's scope is the one that applies.
+      await deps.allow?.(
+        { id: '', workspace_id: workspaceId, notebook_id: notebookId } as ThreadRecord,
+        null,
+      );
+      if (!deps.scopeOf) return;
+      const s = (await deps.scopeOf(notebookId)).scope;
+      if (s.folders === null) return;
+      // Only the folder is asked about here; tool rules apply to each call at run time.
+      const only = { ...s, tools_allow: null, tools_deny: [], network: true, data_leaves_machine: true };
+      const inside = [cwd.replace(/\\/g, '/'), gateRoot(cwd)].some(
+        (p) => checkToolCall(only, { action: 'fs.read', resource: `fs:${p}` }).ok,
+      );
+      if (!inside) throw ccErrors.folderOutOfScope(cwd);
     },
 
     async seen({ workspaceId, threadId, sessionId, summaryId }) {

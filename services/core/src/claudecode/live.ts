@@ -38,17 +38,21 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import {
   AncileError,
   CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
   type ClaudeCodeLiveState,
+  type CreateClaudeCodeThreadRequest,
+  type CreateClaudeCodeThreadResult,
   type EngineContextReport,
   type Part,
   type RetrievalTrace,
   type SearchHit,
   type SendClaudeCodeRequest,
+  type SendClaudeCodeResult,
   type Usage,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
@@ -169,6 +173,11 @@ export interface LiveEngineHooks {
   systemNote(a: { threadId: string; notebookId: string | null; base: string }): Promise<string>;
   /** A session now holds this summary (it was seeded with it). */
   seen(a: { workspaceId: string; threadId: string; sessionId: string; summaryId: string }): Promise<void>;
+  /**
+   * A new Claude Code thread in this notebook and folder: throws (an
+   * AncileError) when the notebook's scope refuses Claude Code or the folder.
+   */
+  allowNew?(a: { workspaceId: string; notebookId: string | null; cwd: string }): Promise<void>;
   /** A tool step finished in a live turn (memory writes become proposals). */
   toolDone?(e: {
     threadId: string;
@@ -192,6 +201,10 @@ export interface LiveServiceView {
   ): Promise<{ thread_id: string; added: number; notebook_id: string | null }>;
   transcriptModified(sessionId: string): Promise<number | null>;
   setLiveGuard(fn: (sessionId: string) => boolean): void;
+  /** The notebook a folder's sessions go to, made (or adopted) on first use. */
+  notebookForFolder?(cwd: string): Promise<string | null>;
+  /** The folder is in Settings → Claude Code → Excluded folders. */
+  folderExcluded?(cwd: string): Promise<boolean>;
 }
 
 export interface LiveDeps {
@@ -222,6 +235,8 @@ export interface LiveDeps {
   stopGraceMs?: number;
   /** Does a folder exist (tests)? */
   folderExists?: (cwd: string) => Promise<boolean>;
+  /** What is at a path, for a new thread's folder (tests); default: the file system. */
+  folderKind?: (cwd: string) => Promise<'dir' | 'file' | 'missing'>;
   /** Engines (docs/engines.md): one thread, any model. */
   engines?: LiveEngineHooks;
   /** Bridge handles another part of Core drives (Claude Code as a model): their events are not ours. */
@@ -288,6 +303,71 @@ const preview = (v: unknown): string => {
 };
 const stripMarker = (u: string) => u.replace(/\+$/, '');
 
+/**
+ * A thread started in NVX Ancile (POST /claude-code/threads) is bound to a
+ * placeholder like this until its first turn, when Claude Code names the
+ * session it started.
+ */
+export const PENDING_SESSION_PREFIX = 'ancile-new-';
+export const isPendingSession = (id: string | null | undefined): boolean =>
+  !!id && id.startsWith(PENDING_SESSION_PREFIX);
+
+/** What is at a path: a folder, something else, or nothing. */
+export async function folderKind(path: string): Promise<'dir' | 'file' | 'missing'> {
+  try {
+    return (await stat(path)).isDirectory() ? 'dir' : 'file';
+  } catch {
+    return 'missing';
+  }
+}
+
+/** How much one command entry has to show and complete. */
+function richness(c: ClaudeCodeCommand): number {
+  return (
+    (c.handled_by === 'ancile' ? 1_000_000 : 0) +
+    (c.source === 'builtin' ? 100_000 : 0) +
+    c.arguments.length * 1_000 +
+    (c.argument_hint ? 500 : 0) +
+    Math.min(c.description.length, 499)
+  );
+}
+
+/**
+ * One entry per command name (case and a leading slash do not count),
+ * keeping the richest: a read from a live session after a turn can list a
+ * command twice (a skill found in two places, a plugin's and its own).
+ */
+export function dedupeCommands(items: ClaudeCodeCommand[]): ClaudeCodeCommand[] {
+  const best = new Map<string, ClaudeCodeCommand>();
+  for (const c of items) {
+    const key = commandKey(c.name);
+    if (!key) continue;
+    const had = best.get(key);
+    if (!had || richness(c) > richness(had)) best.set(key, c);
+  }
+  return [...best.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const commandKey = (name: string) => name.replace(/^\//, '').trim().toLowerCase();
+
+/**
+ * The same for Claude Code's own list before it is merged: a built-in
+ * first (as mergeCommands decides), then the entry that says the most.
+ */
+export function dedupeCliCommands(list: CliCommand[]): CliCommand[] {
+  const score = (c: CliCommand) =>
+    (c.builtin ? 100_000 : 0) + (c.argumentHint ? 500 : 0) + Math.min(c.description?.length ?? 0, 499);
+  const best = new Map<string, CliCommand>();
+  for (const c of list) {
+    if (!c || typeof c.name !== 'string') continue;
+    const key = commandKey(c.name);
+    if (!key) continue;
+    const had = best.get(key);
+    if (!had || score(c) > score(had)) best.set(key, { ...c, name: c.name.replace(/^\//, '').trim() });
+  }
+  return [...best.values()];
+}
+
 /** realpath for the gate over posix-form real paths ("/C:/a/b"). */
 export function nativeProbe(): FsProbe {
   return {
@@ -313,10 +393,7 @@ export class ClaudeCodeLive {
   private readonly lives = new Map<string, Live>(); // by thread
   private readonly byHandle = new Map<string, Live>();
   private readonly waiting = new Map<string, WaitingAsk>(); // approval id → ask
-  private readonly sent = new Map<
-    string,
-    { at: number; result: { run_id: string; user_message_id: string; context_shared?: boolean } }
-  >();
+  private readonly sent = new Map<string, { at: number; result: SendClaudeCodeResult }>();
   private readonly commandCache = new Map<string, { at: number; items: ClaudeCodeCommand[] }>();
   /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
   private readonly ownWrites = new Map<string, number>();
@@ -385,6 +462,7 @@ export class ClaudeCodeLive {
 
   /** Another process wrote the session's transcript within the last minute. */
   private async lockedElsewhere(sessionId: string): Promise<boolean> {
+    if (isPendingSession(sessionId)) return false;
     const mtime = await this.deps.service.transcriptModified(sessionId).catch(() => null);
     if (mtime === null) return false;
     const own = this.ownWrites.get(sessionId) ?? 0;
@@ -393,10 +471,50 @@ export class ClaudeCodeLive {
 
   /* ---- send -------------------------------------------------------------- */
 
-  async send(
-    threadId: string,
-    req: SendClaudeCodeRequest,
-  ): Promise<{ run_id: string; user_message_id: string; context_shared?: boolean }> {
+  /**
+   * A new thread bound to a new session in a folder on this computer. The
+   * session starts with the first turn; until then the thread holds a
+   * placeholder (PENDING_SESSION_PREFIX), and that turn starts fresh.
+   */
+  async createThread(req: CreateClaudeCodeThreadRequest): Promise<CreateClaudeCodeThreadResult> {
+    const cwd = req.cwd.trim();
+    if (!isAbsolute(cwd) && !/^[a-zA-Z]:[\\/]/.test(cwd)) throw ccErrors.folderInvalid('relative');
+    const kind = await (this.deps.folderKind ?? folderKind)(cwd);
+    if (kind !== 'dir') throw ccErrors.folderInvalid(kind === 'missing' ? 'missing' : 'not_directory');
+    if (await this.deps.service.folderExcluded?.(cwd)) throw ccErrors.folderExcluded(cwd);
+    await this.deps.service.cliPath(); // installed and verified, or a clear error
+    let notebookId: string | null = null;
+    if (req.notebook_id) {
+      if (!(await this.deps.notebook(req.notebook_id))) throw notFound('That notebook');
+      notebookId = req.notebook_id;
+    } else notebookId = (await this.deps.service.notebookForFolder?.(cwd)) ?? null;
+    // The notebook's scope decides before anything exists: Claude Code allowed, and this folder.
+    await this.deps.engines?.allowNew?.({ workspaceId: this.deps.workspaceId, notebookId, cwd });
+    const folder =
+      cwd
+        .replace(/[\\/]+$/, '')
+        .split(/[\\/]/)
+        .pop() || cwd;
+    const title = `New session in ${folder}`;
+    const t = await this.deps.threads.createThread({
+      id: `thr_${ulid()}`,
+      workspace_id: this.deps.workspaceId,
+      title,
+      notebook_id: notebookId,
+      settings: {
+        claude_code: {
+          session_id: `${PENDING_SESSION_PREFIX}${randomUUID()}`,
+          cwd,
+          last_uuid: null,
+          synced_at: new Date(this.now()).toISOString(),
+        },
+      },
+    });
+    log.info({ thread_id: t.id, notebook_id: notebookId }, 'a new Claude Code thread was started');
+    return { thread_id: t.id, notebook_id: notebookId, cwd, title };
+  }
+
+  async send(threadId: string, req: SendClaudeCodeRequest): Promise<SendClaudeCodeResult> {
     for (const [k, v] of this.sent) if (this.now() - v.at > IDEMPOTENCY_MS) this.sent.delete(k);
     const key = `${threadId}:${req.idempotency_key}`;
     const again = this.sent.get(key);
@@ -410,12 +528,21 @@ export class ClaudeCodeLive {
     const active = (await this.deps.runs.activeForThread(thread.id))[0];
     if (active) throw alreadyRunning(active.id);
 
+    // A thread started in NVX Ancile has no session until its first turn starts one.
+    const pending = isPendingSession(cc.session_id);
     // Bring in anything Claude Code wrote since the last sync, so the branch point is right.
-    const info = await this.deps.sessionInfo(cc.session_id).catch(() => null);
+    const info = pending ? null : await this.deps.sessionInfo(cc.session_id).catch(() => null);
     if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
 
-    const parentId = req.parent_id ?? (await this.deps.threads.getThread(thread.id))?.active_head_id ?? null;
     const msgs = await this.deps.threads.messages(thread.id);
+    // parent_id null: from the start of the session (editing its first message). Claude Code
+    // cannot fork before its first entry, so a new session starts in the same folder, bound to
+    // the same thread, and the new first message is a branch at the root.
+    const fromStart = req.parent_id === null && msgs.length > 0;
+    const parentId =
+      req.parent_id === undefined
+        ? ((await this.deps.threads.getThread(thread.id))?.active_head_id ?? null)
+        : req.parent_id;
     const parent = parentId ? msgs.find((m) => m.id === parentId) : undefined;
     if (parentId && !parent) throw notFound('That message');
     const pc = parent?.provenance?.claude_code as CcProvenance | undefined;
@@ -425,7 +552,7 @@ export class ClaudeCodeLive {
       ? await this.deps.engines.plan({ thread, messages: msgs, parentId: parent?.id ?? null })
       : null;
     if (parent && !pc?.uuid && !plan) throw ccErrors.branchUnmapped();
-    const fresh = plan?.fresh === true;
+    const fresh = plan?.fresh === true || pending || fromStart;
     const sessionId = plan ? (plan.sessionId ?? cc.session_id) : (pc?.session_id ?? cc.session_id);
     const resumeAt = plan ? plan.resumeAt : pc?.uuid ? stripMarker(pc.uuid) : null;
     // Claude Code went on past the parent in the same session: carry on in a fork.
@@ -489,11 +616,11 @@ export class ClaudeCodeLive {
       sourceIds: req.source_ids?.length ? req.source_ids : null,
       finalSessionId: null,
       ...(plan && {
-        prefix: plan.prefix,
-        fresh,
-        seedSummaryId: plan.seedSummaryId,
-        engineContext: plan.report,
+        prefix: fromStart ? null : plan.prefix,
+        seedSummaryId: fromStart ? null : plan.seedSummaryId,
+        engineContext: fromStart ? null : plan.report,
       }),
+      ...((plan || fresh) && { fresh }),
     };
     try {
       await this.deps.runs.create({
@@ -510,9 +637,14 @@ export class ClaudeCodeLive {
     }
     await this.deps.threads.patchThread(thread.id, { active_head_id: assistantId });
     this.deps.worker.kick();
-    const result = { run_id: runId, user_message_id: userId, ...(plan?.prefix && { context_shared: true }) };
+    const result: SendClaudeCodeResult = {
+      run_id: runId,
+      user_message_id: userId,
+      assistant_message_id: assistantId,
+      ...(checkpoint.prefix && { context_shared: true }),
+    };
     this.sent.set(key, { at: this.now(), result });
-    log.info({ thread_id: thread.id, run_id: runId, fork }, 'a Claude Code turn was sent');
+    log.info({ thread_id: thread.id, run_id: runId, fork, fresh }, 'a Claude Code turn was sent');
     return result;
   }
 
@@ -528,14 +660,23 @@ export class ClaudeCodeLive {
           .systemNote({ threadId: l.threadId, notebookId: l.notebookId, base })
           .catch(() => base)
       : base;
-    if (l.handle && want && l.sessionId === want && (l.note === null || l.note === note)) {
+    // "auto": no effort at all, so Claude Code picks; a session with one set reopens without it.
+    const auto = cp.effort === 'auto';
+    const effort = auto ? null : cp.effort;
+    if (
+      l.handle &&
+      want &&
+      l.sessionId === want &&
+      (l.note === null || l.note === note) &&
+      !(auto && l.effort !== null)
+    ) {
       if (cp.model && cp.model !== l.model) {
         await this.deps.bridge.control(l.handle, 'set_model', { model: cp.model });
         l.model = cp.model;
       }
-      if (cp.effort && cp.effort !== l.effort) {
-        await this.deps.bridge.control(l.handle, 'set_effort', { effort: cp.effort });
-        l.effort = cp.effort;
+      if (effort && effort !== l.effort) {
+        await this.deps.bridge.control(l.handle, 'set_effort', { effort });
+        l.effort = effort;
       }
       return l.handle;
     }
@@ -548,7 +689,7 @@ export class ClaudeCodeLive {
       ...(cp.fork && !cp.fresh && { fork: true, ...(cp.resumeAt && { resume_at: cp.resumeAt }) }),
       cwd: cp.cwd,
       ...(cp.model && { model: cp.model }),
-      ...(cp.effort && { effort: cp.effort }),
+      ...(effort && { effort }),
       permission_mode: 'default',
       append_system_prompt: note,
       ...(this.deps.mcp && {
@@ -568,7 +709,7 @@ export class ClaudeCodeLive {
     l.note = note;
     l.state = 'ready';
     l.model = cp.model;
-    l.effort = cp.effort;
+    l.effort = effort;
     l.permissionMode = 'default';
     l.costSoFar = 0;
     this.byHandle.set(handle, l);
@@ -810,6 +951,15 @@ export class ClaudeCodeLive {
       await threads.updateMessage(cp.userMessageId, {
         provenance: { claude_code: { session_id: sessionId, uuid: cp.promptUuid, uuids: [cp.promptUuid] } },
       });
+      // A thread started in NVX Ancile: the session Claude Code just started is the thread's own.
+      if (isPendingSession(cp.sessionId) && !isPendingSession(sessionId)) {
+        const t = await threads.getThread(cp.threadId);
+        const bound = t?.settings.claude_code;
+        if (bound && isPendingSession(bound.session_id))
+          await threads.patchThread(cp.threadId, {
+            settings: { claude_code: { ...bound, session_id: sessionId } },
+          });
+      }
     }
 
     const mirror = await this.deps.store.mirror(cp.threadId);
@@ -941,7 +1091,9 @@ export class ClaudeCodeLive {
     if (main?.usage) await emit({ type: 'usage', message_id: cp.assistantMessageId, usage: main.usage });
 
     // Anything else Claude Code wrote (a compaction, a hook's note) comes in by the usual sync; nothing twice.
-    const info = await this.deps.sessionInfo(sessionId).catch(() => null);
+    const info = isPendingSession(sessionId)
+      ? null
+      : await this.deps.sessionInfo(sessionId).catch(() => null);
     if (info)
       await this.deps.service
         .syncSession(info, undefined, { force: true, threadId: cp.threadId })
@@ -1437,10 +1589,12 @@ export class ClaudeCodeLive {
           .catch(() => []),
         this.deps.bridge.control<{ name: string }[]>(handle, 'mcp_status').catch(() => []),
       ]);
-      const items = mergeCommands(Array.isArray(list) ? list : [], {
-        models: Array.isArray(models) ? models : [],
-        mcp: Array.isArray(mcp) ? mcp.map((s) => s.name).filter((n) => typeof n === 'string') : [],
-      });
+      const items = dedupeCommands(
+        mergeCommands(Array.isArray(list) ? dedupeCliCommands(list) : [], {
+          models: Array.isArray(models) ? models : [],
+          mcp: Array.isArray(mcp) ? mcp.map((s) => s.name).filter((n) => typeof n === 'string') : [],
+        }),
+      );
       this.commandCache.set(key, { at: this.now(), items });
       return items;
     } finally {

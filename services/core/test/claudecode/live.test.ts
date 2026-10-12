@@ -3,9 +3,16 @@
  * permission asks, memory stores, the real gate (built-in policy). No
  * Claude Code, no Agent SDK, no network.
  */
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RunEvent, SearchHit } from '@nvx/contracts';
+import {
+  AncileError,
+  type RunEvent,
+  type SearchHit,
+  SendClaudeCodeRequest,
+  SendTurnRequest,
+} from '@nvx/contracts';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppEnv } from '../../src/app';
@@ -17,11 +24,19 @@ import type {
   LiveOpenParams,
   LivePermissionReply,
 } from '../../src/claudecode/bridge-protocol';
-import { type ClaudeCodeCheckpoint, ClaudeCodeLive, type LiveServiceView } from '../../src/claudecode/live';
+import {
+  type ClaudeCodeCheckpoint,
+  ClaudeCodeLive,
+  dedupeCommands,
+  isPendingSession,
+  type LiveServiceView,
+} from '../../src/claudecode/live';
 import { MAPPER_VERSION, planSync } from '../../src/claudecode/map';
 import { CLAUDE_CODE_PRINCIPAL } from '../../src/claudecode/permission-map';
 import { claudeCodeRoutes } from '../../src/claudecode/routes';
 import { MemoryClaudeCodeStore } from '../../src/claudecode/store';
+import { ClaudeCodeEngine } from '../../src/engines';
+import { claudeHooks } from '../../src/engines/claude';
 import { errorHandler } from '../../src/obs/errors';
 import { BuiltinPolicy } from '../../src/permissions/cedar';
 import { createGate } from '../../src/permissions/gate';
@@ -30,6 +45,7 @@ import { type ApprovalRecord, MemoryPermissionStore } from '../../src/permission
 import type { RunContext, RunOutcome, RunRecord } from '../../src/runs/engine';
 import { MemoryRunEventLog } from '../../src/runs/events';
 import { MemoryRunStore } from '../../src/runs/store';
+import { resolveScope } from '../../src/scopes';
 import { MemoryThreadRepo } from '../../src/threads/repo';
 
 const WS = 'wsp_01TESTWORKSPACE000000000000';
@@ -848,5 +864,285 @@ describe('state and commands', () => {
     const stop = await app.request('/claude-code/threads/thr_1/interrupt', { method: 'POST' });
     expect(stop.status).toBe(409);
     expect(((await stop.json()) as { error: { code: string } }).error.code).toBe('claude_code.not_live');
+  });
+});
+
+describe('starting a session in a folder (POST /claude-code/threads)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ancile-cc-new-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const withFolders = (extra: Partial<LiveServiceView> = {}) =>
+    makeLive({
+      service: {
+        ...service,
+        notebookForFolder: async () => 'nbk_folder',
+        folderExcluded: async (cwd) => cwd.includes('excluded'),
+        ...extra,
+      },
+    });
+
+  it('refuses a relative path, a missing folder, a file and an excluded folder', async () => {
+    live.stop();
+    live = withFolders();
+    await expect(live.createThread({ cwd: 'code/app' })).rejects.toMatchObject({
+      code: 'claude_code.folder_invalid',
+      status: 400,
+    });
+    await expect(live.createThread({ cwd: join(dir, 'gone') })).rejects.toMatchObject({
+      code: 'claude_code.folder_invalid',
+      title: 'That folder is not on this computer',
+    });
+    await writeFile(join(dir, 'a.txt'), 'x');
+    await expect(live.createThread({ cwd: join(dir, 'a.txt') })).rejects.toMatchObject({
+      code: 'claude_code.folder_invalid',
+      title: 'That is a file, not a folder',
+    });
+    await mkdir(join(dir, 'excluded'));
+    await expect(live.createThread({ cwd: join(dir, 'excluded') })).rejects.toMatchObject({
+      code: 'claude_code.folder_excluded',
+    });
+  });
+
+  it('asks the notebook scope before anything exists, and checks the folder against it', async () => {
+    const hooks = claudeHooks({
+      threads,
+      store: {} as never,
+      allow: async () => undefined,
+      scopeOf: async (notebookId) =>
+        resolveScope({
+          notebookId,
+          threadId: null,
+          private: false,
+          notebook: { folders: [join(dir, 'allowed').replace(/\\/g, '/')] },
+          thread: null,
+        }),
+    });
+    live.stop();
+    live = makeLive({
+      engines: hooks,
+      service: { ...service, notebookForFolder: async () => 'nbk_folder', folderExcluded: async () => false },
+    });
+    await mkdir(join(dir, 'allowed', 'app'), { recursive: true });
+    await mkdir(join(dir, 'elsewhere'));
+    await expect(live.createThread({ cwd: join(dir, 'elsewhere') })).rejects.toMatchObject({
+      code: 'claude_code.folder_out_of_scope',
+      status: 403,
+    });
+    expect((await live.createThread({ cwd: join(dir, 'allowed', 'app') })).notebook_id).toBe('nbk_folder');
+
+    // Claude Code refused by the notebook's scope (a private notebook, say): nothing is made.
+    const refused = claudeHooks({
+      threads,
+      store: {} as never,
+      allow: async () => {
+        throw new AncileError({ code: 'scope.engine_not_allowed', title: 'No', hint: 'No', status: 403 });
+      },
+    });
+    live.stop();
+    live = makeLive({ engines: refused, service: { ...service, folderExcluded: async () => false } });
+    const before = (await threads.listThreads(WS)).length;
+    await expect(live.createThread({ cwd: dir })).rejects.toMatchObject({ code: 'scope.engine_not_allowed' });
+    expect((await threads.listThreads(WS)).length).toBe(before);
+  });
+
+  it('makes a thread bound to a new session whose first turn starts it fresh, then binds the session Claude Code started', async () => {
+    live.stop();
+    live = withFolders();
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => ({}) as never, live: () => live }));
+    const res = await app.request('/claude-code/threads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cwd: dir }),
+    });
+    expect(res.status).toBe(201);
+    const made = (await res.json()) as { thread_id: string; notebook_id: string; cwd: string; title: string };
+    expect(made).toMatchObject({ notebook_id: 'nbk_folder', cwd: dir });
+    expect(made.title).toMatch(/^New session in ancile-cc-new-/);
+    const t = await threads.getThread(made.thread_id);
+    expect(isPendingSession(t?.settings.claude_code?.session_id)).toBe(true);
+    expect(await live.state(made.thread_id)).toMatchObject({
+      state: 'idle',
+      locked_elsewhere: false,
+      cwd: dir,
+    });
+
+    const NEW = 'sess-new-0003';
+    bridge.script = textAnswer(NEW, 'n1', 'Hello from a new session');
+    const sent = await live.send(made.thread_id, {
+      text: 'Start here',
+      parent_id: null,
+      idempotency_key: 'key-new-00001',
+    });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fresh: true, fork: false, cwd: dir });
+    expect(sent.assistant_message_id).toBe(cp.assistantMessageId);
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened[0]?.resume).toBeUndefined();
+    expect(bridge.opened[0]?.fork).toBeUndefined();
+    expect(bridge.opened[0]?.cwd).toBe(dir);
+
+    const after = await threads.getThread(made.thread_id);
+    expect(after?.settings.claude_code?.session_id).toBe(NEW);
+    expect(after?.active_head_id).toBe(cp.assistantMessageId);
+    expect((await store.sessions(WS)).find((b) => b.session_id === NEW)?.thread_id).toBe(made.thread_id);
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parent_id).toBeNull();
+    expect((user?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe(NEW);
+    expect(synced).toContain(NEW); // the usual sync afterwards, on the real session
+  });
+});
+
+describe('the send answer, effort and the first message', () => {
+  it('names the answer it streams into, here and through the engines front door', async () => {
+    bridge.script = textAnswer(S, 'a2', 'ok');
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-ans-00001' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(sent).toMatchObject({
+      user_message_id: cp.userMessageId,
+      assistant_message_id: cp.assistantMessageId,
+    });
+    expect((await threads.getMessage(sent.assistant_message_id))?.status).toBe('pending');
+    await execute(sent.run_id);
+    await runs.save(
+      { ...((await runs.get(sent.run_id)) as RunRecord), status: 'succeeded' },
+      { status: 'queued' },
+    );
+
+    const engine = new ClaudeCodeEngine({
+      live: () => live,
+      installed: async () => ({ available: true, reason: null }),
+    });
+    const thread = await threads.getThread('thr_1');
+    const r = await engine.start({
+      thread,
+      text: 'And again',
+      modelId: null,
+      requestedModelId: null,
+      idempotencyKey: 'key-ans-00002',
+    } as never);
+    const cp2 = (await runs.get(r.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(r.assistant_message_id).toBe(cp2.assistantMessageId);
+  });
+
+  it('takes effort "auto" as Claude Code’s own choice: no effort sent, and a set one is dropped', async () => {
+    const parsed = SendClaudeCodeRequest.parse({
+      text: 'x',
+      effort: 'auto',
+      idempotency_key: 'key-00000000',
+    });
+    expect(parsed.effort).toBe('auto');
+    const turn = SendTurnRequest.parse({ text: 'x', effort: 'auto', idempotency_key: 'key-00000000' });
+    expect(turn.effort).toBe('auto');
+
+    bridge.script = textAnswer(S, 'a2', 'thinking hard');
+    const one = await live.send('thr_1', {
+      text: 'Hard one',
+      effort: 'high',
+      idempotency_key: 'key-eff-00001',
+    });
+    await execute(one.run_id);
+    expect(bridge.opened[0]?.effort).toBe('high');
+    await runs.save(
+      { ...((await runs.get(one.run_id)) as RunRecord), status: 'succeeded' },
+      { status: 'queued' },
+    );
+
+    bridge.script = textAnswer(S, 'a3', 'as it likes');
+    const two = await live.send('thr_1', {
+      text: 'Your call',
+      effort: 'auto',
+      idempotency_key: 'key-eff-00002',
+    });
+    await execute(two.run_id);
+    // The open session had "high": it reopens without any effort, so Claude Code picks.
+    expect(bridge.closed).toContain('h1');
+    expect(bridge.opened).toHaveLength(2);
+    expect(bridge.opened[1]?.effort).toBeUndefined();
+    expect(bridge.controls.some((c) => c.op === 'set_effort')).toBe(false);
+    expect((await live.state('thr_1')).effort).toBeNull();
+  });
+
+  it('edits the first message by starting a new session from the start, bound to the same thread', async () => {
+    bridge.script = textAnswer(F, 'b1', 'A different start');
+    const sent = await live.send('thr_1', {
+      text: 'Fix the signup bug instead',
+      parent_id: null,
+      idempotency_key: 'key-first-0001',
+    });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fresh: true, fork: false, resumeAt: null, sessionId: S });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened[0]?.resume).toBeUndefined();
+    expect(bridge.opened[0]?.cwd).toBe(CWD);
+
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parent_id).toBeNull(); // a second root: a branch at the start
+    expect((user?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe(F);
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect(answer).toMatchObject({ parent_id: sent.user_message_id, status: 'complete' });
+    const t = await threads.getThread('thr_1');
+    expect(t?.settings.claude_code?.session_id).toBe(S); // the thread's own session is unchanged
+    expect(t?.active_head_id).toBe(cp.assistantMessageId);
+    expect((await store.sessions(WS)).map((b) => [b.session_id, b.thread_id]).sort()).toEqual([
+      [F, 'thr_1'],
+      [S, 'thr_1'],
+    ]);
+    // The old first message is still there, with its answer.
+    expect((await threads.getMessage('msg_a1'))?.parent_id).toBe('msg_u1');
+  });
+});
+
+describe('the command list after a turn', () => {
+  it('keeps one entry per name, the richest', async () => {
+    bridge.script = textAnswer(S, 'a2', 'ok');
+    const sent = await live.send('thr_1', { text: 'x', idempotency_key: 'key-cmd-00001' });
+    await execute(sent.run_id);
+    bridge.controlAnswers.supported_commands = [
+      { name: 'review', description: '', argumentHint: '' },
+      { name: 'review', description: 'Review a pull request', argumentHint: '[pr]' },
+      { name: '/Deploy', description: 'Deploy' },
+      { name: 'deploy', description: 'Deploy the app to staging', argumentHint: '<env>' },
+      { name: 'compact', description: 'Compact', argumentHint: '<instructions>', builtin: true },
+    ];
+    const items = await live.commands('thr_1');
+    expect(items.filter((c) => c.name.toLowerCase() === 'deploy')).toEqual([
+      expect.objectContaining({
+        name: 'deploy',
+        description: 'Deploy the app to staging',
+        argument_hint: '<env>',
+      }),
+    ]);
+    expect(items.filter((c) => c.name === 'review')).toEqual([
+      expect.objectContaining({ description: 'Review a pull request', argument_hint: '[pr]' }),
+    ]);
+    expect(new Set(items.map((c) => c.name.toLowerCase())).size).toBe(items.length);
+    expect(bridge.opened).toHaveLength(1); // read from the session the turn left open
+  });
+
+  it('keeps what NVX Ancile handles over a plain entry of the same name', () => {
+    const plain = {
+      name: 'mcp',
+      description: 'x',
+      argument_hint: null,
+      arguments: [],
+      source: 'skill' as const,
+      handled_by: 'claude' as const,
+      ancile_action: null,
+    };
+    const ours = {
+      ...plain,
+      description: '',
+      source: 'builtin' as const,
+      handled_by: 'ancile' as const,
+      ancile_action: 'open_mcp' as const,
+    };
+    expect(dedupeCommands([plain, ours])).toEqual([ours]);
   });
 });
