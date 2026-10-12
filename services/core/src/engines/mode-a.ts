@@ -17,8 +17,13 @@
  *           |  call is decided by the permission gate as
  *           |  agent:claude-code on its real arguments: allowed runs,
  *           |  anything else is refused (a model call cannot wait for a
- *           |  person). The prompt is the request's messages, the
- *           |  system prompt goes in the appended note.
+ *           |  person). The prompt is the request's messages (the
+ *           |  assembled context: summary, last turns, recall and
+ *           |  passages), cut newest first to MODE_A_PROMPT_TOKENS,
+ *           |  never the whole branch; the system prompt goes in the
+ *           |  appended note. Its window is MODE_A_WINDOW, so threads
+ *           |  and flow steps budget and compact to it as for any
+ *           |  gateway model: a fresh session per call reads it all.
  *  Note     |  Free in chat and routing; inside Pro's Beam and Flow
  *           |  lab it is Pro (pro/answers.ts allowModel). Usage counts
  *           |  against Claude Code's own account; NVX Ancile prices it
@@ -53,6 +58,33 @@ export const CLAUDE_CODE_MODELS: { alias: string; name: string }[] = [
 ];
 
 const SYSTEM_MAX = 18_000;
+/** The window NVX Ancile budgets Claude Code calls to (each call is a fresh session). */
+export const MODE_A_WINDOW = 32_000;
+/** The most of the conversation one call's prompt carries, in tokens (about 4 characters each). */
+export const MODE_A_PROMPT_TOKENS = 20_000;
+const approx = (s: string) => Math.ceil(s.length / 4);
+
+/**
+ * Claude Code's error result, in plain words. Its subtype can read "success"
+ * on an error, so that word is never shown. "Prompt is too long" with a count
+ * far above what was sent comes from Claude Code's own context, not ours:
+ * say what NVX Ancile sent so the two are not confused.
+ */
+export function errorResult(m: Record<string, unknown>, sentTokens: number): ClassifiedError {
+  const said = typeof m.result === 'string' ? m.result.trim().replace(/\s+/g, ' ').slice(0, 200) : '';
+  if (/too long|context (window|limit)|exceed/i.test(said))
+    return new ClassifiedError(
+      'context_overflow',
+      `Claude Code said its prompt was too long (${said}). NVX Ancile sent it about ${Math.max(1, Math.round(sentTokens / 1000))}k tokens; the rest is Claude Code's own setup.`,
+    );
+  const subtype = typeof m.subtype === 'string' && m.subtype !== 'success' ? ` (${m.subtype})` : '';
+  return new ClassifiedError(
+    'transient',
+    said
+      ? `Claude Code could not answer: ${said}`
+      : `Claude Code could not answer and gave no reason${subtype}.`,
+  );
+}
 
 export function claudeCodeModels(): ModelConfig[] {
   return CLAUDE_CODE_MODELS.map((m) => ({
@@ -62,8 +94,8 @@ export function claudeCodeModels(): ModelConfig[] {
     display_name: m.name,
     via: 'direct' as const,
     family: 'claude',
-    context_window: 200_000,
-    max_output: 32_000,
+    context_window: MODE_A_WINDOW,
+    max_output: 8_000,
     capabilities: ['tools' as const],
     // Claude Code's usage counts against its own account; NVX Ancile shows no price.
     price: { input_per_mtok: 0, output_per_mtok: 0 },
@@ -81,14 +113,33 @@ export function syncClaudeCodeModels(
   return ok;
 }
 
-/** The request's messages as one prompt for one Claude Code turn. */
-export function promptOf(req: ModelRequest): string {
+/**
+ * The request's messages as one prompt for one Claude Code turn: the latest
+ * message whole, and the turns before it newest first while they fit in
+ * `budget` tokens. Never the whole branch of a long thread.
+ */
+export function promptOf(req: ModelRequest, budget = MODE_A_PROMPT_TOKENS): string {
   const msgs = req.messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   if (msgs.length === 1) return msgs[0]?.content ?? '';
   const last = msgs.at(-1);
-  const before = (last?.role === 'user' ? msgs.slice(0, -1) : msgs)
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    .join('\n\n');
+  const earlier = last?.role === 'user' ? msgs.slice(0, -1) : msgs;
+  let left = budget - approx(last?.role === 'user' ? last.content : '');
+  const kept: string[] = [];
+  for (let i = earlier.length - 1; i >= 0; i--) {
+    const m = earlier[i];
+    if (!m) continue;
+    const line = `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
+    if (approx(line) > left) break;
+    left -= approx(line);
+    kept.unshift(line);
+  }
+  const dropped = earlier.length - kept.length;
+  const before = [
+    ...(dropped > 0
+      ? [`(${dropped} earlier message${dropped === 1 ? '' : 's'} left out to keep this short.)`]
+      : []),
+    ...kept,
+  ].join('\n\n');
   return [
     'The conversation so far:',
     '',
@@ -126,6 +177,7 @@ export class ClaudeCodeModelClient implements ModelClient {
     await mkdir(d.cwd, { recursive: true });
     const threadId = req.meta?.threadId;
     const notebookId = req.meta?.notebookId ?? null;
+    const prompt = promptOf(req);
     const items: Item[] = [];
     let wake: (() => void) | null = null;
     let handle: string | null = null;
@@ -171,7 +223,7 @@ export class ClaudeCodeModelClient implements ModelClient {
         })
       ).handle;
       d.handles.add(handle);
-      await d.bridge.send(handle, promptOf(req));
+      await d.bridge.send(handle, prompt);
       let streamed = false;
       for (;;) {
         const next = items.shift();
@@ -203,14 +255,7 @@ export class ClaudeCodeModelClient implements ModelClient {
         } else if (m.type === 'result') {
           if (m.is_error === true) {
             // An error result can say "success" as its subtype; its text says what went wrong.
-            const said =
-              typeof m.result === 'string' ? m.result.trim().replace(/\s+/g, ' ').slice(0, 200) : '';
-            throw new ClassifiedError(
-              'transient',
-              said
-                ? `Claude Code could not answer: ${said}`
-                : `Claude Code could not answer (${String(m.subtype ?? 'error')})`,
-            );
+            throw errorResult(m, approx(prompt) + approx(req.system ?? ''));
           }
           const u = isObj(m.usage) ? m.usage : {};
           const n = (v: unknown) => (typeof v === 'number' ? v : 0);
