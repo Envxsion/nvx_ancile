@@ -14,7 +14,9 @@
  *           |  A short follow-up ("and in 2023?") is searched together
  *           |  with the question before it, so it is not searched
  *           |  alone and meaningless. The block is capped so sources
- *           |  can never crowd out the conversation.
+ *           |  can never crowd out the conversation, and so is each
+ *           |  source's share (per_source_max in config/retrieval.yaml),
+ *           |  so one huge source cannot crowd out the others.
  *  Note     |  A knowledge service that is down does not stop the
  *           |  answer: the turn goes on ungrounded and says so in its
  *           |  provenance.
@@ -35,25 +37,61 @@ export interface Retriever {
   }): Promise<SearchResponse>;
 }
 
-export function knowledgeRetriever(kn: KnowledgeClient): Retriever {
+/** How many passages a turn is given, and how many of them one source may give (config/retrieval.yaml). */
+export interface RetrievalLimits {
+  k: number;
+  perSource: number;
+}
+
+export const DEFAULT_K = 8;
+export const DEFAULT_LIMITS: RetrievalLimits = { k: DEFAULT_K, perSource: 4 };
+
+/** How many to ask the search for, so that k can still be filled after the per-source cap. */
+export function fetchK(k: number, perSource: number): number {
+  return perSource >= k ? k : Math.min(100, k * 3);
+}
+
+/**
+ * Keep the ranking, but let no source give more than `perSource` passages,
+ * and stop at k. A 2,000-page PDF matches almost anything; without this it
+ * would fill every turn and crowd out the notebook's other sources.
+ */
+export function capPerSource<T extends { source_id: string }>(hits: T[], k: number, perSource: number): T[] {
+  const taken = new Map<string, number>();
+  const out: T[] = [];
+  for (const h of hits) {
+    if (out.length >= k) break;
+    const n = taken.get(h.source_id) ?? 0;
+    if (n >= perSource) continue;
+    taken.set(h.source_id, n + 1);
+    out.push(h);
+  }
+  return out;
+}
+
+export function knowledgeRetriever(
+  kn: KnowledgeClient,
+  limits: Pick<RetrievalLimits, 'perSource'> = DEFAULT_LIMITS,
+): Retriever {
   return {
-    search: ({ workspaceId, notebookId, query, k, sourceIds }) =>
-      kn.post<SearchResponse>('/search', {
+    search: async ({ workspaceId, notebookId, query, k, sourceIds }) => {
+      const res = await kn.post<SearchResponse>('/search', {
         workspace_id: workspaceId,
         notebook_id: notebookId,
         ...(sourceIds?.length && { source_ids: sourceIds }),
         query,
-        k,
+        k: fetchK(k, limits.perSource),
         mode: 'hybrid',
         rerank: true,
-      }),
+      });
+      return { ...res, hits: capPerSource(res.hits, k, limits.perSource) };
+    },
   };
 }
 
 /** The total size of the sources block, in characters (about 4,000 tokens). */
 export const BLOCK_CHARS = 16_000;
 const PASSAGE_CHARS = 1_800;
-export const DEFAULT_K = 8;
 
 /** What to search for: the question, plus the one before it when it is a short follow-up. */
 export function queryFor(questions: string[]): string {

@@ -21,7 +21,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
-import { CLAUDE_CODE_PROVIDER, isClaudeCodeModel } from '@nvx/contracts';
+import { CLAUDE_CODE_PROVIDER, isClaudeCodeModel, type SearchResponse } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
 import {
@@ -44,7 +44,7 @@ import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './compute/routes';
 import { chatTurnHandler } from './conductor/pipeline';
-import { knowledgeRetriever } from './conductor/retrieval';
+import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './conductor/retrieval';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
 import { credentialRoutes, ENV_FOR_SECRET, MEMORY_REMOTE_SECRET } from './credentials/routes';
@@ -80,6 +80,7 @@ import { healthRoutes, recordHealth, systemHealthOf } from './health/routes';
 import { DEFAULT_SUPERVISOR, startSupervisor } from './health/supervisor';
 import { cockpitOrigins } from './http/guard';
 import { knowledgeClient } from './knowledge/client';
+import { PgTombstoneStore, sourceIntegrity } from './knowledge/integrity';
 import { HttpEngine } from './lab/engine-client';
 import { LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
@@ -384,6 +385,13 @@ async function main() {
     store: claudeCodeStore,
   });
   const kn = knowledgeClient({ baseUrl: env.KNOWLEDGE_URL, serviceToken: env.ANCILE_SERVICE_TOKEN });
+  // Passages per turn and per source (config/retrieval.yaml), and what became of cited sources (track G).
+  const retrievalLimits = {
+    k: config.retrieval?.k ?? DEFAULT_LIMITS.k,
+    perSource: config.retrieval?.per_source_max ?? DEFAULT_LIMITS.perSource,
+  };
+  const tombstones = new PgTombstoneStore(sql);
+  const integrity = sourceIntegrity({ workspaceId: owner.workspaceId, tombstones, kn });
 
   // Memory: a git repository of markdown files, indexed, injected and learned into.
   const memoryProvider = new GitMemoryProvider({
@@ -494,6 +502,7 @@ async function main() {
     passages: (threadId, hits) => claudeLive.passages(threadId, hits),
     traceOf: (threadId) => claudeLive.traceOf(threadId),
     sourceIdsOf: (threadId) => claudeLive.sourceIdsOf(threadId),
+    limits: retrievalLimits,
   });
   // ---- Engines (docs/engines.md): one thread, any model ----
   const engineStore = new PgEngineStore(sql);
@@ -589,7 +598,7 @@ async function main() {
     registry,
     gateway,
     promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
-    retriever: knowledgeRetriever(kn),
+    retriever: knowledgeRetriever(kn, retrievalLimits),
     kn,
     memory: memoryText((q) => memory.pack(q)),
     monthSpendUsd: async () => {
@@ -669,7 +678,8 @@ async function main() {
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
         approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
         automationApprovalTtlMs: env.ANCILE_APPROVAL_TTL_AUTOMATION_S * 1000,
-        retriever: knowledgeRetriever(kn),
+        retriever: knowledgeRetriever(kn, retrievalLimits),
+        retrievalLimits,
         scopes,
         // Only a notebook in this workspace lends its title (an @-mentioned id is user input).
         notebookTitle: async (id) => {
@@ -875,15 +885,17 @@ async function main() {
     userId: owner.userId,
     workspaceId: owner.workspaceId,
     version: VERSION,
-    search: ({ query, notebookId, k }) =>
-      kn.post('/search', {
+    search: async ({ query, notebookId, k }) => {
+      const res = await kn.post<SearchResponse>('/search', {
         workspace_id: owner.workspaceId,
         ...(notebookId && { notebook_id: notebookId }),
         query,
-        k,
+        k: fetchK(k, retrievalLimits.perSource),
         mode: 'hybrid',
         rerank: true,
-      }),
+      });
+      return { ...res, hits: capPerSource(res.hits, k, retrievalLimits.perSource) };
+    },
     notebooks: async () =>
       (await notebooks.list(owner.workspaceId)).map((n) => ({
         id: n.id,
@@ -1093,7 +1105,7 @@ async function main() {
         registry,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
       }),
-      notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore }),
+      notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore, tombstones }),
       scopeRoutes({ store: scopeStore }),
       autoRoutes({ plans: autoPlans, events: runEvents }),
       memoryRoutes({ service: memory, threads, registry }),
@@ -1108,6 +1120,7 @@ async function main() {
         modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
         actionOf: (tool) => tools.get(tool)?.action,
         scopeOf: (ref) => scopes.effective(ref),
+        integrity,
       }),
       permissionRoutes({
         store: permissions,

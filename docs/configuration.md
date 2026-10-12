@@ -60,7 +60,8 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 |---|---|---|
 | `KNOWLEDGE_URL` / `KNOWLEDGE_PORT` | `http://localhost:7710` / `7710` | |
 | `ANCILE_SERVICE_TOKEN` | none (required) | Shared secret between Core and Knowledge. |
-| `KNOWLEDGE_EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Local CPU embedder. Changing it re-embeds in the background. |
+| `KNOWLEDGE_EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Local CPU embedder. Changing it re-embeds in the background. It reads English best. |
+| `KNOWLEDGE_MULTILINGUAL_EMBED_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | The multilingual embedder offered when a notebook's sources mix languages (about 50 languages, Apache-2.0, shipped by fastembed). To use it, set `KNOWLEDGE_EMBED_MODEL` to this value; the Sources panel's hint copies the line for you. |
 | `KNOWLEDGE_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Local cross-encoder. |
 | `KNOWLEDGE_MODEL_CACHE` | `./data/models` | Model weights cache. |
 | `KNOWLEDGE_USE_DOCLING` | `true` | Layout-aware PDF parsing: slower, much better tables. |
@@ -228,6 +229,10 @@ They run through the same scheduler and history as the built-in jobs. Schedules 
 ### factcheck
 
 `weights` (`support`, `agreement`, `retrieval`; these sum to 1), `thresholds` (`contradict`, `verified`), `web_search`. See [factcheck.md](factcheck.md).
+
+### retrieval {#retrieval}
+
+`k` (passages given to one answer, default 8) and `per_source_max` (at most this many from any one source, default 4). The cap keeps the ranking and fills the rest from other sources, so one huge source (a 2,000-page PDF, a repo dump) cannot fill every turn. Core's conductor, the Claude Code `search` tool and Ancile's own MCP server all apply it; each asks the knowledge service for three times `k` so the cap can still fill `k`. The file is optional.
 
 ## The offline model, the workspace and the lab
 

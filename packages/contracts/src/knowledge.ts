@@ -118,6 +118,8 @@ export const Source = z.object({
     })
     .nullable()
     .default(null),
+  /** ISO 639-1 code of the source's main language, detected at ingest; null until known. */
+  language: z.string().nullable().default(null),
 });
 export type Source = z.infer<typeof Source>;
 
@@ -288,3 +290,82 @@ export const RetrievalTrace = z.object({
   grounded: z.boolean().default(false),
 });
 export type RetrievalTrace = z.infer<typeof RetrievalTrace>;
+
+/* ---- Source integrity: citations after a source is removed or changed ----- */
+
+/**
+ * What became of a cited passage since it was cited:
+ * current  the source still holds exactly this text;
+ * changed  the source was read again and the passage is different or gone;
+ * removed  the source was deleted (or merged into another);
+ * unknown  it could not be checked (the knowledge service is not answering).
+ */
+export const PassageState = z.enum(['current', 'changed', 'removed', 'unknown']);
+export type PassageState = z.infer<typeof PassageState>;
+
+/** Core → Knowledge: is each passage still what it was? */
+export const PassageCheckRequest = z.object({
+  workspace_id: z.string(),
+  items: z
+    .array(
+      z.object({
+        /** The chunk or insight id the passage was cited as. */
+        ref: z.string(),
+        source_id: z.string(),
+        /** sha256 of the passage text when cited; null for citations older than the hash. */
+        text_sha256: z.string().nullable(),
+      }),
+    )
+    .max(500),
+});
+export type PassageCheckRequest = z.infer<typeof PassageCheckRequest>;
+
+export const PassageCheckResponse = z.object({
+  items: z.array(
+    z.object({
+      ref: z.string(),
+      source_id: z.string(),
+      state: PassageState,
+      /** The source's title now (or when it was removed); null when the source is gone entirely. */
+      source_title: z.string().nullable(),
+      deleted_at: z.string().nullable(),
+    }),
+  ),
+});
+export type PassageCheckResponse = z.infer<typeof PassageCheckResponse>;
+
+/** GET /messages/:id/citations: each citation of an answer, checked against its source now. */
+export const CitationStatus = z.object({
+  message_id: z.string(),
+  items: z.array(
+    z.object({
+      marker: z.number().int(),
+      chunk_id: z.string(),
+      source_id: z.string(),
+      state: PassageState,
+      source_title: z.string().nullable(),
+      /** When the source was removed; null unless state is "removed". */
+      removed_at: z.string().nullable(),
+      /** The source it was merged into, when a merge removed it. */
+      merged_into: z.string().nullable(),
+    }),
+  ),
+});
+export type CitationStatus = z.infer<typeof CitationStatus>;
+
+/* ---- Languages in a notebook ---------------------------------------------- */
+
+/** GET /notebooks/:id/languages: what its sources are written in, and whether search reads them all well. */
+export const NotebookLanguages = z.object({
+  languages: z.array(z.object({ code: z.string(), sources: z.number().int() })),
+  /** More than one language among the notebook's ready sources. */
+  mixed: z.boolean(),
+  embedder: z.object({
+    model: z.string(),
+    /** False for an English-only model (the default). */
+    multilingual: z.boolean(),
+  }),
+  /** A local multilingual model that can be chosen instead; null when the current one already is. */
+  multilingual_option: z.string().nullable(),
+});
+export type NotebookLanguages = z.infer<typeof NotebookLanguages>;

@@ -39,6 +39,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { SearchHit, SearchResponse } from '@nvx/contracts';
+import { capPerSource, DEFAULT_LIMITS, fetchK, type RetrievalLimits } from '../conductor/retrieval';
 import { currentContext, newTraceId, type RequestContext } from '../context';
 import type { LabPasses } from '../lab/hosted';
 import { hostedTool, hostedTools } from '../lab/hosted';
@@ -79,6 +80,8 @@ export interface ClaudeMcpDeps {
   traceOf?(threadId: string): RequestContext | null;
   /** Source ids the turn is grounded on (the send's source_ids), if any. */
   sourceIdsOf?(threadId: string): string[] | null;
+  /** Passages one source may give one search, and the default k (config/retrieval.yaml). */
+  limits?: RetrievalLimits;
 }
 
 const text = (t: string, isError = false): CallToolResult => ({
@@ -139,7 +142,13 @@ const KNOWLEDGE_TOOLS = [
       type: 'object' as const,
       properties: {
         query: { type: 'string', description: 'What to look for' },
-        k: { type: 'integer', minimum: 1, maximum: 20, description: 'How many passages (default 8)' },
+        k: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 20,
+          description:
+            'How many passages (default 8). Each source gives only a few, so one cannot fill them all.',
+        },
       },
       required: ['query'],
     },
@@ -292,9 +301,18 @@ export class ClaudeMcpEndpoint {
       if (name === 'search') {
         const query = typeof args.query === 'string' ? args.query.trim().slice(0, 2000) : '';
         if (!query) return text('Give a query.', true);
-        const k = typeof args.k === 'number' ? Math.min(Math.max(Math.floor(args.k), 1), 20) : 8;
+        const limits = deps.limits ?? DEFAULT_LIMITS;
+        const k =
+          typeof args.k === 'number' ? Math.min(Math.max(Math.floor(args.k), 1), 20) : Math.min(limits.k, 20);
         const sourceIds = deps.sourceIdsOf?.(threadId) ?? undefined;
-        const res = await deps.search({ notebookId, query, k, ...(sourceIds?.length && { sourceIds }) });
+        const found = await deps.search({
+          notebookId,
+          query,
+          k: fetchK(k, limits.perSource),
+          ...(sourceIds?.length && { sourceIds }),
+        });
+        // One huge source cannot fill the answer: at most perSource passages from each.
+        const res = { ...found, hits: capPerSource(found.hits, k, limits.perSource) };
         if (!res.hits.length)
           return text(`Nothing in the sources of ${t.notebookTitle ?? 'this notebook'} matches that.`);
         const passages =

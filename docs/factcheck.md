@@ -50,6 +50,12 @@ The message score is the importance-weighted average across claims: claims the a
 
 Before a model answers in a notebook, each retrieved excerpt gets a marker, and the model is asked to cite with it (`[^3]`). Ancile then checks every citation: the marker must exist and the quoted text must overlap the excerpt. Invalid citations are removed and counted in the trace, so you never see a link to something that doesn't say what's claimed.
 
+## When sources are removed or change
+
+Every check of an answer is kept. When you check an answer again, the score before is shown beside the new one ("Was 84%"), and if the sources behind that earlier score have since been deleted, merged away or read again with different text, a note says so: "Sources changed since: 1 removed." A drop in score after a source went is explained, not alarming. `GET /messages/:id/factcheck` carries it as `previous`.
+
+Citations hold up the same way. Each citation keeps the passage it quoted, its source's title and a sha256 of the whole passage as the model was given it. If the source is deleted, the chip reads **Source removed** and the quote is still there to read (Core keeps a tombstone with the source's name and date, so this holds even after the knowledge service purges the source). If the source is read again (a page edited, a file replaced) and the passage is no longer there word for word, the chip reads **Source changed since cited**. When the same words simply moved to another passage, nothing is flagged. A citation that cannot be checked (the knowledge service is down) is left as it is, never flagged.
+
 ## Limits
 
 - The verifier sees only the evidence found. If your sources don't cover a claim, the best possible result is *unverified*, never *verified*.

@@ -155,6 +155,17 @@ export const FactcheckFile = z.object({
   web_search: z.boolean().default(false),
 });
 
+/** config/retrieval.yaml: how many passages a turn is given, and how many one source may give. */
+export const RetrievalFile = z.object({
+  version: z.literal(1),
+  /** Passages given to one answer (Core's conductor and the Claude Code search tool's default). */
+  k: z.number().int().min(1).max(40).default(8),
+  /** At most this many of them from any one source, so one huge source cannot fill a turn. */
+  per_source_max: z.number().int().min(1).max(40).default(4),
+});
+export type RetrievalFile = z.infer<typeof RetrievalFile>;
+export const DEFAULT_RETRIEVAL: RetrievalFile = { version: 1, k: 8, per_source_max: 4 };
+
 export const PluginManifest = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string(),

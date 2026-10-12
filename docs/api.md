@@ -175,6 +175,18 @@ GET /api/v1/messages/msg_01J9ZR…/explain
 
 This returns the `Explain` schema: the answering model and every attempt, the memory pack (files, commits, entries), retrieved chunks with scores and whether each was cited, tool calls with their permission outcomes, compaction, usage, and fact-check.
 
+### Citations after a source is removed or changed
+
+```http
+GET /api/v1/messages/msg_01J9ZR…/citations
+```
+
+Answers `CitationStatus` (`packages/contracts/src/knowledge.ts`): each `citation_ref` of the answer with `state` `current`, `changed` (the source was read again and the passage is gone or different), `removed` (deleted or merged away, with `removed_at` and `merged_into`) or `unknown` (could not be checked). Deleting (`DELETE /sources/:id`) or merging away (`POST /sources/merge`) a source records a tombstone in `core.source_tombstones` first. `GET /messages/:id/factcheck` carries `previous`: the check before the newest, its score and summary, and `sources_changed`, `removed`, `changed` and a `note` in words.
+
+### Languages in a notebook
+
+`GET /api/v1/notebooks/:id/languages` answers `NotebookLanguages`: the languages of the notebook's ready sources (ISO 639-1, detected at ingest), whether they are `mixed`, the embedder and whether it is multilingual, and `multilingual_option` (the model to switch to; null when the embedder already is one).
+
 ### Routing chains
 
 `GET /api/v1/routing` lists each editable task class as a `RoutingChain`: `configured` (your saved order, or the YAML's), `default` (the YAML's), `custom`, and `chain` (who routing tries right now, counting only models that can answer). Saving and resetting answer with the updated `RoutingChain`:
@@ -236,6 +248,8 @@ POST /kn/v1/search
                  "text": "…", "context_blurb": "…", "score": 0.031, "rerank_score": 0.92,
                  "char_start": 18231, "char_end": 18902, "page": 14, "heading_path": ["Results","Attrition"] } ] }
 ```
+
+`POST /kn/v1/passages/check` takes `{ workspace_id, items: [{ ref, source_id, text_sha256 }] }` (up to 500) and answers each with `state` `current`, `changed` or `removed`, the source's title and `deleted_at`. A passage is current when its chunk is in the source's current version with the same hash, or when the same text moved to another chunk. `GET /kn/v1/notebooks/{id}/languages` answers `NotebookLanguages`. Each `Source` carries `language`.
 
 Knowledge calls back to Core's `/internal/v1/openai/chat/completions` and `/internal/v1/openai/embeddings` (OpenAI-compatible) for every model call, so the Gateway traces and routes them.
 

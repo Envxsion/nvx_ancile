@@ -133,7 +133,7 @@ export function messageScore(claims: CheckedClaim[]): number | null {
 }
 
 /** The stored record as the Cockpit reads it. */
-export function toView(r: FactcheckRecord): Factcheck {
+export function toView(r: FactcheckRecord, previous: Factcheck['previous'] = null): Factcheck {
   const claims: FactcheckClaim[] = r.claims.map((c) => ({
     ...c,
     explanation: explainScore({
@@ -160,5 +160,6 @@ export function toView(r: FactcheckRecord): Factcheck {
     error: r.error,
     created_at: r.created_at,
     finished_at: r.finished_at,
+    previous,
   };
 }

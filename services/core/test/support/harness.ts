@@ -88,6 +88,8 @@ export interface HarnessOptions {
   now?: () => number;
   /** Knowledge's /evidence for fact-checks; without it, every claim lacks evidence. */
   kn?: Pick<KnowledgeClient, 'post'>;
+  /** What became of cited sources (track G): citations' states and a re-run's previous score. */
+  integrity?: import('../../src/knowledge/integrity').SourceIntegrity;
   /** Notebooks in grounded mode: their answers are fact-checked when they finish. */
   grounded?: string[];
   /** Phase 5 operations: logs, traces and replay, MCP server and its apps. */
@@ -438,6 +440,7 @@ export async function harness(opts: HarnessOptions = {}) {
         familyOf,
         modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
         actionOf: (tool) => tools.get(tool)?.action,
+        ...(opts.integrity && { integrity: opts.integrity }),
       }),
     ],
   });

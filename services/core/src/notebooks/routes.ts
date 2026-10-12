@@ -26,6 +26,7 @@ import {
   MergeSourcesRequest,
   MessageToNoteRequest,
   type Notebook,
+  type NotebookLanguages,
   PatchNotebookRequest,
   PatchNotebookSourceRequest,
   PatchNoteRequest,
@@ -39,6 +40,7 @@ import type { AppEnv } from '../app';
 import type { FlowStore } from '../flows/store';
 import { body } from '../http/body';
 import type { KnowledgeClient } from '../knowledge/client';
+import type { TombstoneStore } from '../knowledge/integrity';
 import { badRequest, notFound } from '../obs/errors';
 import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
@@ -51,6 +53,8 @@ export interface NotebookRouteDeps {
   kn: KnowledgeClient;
   /** Deleting a notebook keeps its flows as inactive workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
+  /** A deleted or merged source leaves its name behind, for answers that cited it (track G). */
+  tombstones?: TombstoneStore;
 }
 
 type Stats = { sources: number; ready: number; chunks: number };
@@ -162,6 +166,14 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
   r.get('/notebooks/:id/sources', async (c) => {
     const n = await notebook(c.req.param('id'));
     return c.json({ items: await sourcesOf(n.id), next_cursor: null });
+  });
+
+  /** The languages its sources are in, and whether the embedder reads them all well (track G). */
+  r.get('/notebooks/:id/languages', async (c) => {
+    const n = await notebook(c.req.param('id'));
+    return c.json(
+      await kn.get<NotebookLanguages>(`/notebooks/${enc(n.id)}/languages?workspace_id=${enc(workspaceId)}`),
+    );
   });
 
   const link = async (notebookId: string, sourceId: string, level?: string) => {
@@ -312,9 +324,27 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     c.json(await kn.get(`/duplicates?workspace_id=${enc(workspaceId)}`)),
   );
 
+  /** A source about to go: its name, so answers that cited it can still say what it was. */
+  const beforeRemoval = async (sourceId: string): Promise<Source | null> =>
+    deps.tombstones ? kn.get<Source>(`/sources/${enc(sourceId)}`).catch(() => null) : null;
+  const bury = async (s: Source | null, reason: 'deleted' | 'merged', mergedInto: string | null = null) => {
+    if (!s || !deps.tombstones) return;
+    await deps.tombstones.record({
+      source_id: s.id,
+      workspace_id: workspaceId,
+      title: s.title,
+      kind: s.kind,
+      reason,
+      merged_into: mergedInto,
+    });
+  };
+
   r.post('/sources/merge', async (c) => {
     const req = await body(c, MergeSourcesRequest);
-    return c.json(await kn.post('/sources/merge', req));
+    const dropped = await beforeRemoval(req.drop_id);
+    const merged = await kn.post('/sources/merge', req);
+    await bury(dropped, 'merged', req.keep_id);
+    return c.json(merged);
   });
 
   r.post('/sources/duplicates/dismiss', async (c) => {
@@ -330,7 +360,9 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
   });
 
   r.delete('/sources/:id', async (c) => {
+    const gone = await beforeRemoval(c.req.param('id'));
     await kn.del(`/sources/${enc(c.req.param('id'))}`);
+    await bury(gone, 'deleted');
     return c.body(null, 204);
   });
 

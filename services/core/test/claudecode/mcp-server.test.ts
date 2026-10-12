@@ -37,7 +37,9 @@ const hit = (n: number): SearchHit =>
     ranks: {},
   }) as unknown as SearchHit;
 
-function setup(opts: { passages?: (t: string, h: SearchHit[]) => Passage[] | null } = {}) {
+function setup(
+  opts: { passages?: (t: string, h: SearchHit[]) => Passage[] | null; hits?: SearchHit[] } = {},
+) {
   const registry = new ToolRegistry();
   let ran = 0;
   registry.register({
@@ -73,7 +75,7 @@ function setup(opts: { passages?: (t: string, h: SearchHit[]) => Passage[] | nul
           : null,
     search: async (q) => {
       searched.push(q);
-      return { hits: [hit(1), hit(2)] } as unknown as SearchResponse;
+      return { hits: opts.hits ?? [hit(1), hit(2)] } as unknown as SearchResponse;
     },
     notebookSources: async () => [{ id: 'src_1', title: 'Source 1' }],
     sourceContent: async () => ({ markdown: 'x'.repeat(30_000) }),
@@ -133,9 +135,20 @@ describe('the MCP server for Claude Code sessions', () => {
     });
     const client = await clientOf(endpoint.handle, threadToken(SECRET, 'thr_1'));
     const out = textOf(await client.callTool({ name: 'search', arguments: { query: 'tokens' } }));
-    expect(searched[0]).toEqual({ notebookId: 'nbk_1', query: 'tokens', k: 8, sourceIds: ['src_1'] });
+    // Asks for more than 8, so 8 remain after no source may give more than 4.
+    expect(searched[0]).toEqual({ notebookId: 'nbk_1', query: 'tokens', k: 24, sourceIds: ['src_1'] });
     expect(out).toContain('[4] Source 1 · page 1 · Intro (source src_1, chunk chk_1)');
     expect(out).toContain('[5] Source 2');
+  });
+
+  it('lets no one source give more than four passages to a search', async () => {
+    const big = (n: number): SearchHit => ({ ...hit(n), source_id: 'src_big', source_title: 'Repo dump' });
+    const { endpoint } = setup({ hits: [big(1), big(2), big(3), big(4), big(5), big(6), hit(7), big(8)] });
+    const client = await clientOf(endpoint.handle, threadToken(SECRET, 'thr_1'));
+    const out = textOf(await client.callTool({ name: 'search', arguments: { query: 'tokens', k: 6 } }));
+    expect(out.match(/\(source src_big,/g)).toHaveLength(4);
+    expect(out).toContain('(source src_7, chunk chk_7)');
+    expect(out).not.toContain('chunk chk_5)');
   });
 
   it('reads a source of the notebook a part at a time, and no other source', async () => {

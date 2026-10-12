@@ -89,6 +89,24 @@ export const Factcheck = z.object({
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   created_at: z.string(),
   finished_at: z.string().nullable(),
+  /**
+   * The check before this one, kept beside it: its score, and whether the
+   * sources its evidence came from have since been removed or changed.
+   */
+  previous: z
+    .object({
+      id: z.string(),
+      confidence: z.number().nullable(),
+      summary: z.string(),
+      finished_at: z.string().nullable(),
+      sources_changed: z.boolean(),
+      removed: z.number().int(),
+      changed: z.number().int(),
+      /** In words, for the chip: "Sources changed since: 1 removed." Null when nothing changed. */
+      note: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
 });
 export type Factcheck = z.infer<typeof Factcheck>;
 

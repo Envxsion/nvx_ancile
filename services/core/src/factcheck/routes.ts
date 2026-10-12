@@ -7,21 +7,27 @@
  *  Purpose  |  POST /messages/:id/factcheck  start (or join) a check
  *           |  GET  /messages/:id/factcheck  the latest result
  *           |  GET  /messages/:id/explain    why it said this
+ *           |  GET  /messages/:id/citations  each citation, checked
+ *           |       against its source now (current, changed, removed)
  *  How      |  A check is a durable run; the POST answers 202 with its
  *           |  run and the stream to follow. The GET answers 404 with
- *           |  factcheck.none until one has been started.
+ *           |  factcheck.none until one has been started. A re-run's
+ *           |  GET carries the check before it (previous), with a note
+ *           |  when its sources were removed or changed since.
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type EffectiveScope } from '@nvx/contracts';
+import { AncileError, type CitationStatus, type EffectiveScope } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { assembleExplain } from '../explain/assemble';
+import type { SourceIntegrity } from '../knowledge/integrity';
 import { notFound } from '../obs/errors';
 import type { PermissionStore } from '../permissions/store';
 import type { RunStore } from '../runs/engine';
 import type { ThreadRepo } from '../threads/repo';
 import { startFactcheck } from './handler';
+import { previousView } from './history';
 import { toView } from './pipeline';
 import type { FactcheckStore } from './store';
 
@@ -38,6 +44,8 @@ export interface TrustRouteDeps {
   actionOf: (tool: string) => string | undefined;
   /** The thread's effective scope, for the Why view's scope reasons (docs/scopes.md). */
   scopeOf?: (ref: { threadId: string }) => Promise<EffectiveScope>;
+  /** What became of cited sources since (track G); without it, citations read "unknown". */
+  integrity?: SourceIntegrity;
 }
 
 export function trustRoutes(deps: TrustRouteDeps) {
@@ -76,7 +84,34 @@ export function trustRoutes(deps: TrustRouteDeps) {
         status: 404,
         errorClass: 'permanent',
       });
-    return c.json(toView(f));
+    const prev = await deps.store.previousFor(m.id, f.id);
+    return c.json(toView(f, prev ? await previousView(prev, deps.integrity) : null));
+  });
+
+  r.get('/messages/:id/citations', async (c) => {
+    const { m } = await load(c.req.param('id'));
+    const refs = m.parts.flatMap((p) => (p.type === 'citation_ref' ? [p] : []));
+    const checks = deps.integrity
+      ? await deps.integrity.check(
+          refs.map((p) => ({ ref: p.chunk_id, source_id: p.source_id, text_sha256: p.text_sha256 ?? null })),
+        )
+      : [];
+    const out: CitationStatus = {
+      message_id: m.id,
+      items: refs.map((p, i) => {
+        const k = checks[i];
+        return {
+          marker: p.marker,
+          chunk_id: p.chunk_id,
+          source_id: p.source_id,
+          state: k?.state ?? 'unknown',
+          source_title: k?.source_title ?? p.source_title ?? null,
+          removed_at: k?.removed_at ?? null,
+          merged_into: k?.merged_into ?? null,
+        };
+      }),
+    };
+    return c.json(out);
   });
 
   r.get('/messages/:id/explain', async (c) => {

@@ -1,0 +1,10 @@
+# =============================================================================
+#  Retrieval: how many passages an answer is given (docs/configuration.md).
+#  Schema: packages/contracts/src/config.ts → RetrievalFile
+#  Used by Core's conductor, the Claude Code search tool and Ancile's own
+#  MCP server. Optional: without this file the values below apply.
+# =============================================================================
+version: 1
+k: 8                  # passages given to one answer
+per_source_max: 4     # at most this many from any one source, so a huge source
+                      # (a 2,000-page PDF, a repo dump) cannot crowd out the rest

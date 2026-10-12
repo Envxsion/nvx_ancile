@@ -131,7 +131,7 @@ A call that asks shows in the normal approval dialog with its full arguments, an
 
 ### Sources and citations
 
-The notebook's notes and sources are the session's primary sources. Each live session gets NVX Ancile's MCP server, `ancile`, with `search` (the notebook's sources, numbered passages with their source and chunk ids), `read_source` and `memory_search`, plus the tools of every MCP server NVX Ancile hosts, so Claude Code never holds their secrets. A short, unchanging note in Claude Code's system prompt names the notebook and asks it to cite passages by their `[n]` markers as returned.
+The notebook's notes and sources are the session's primary sources. Each live session gets NVX Ancile's MCP server, `ancile`, with `search` (the notebook's sources, numbered passages with their source and chunk ids, at most four from any one source as `per_source_max` in `config/retrieval.yaml` sets), `read_source` and `memory_search`, plus the tools of every MCP server NVX Ancile hosts, so Claude Code never holds their secrets. A short, unchanging note in Claude Code's system prompt names the notebook and asks it to cite passages by their `[n]` markers as returned.
 
 Passages are numbered across a turn, so the markers in an answer are unique. When the answer is written, every marker it used becomes a citation (the evidence panel opens the exact passage), a marker that names no passage is removed, and the answer's retrieval trace is kept. In a grounded notebook the answer is fact-checked like any other.
 

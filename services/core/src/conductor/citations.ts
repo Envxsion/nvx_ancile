@@ -13,10 +13,14 @@
  *           |  parts carrying the exact span, so the Cockpit can open
  *           |  it. An answer is "grounded" when every paragraph that
  *           |  states something carries at least one valid citation.
+ *           |  Each citation_ref also keeps its source's title and the
+ *           |  sha256 of the passage, so a later look can say "Source
+ *           |  removed" or "Source changed since cited" (track G).
  * ------------------------------------------------------------------
  */
 
 import type { Part, RetrievalTrace, SearchHit } from '@nvx/contracts';
+import { passageHash } from '../knowledge/integrity';
 
 /** [3], [1][4], [2, 5], [2-4] */
 const MARKER = /\[(\d{1,3}(?:\s*[,–-]\s*\d{1,3})*)\](?!\()/g;
@@ -105,6 +109,9 @@ export function applyCitations(
         char_start: span.char_start,
         char_end: span.char_end,
         quote,
+        source_title: hit.source_title,
+        // The whole passage, not the shortened quote: a later look compares it with the source.
+        text_sha256: passageHash(span.text),
       },
     ];
   });

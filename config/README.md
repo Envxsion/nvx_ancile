@@ -20,5 +20,6 @@ Each file is validated against a schema in `packages/contracts/src/config.ts` at
 | `panels.yaml` | Plugin UI panels in the drawer or Admin | [plugins](../docs/plugins.md#panels) |
 | `automations.yaml` | Auto-titling, tagging, stale checks, cleanup, backups and the rest | [configuration](../docs/configuration.md#automations) |
 | `factcheck.yaml` | Confidence weights, thresholds, web search | [fact-checking](../docs/factcheck.md) |
+| `retrieval.yaml` | Passages per answer, and how many one source may give | [configuration](../docs/configuration.md#retrieval) |
 
 Secrets never go in these files. A model entry names a secret (`secret: ANTHROPIC_API_KEY`), and the value lives in the encrypted store under `ANCILE_DATA_DIR`.

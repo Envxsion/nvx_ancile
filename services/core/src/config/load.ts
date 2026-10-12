@@ -23,6 +23,7 @@ import {
   MemoryFile,
   ModelsFile,
   PanelsFile,
+  RetrievalFile,
   RoutingFile,
   ToolsFile,
 } from '@nvx/contracts';
@@ -38,6 +39,7 @@ const FILES = {
   panels: { file: 'panels.yaml', schema: PanelsFile, required: false },
   automations: { file: 'automations.yaml', schema: AutomationsFile, required: false },
   factcheck: { file: 'factcheck.yaml', schema: FactcheckFile, required: false },
+  retrieval: { file: 'retrieval.yaml', schema: RetrievalFile, required: false },
 } as const;
 
 type Files = typeof FILES;

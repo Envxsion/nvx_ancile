@@ -77,7 +77,16 @@ import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
 import { historyFor, systemPrompt, withPartial } from './context';
-import { DEFAULT_K, emptyNote, type Grounding, groundingFrom, queryFor, type Retriever } from './retrieval';
+import {
+  capPerSource,
+  DEFAULT_LIMITS,
+  emptyNote,
+  type Grounding,
+  groundingFrom,
+  queryFor,
+  type RetrievalLimits,
+  type Retriever,
+} from './retrieval';
 
 const log = logFor('conductor');
 
@@ -230,6 +239,8 @@ export interface ConductorDeps {
   automationApprovalTtlMs?: number;
   /** Finds passages in a notebook's sources; without it, turns are never grounded. */
   retriever?: Retriever;
+  /** Passages per turn and per source (config/retrieval.yaml); defaults to 8, at most 4 from one source. */
+  retrievalLimits?: RetrievalLimits;
   notebookTitle?: (id: string) => Promise<string | null>;
   /** Branch names and summaries; without it, turns are never compacted. */
   branches?: BranchStore;
@@ -651,14 +662,21 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         if (scope?.scope.sources && !sourceIds?.length) return;
         const titleRead = deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null);
         try {
+          const limits = deps.retrievalLimits ?? DEFAULT_LIMITS;
           const res = await deps.retriever.search({
             workspaceId: cp.input.workspaceId,
             notebookId,
             query,
-            k: DEFAULT_K,
+            k: limits.k,
             ...(sourceIds?.length && { sourceIds }),
           });
-          cp.grounding = groundingFrom(res, { query, notebookId, notebookTitle: (await titleRead) ?? null });
+          // One source gives at most perSource passages, whatever the retriever returned.
+          const capped = { ...res, hits: capPerSource(res.hits, limits.k, limits.perSource) };
+          cp.grounding = groundingFrom(capped, {
+            query,
+            notebookId,
+            notebookTitle: (await titleRead) ?? null,
+          });
         } catch (err) {
           cp.grounding = null;
           cp.retrievalError = {

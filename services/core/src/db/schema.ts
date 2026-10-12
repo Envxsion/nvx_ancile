@@ -503,6 +503,25 @@ export const claims = core.table('claims', {
   rationale: text('rationale'),
 });
 
+/** A deleted or merged source's name and date, so citations of it still say what it was (0024). */
+export const sourceTombstones = core.table(
+  'source_tombstones',
+  {
+    sourceId: text('source_id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    title: text('title').notNull(),
+    kind: text('kind'),
+    reason: text('reason', { enum: ['deleted', 'merged'] })
+      .notNull()
+      .default('deleted'),
+    mergedInto: text('merged_into'),
+    deletedAt: ts('deleted_at').notNull().defaultNow(),
+  },
+  (t) => [index('source_tombstones_workspace').on(t.workspaceId, t.deletedAt)],
+);
+
 /* ---- Works with Claude Code (docs/claude-code.md) ------------------------ */
 
 /** A folder's notebook; cwd_key compares folders the way the OS does. */

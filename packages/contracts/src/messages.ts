@@ -50,6 +50,17 @@ export const CitationRefPart = z.object({
   char_start: z.number().int(),
   char_end: z.number().int(),
   quote: z.string(),
+  /**
+   * The source's title when the answer was written, so a citation still
+   * names its source after the source is removed. Absent on older answers.
+   */
+  source_title: z.string().optional(),
+  /**
+   * sha256 (hex) of the whole passage as it was given to the model, so a
+   * later look can tell whether the source still says the same thing.
+   * Absent on older answers.
+   */
+  text_sha256: z.string().optional(),
 });
 /** Where a fallback model continued a stream another model started. */
 export const SeamPart = z.object({

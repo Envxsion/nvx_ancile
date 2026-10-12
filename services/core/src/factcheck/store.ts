@@ -6,7 +6,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Keep every fact-check of an answer, newest first: its
  *           |  status, the verifier used, its claims with evidence and
- *           |  their score breakdown.
+ *           |  their score breakdown. Older checks are never replaced,
+ *           |  so a re-run can show the score before it (previousFor).
  *  How      |  FactcheckStore is what the run handler and the routes
  *           |  use; PgFactcheckStore is real, MemoryFactcheckStore
  *           |  backs tests. finish() writes the claims and the result
@@ -57,6 +58,8 @@ export interface FactcheckStore {
   get(id: string): Promise<FactcheckRecord | undefined>;
   /** The newest fact-check of a message, if any. */
   latestFor(messageId: string): Promise<FactcheckRecord | undefined>;
+  /** The newest finished check of a message made before `beforeId`: the score shown beside a re-run. */
+  previousFor(messageId: string, beforeId: string): Promise<FactcheckRecord | undefined>;
   finish(
     id: string,
     r: { confidence: number | null; verifier_model_id: string | null; claims: StoredClaim[] },
@@ -153,6 +156,15 @@ export class PgFactcheckStore implements FactcheckStore {
     return this.load(rows[0]);
   }
 
+  async previousFor(messageId: string, beforeId: string) {
+    const rows = await this.sql<FactcheckRow[]>`
+      select f.* from core.factchecks f, core.factchecks b
+      where b.id = ${beforeId} and f.message_id = ${messageId} and f.id <> b.id and f.status = 'done'
+        and (f.created_at, f.id) < (b.created_at, b.id)
+      order by f.created_at desc, f.id desc limit 1`;
+    return this.load(rows[0]);
+  }
+
   async finish(id: string, r: Parameters<FactcheckStore['finish']>[1]) {
     await this.sql.begin(async (tx) => {
       await tx`delete from core.claims where factcheck_id = ${id}`;
@@ -213,6 +225,20 @@ export class MemoryFactcheckStore implements FactcheckStore {
 
   async latestFor(messageId: string) {
     const all = [...this.rows.values()].filter((r) => r.message_id === messageId);
+    all.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return all[0] ? structuredClone(all[0]) : undefined;
+  }
+
+  async previousFor(messageId: string, beforeId: string) {
+    const before = this.rows.get(beforeId);
+    if (!before) return undefined;
+    const all = [...this.rows.values()].filter(
+      (r) =>
+        r.message_id === messageId &&
+        r.id !== beforeId &&
+        r.status === 'done' &&
+        r.created_at < before.created_at,
+    );
     all.sort((a, b) => b.created_at.localeCompare(a.created_at));
     return all[0] ? structuredClone(all[0]) : undefined;
   }
