@@ -14,7 +14,11 @@
  *           |  refused there is an AncileError before anything runs),
  *           |  reads the compaction summaries and which of them each
  *           |  session has seen, and hands the rest to
- *           |  planClaudeTurn (context.ts).
+ *           |  planClaudeTurn (context.ts). When the notebook's sources
+ *           |  changed since the thread's last Claude Code turn, a line
+ *           |  saying which rides in the same digest ("2 sources added
+ *           |  since your last turn: A, B"); the list is remembered once
+ *           |  the turn is sent (commit).
  *  Note     |  One compaction for mixed threads: NVX Ancile's summary
  *           |  is the record. A session that has not been given the
  *           |  summary that now applies starts afresh, seeded with it
@@ -31,7 +35,7 @@ import { checkToolCall } from '../scopes';
 import type { BranchStore } from '../threads/branches';
 import { compactedPath } from '../threads/compact';
 import type { MessageRecord, ThreadRecord, ThreadRepo } from '../threads/repo';
-import { pathTo, planClaudeTurn } from './context';
+import { pathTo, planClaudeTurn, sourcesChanged } from './context';
 import type { ClaudeMemoryMirror } from './memory';
 import { claudeSystemNote, effective } from './note';
 import type { EngineStore } from './store';
@@ -47,7 +51,29 @@ export interface ClaudeHookDeps {
   allow?: (thread: ThreadRecord, modelId: string | null) => Promise<void>;
   /** A notebook's effective scope (scopes/getEffectiveScope), for a new thread's folder. */
   scopeOf?: (notebookId: string | null) => Promise<EffectiveScope>;
+  /** The notebook's sources (id and title), so a session hears which were added or removed. */
+  sources?: (notebookId: string) => Promise<{ id: string; title: string }[]>;
   budget?: number;
+}
+
+/**
+ * What changed in the notebook's sources since this thread's last Claude
+ * Code turn, as a note for the digest, and how to remember the list once
+ * the turn is sent. The first turn only remembers.
+ */
+async function sourceNote(
+  deps: ClaudeHookDeps,
+  thread: ThreadRecord,
+): Promise<{ note: string | null; commit: () => Promise<void> } | null> {
+  if (!deps.sources || !thread.notebook_id) return null;
+  const now = await deps.sources(thread.notebook_id).catch(() => null);
+  if (!now) return null;
+  const before = await deps.store.sourceMarks(thread.workspace_id, thread.id).catch(() => null);
+  const seen = Object.fromEntries(now.map((s) => [s.id, s.title]));
+  return {
+    note: before ? sourcesChanged(before, now) : null,
+    commit: () => deps.store.markSources(thread.workspace_id, thread.id, seen),
+  };
 }
 
 /** The summary that applies to the path to this message, if any. */
@@ -69,9 +95,10 @@ export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
     async plan({ thread, messages, parentId, fresh: restart }): Promise<LiveTurnPlan> {
       await deps.allow?.(thread, null);
       const cc = thread.settings.claude_code;
-      const [summary, seen] = await Promise.all([
+      const [summary, seen, sources] = await Promise.all([
         summaryFor(deps.branches, thread.id, messages, parentId),
         deps.store.seenForThread(thread.workspace_id, thread.id),
+        sourceNote(deps, thread),
       ]);
       const p = planClaudeTurn({
         messages,
@@ -83,6 +110,7 @@ export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
         cwd: cc?.cwd ?? null,
         ...(deps.budget !== undefined && { budget: deps.budget }),
         ...(restart && { fresh: true }),
+        ...(sources?.note && { notes: [sources.note] }),
       });
       const fresh = !!p.seed || (!p.anchor && parentId !== null) || restart === true;
       return {
@@ -94,6 +122,7 @@ export function claudeHooks(deps: ClaudeHookDeps): LiveEngineHooks {
         fresh,
         seedSummaryId: p.seed?.summaryId ?? null,
         report: p.prefix ? p.report : null,
+        ...(sources && { commit: sources.commit }),
       };
     },
 

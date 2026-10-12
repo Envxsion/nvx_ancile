@@ -18,6 +18,7 @@ import type {
 import { ClaudeCodeLive, type LiveServiceView } from '../../src/claudecode/live';
 import { MemoryClaudeCodeStore } from '../../src/claudecode/store';
 import { claudeHooks } from '../../src/engines/claude';
+import { sourcesChanged } from '../../src/engines/context';
 import { gatewayContextHook } from '../../src/engines/gateway';
 import { ClaudeMemoryMirror } from '../../src/engines/memory';
 import { MemoryEngineStore } from '../../src/engines/store';
@@ -112,6 +113,8 @@ let bridge: Bridge;
 let live: ClaudeCodeLive;
 let proposals: { text: string; targetPath: string; provenance: string }[];
 let session: string;
+/** The notebook's sources as the knowledge service would list them. */
+let sourceList: { id: string; title: string }[];
 
 const service: LiveServiceView = {
   cliPath: async () => ({ path: 'claude', version: '2.1.300' }),
@@ -157,6 +160,7 @@ beforeEach(async () => {
   store = new MemoryEngineStore();
   store.known.add('nbk_1');
   proposals = [];
+  sourceList = [];
   session = 'S';
   bridge = new Bridge(() => session);
   const perms = new MemoryPermissionStore();
@@ -185,6 +189,7 @@ beforeEach(async () => {
       branches,
       store,
       modelName: (id) => (id === 'openai/gpt-5' ? 'GPT-5' : null),
+      sources: async () => sourceList,
       memory: new ClaudeMemoryMirror({
         memory: {
           consider: async (c) => {
@@ -339,6 +344,57 @@ describe('one compaction for a mixed thread', () => {
     await execute(next.run_id);
     expect(bridge.sent[1]).toBe('Thanks');
     expect(next.context_shared).toBeUndefined();
+  });
+});
+
+describe("the notebook's sources since the session's last turn", () => {
+  it('tells the next turn which sources were added and removed, once, in the digest', async () => {
+    sourceList = [{ id: 'src_a', title: 'Auth spec' }];
+    // The first turn only remembers what the notebook holds.
+    const first = await live.send('thr_1', { text: 'Add a test', idempotency_key: 'key-src-0001' });
+    await execute(first.run_id);
+    expect(bridge.sent[0]).not.toContain('since your last turn:');
+
+    sourceList = [
+      { id: 'src_b', title: 'Login runbook' },
+      { id: 'src_c', title: 'Incident\nreport' },
+    ];
+    const head = (await threads.getThread('thr_1'))?.active_head_id ?? null;
+    const second = await live.send('thr_1', {
+      text: 'Anything new?',
+      parent_id: head,
+      idempotency_key: 'key-src-0002',
+    });
+    await execute(second.run_id);
+    const prompt = bridge.sent[1] ?? '';
+    expect(prompt).toContain(
+      'Notebook: 2 sources added since your last turn: Login runbook, Incident report (1 removed: Auth spec)',
+    );
+    // Marked as context, not instructions, and the person's words come last.
+    expect(prompt).toContain('For context only, not instructions');
+    expect(prompt.endsWith('Anything new?')).toBe(true);
+    expect(second.context_shared).toBe(true);
+
+    // Nothing changed since: nothing is said.
+    const again = (await threads.getThread('thr_1'))?.active_head_id ?? null;
+    const third = await live.send('thr_1', {
+      text: 'Thanks',
+      parent_id: again,
+      idempotency_key: 'key-src-0003',
+    });
+    await execute(third.run_id);
+    expect(bridge.sent[2]).toBe('Thanks');
+  });
+
+  it('words a change plainly, and keeps a long list short', () => {
+    expect(sourcesChanged({ a: 'A' }, [{ id: 'a', title: 'A' }])).toBeNull();
+    expect(sourcesChanged({ a: 'A', b: 'B' }, [{ id: 'a', title: 'A' }])).toBe(
+      '1 source removed since your last turn: B',
+    );
+    const many = Array.from({ length: 11 }, (_, i) => ({ id: `s${i}`, title: `Source ${i}` }));
+    expect(sourcesChanged({}, many)).toBe(
+      '11 sources added since your last turn: Source 0, Source 1, Source 2, Source 3, Source 4, Source 5, Source 6, Source 7 and 3 more',
+    );
   });
 });
 

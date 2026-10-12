@@ -172,6 +172,8 @@ export interface LiveTurnPlan {
   fresh: boolean;
   seedSummaryId: string | null;
   report: EngineContextReport | null;
+  /** Remember what the plan told the session (the notebook's sources), once the turn is sent. */
+  commit?: () => Promise<void>;
 }
 
 export interface LiveEngineHooks {
@@ -748,6 +750,11 @@ export class ClaudeCodeLive {
       throw err;
     }
     await this.deps.threads.patchThread(thread.id, { active_head_id: assistantId });
+    await plan
+      ?.commit?.()
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, "could not remember the notebook's sources for a session"),
+      );
     this.deps.worker.kick();
     const result: SendClaudeCodeResult = {
       run_id: runId,
