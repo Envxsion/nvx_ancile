@@ -340,6 +340,23 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `files.no_folder` | 404 | "The folder for <name> does not exist." / Create the folder first, then save again. |
 | `files.write_failed` | 500 | "<name> could not be saved." / Check the file is not open read-only elsewhere and the disk has space, then save again. |
 
+### Artifacts and the code interpreter
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `artifact.bad_key` | 400 | "That artifact name isn't valid." / Open the artifact from its answer and change the setting there. |
+| `interpreter.no_window` | 503 | "No NVX Ancile window is open to run Python." / Python runs inside an open window, sandboxed. Open one and ask again. (Given to the model as the tool result.) |
+| `interpreter.timeout` | 504 | "The Python run did not finish within <n> seconds." / Make the code do less, or ask for a longer limit (up to two minutes). |
+| `interpreter.cancelled` | 499 | "The Python run was stopped." / Ask again when you want it run. |
+| `interpreter.request_gone` | 410 | "That Python run is no longer waiting." / It finished, timed out or was stopped. Ask for it again if you still need it. |
+| `interpreter.claimed` | 409 | "Another window is running this." / Nothing to do: its result appears in every window. |
+| `interpreter.bad_args` | 400 | "That python_run call is not valid." / Names the argument and what was expected. |
+| `interpreter.file_unknown` | 400 | "No file called <name> is attached to this thread." / Lists the attached files, or says to add the file to the notebook first. |
+| `interpreter.files_too_large` | 413 | "<name> is too large to hand to Python." / Up to 20 MB a file and 50 MB in all; use a smaller extract. |
+| `interpreter.runtime_unavailable` | 503 | "The Python runtime could not be downloaded." / Check this machine can reach cdn.jsdelivr.net, then run the code again. It is downloaded once. |
+| `interpreter.runtime_mismatch` | 502 | "A downloaded Python runtime file did not match its pinned fingerprint." / It was thrown away and nothing ran. Try again later; report it if it keeps happening. |
+| `interpreter.file_not_allowed` | 404 | "<file> is not part of the Python runtime." / Only the pinned Pyodide files and the allowed packages are served. |
+
 ### Claude Code
 
 | Code | HTTP | Title / hint |

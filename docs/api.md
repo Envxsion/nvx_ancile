@@ -356,6 +356,27 @@ Under `/api/v1` (packages/contracts/src/files.ts). Only the workspace (labs incl
 | `GET /files?path=&thread_id=` | Read one file (up to 2 MB): `{path, name, root {kind, path, label}, content, bytes, sha256, modified_at, binary}`. Runs the gate as `fs.read` (principal `person:editor`); only a refusal stops it |
 | `PUT /files {path, content, base_sha256, thread_id?, confirmed?}` | Save it. Runs the gate as `fs.write` on the real path. A refusal is `files.write_denied`; an ask is `409 files.needs_confirm` until the person sends `confirmed: true`, which is logged as an approved decision. A `base_sha256` that is not the file on disk is `409 files.changed`. Written to a temporary file, then renamed over the target |
 
+## Artifacts
+
+Under `/api/v1` (packages/contracts/src/artifacts.ts, docs/artifacts.md). Artifacts are parsed from the answers that wrote them; Core never serves one as a page.
+
+| Route | Does |
+|---|---|
+| `GET /threads/:id/artifacts` | `{items: [{key, type, title, allow_network, network_changed_at, versions: [{version, message_id, created_at, type, title, language, content, on_path}]}]}`. Every answer on any branch that wrote the same key is a version, oldest first |
+| `PUT /threads/:id/artifacts/:key/network {allow}` | Record the person's decision to let one artifact reach the network (https only). Off until this is called. Logged |
+
+## Code interpreter
+
+Under `/api/v1` (packages/contracts/src/interpreter.ts, docs/interpreter.md). `python_run` is a built-in tool (action `code.run`); these routes are for the Cockpit window that runs it.
+
+| Route | Does |
+|---|---|
+| `GET /interpreter/status` | `{version, cached_bytes, ready, downloading}` for the Python runtime |
+| `GET /interpreter/runtime/:version/:file` | One runtime file or allow-listed package, downloaded on first use and served only after its pinned SHA-256 matched. `pyodide-lock.json` lists only the allowed packages |
+| `POST /interpreter/requests/:id/claim {client_id}` | Take a request announced by the global event `interpreter.requested`; the first window wins (`409 interpreter.claimed` after), and gets `InterpreterRequest` |
+| `POST /interpreter/requests/:id/result` | The claiming window's `InterpreterOutcome` (stdout, stderr, PNG figures, error, duration). Figures are stored and named by id in the tool result |
+| `GET /interpreter/figures/:id` | A stored figure, `image/png` with `nosniff` and a sandboxing CSP |
+
 ## Works with Claude Code
 
 Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudecode.ts`):
