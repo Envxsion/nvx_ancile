@@ -125,7 +125,7 @@ The app has two kinds of page, and each has its own policy.
 
   ```
   default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self';
+  img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';
   worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'
   ```
 
@@ -137,7 +137,7 @@ The exceptions, and why each is there:
 |---|---|---|
 | `script-src` | `'sha256-…'` | The theme script in `<head>` (`BOOT_SCRIPT`), so the first paint has the right theme; the dev server's React refresh preamble in development. Hashes are computed at build time, so a changed script that is not rebuilt does not run. No `'unsafe-inline'`, no `'unsafe-eval'` (zod runs jitless for this, `src/lib/strict.ts`). |
 | `style-src` | `'unsafe-inline'` | `<style>` elements made at run time: a person's own CSS (Settings → Advanced), Radix's scroll lock, the dev server's CSS. Styles cannot fetch past `img-src` and `font-src`. |
-| `img-src` | `data: blob: https:` | Pictures Python and artifacts draw (`data:`), files offered for download (`blob:`), and a picture in an answer that the person chose to load (`https:`; never loaded without that click). |
+| `img-src` | `data: blob:` | Pictures Python and artifacts draw (`data:`) and files offered for download (`blob:`). A remote picture the person chose to load comes through Core's image proxy, so no remote host is allowed (docs/images.md). |
 | `font-src` | `data:` | Fonts pdf.js embeds from a PDF. |
 | `frame-src` | `'self'`, narrowed by the header to `/frame.html` | Artifacts and the Python sandbox (below). |
 

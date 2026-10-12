@@ -41,8 +41,8 @@ export const COCKPIT_CSP: Readonly<Record<string, readonly string[]>> = {
   // Radix's scroll lock, the dev server's CSS. Styles cannot reach the
   // network past img-src and font-src below.
   'style-src': ["'self'", "'unsafe-inline'"],
-  // https: only for a picture in an answer the person chose to load (SafeImage).
-  'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+  // No https: a remote picture the person chose to load comes through Core's image proxy (docs/images.md).
+  'img-src': ["'self'", 'data:', 'blob:'],
   // data: for the fonts pdf.js embeds from a PDF.
   'font-src': ["'self'", 'data:'],
   // Core is this origin: REST, SSE and, in development, the dev server's socket.
