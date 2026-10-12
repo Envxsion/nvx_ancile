@@ -35,6 +35,10 @@ export interface PullEvent {
   error?: string;
 }
 
+/** An error Ollama passes on from its own connection to the registry. */
+export const NETWORK_TROUBLE =
+  /i\/o timeout|timed? ?out|dial tcp|connection (?:reset|refused)|no such host|TLS handshake|unexpected EOF|network is unreachable/i;
+
 export class OllamaError extends Error {
   constructor(
     message: string,
@@ -209,7 +213,9 @@ export class OllamaClient {
             } catch {
               continue;
             }
-            if (ev.error) throw new OllamaError(ev.error, 'refused');
+            // Ollama reports its own network trouble (registry timeouts, resets) the
+            // same way as a refusal: that is a stalled download, and Resume fixes it.
+            if (ev.error) throw new OllamaError(ev.error, NETWORK_TROUBLE.test(ev.error) ? 'stalled' : 'refused');
             yield ev;
             if (ev.status === 'success') done = true;
           }
