@@ -262,6 +262,12 @@ The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer toke
 
 The lab's MCP endpoint (`/mcp/lab`) answers 401 with a JSON-RPC error unless the bearer token is the lab's gateway token (`AGENT_GATEWAY_TOKEN`). A call the gate denies answers `isError` with "Not allowed: …"; a call that needs a person and has no approval yet answers `isError` and asks the lab to try again (the approval appears in NVX Ancile when the lab uses the tool).
 
+### Engines
+
+Choosing an engine for a turn (docs/engines.md) refuses with the scope's own codes (see Scopes above: `scope.private_notebook`, `scope.data_stays_local`, `scope.engine_not_allowed`, `scope.model_not_allowed`), as HTTP 403, before anything is written. The title is the scope's reason; the hint is "Pick another model, or change what this notebook or thread allows in its scope settings."
+
+Claude Code as a model fails like any model (`provider.unavailable`, then a fallback when the chain has one): "Claude Code could not answer", or "The Claude bridge stopped".
+
 ### Credentials {#credentials}
 
 Settings → API keys (`/api/v1/credentials`). A value is never echoed in an error: anything a provider says back is scrubbed of it first.
@@ -320,7 +326,7 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `claude_code.not_bound` | 409 | "This thread did not come from Claude Code." / Only threads brought in from Claude Code can be synced. |
 | `claude_code.cli_failed` | 502 | "Claude Code could not <do that>." with its words / Run the same command in a terminal to see why, then try again. |
 | `claude_code.session_busy` | 409 | "This session is open in Claude Code somewhere else." / Close it there (or wait a minute after its last reply), or press Continue as a branch to carry on in a fork of it. |
-| `claude_code.branch_unmapped` | 409 | "That message is not part of the Claude Code session." / Send from a message that came from Claude Code, or from the latest message in the thread. |
+| `claude_code.branch_unmapped` | 409 | "That message is not part of the Claude Code session." / Send from a message that came from Claude Code, or from the latest message in the thread. Only without the engines module: with it, a parent written by another model goes on from Claude Code's latest message (docs/engines.md). |
 | `claude_code.no_folder` | 409 | "This session's folder is not on this computer." / Claude Code runs a session in its own folder. Restore the folder, or start a new session in Claude Code. |
 | `claude_code.live_failed` | 502 | "Claude Code stopped before it answered." with its words / Try again. If it keeps happening, run the same session in a terminal to see why. |
 | `claude_code.not_live` | 409 | "Nothing is running in this Claude Code thread." / There is nothing to stop. |

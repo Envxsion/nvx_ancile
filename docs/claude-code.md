@@ -88,6 +88,21 @@ Type in a Claude Code thread and it carries the session on, in your own installe
 - **Model and effort.** A send may choose the model and effort; they apply to the session from then on.
 - **Telemetry.** With Claude Code usage reporting off, sessions run with `DISABLE_TELEMETRY` too.
 
+### Other models in a Claude Code thread
+
+A Claude Code thread can take a turn from any other model (pick it in the composer) and go back to Claude Code afterwards; the thread keeps its session (docs/engines.md).
+
+- **Claude Code is never sent its own history again.** The next Claude Code turn goes on from its latest message on the branch, with only a short digest of what the other models said since (tool steps as one-line digests, at most about 2,000 tokens), marked as context, not instructions. The thread shows a one-line notice above that answer: "This thread's context will be sent to Claude Code".
+- **The other model reads a fitted copy.** It gets NVX Ancile's compaction summary, the latest turns with every Claude Code tool step as one line ("read src/app.ts (420 lines)"), and older turns that bear on the question, within its own window. Full tool outputs are never resent.
+- **One compaction.** NVX Ancile's summary is the record of a mixed thread. When a Claude Code turn comes after an NVX Ancile compaction its session has not been given, it starts a fresh Claude Code session seeded with that summary, bound to the same thread. Claude Code's own `/compact` is not used for this: it would spend a second summarising call and write a different summary.
+- **Your instructions.** A thread's or notebook's instructions and persona in NVX Ancile go into the note appended to Claude Code's system prompt, after NVX Ancile's base note. The note stays the same between turns, so Claude Code's prompt cache holds.
+- **Memory.** When Claude Code writes to a CLAUDE.md, its auto-memory or the memory tool, the lines it added are offered to NVX Ancile's memory as proposals for you to accept, never written to it directly.
+- **Scopes.** Where a notebook or thread does not allow Claude Code (a private notebook, nothing leaving this machine), sending to Claude Code is refused before anything runs.
+
+### Claude Code as a model
+
+With Claude Code installed and verified, `claude-code/default`, `claude-code/opus`, `claude-code/sonnet` and `claude-code/haiku` are in the model list for any thread, routing chain or flow. Each call is one Claude Code turn with its built-in tools off and none of your Claude Code settings loaded; its only tools are NVX Ancile's own for that thread, each decided by the permission gate. Free in chat and routing; inside Beam and the Flow lab it is Pro. See docs/engines.md.
+
 ### Approvals
 
 Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Grants), so Claude Code asks again next time and the grant answers.
@@ -173,3 +188,4 @@ Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Clau
 - A session is "open elsewhere" when its file was written by another process in the last minute; one open in a terminal but idle for longer is not detected. TODO(phase-3): ask Claude Code itself whether a session is open.
 - A hosted MCP server added while a session is open reaches it on the session's next start (the MCP server for sessions does not push tool changes yet).
 - Images in a message sent from NVX Ancile are not passed on yet. TODO(phase-3): attachments in live turns.
+- Claude Code as a model cannot wait for an approval: a tool call that would ask is refused. TODO(phase-4): approvals inside Mode A calls.

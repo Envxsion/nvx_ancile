@@ -27,6 +27,7 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `fallback` | `from_model`, `to_model`, `reason`, `detail` | Muted footer note: "answered by X · Y was unavailable" |
 | `compute.waiting` | `node_id`, `eta_s`, `can_use_cloud` | "Waking your GPU node · about 80 s", with **Use a cloud model instead** |
 | `usage` | `message_id`, `usage` | Footer tokens and cost |
+| `context.shared` | `message_id`, `engine`, `notice`, `turns`, `tokens`, `seeded_from_summary` | One line above the answer: some of the thread went to Claude Code (docs/engines.md) |
 | `warning` | `code`, `message` | Inline notice |
 | `error` | `code`, `title`, `hint`, `attempts[]` | Error block with **Copy debug info** |
 | `done` | `message_id` | Stream ends |
