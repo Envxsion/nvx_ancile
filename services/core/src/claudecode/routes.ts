@@ -66,6 +66,11 @@ export function claudeCodeRoutes(deps: {
 
   r.get('/claude-code/threads/:id/live', async (c) => c.json(await live().state(c.req.param('id'))));
 
+  // The person chose another model while the turn waits on approvals: they are withdrawn.
+  r.post('/claude-code/threads/:id/model-changed', async (c) =>
+    c.json(await live().modelChanged(c.req.param('id'))),
+  );
+
   // The session's folder moved or went away: point to where it is now, or go on without files.
   r.post('/claude-code/threads/:id/folder', async (c) => {
     const req = await body(c, ClaudeCodeFolderRequest);

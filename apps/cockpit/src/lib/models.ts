@@ -20,6 +20,7 @@
 
 import { isClaudeCodeModel } from '@nvx/contracts';
 import { useRouterState } from '@tanstack/react-router';
+import { withdrawForModelChange } from '../claudecode/live';
 import { patchCc } from '../claudecode/store';
 import { ccName } from '../engines/api';
 import { helpDone } from '../help/store';
@@ -65,6 +66,8 @@ export function chooseInClaudeCodeThread(threadId: string, entry: { id: string; 
   const toClaude = isClaudeCodeModel(entry.id);
   if (toClaude) patchCc(threadId, { model: ccName(entry.id), other: null });
   else patchCc(threadId, { other: { id: entry.id, name: entry.name } });
+  // An approval the running turn waits on was asked under the old model: withdraw it.
+  void withdrawForModelChange(threadId);
   helpDone('switch-model');
   notify({
     level: 'success',

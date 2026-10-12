@@ -594,6 +594,54 @@ describe('permissions', () => {
     await run;
   });
 
+  it('withdraws an approval still waiting when its turn ends, so it can never be answered later', async () => {
+    const { sent, run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Bash', { command: 'npm test' }, 'tu1');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    expect(a.run_id).toBe(sent.run_id);
+    // The turn ends (stopped here) with the question unanswered.
+    await live.interrupt('thr_1');
+    await run;
+    expect((await perms.getApproval(a.id))?.status).toBe('cancelled');
+    const evs = await events.since(sent.run_id, 0);
+    expect(evs.find((e) => e.type === 'approval.resolved')).toMatchObject({
+      approval_id: a.id,
+      decision: 'cancelled',
+    });
+    // An answer that arrives now is for nobody: Claude Code hears nothing more.
+    const replies = bridge.replies.length;
+    expect(await live.resolved(a, 'approved')).toBe(false);
+    expect(bridge.replies.length).toBe(replies);
+  });
+
+  it('withdraws a waiting approval when the model changes, and tells the running turn', async () => {
+    const { sent, run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Write', { file_path: join(CWD, 'a.ts'), content: 'x' }, 'tu1');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => ({}) as never, live: () => live }));
+    const res = await app.request('/claude-code/threads/thr_1/model-changed', { method: 'POST' });
+    expect(await res.json()).toEqual({ withdrawn: 1 });
+    expect((await perms.getApproval(a.id))?.status).toBe('cancelled');
+    expect(bridge.replies.at(-1)).toMatchObject({
+      request_id: 'r1',
+      r: { behavior: 'deny', message: expect.stringContaining('model for this thread changed') },
+    });
+    expect(live.editable(a)).toBe(false);
+    // Nothing else was waiting.
+    expect(await live.modelChanged('thr_1')).toEqual({ withdrawn: 0 });
+    end(bridge, 'h1', '', undefined);
+    await run;
+    expect(await kinds(sent.run_id)).toContain('approval.resolved');
+  });
+
   it('denies with the reason, never asking twice, and makes a write outside the folder critical', async () => {
     perms.createGrant({
       userId: USER,

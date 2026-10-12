@@ -137,6 +137,8 @@ Paths are checked as written by Claude Code, in posix form (`C:\code\app\a.ts` i
 
 A call that asks shows in the normal approval dialog with its full arguments, and you may change them before approving it once (for example, narrow a shell command): the permission is decided again on your changed arguments, and Claude Code runs the changed call. A denial goes back to Claude Code with your reason. A question nobody answers expires like any other (24 hours by default), which Claude Code hears as a denial.
 
+Each question belongs to the turn (the run) that asked it. When that turn ends, however it ends, a question still open is withdrawn: it is cancelled, every window's dialog closes, and an answer that arrives later does nothing. When you choose another model in the composer while a turn waits on a question, the question is withdrawn too ("The waiting request was withdrawn"), and Claude Code hears that the model changed while it waited; it can ask again.
+
 ### Sources and citations
 
 The notebook's notes and sources are the session's primary sources. Each live session gets NVX Ancile's MCP server, `ancile`, with `search` (the notebook's sources, numbered passages with their source and chunk ids), `read_source` and `memory_search`, plus the tools of every MCP server NVX Ancile hosts, so Claude Code never holds their secrets. A short, unchanging note in Claude Code's system prompt names the notebook and asks it to cite passages by their `[n]` markers as returned.

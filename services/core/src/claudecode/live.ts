@@ -318,6 +318,8 @@ interface WaitingAsk {
   ask: LivePermissionAsk;
   mapped: MappedTool;
   askedAt: number;
+  /** The turn (run) it was asked in: it lives and dies with that turn. */
+  runId: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -791,6 +793,7 @@ export class ClaudeCodeLive {
       !(auto && l.effort !== null)
     ) {
       if (cp.model && cp.model !== l.model) {
+        await this.withdrawWaiting(l, 'model_changed');
         await this.deps.bridge.control(l.handle, 'set_model', { model: cp.model });
         l.model = cp.model;
       }
@@ -1000,12 +1003,8 @@ export class ClaudeCodeLive {
       if (l.state === 'working') l.state = l.handle ? 'ready' : 'idle';
       const sid = turn.sessionId ?? cp.sessionId;
       this.ownWrites.set(sid, this.now());
-      for (const [id, w] of this.waiting)
-        if (w.live === l) {
-          this.waiting.delete(id);
-          await this.deps.permissions.resolveApproval(id, { status: 'cancelled' }).catch(() => false);
-          await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
-        }
+      // A question still open when its turn ends is withdrawn, never left for a later turn.
+      await this.withdrawWaiting(l, 'turn_ended');
     }
   }
 
@@ -1550,7 +1549,7 @@ export class ClaudeCodeLive {
       suggestions: decision.tier === 'critical' ? [] : decision.suggestions,
       expiresAt: new Date(this.now() + (this.deps.approvalTtlMs ?? APPROVAL_TTL_MS)).toISOString(),
     });
-    this.waiting.set(approval.id, { live: l, ask, mapped, askedAt: this.now() });
+    this.waiting.set(approval.id, { live: l, ask, mapped, askedAt: this.now(), runId: t.runId });
     const ts = t.toolSpans.get(callId);
     if (ts) ts.asked = this.now();
     else
@@ -1583,6 +1582,44 @@ export class ClaudeCodeLive {
         tier: decision.tier,
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * Withdraw the questions a thread's session is waiting on: its turn
+   * ended, or the model changed while they waited. Each is cancelled (so
+   * it can never be answered later), every window's dialog closes, and a
+   * turn still running hears that it was withdrawn. Returns how many.
+   */
+  private async withdrawWaiting(l: Live, why: 'turn_ended' | 'model_changed'): Promise<number> {
+    let n = 0;
+    for (const [id, w] of [...this.waiting]) {
+      if (w.live !== l) continue;
+      this.waiting.delete(id);
+      n++;
+      await this.deps.permissions.resolveApproval(id, { status: 'cancelled' }).catch(() => false);
+      await this.deps.events
+        .append(w.runId, { type: 'approval.resolved', approval_id: id, decision: 'cancelled' })
+        .catch(() => undefined);
+      await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
+      if (why === 'model_changed' && l.turn?.runId === w.runId)
+        await this.reply(l, w.ask, {
+          behavior: 'deny',
+          message: 'The model for this thread changed while this was waiting, so the request was withdrawn.',
+        });
+    }
+    if (n)
+      log.info(
+        { thread_id: l.threadId, approvals: n, why },
+        'withdrew approvals a Claude Code turn was waiting on',
+      );
+    return n;
+  }
+
+  /** The person chose another model while a turn waits on approvals: they are withdrawn. */
+  async modelChanged(threadId: string): Promise<{ withdrawn: number }> {
+    const thread = await this.thread(threadId);
+    const l = this.lives.get(thread.id);
+    return { withdrawn: l ? await this.withdrawWaiting(l, 'model_changed') : 0 };
   }
 
   /** Is this approval one a live session is waiting on (so its arguments may be edited)? */
@@ -1619,6 +1656,8 @@ export class ClaudeCodeLive {
     if (!w) return false;
     this.waiting.delete(a.id);
     const t = w.live.turn;
+    // Its turn is over (or another one is running): an answer now is for nobody.
+    if (t?.runId !== w.runId) return true;
     const span = t?.toolSpans.get(a.call_id ?? '');
     span?.span.set({
       approval: status,

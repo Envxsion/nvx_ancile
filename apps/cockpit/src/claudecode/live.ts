@@ -265,6 +265,28 @@ export function continueAsBranch(
   return sendClaudeCode({ threadId, ...retry, ...opts, asBranch: true });
 }
 
+/**
+ * The model changed while a turn works: any approval it is waiting on was
+ * asked under the old choice, so Core withdraws it (never left to answer
+ * later). Quiet when nothing was waiting.
+ */
+export async function withdrawForModelChange(threadId: string): Promise<void> {
+  const live = queryClient.getQueryData<ClaudeCodeLiveState>(CC_LIVE_KEYS.live(threadId));
+  if (live?.state !== 'working') return;
+  try {
+    const r = await api.post<{ withdrawn: number }>(`/claude-code/threads/${threadId}/model-changed`);
+    if (r.withdrawn > 0)
+      notify({
+        level: 'info',
+        title:
+          r.withdrawn === 1 ? 'The waiting request was withdrawn' : 'The waiting requests were withdrawn',
+        body: 'They were asked before you changed the model. Claude Code hears they were withdrawn; it can ask again.',
+      });
+  } catch {
+    // Nothing to withdraw, or Core is away: the turn's end withdraws them anyway.
+  }
+}
+
 /** Stop the running turn: Claude Code's own interrupt. What streamed is kept. */
 export async function interruptClaudeCode(threadId: string): Promise<void> {
   try {

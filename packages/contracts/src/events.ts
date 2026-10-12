@@ -123,7 +123,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     ...base,
     type: z.literal('approval.resolved'),
     approval_id: z.string(),
-    decision: z.enum(['approved', 'denied', 'expired']),
+    /** cancelled: withdrawn because its turn ended or the model changed (it never ran). */
+    decision: z.enum(['approved', 'denied', 'expired', 'cancelled']),
   }),
   z.object({
     ...base,
