@@ -12,19 +12,39 @@
  *           |  [char_start, char_end) from a citation highlights the
  *           |  very characters that were cited. Pages come from the
  *           |  page table and show as quiet dividers.
- *  Note     |  Inline markdown is shown as written: this is the
- *           |  source, not a rendering of it.
+ *           |  A PDF opens on its original pages (PdfViewer), with
+ *           |  "Text" one click away. The text view is Raw (the
+ *           |  blocks above, exactly as stored) or Rendered (the
+ *           |  answer's markdown pipeline); a citation opens Raw so the
+ *           |  exact span stays highlighted.
+ *  Note     |  The choices last for the session, per source.
  * ------------------------------------------------------------------
  */
 
 import type { SourceContent } from '@nvx/contracts';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Streamdown } from 'streamdown';
 import { useSource, useSourceContent } from '../lib/data';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
+import { MD_COMPONENTS } from '../thread/Citations';
+import { REMARK_PLUGINS } from '../thread/mdPlugins';
+import { Segmented } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
+import { isMarkdown, isPdf } from './pdf';
 import { KIND_ICON } from './SourceCard';
+
+// pdf.js is large: its viewer (and pdf.js itself) load only when a PDF is opened.
+const PdfViewer = lazy(() => import('./PdfViewer').then((m) => ({ default: m.PdfViewer })));
+
+type Mode = 'original' | 'text';
+type TextView = 'rendered' | 'raw';
+/** The session's choices per source (cleared on reload). */
+const modeMemory = new Map<string, Mode>();
+const viewMemory = new Map<string, TextView>();
+/** Longer than this, the rendered view would be slow: raw only. */
+const RENDER_MAX = 400_000;
 
 interface Block {
   start: number;
@@ -127,20 +147,48 @@ export function SourceViewer({
   const [findOpen, setFindOpen] = useState(false);
   const [hit, setHit] = useState(0);
   const [outline, setOutline] = useState(false);
+  const [modeChoice, setModeChoice] = useState<Mode | null>(() => modeMemory.get(sourceId) ?? null);
+  const [viewChoice, setViewChoice] = useState<TextView | null>(() => viewMemory.get(sourceId) ?? null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const hi: [number, number] | null = start != null && end != null && end > start ? [start, end] : null;
   const blocks = useMemo(() => (content.data ? blocksOf(content.data) : []), [content.data]);
 
+  const s = source.data;
+  const citePage = hi
+    ? content.data?.pages.find((p) => hi[0] >= p.char_start && hi[0] < p.char_end)?.page
+    : undefined;
+
+  // A PDF opens on its pages, unless a citation has no page to land on.
+  const pdf = s ? isPdf(s) : false;
+  const mode: Mode = pdf ? (modeChoice ?? (hi && content.data && !citePage ? 'text' : 'original')) : 'text';
+  const tooLong = (content.data?.markdown.length ?? 0) > RENDER_MAX;
+  // A citation shows the exact characters (raw); markdown files read rendered.
+  const view: TextView = tooLong
+    ? 'raw'
+    : hi
+      ? (viewChoice ?? 'raw')
+      : (viewChoice ?? (s && isMarkdown(s) ? 'rendered' : 'raw'));
+  const raw = mode === 'text' && view === 'raw';
+
+  const chooseMode = (m: Mode) => {
+    modeMemory.set(sourceId, m);
+    setModeChoice(m);
+  };
+  const chooseView = (v: TextView) => {
+    viewMemory.set(sourceId, v);
+    setViewChoice(v);
+  };
+
   // Land on the cited passage, centred, once the text is in.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs when the text, span or query changes; the DOM holds the target
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs when the text, span or view changes; the DOM holds the target
   useEffect(() => {
-    if (!blocks.length) return;
+    if (!blocks.length || !raw) return;
     const el = bodyRef.current?.querySelector<HTMLElement>('[data-cite]');
     if (el) {
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
       el.classList.add('viewer__cite--land');
     } else bodyRef.current?.scrollTo({ top: 0 });
-  }, [blocks, start, end]);
+  }, [blocks, start, end, raw]);
 
   // Walk find matches.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs when the text, span or query changes; the DOM holds the target
@@ -159,11 +207,6 @@ export function SourceViewer({
     return n;
   }, [find, content.data]);
 
-  const s = source.data;
-  const citePage = hi
-    ? content.data?.pages.find((p) => hi[0] >= p.char_start && hi[0] < p.char_end)?.page
-    : undefined;
-
   const jump = (offset: number) => {
     const target = blocks.find((b) => b.start >= offset) ?? blocks[blocks.length - 1];
     if (!target) return;
@@ -172,6 +215,8 @@ export function SourceViewer({
       ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     setOutline(false);
   };
+
+  const citeText = hi && content.data ? content.data.markdown.slice(hi[0], hi[1]) : null;
 
   return (
     <section className="viewer" aria-label={`Source: ${s?.title ?? 'loading'}`} data-tour="viewer">
@@ -197,7 +242,7 @@ export function SourceViewer({
           </p>
         </div>
         <div className="viewer__tools">
-          {content.data?.outline.length ? (
+          {raw && content.data?.outline.length ? (
             <button
               type="button"
               className="icon-btn icon-btn--sm"
@@ -208,15 +253,21 @@ export function SourceViewer({
               <Icon name="cite" size={14} />
             </button>
           ) : null}
-          <button
-            type="button"
-            className="icon-btn icon-btn--sm"
-            aria-label="Find in this source"
-            aria-pressed={findOpen}
-            onClick={() => setFindOpen((o) => !o)}
-          >
-            <Icon name="search" size={14} />
-          </button>
+          {mode === 'text' ? (
+            <button
+              type="button"
+              className="icon-btn icon-btn--sm"
+              aria-label="Find in this source"
+              aria-pressed={findOpen}
+              onClick={() => {
+                // Find walks the raw text, where every match can be marked.
+                if (!findOpen && view === 'rendered') chooseView('raw');
+                setFindOpen((o) => !o);
+              }}
+            >
+              <Icon name="search" size={14} />
+            </button>
+          ) : null}
           {hi && content.data ? (
             <button
               type="button"
@@ -254,86 +305,160 @@ export function SourceViewer({
         </div>
       </header>
 
-      {findOpen ? (
-        <div className="viewer__find-bar">
-          <Icon name="search" size={13} />
-          <input
-            // biome-ignore lint/a11y/noAutofocus: the person just asked to find
-            autoFocus
-            value={find}
-            onChange={(e) => {
-              setFind(e.target.value);
-              setHit(0);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter')
-                setHit((h) => (matchCount ? (h + (e.shiftKey ? -1 + matchCount : 1)) % matchCount : 0));
-              if (e.key === 'Escape') {
-                e.stopPropagation();
-                setFindOpen(false);
-                setFind('');
-              }
-            }}
-            placeholder="Find in this source"
-            aria-label="Find in this source"
-          />
-          <span className="mute" data-num>
-            {find.length >= 2 ? (matchCount ? `${hit + 1} of ${matchCount}` : 'None') : ''}
-          </span>
+      {pdf || (content.data && !tooLong) ? (
+        <div className="viewer__modes">
+          {pdf ? (
+            <Segmented<Mode>
+              size="sm"
+              label="Show the source as"
+              value={mode}
+              onChange={chooseMode}
+              options={[
+                { value: 'original', label: 'Original', icon: 'file' },
+                { value: 'text', label: 'Text', icon: 'text' },
+              ]}
+            />
+          ) : null}
+          {mode === 'text' && content.data && !tooLong ? (
+            <Segmented<TextView>
+              size="sm"
+              label="Show the text as"
+              value={view}
+              onChange={(v) => {
+                chooseView(v);
+                if (v === 'rendered') {
+                  setFindOpen(false);
+                  setFind('');
+                  setOutline(false);
+                }
+              }}
+              options={[
+                { value: 'rendered', label: 'Rendered' },
+                { value: 'raw', label: 'Raw' },
+              ]}
+            />
+          ) : null}
         </div>
       ) : null}
 
-      {outline && content.data ? (
-        <nav className="viewer__outline" aria-label="Contents">
-          <ul>
-            {content.data.outline.map((o) => (
-              <li key={o.char_start} style={{ paddingLeft: `${(o.level - 1) * 12}px` }}>
-                <button type="button" className="link-btn link-btn--quiet" onClick={() => jump(o.char_start)}>
-                  {o.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      ) : null}
+      {mode === 'original' ? (
+        <Suspense
+          fallback={
+            <div className="viewer__body">
+              <Skeleton lines={10} label="Loading the PDF viewer" />
+            </div>
+          }
+        >
+          <PdfViewer
+            key={sourceId}
+            sourceId={sourceId}
+            citePage={citePage ?? null}
+            citeText={citeText}
+            onShowText={() => chooseMode('text')}
+          />
+        </Suspense>
+      ) : (
+        <>
+          {findOpen && raw ? (
+            <div className="viewer__find-bar">
+              <Icon name="search" size={13} />
+              <input
+                // biome-ignore lint/a11y/noAutofocus: the person just asked to find
+                autoFocus
+                value={find}
+                onChange={(e) => {
+                  setFind(e.target.value);
+                  setHit(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter')
+                    setHit((h) => (matchCount ? (h + (e.shiftKey ? -1 + matchCount : 1)) % matchCount : 0));
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    setFindOpen(false);
+                    setFind('');
+                  }
+                }}
+                placeholder="Find in this source"
+                aria-label="Find in this source"
+              />
+              <span className="mute" data-num>
+                {find.length >= 2 ? (matchCount ? `${hit + 1} of ${matchCount}` : 'None') : ''}
+              </span>
+            </div>
+          ) : null}
 
-      <div className="viewer__body" ref={bodyRef} data-scrollable>
-        {content.isPending ? (
-          <Skeleton lines={14} label="Loading the source" />
-        ) : content.isError ? (
-          <p className="viewer__error">
-            This source's text could not be loaded. It may still be being read; try again in a moment.
-          </p>
-        ) : (
-          blocks.map((b, i) => {
-            const newPage = b.page != null && b.page !== blocks[i - 1]?.page;
-            const Tag =
-              b.kind === 'h1'
-                ? 'h3'
-                : b.kind === 'h2'
-                  ? 'h4'
-                  : b.kind === 'h3'
-                    ? 'h5'
-                    : b.kind === 'code'
-                      ? 'pre'
-                      : 'p';
-            return (
-              <div key={b.start} data-start={b.start}>
-                {newPage ? (
-                  <div className="viewer__page" data-num>
-                    Page {b.page}
+          {outline && raw && content.data ? (
+            <nav className="viewer__outline" aria-label="Contents">
+              <ul>
+                {content.data.outline.map((o) => (
+                  <li key={o.char_start} style={{ paddingLeft: `${(o.level - 1) * 12}px` }}>
+                    <button
+                      type="button"
+                      className="link-btn link-btn--quiet"
+                      onClick={() => jump(o.char_start)}
+                    >
+                      {o.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : null}
+
+          <div className="viewer__body" ref={bodyRef} data-scrollable data-view={view}>
+            {content.isPending ? (
+              <Skeleton lines={14} label="Loading the source" />
+            ) : content.isError ? (
+              <p className="viewer__error">
+                This source's text could not be loaded. It may still be being read; try again in a moment.
+              </p>
+            ) : !content.data?.markdown.trim() ? (
+              <p className="viewer__error">
+                No text was found in this source.{pdf ? ' Choose Original to see its pages.' : ''}
+              </p>
+            ) : view === 'rendered' ? (
+              <Streamdown
+                className="md viewer__md"
+                mode="static"
+                controls={false}
+                components={MD_COMPONENTS}
+                remarkPlugins={REMARK_PLUGINS}
+              >
+                {content.data.markdown}
+              </Streamdown>
+            ) : (
+              blocks.map((b, i) => {
+                const newPage = b.page != null && b.page !== blocks[i - 1]?.page;
+                const Tag =
+                  b.kind === 'h1'
+                    ? 'h3'
+                    : b.kind === 'h2'
+                      ? 'h4'
+                      : b.kind === 'h3'
+                        ? 'h5'
+                        : b.kind === 'code'
+                          ? 'pre'
+                          : 'p';
+                return (
+                  <div key={b.start} data-start={b.start}>
+                    {newPage ? (
+                      <div className="viewer__page" data-num>
+                        Page {b.page}
+                      </div>
+                    ) : null}
+                    <Tag className={`viewer__block viewer__block--${b.kind}`} dir="auto">
+                      {b.kind.startsWith('h')
+                        ? b.text.replace(/^#{1,6}\s+/, '')
+                        : marked(b, hi, findOpen ? find : '')}
+                    </Tag>
                   </div>
-                ) : null}
-                <Tag className={`viewer__block viewer__block--${b.kind}`} dir="auto">
-                  {b.kind.startsWith('h')
-                    ? b.text.replace(/^#{1,6}\s+/, '')
-                    : marked(b, hi, findOpen ? find : '')}
-                </Tag>
-              </div>
-            );
-          })
-        )}
-      </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }

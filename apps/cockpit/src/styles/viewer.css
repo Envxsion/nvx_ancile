@@ -1,0 +1,296 @@
+/*
+ * ------------------------------------------------------------------
+ *  Title    |  Source viewer: PDF pages and rendered text
+ *  Ref      |  sources/PdfViewer.tsx · sources/SourceViewer.tsx
+ *  ID       |  cockpit
+ * ------------------------------------------------------------------
+ *  Purpose  |  The Original / Text and Rendered / Raw switches, the
+ *           |  PDF toolbar, pages that sit on the panel like paper,
+ *           |  pdf.js's text layer, and the cite and find marks.
+ *  How      |  Tokens only. The cite mark reuses the text view's
+ *           |  signal tint (it marks what the answer is pointing at);
+ *           |  find matches use the warn tint, as in the text view.
+ *           |  The .textLayer rules are the minimum pdf.js needs to
+ *           |  lay its runs over the canvas (from its viewer CSS).
+ * ------------------------------------------------------------------
+ */
+
+.viewer__modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 0;
+}
+
+.viewer__md {
+  white-space: normal;
+}
+/* A source reads inside the panel: headings stay a step above the text. */
+.viewer__md :is(h1, h2) {
+  margin: 18px 0 8px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.viewer__md :is(h3, h4, h5, h6) {
+  margin: 16px 0 6px;
+  font-size: 15px;
+}
+.viewer__md > :first-child {
+  margin-top: 0;
+}
+
+/* ---- PDF ---------------------------------------------------------------- */
+
+.pdf {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.pdf__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+.pdf__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pdf__pageno {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-small);
+}
+.pdf__pageno input {
+  width: 44px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font: inherit;
+  text-align: center;
+  background: rgb(var(--void-rgb) / 0.4);
+  box-shadow: var(--vault);
+}
+.pdf__pageno input:focus-visible {
+  outline: var(--focus-w) solid var(--focus-color);
+  outline-offset: 1px;
+}
+.pdf__zoom {
+  min-width: 46px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  transition:
+    color var(--d-micro) var(--ease-out),
+    background var(--d-micro) var(--ease-out);
+}
+.pdf__zoom:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--wash-2);
+}
+.pdf__zoom:focus-visible {
+  outline: var(--focus-w) solid var(--focus-color);
+  outline-offset: 1px;
+}
+.pdf__find {
+  gap: 6px;
+}
+.pdf__cite-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px 0;
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.pdf__cite-line[data-state='missing'] {
+  color: var(--warn);
+}
+
+.pdf__scroll {
+  flex: 1;
+  min-height: 0;
+  margin-top: 8px;
+  padding: 4px 12px 40px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  outline: none;
+}
+.pdf__scroll:focus-visible {
+  box-shadow: var(--focus-ring-inset);
+}
+.pdf__loading {
+  align-self: stretch;
+}
+.pdf__loading-note {
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+
+/* A page is paper, lifted off the panel; the drawn canvas brings its own white. */
+.pdf__page {
+  position: relative;
+  flex: none;
+  border-radius: 2px;
+  background: var(--lift-3);
+  box-shadow: var(--elev-2);
+  overflow: hidden;
+  animation: pdf-page-in var(--d-short) var(--ease-out) both;
+}
+.pdf__page[data-cited] {
+  box-shadow:
+    var(--elev-2),
+    0 0 0 2px rgb(var(--signal-rgb) / 0.5);
+  animation: pdf-page-cited 1.6s var(--ease-out) 1;
+}
+.pdf__canvas {
+  display: block;
+}
+.pdf__placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--mute);
+}
+
+.pdf__mark {
+  color: transparent;
+  border-radius: 2px;
+  padding: 1px 0;
+}
+.pdf__mark--cite {
+  background: rgb(var(--signal-rgb) / 0.32);
+  box-shadow: 0 0 0 1px rgb(var(--signal-rgb) / 0.45);
+}
+.pdf__mark--land {
+  animation: pdf-cite-land 1.6s var(--ease-out) 1;
+}
+.pdf__mark--find {
+  background: rgb(var(--warn-rgb) / 0.32);
+}
+.pdf__mark--find[data-current='true'] {
+  background: rgb(var(--warn-rgb) / 0.65);
+  box-shadow: 0 0 0 1px rgb(var(--warn-rgb) / 0.8);
+}
+
+.pdf--problem {
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
+}
+.pdf__problem-icon {
+  color: var(--warn);
+}
+.pdf__problem-title {
+  font-weight: 620;
+  color: var(--fg);
+}
+.pdf__problem-detail {
+  font-size: 11.5px;
+}
+.pdf__problem-hint {
+  color: var(--fg-2);
+}
+.pdf__problem-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@keyframes pdf-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes pdf-page-cited {
+  0% {
+    box-shadow:
+      var(--elev-2),
+      0 0 0 8px rgb(var(--signal-rgb) / 0.25);
+  }
+}
+@keyframes pdf-cite-land {
+  0% {
+    background: rgb(var(--signal-rgb) / 0.6);
+    box-shadow: 0 0 0 5px rgb(var(--signal-rgb) / 0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf__page,
+  .pdf__page[data-cited],
+  .pdf__mark--land {
+    animation: none;
+  }
+}
+
+/* ---- pdf.js text layer (positions the runs over the canvas) -------------- */
+
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent {
+  display: contents;
+}
+.textLayer ::selection {
+  color: transparent;
+  background: color-mix(in srgb, Highlight 40%, transparent);
+}
+.textLayer br::selection {
+  background: transparent;
+}
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}

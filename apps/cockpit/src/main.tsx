@@ -20,6 +20,7 @@ import './styles/thread.css';
 import './styles/overlays.css';
 import './styles/pages.css';
 import './styles/kit.css';
+import './styles/viewer.css';
 import './styles/composer.css';
 import './styles/spaces.css';
 import './styles/memory.css';
