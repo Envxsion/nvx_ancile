@@ -21,6 +21,7 @@
  */
 
 import { ModelConfig, type ModelHue, type ModelInfo } from '@nvx/contracts';
+import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { OFFLINE_MODELS } from './fake';
@@ -66,7 +67,8 @@ export class ModelRegistry {
   private customIds = new Set<string>();
 
   constructor(private readonly opts: RegistryOptions) {
-    this.models = [...opts.models, ...(opts.offline ? OFFLINE_MODELS : [])];
+    // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
+    this.models = [...opts.models, ...(opts.offline ? OFFLINE_MODELS : [])].map((m) => autoLimits(m));
   }
 
   /** Re-read which keys exist and which models were switched on. Cheap; call after any change. */
@@ -116,7 +118,7 @@ export class ModelRegistry {
     for (const r of raw) {
       const p = ModelConfig.safeParse(r);
       if (!p.success || this.models.some((m) => m.id === p.data.id)) continue;
-      this.models.push(p.data);
+      this.models.push(autoLimits(p.data));
       this.customIds.add(p.data.id);
     }
   }

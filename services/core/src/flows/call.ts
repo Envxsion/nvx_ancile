@@ -66,7 +66,7 @@ export async function streamCall(
       } else if (c.type === 'finish') {
         out.tokensIn += c.usage.inputTokens;
         out.tokensOut += c.usage.outputTokens;
-        out.costUsd += priceOf(current, c.usage);
+        out.costUsd += c.costUsd ?? priceOf(current, c.usage);
       }
     }
   }

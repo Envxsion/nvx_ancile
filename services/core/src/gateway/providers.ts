@@ -15,7 +15,10 @@
  *           |  reasoning-delta, tool-call.input, finish.totalUsage).
  *           |  Tools are passed without execute(): the model proposes a
  *           |  call, and the conductor runs it after the permission
- *           |  check. TODO(phase-4): provider options (reasoning effort,
+ *           |  check. OpenRouter calls carry the routing `provider`
+ *           |  object (openrouter/service.ts) and report which provider
+ *           |  served and what it billed (servedExtractor).
+ *           |  TODO(phase-4): provider options (reasoning effort,
  *           |  prompt caching).
  * ------------------------------------------------------------------
  */
@@ -27,6 +30,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { ModelConfig } from '@nvx/contracts';
 import { ClassifiedError, classify } from '@nvx/resilience';
 import {
+  type JSONValue,
   jsonSchema,
   type LanguageModel,
   type ModelMessage as SdkMessage,
@@ -67,6 +71,43 @@ export interface ProviderSecrets {
   /** Resolve a secret by name (from the encrypted store). */
   get(name: string): Promise<string | undefined>;
 }
+
+/** OpenRouter's served provider, model and billed cost, read from the raw stream. */
+export interface Served {
+  provider: string | null;
+  model: string | null;
+  cost: number | null;
+}
+
+/** Reads OpenRouter's top-level `provider`, `model` and `usage.cost` off each chunk. */
+export function readServed(into: Served, raw: unknown): void {
+  if (!raw || typeof raw !== 'object') return;
+  const c = raw as { provider?: unknown; model?: unknown; usage?: { cost?: unknown } };
+  if (typeof c.provider === 'string' && c.provider) into.provider = c.provider;
+  if (typeof c.model === 'string' && c.model) into.model = c.model;
+  if (typeof c.usage?.cost === 'number' && Number.isFinite(c.usage.cost)) into.cost = c.usage.cost;
+}
+
+export const servedExtractor = {
+  async extractMetadata({ parsedBody }: { parsedBody: unknown }) {
+    const s: Served = { provider: null, model: null, cost: null };
+    readServed(s, parsedBody);
+    return { openrouter: { ...s } };
+  },
+  createStreamExtractor() {
+    const s: Served = { provider: null, model: null, cost: null };
+    return {
+      processChunk: (raw: unknown) => readServed(s, raw),
+      buildMetadata: () => ({ openrouter: { ...s } }),
+    };
+  },
+};
+
+/** The routing for one OpenRouter call (openrouter/service.ts), or null. */
+export type OpenRouterRouting = (
+  m: ModelConfig,
+  req: ModelRequest,
+) => Promise<{ provider: Record<string, unknown>; max_tokens: number | null } | null>;
 
 export interface ProviderEndpoints {
   controllerUrl?: string | undefined;
@@ -131,6 +172,8 @@ export async function languageModelFor(
         name: 'openrouter',
         baseURL: m.base_url ?? 'https://openrouter.ai/api/v1',
         apiKey: needKey('OpenRouter'),
+        includeUsage: true,
+        metadataExtractor: servedExtractor,
       })(m.provider_model);
     case 'ollama':
       return createOpenAICompatible({
@@ -176,12 +219,17 @@ export class AiSdkClient implements ModelClient {
     private readonly secrets: ProviderSecrets,
     private readonly endpoints: ProviderEndpoints,
     private readonly images?: ImageBytes,
+    private readonly openrouter?: OpenRouterRouting,
   ) {}
 
   async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     const model = await languageModelFor(m, this.secrets, this.endpoints);
     const vision = m.capabilities.includes('vision');
     const images = vision ? await imagesFor(req.messages, this.images) : undefined;
+    // A routing problem never stops the call: it goes out as OpenRouter's default.
+    const routing =
+      m.provider === 'openrouter' && this.openrouter ? await this.openrouter(m, req).catch(() => null) : null;
+    const maxOutputTokens = req.maxOutputTokens ?? routing?.max_tokens ?? undefined;
     const result = streamText({
       model,
       ...(req.system !== undefined && { system: req.system }),
@@ -207,7 +255,12 @@ export class AiSdkClient implements ModelClient {
         }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
-      ...(req.maxOutputTokens !== undefined && { maxOutputTokens: req.maxOutputTokens }),
+      ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+      ...(routing && {
+        providerOptions: {
+          openrouter: { provider: routing.provider as Record<string, JSONValue>, usage: { include: true } },
+        },
+      }),
       ...(req.temperature !== undefined && { temperature: req.temperature }),
     });
     try {
@@ -224,10 +277,17 @@ export class AiSdkClient implements ModelClient {
             break;
           case 'error':
             throw wrap(part.error);
-          case 'finish':
+          case 'finish': {
+            const or = (part as { providerMetadata?: { openrouter?: Partial<Served> } }).providerMetadata
+              ?.openrouter;
             yield {
               type: 'finish',
               finishReason: part.finishReason,
+              ...(m.provider === 'openrouter' &&
+                or && {
+                  served: { provider: or.provider ?? null, model: or.model ?? null },
+                  ...(typeof or.cost === 'number' && { costUsd: or.cost }),
+                }),
               usage: {
                 inputTokens: part.totalUsage.inputTokens ?? 0,
                 outputTokens: part.totalUsage.outputTokens ?? 0,
@@ -235,6 +295,7 @@ export class AiSdkClient implements ModelClient {
               },
             };
             break;
+          }
           default:
             break;
         }

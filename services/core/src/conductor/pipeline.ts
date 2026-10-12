@@ -152,7 +152,14 @@ export interface TurnCheckpoint {
   answeredBy: string | null;
   chain: string[];
   attempts: { model: string; reason: string; detail: string }[];
-  usage: { input: number; output: number; cached: number; costUsd: number };
+  usage: {
+    input: number;
+    output: number;
+    cached: number;
+    costUsd: number;
+    /** OpenRouter: who served the last call, and whether it hit the output cap. */
+    served?: { provider: string | null; model: string | null; cut_off: boolean };
+  };
   /** Retrieval ran for this turn (notebook threads only); absent on older checkpoints. */
   retrieved?: boolean;
   grounding?: Grounding | null;
@@ -309,7 +316,10 @@ function resultPreview(result: unknown): string {
 function cost(
   m: ModelConfig | undefined,
   u: { inputTokens: number; outputTokens: number; cachedTokens?: number },
+  billed?: number,
 ): number {
+  // What the provider billed beats list price (OpenRouter reports it; openrouter/auto has no list price).
+  if (billed !== undefined) return billed;
   if (!m) return 0;
   const cached = u.cachedTokens ?? 0;
   const p = m.price;
@@ -319,6 +329,15 @@ function cost(
       u.outputTokens * p.output_per_mtok) /
     1_000_000
   );
+}
+
+/** Keep who served an OpenRouter call, and flag an answer cut off at the endpoint's output cap. */
+function noteServed(
+  cp: TurnCheckpoint,
+  c: { finishReason: string; served?: { provider: string | null; model: string | null } },
+) {
+  if (!c.served) return;
+  cp.usage.served = { ...c.served, cut_off: c.finishReason === 'length' };
 }
 
 function appendText(parts: Part[], type: 'text' | 'reasoning', delta: string) {
@@ -399,6 +418,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       output_tokens: cp.usage.output,
       cached_tokens: cp.usage.cached,
       cost_usd: cp.usage.costUsd,
+      ...(cp.usage.served && { served: cp.usage.served }),
     };
     await deps.repo.updateMessage(cp.input.assistantMessageId, {
       parts: cp.parts,
@@ -856,7 +876,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             } else if (c.type === 'tool_call') {
               out.toolCalls = [...(out.toolCalls ?? []), { callId: c.callId, tool: c.tool, args: c.args }];
             } else if (c.type === 'finish') {
-              const spent = cost(current, c.usage);
+              const spent = cost(current, c.usage, c.costUsd);
+              noteServed(cp, c);
               out.tokensIn += c.usage.inputTokens;
               out.tokensOut += c.usage.outputTokens;
               out.costUsd += spent;
@@ -1210,7 +1231,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 cp.usage.input += c.usage.inputTokens;
                 cp.usage.output += c.usage.outputTokens;
                 cp.usage.cached += c.usage.cachedTokens ?? 0;
-                cp.usage.costUsd += cost(current, c.usage);
+                cp.usage.costUsd += cost(current, c.usage, c.costUsd);
+                noteServed(cp, c);
               }
               break;
             }

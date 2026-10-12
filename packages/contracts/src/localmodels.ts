@@ -21,6 +21,7 @@
  */
 
 import { z } from 'zod';
+import { OllamaQuant } from './openrouter';
 
 /** One model in the curated list. Sizes are about right, from the publisher's page. */
 export const LocalModelEntry = z
@@ -48,6 +49,10 @@ export const LocalModelEntry = z
     family: z.string().min(1),
     /** Shown first. */
     recommended: z.boolean().default(false),
+    /** Billions of weights, for the precision estimates. */
+    params_b: z.number().positive().optional(),
+    /** Ollama tags for other precisions of the same model ({ q8_0: "qwen3:8b-q8_0" }). */
+    quant_tags: z.partialRecord(OllamaQuant, z.string().min(1)).optional(),
   })
   .strict();
 export type LocalModelEntry = z.infer<typeof LocalModelEntry>;
@@ -155,6 +160,8 @@ export const LocalDownloadRequest = z
   .object({
     /** Start even though it will be slow or tight on memory (never past a full disk). */
     anyway: z.boolean().default(false),
+    /** Download this precision instead of the default tag (one of the entry's quant_tags). */
+    quant: OllamaQuant.optional(),
   })
   .strict();
 export type LocalDownloadRequest = z.infer<typeof LocalDownloadRequest>;

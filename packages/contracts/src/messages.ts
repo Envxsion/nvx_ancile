@@ -4,6 +4,7 @@
  * makes switching model mid-thread lossless (DESIGN.md §8.6).
  */
 import { z } from 'zod';
+import { ServedBy } from './openrouter';
 
 export const Role = z.enum(['system', 'user', 'assistant', 'tool']);
 
@@ -101,6 +102,8 @@ export const Usage = z.object({
   output_tokens: z.number().int().nonnegative(),
   cached_tokens: z.number().int().nonnegative().default(0),
   cost_usd: z.number().nonnegative(),
+  /** OpenRouter only: which provider (and, under openrouter/auto, which model) answered. */
+  served: ServedBy.optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 

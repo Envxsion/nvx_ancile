@@ -512,7 +512,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
   /** One model call for a node, streamed live and costed. */
   const callModel = async (
     node: FlowNode,
-    params: Pick<ModelParams, 'model' | 'fallbacks' | 'temperature' | 'max_output' | 'cache_s'> & {
+    params: Pick<
+      ModelParams,
+      'model' | 'fallbacks' | 'temperature' | 'max_output' | 'cache_s' | 'routing'
+    > & {
       wait_for_wake_s?: number;
     },
     req: ModelRequest,
@@ -523,6 +526,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       ...req,
       ...(params.temperature !== undefined && { temperature: params.temperature }),
       ...(params.max_output !== undefined && { maxOutputTokens: params.max_output }),
+      ...(params.routing && { routing: params.routing }),
     };
     const key =
       params.cache_s && !full.tools?.length
@@ -584,7 +588,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       messages: [{ role: 'user', content: prompt }],
       temperature: 0,
     };
-    const r = await callModel(node, { model, fallbacks: [] }, req, { speak: false });
+    const routing = 'routing' in node.params ? (node.params.routing as ModelParams['routing']) : undefined;
+    const r = await callModel(node, { model, fallbacks: [], ...(routing && { routing }) }, req, {
+      speak: false,
+    });
     const parsed = schema.safeParse(parseJson(r.text));
     if (!parsed.success)
       throw new AncileError({

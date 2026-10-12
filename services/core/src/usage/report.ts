@@ -30,6 +30,8 @@ export interface UsageRow {
   bucket: string;
   engine: UsageEngine;
   model_id: string | null;
+  /** OpenRouter's provider that served it (usage.served.provider); null elsewhere. */
+  provider?: string | null;
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
@@ -45,6 +47,8 @@ export interface UsageQuery {
   bucket: 'hour' | 'day';
   from: Date;
   to: Date;
+  /** Only answers this OpenRouter provider served. */
+  provider?: string | undefined;
 }
 
 export interface UsageSource {
@@ -165,6 +169,7 @@ export function buildReport(
   );
   const engines = new Map<UsageEngine, UsageTotals>();
   const models = new Map<string, UsageTotals & { model_id: string | null; engine: UsageEngine }>();
+  const providers = new Map<string, UsageTotals>();
   for (const r of rows) {
     add(totals, r);
     estimated += r.estimated_usd;
@@ -181,6 +186,11 @@ export function buildReport(
     const m = models.get(key) ?? { ...zero(), model_id: r.model_id, engine: r.engine };
     add(m, r);
     models.set(key, m);
+    if (r.provider) {
+      const p = providers.get(r.provider) ?? zero();
+      add(p, r);
+      providers.set(r.provider, p);
+    }
   }
   const sorted = [...models.values()].sort((a, b) => tokens(b) - tokens(a) || b.cost_usd - a.cost_usd);
   const top = sorted.slice(0, topModels);
@@ -203,6 +213,9 @@ export function buildReport(
       round({ ...(engines.get(engine) as UsageTotals), engine }),
     ),
     by_model: top.map(round),
+    by_provider: [...providers.entries()]
+      .sort((a, b) => tokens(b[1]) - tokens(a[1]))
+      .map(([provider, t]) => round({ ...t, provider })),
     estimated_cost_usd: money(estimated),
   };
 }
@@ -230,6 +243,7 @@ export class PgUsageSource implements UsageSource {
         bucket: string;
         engine: UsageEngine;
         model_id: string | null;
+        provider: string | null;
         input_tokens: string;
         output_tokens: string;
         cached_tokens: string;
@@ -248,6 +262,7 @@ export class PgUsageSource implements UsageSource {
             else 'other'
           end as engine,
           m.model_id,
+          m.usage->'served'->>'provider' as provider,
           coalesce((m.usage->>'input_tokens')::bigint, 0) as i,
           coalesce((m.usage->>'output_tokens')::bigint, 0) as o,
           coalesce((m.usage->>'cached_tokens')::bigint, 0) as c,
@@ -259,18 +274,20 @@ export class PgUsageSource implements UsageSource {
           and m.created_at >= ${q.from}
           and m.created_at < ${q.to}
           and t.workspace_id = ${q.workspaceId}
+          and (${q.provider ?? null}::text is null or m.usage->'served'->>'provider' = ${q.provider ?? null})
       )
-      select bucket, engine, model_id,
+      select bucket, engine, model_id, provider,
         sum(i)::text as input_tokens, sum(o)::text as output_tokens, sum(c)::text as cached_tokens,
         sum(cost)::float8 as cost_usd,
         sum(case when engine = 'claude_code' then cost else 0 end)::float8 as estimated_usd,
         count(*)::int as answers
       from u
-      group by bucket, engine, model_id`;
+      group by bucket, engine, model_id, provider`;
     return rows.map((r) => ({
       bucket: r.bucket,
       engine: r.engine,
       model_id: r.model_id,
+      provider: r.provider,
       input_tokens: Number(r.input_tokens),
       output_tokens: Number(r.output_tokens),
       cached_tokens: Number(r.cached_tokens),
@@ -298,13 +315,16 @@ export class MemoryUsageSource implements UsageSource {
       const at = Date.parse(m.created_at);
       if (at < q.from.getTime() || at >= q.to.getTime()) continue;
       if (this.deps.workspaceOf(m.thread_id) !== q.workspaceId) continue;
+      const provider = m.usage.served?.provider ?? null;
+      if (q.provider && provider !== q.provider) continue;
       const engine = engineOf(m.provenance, m.run_id ? this.deps.runKind(m.run_id) : null, m.model_id);
       const bucket = bucketOf(q.tz, at, q.bucket);
-      const key = `${bucket}|${engine}|${m.model_id ?? ''}`;
+      const key = `${bucket}|${engine}|${m.model_id ?? ''}|${provider ?? ''}`;
       const r = by.get(key) ?? {
         bucket,
         engine,
         model_id: m.model_id,
+        provider,
         input_tokens: 0,
         output_tokens: 0,
         cached_tokens: 0,
@@ -322,4 +342,51 @@ export class MemoryUsageSource implements UsageSource {
     }
     return [...by.values()];
   }
+}
+
+/* ---- history for the calculator and the assistant ------------------------------- */
+
+/** This person's mix per model and provider over the 30 days to `now`. */
+export async function usageHistory(
+  source: UsageSource,
+  workspaceId: string,
+  now: number,
+): Promise<import('@nvx/contracts').UsageHistory> {
+  const rows = await source.rows({
+    workspaceId,
+    tz: 'UTC',
+    bucket: 'day',
+    from: new Date(now - 30 * DAY_MS),
+    to: new Date(now + 1),
+  });
+  const by = new Map<string, UsageRow>();
+  for (const r of rows) {
+    if (!r.model_id) continue;
+    const key = `${r.model_id}|${r.provider ?? ''}`;
+    const t = by.get(key) ?? {
+      ...r,
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cost_usd: 0,
+      answers: 0,
+    };
+    t.input_tokens += r.input_tokens;
+    t.output_tokens += r.output_tokens;
+    t.cached_tokens += r.cached_tokens;
+    t.answers += r.answers;
+    by.set(key, t);
+  }
+  return {
+    rows: [...by.values()].map((r) => ({
+      model_id: r.model_id as string,
+      provider: r.provider ?? null,
+      answers: r.answers,
+      input_tokens: r.input_tokens,
+      output_tokens: r.output_tokens,
+      cached_tokens: r.cached_tokens,
+      cache_hit_rate: r.input_tokens ? Math.min(1, r.cached_tokens / r.input_tokens) : 0,
+      input_share: r.input_tokens + r.output_tokens ? r.input_tokens / (r.input_tokens + r.output_tokens) : 0,
+    })),
+  };
 }

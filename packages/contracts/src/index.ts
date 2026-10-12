@@ -25,6 +25,7 @@ export * from './memory';
 export * from './messages';
 export * from './notebooks';
 export * from './notifications';
+export * from './openrouter';
 export * from './ops';
 export * as packs from './packs';
 export * from './permissions';

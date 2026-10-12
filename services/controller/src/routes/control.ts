@@ -21,6 +21,7 @@ import {
   type NodeSetup,
   type ProviderStatus,
   Rule,
+  vllmEnv,
 } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -190,6 +191,9 @@ export function controlRoutes(deps: ControlDeps) {
         { context: { issues: parsed.error.issues } },
       );
     const req = parsed.data;
+    // A model and precision chosen in the Cockpit become the bootstrap's
+    // ANCILE_MODEL and ANCILE_VLLM_ARGS; anything already in env wins.
+    if (req.spec.vllm) req.spec.env = { ...vllmEnv(req.spec.vllm), ...req.spec.env };
     if (!req.spec.image && !req.spec.template_id)
       return apiError(
         c,

@@ -6,7 +6,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  What Settings → Usage reads: personal token and cost
  *           |  totals across every engine, and Claude Code's plan
- *           |  limits.
+ *           |  limits. GET /usage/history: this person's mix per model
+ *           |  and provider over 30 days (docs/openrouter.md).
  *  How      |  GET /usage?range=day|week|month&tz=<IANA zone>
  *           |  (report.ts). GET /claude-code/plan-limits[?refresh=1]
  *           |  answers the latest figures; refresh asks Claude Code,
@@ -19,7 +20,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import type { PlanLimits } from '../claudecode/plan-limits';
 import { badRequest } from '../obs/errors';
-import { buildReport, type UsageSource, validZone, window } from './report';
+import { buildReport, type UsageSource, usageHistory, validZone, window } from './report';
 
 export function usageRoutes(deps: {
   workspaceId: string;
@@ -43,9 +44,12 @@ export function usageRoutes(deps: {
       bucket: w.bucket,
       from: w.from,
       to: w.to,
+      provider: c.req.query('provider') || undefined,
     });
     return c.json(buildReport(range.data, tz, w, rows));
   });
+
+  r.get('/usage/history', async (c) => c.json(await usageHistory(deps.source, deps.workspaceId, now())));
 
   r.get('/claude-code/plan-limits', async (c) => {
     const limits = deps.limits?.();

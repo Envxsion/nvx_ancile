@@ -31,6 +31,7 @@ import {
   type LocalModelEntry,
   type LocalModelsView,
   ModelConfig,
+  type OllamaQuant,
   type OllamaState,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
@@ -208,8 +209,18 @@ export class LocalModels {
     for (const j of this.jobs.values()) j.ctrl.abort(new Error('stopping'));
   }
 
-  async start(id: string, opts: { anyway?: boolean } = {}): Promise<LocalDownload> {
-    const entry = this.entry(id);
+  async start(id: string, opts: { anyway?: boolean; quant?: OllamaQuant } = {}): Promise<LocalDownload> {
+    const listed = this.entry(id);
+    // Another precision of the same model is another Ollama tag (local-models.yaml quant_tags).
+    const tag = opts.quant ? listed.quant_tags?.[opts.quant] : undefined;
+    if (opts.quant && !tag)
+      throw err(
+        'local_model.quant_unavailable',
+        `${listed.name} is not offered at ${opts.quant}`,
+        'Choose one of the precisions listed for it, or the default.',
+        400,
+      );
+    const entry = tag ? { ...listed, source: tag } : listed;
     const running = this.latest.get(id);
     if (running && ['starting', 'downloading', 'verifying'].includes(running.view.status))
       return structuredClone(running.view);

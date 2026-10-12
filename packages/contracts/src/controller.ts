@@ -7,6 +7,11 @@
  * Control plane: /control/v1/*
  */
 import { z } from 'zod';
+import { VllmChoice } from './openrouter';
+
+/** The vLLM choice and its environment are part of the Controller's contract too. */
+export { memoryEstimateGb, VllmChoice, VllmQuant, vllmEnv, vramFit } from './openrouter';
+
 import { OperationStatus } from './events';
 
 export const CONTROLLER_CONTRACT_VERSION = '1.0.0';
@@ -109,6 +114,11 @@ export const CreateNodeSpec = z.object({
    * node bootstrap inside the vLLM image. Absent: the image's entrypoint.
    */
   entrypoint: z.array(z.string().max(2_000)).max(10).optional(),
+  /**
+   * The model and precision for a node set up by the bootstrap: becomes its
+   * ANCILE_MODEL and ANCILE_VLLM_ARGS (vllmEnv). Values already in env win.
+   */
+  vllm: VllmChoice.optional(),
 });
 export type CreateNodeSpec = z.infer<typeof CreateNodeSpec>;
 
