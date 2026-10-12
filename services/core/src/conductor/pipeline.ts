@@ -775,7 +775,14 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         cp.compactionChecked = true;
         if (!deps.branches) return;
         const all = await messages();
-        const model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        // A flow can answer when no route can (its steps name their own models):
+        // an empty route is no reason to fail the turn here.
+        let model: ModelConfig | undefined;
+        try {
+          model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        } catch (err) {
+          if (!(err instanceof NoRouteError)) throw err;
+        }
         const prepared = await prepareTurnContext(
           {
             gateway: deps.gateway,
