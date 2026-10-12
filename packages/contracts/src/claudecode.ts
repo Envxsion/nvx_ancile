@@ -208,16 +208,53 @@ export const ClaudeCodeCommand = z.object({
 });
 export type ClaudeCodeCommand = z.infer<typeof ClaudeCodeCommand>;
 
+/**
+ * How hard Claude Code thinks. "auto" sends no effort at all, so Claude
+ * Code picks its own default for the model (and a session that had an
+ * effort set goes back to that default).
+ */
+export const ClaudeCodeEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']);
+export type ClaudeCodeEffort = z.infer<typeof ClaudeCodeEffort>;
+
+/**
+ * POST /claude-code/threads: a new thread bound to a new Claude Code
+ * session in a folder on this computer. The session itself starts with
+ * the thread's first turn (Claude Code names it then).
+ */
+export const CreateClaudeCodeThreadRequest = z
+  .object({
+    /** The folder the session runs in: absolute, existing, a directory. */
+    cwd: z.string().min(1).max(1000),
+    /** Absent: the notebook bound to the folder, else a new one named after it. */
+    notebook_id: z.string().nullable().optional(),
+  })
+  .strict();
+export type CreateClaudeCodeThreadRequest = z.infer<typeof CreateClaudeCodeThreadRequest>;
+
+export const CreateClaudeCodeThreadResult = z.object({
+  thread_id: z.string(),
+  notebook_id: z.string().nullable(),
+  /** The folder as given (Claude Code runs there). */
+  cwd: z.string(),
+  title: z.string(),
+});
+export type CreateClaudeCodeThreadResult = z.infer<typeof CreateClaudeCodeThreadResult>;
+
 /** POST /claude-code/threads/:id/send — one turn in the live session. */
 export const SendClaudeCodeRequest = z
   .object({
     text: z.string().min(1).max(200_000),
-    /** The message this turn answers from; absent: the thread's active head. */
+    /**
+     * The message this turn answers from; absent: the thread's active head.
+     * null: the start of the session (editing its first message), which
+     * starts a new Claude Code session in the same folder, bound to the
+     * same thread as a branch.
+     */
     parent_id: z.string().nullable().optional(),
     /** Source ids to ground this turn on (the notebook's sources by default). */
     source_ids: z.array(z.string()).max(50).optional(),
     model: z.string().nullable().optional(),
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    effort: ClaudeCodeEffort.nullable().optional(),
     /**
      * "Continue as a branch": fork the session at the parent even when the
      * parent is its latest message, so a session open in Claude Code
@@ -229,8 +266,20 @@ export const SendClaudeCodeRequest = z
   .strict();
 export type SendClaudeCodeRequest = z.infer<typeof SendClaudeCodeRequest>;
 
-/** The answer: the run that streams the turn on the thread's usual event stream. */
-export const SendClaudeCodeResult = z.object({ run_id: z.string(), user_message_id: z.string() });
+/**
+ * The answer: the run that streams the turn on the thread's usual event
+ * stream, the prompt, and the answer it streams into. The answer is
+ * removed again when Claude Code writes nothing under the prompt (a
+ * command it answers elsewhere, or a stop before any reply).
+ */
+export const SendClaudeCodeResult = z.object({
+  run_id: z.string(),
+  user_message_id: z.string(),
+  assistant_message_id: z.string(),
+  /** The turn sends Claude Code a digest of other models' turns (docs/engines.md). */
+  context_shared: z.boolean().optional(),
+});
+export type SendClaudeCodeResult = z.infer<typeof SendClaudeCodeResult>;
 
 /** GET /claude-code/threads/:id/live */
 export const ClaudeCodeLiveState = z.object({

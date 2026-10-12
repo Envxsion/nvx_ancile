@@ -79,8 +79,8 @@ export const SendTurnRequest = z
     parent_id: z.string().nullable().optional(),
     /** Any model id, `claude-code/<model>` included; absent: the thread decides. */
     model: z.string().max(200).nullable().optional(),
-    /** Claude Code only. */
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    /** Claude Code only; "auto" lets Claude Code pick. */
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).nullable().optional(),
     /** Source ids to ground this turn on. */
     source_ids: z.array(z.string()).max(50).optional(),
     /** Claude Code only: fork the session even from its latest message. */
@@ -95,7 +95,7 @@ export type SendTurnRequest = z.infer<typeof SendTurnRequest>;
 export const SendTurnResult = z.object({
   run_id: z.string(),
   user_message_id: z.string(),
-  /** The answer being written; null when the engine names it later (Claude Code). */
+  /** The answer being written (null only from an engine that names it later). */
   assistant_message_id: z.string().nullable(),
   engine: EngineKind,
   /** The model asked for, as given (null: the engine's default). */
