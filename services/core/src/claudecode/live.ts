@@ -1099,6 +1099,9 @@ export class ClaudeCodeLive {
       scope: { threadId: l.threadId, notebookId: l.notebookId, workspaceId: l.workspaceId },
       runId: t.runId,
       traceId: t.traceId,
+      tool: ask.tool_name,
+      args: ask.input,
+      callId,
     });
     const span = t.toolSpans.get(callId)?.span;
     span?.set({ decision: decision.outcome, tier: decision.tier, resource: decision.resource });

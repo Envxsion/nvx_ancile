@@ -43,6 +43,7 @@ describe('API keys', () => {
       'huggingface',
       'github',
       'memory_remote',
+      'typesafe',
     ]);
     expect(r.body.items.every((x) => !x.set && x.last4 === null && x.source === null)).toBe(true);
     // No Controller in the harness: RunPod says why it cannot be added.

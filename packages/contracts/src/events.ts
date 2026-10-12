@@ -213,6 +213,36 @@ export const RunEvent = z.discriminatedUnion('type', [
     done: z.number().int(),
     total: z.number().int(),
   }),
+  /** Auto mode (docs/auto-mode.md): a call ran without asking. The quiet "ran automatically" marker. */
+  z.object({
+    ...base,
+    type: z.literal('auto.ran'),
+    call_id: z.string().optional(),
+    action: z.string(),
+    via: z.enum(['plan', 'cache', 'reviewer', 'rules']),
+    reviewer: z.enum(['jev_openrouter', 'jev_direct', 'local_model', 'rules', 'fake']).nullable(),
+  }),
+  /**
+   * Auto mode could not settle a call by itself: its approval joins a group,
+   * answered together (POST /approvals/batch). `approval.required` follows.
+   */
+  z.object({
+    ...base,
+    type: z.literal('approval.batched'),
+    batch_id: z.string(),
+    call_id: z.string().optional(),
+    action: z.string(),
+    via: z.enum(['floor', 'reviewer', 'rules']),
+    /** Why it asks, in a sentence. */
+    reason: z.string(),
+  }),
+  /** Auto mode's plan for this thread or run changed (proposed, approved, rejected). */
+  z.object({
+    ...base,
+    type: z.literal('plan.changed'),
+    plan_id: z.string(),
+    status: z.enum(['proposed', 'approved', 'rejected', 'superseded']),
+  }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;
 

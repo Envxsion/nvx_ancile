@@ -103,6 +103,9 @@ import { ObsPipeline, PgObsStore, toNewLog } from './obs/store';
 import { startTracing, stopTracing } from './obs/tracing';
 import { loadCedarEvaluator } from './permissions/cedar';
 import type { PolicyEvaluator } from './permissions/decide';
+import { AutoReview, PgPlanStore } from './permissions/auto';
+import { autoRoutes } from './permissions/auto/routes';
+import { coreReviewers } from './permissions/auto/wire';
 import { createGate } from './permissions/gate';
 import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
@@ -121,6 +124,8 @@ import { PgRunEventLog } from './runs/events';
 import { PgRunStore } from './runs/store';
 import { RunWorker } from './runs/worker';
 import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './secrets';
+import { PgScopeStore, scopeResolver } from './scopes';
+import { scopeRoutes } from './scopes/routes';
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
@@ -300,7 +305,21 @@ async function main() {
     files: config.policies,
     preset: (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced',
   });
+  // Scopes (docs/scopes.md) are floors in every preset; Auto mode (docs/auto-mode.md) is the `auto` preset.
+  const scopeStore = new PgScopeStore(sql);
+  const scopes = scopeResolver(scopeStore);
+  const autoPlans = new PgPlanStore(sql);
+  let presetNow = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
+  const gateAuto = {
+    review: new AutoReview({
+      reviewers: coreReviewers({ secrets, gateway, registry }),
+      plans: autoPlans,
+      emit: (runId, event) => runEvents.append(runId, event),
+    }),
+    enabled: () => presetNow === 'auto',
+  };
   const applyPreset = async (preset: string) => {
+    presetNow = preset;
     policy = await loadCedarEvaluator({ files: config.policies, preset });
     log.info({ preset }, 'permission preset changed');
   };
@@ -314,6 +333,8 @@ async function main() {
     store: permissions,
     workspaceRoot: workspace.root,
     fs: workspace.probe(),
+    scopes,
+    auto: gateAuto,
   });
 
   // Durable runs.
@@ -472,7 +493,14 @@ async function main() {
     bus: events,
     permissions,
     gateFor: (root) =>
-      createGate({ policy: policyRef, store: permissions, workspaceRoot: root, fs: nativeProbe() }),
+      createGate({
+        policy: policyRef,
+        store: permissions,
+        workspaceRoot: root,
+        fs: nativeProbe(),
+        scopes,
+        auto: gateAuto,
+      }),
     tools,
     passes: claudePasses,
     mcp: {
@@ -572,6 +600,7 @@ async function main() {
         approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
         automationApprovalTtlMs: env.ANCILE_APPROVAL_TTL_AUTOMATION_S * 1000,
         retriever: knowledgeRetriever(kn),
+        scopes,
         // Only a notebook in this workspace lends its title (an @-mentioned id is user input).
         notebookTitle: async (id) => {
           const nb = await notebooks.get(id);
@@ -992,6 +1021,8 @@ async function main() {
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
       }),
       notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore }),
+      scopeRoutes({ store: scopeStore }),
+      autoRoutes({ plans: autoPlans, events: runEvents }),
       memoryRoutes({ service: memory, threads, registry }),
       trustRoutes({
         workspaceId: owner.workspaceId,
@@ -1003,13 +1034,14 @@ async function main() {
         familyOf,
         modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
         actionOf: (tool) => tools.get(tool)?.action,
+        scopeOf: (ref) => scopes.effective(ref),
       }),
       permissionRoutes({
         store: permissions,
         preset: {
           get: async () => {
             const p = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
-            return p === 'careful' || p === 'hands_off' ? p : 'balanced';
+            return p === 'careful' || p === 'hands_off' || p === 'auto' ? p : 'balanced';
           },
           set: async (preset) => {
             await settings.set(SETTING.preset, preset);

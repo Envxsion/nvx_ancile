@@ -1,0 +1,98 @@
+/**
+ * ------------------------------------------------------------------
+ *  Title    |  /auto/plans: approve the plan once
+ *  Ref      |  docs/auto-mode.md (The plan) · docs/api.md (Auto mode)
+ *  ID       |  core
+ * ------------------------------------------------------------------
+ *  Purpose  |  Propose a plan for a thread or run, read the current
+ *           |  one, and approve or reject it. Once approved, calls
+ *           |  that fit a step run without asking (floors and scopes
+ *           |  still apply).
+ *  How      |  Thin over PlanStore. Each change is also a `plan.changed`
+ *           |  run event when the plan belongs to a run, so an open
+ *           |  thread sees it at once.
+ * ------------------------------------------------------------------
+ */
+
+import { AncileError, PlanDecisionRequest, ProposePlanRequest } from '@nvx/contracts';
+import { Hono } from 'hono';
+import type { AppEnv } from '../../app';
+import { body } from '../../http/body';
+import { notFound } from '../../obs/errors';
+import type { RunEventLog } from '../../runs/events';
+import { type PlanStore, sessionKey } from './plans';
+
+export interface AutoRouteDeps {
+  plans: PlanStore;
+  events?: Pick<RunEventLog, 'append'>;
+}
+
+export function autoRoutes(deps: AutoRouteDeps) {
+  const r = new Hono<AppEnv>();
+  const { plans } = deps;
+
+  const announce = async (
+    runId: string | null,
+    planId: string,
+    status: 'proposed' | 'approved' | 'rejected',
+  ) => {
+    if (runId)
+      await deps.events
+        ?.append(runId, { type: 'plan.changed', plan_id: planId, status })
+        .catch(() => undefined);
+  };
+
+  r.get('/auto/plans/current', async (c) => {
+    const key = sessionKey({
+      threadId: c.req.query('thread_id') ?? null,
+      runId: c.req.query('run_id') ?? null,
+    });
+    if (!key)
+      throw new AncileError({
+        code: 'request.invalid',
+        title: 'Say which thread or run',
+        hint: 'Add ?thread_id= or ?run_id= to the request.',
+        status: 400,
+        errorClass: 'permanent',
+      });
+    return c.json({ plan: (await plans.current(key)) ?? null });
+  });
+
+  r.post('/auto/plans', async (c) => {
+    const req = await body(c, ProposePlanRequest);
+    const plan = await plans.propose({
+      threadId: req.thread_id ?? null,
+      runId: req.run_id ?? null,
+      summary: req.summary,
+      steps: req.steps,
+    });
+    await announce(plan.run_id, plan.id, 'proposed');
+    return c.json(plan, 201);
+  });
+
+  r.get('/auto/plans/:id', async (c) => {
+    const plan = await plans.get(c.req.param('id'));
+    if (!plan) throw notFound('That plan');
+    return c.json(plan);
+  });
+
+  r.post('/auto/plans/:id/decision', async (c) => {
+    const id = c.req.param('id');
+    const { decision } = await body(c, PlanDecisionRequest);
+    const status = decision === 'approve' ? 'approved' : 'rejected';
+    if (!(await plans.get(id))) throw notFound('That plan');
+    if (!(await plans.decide(id, status)))
+      throw new AncileError({
+        code: 'auto.plan_not_pending',
+        title: 'This plan was already answered',
+        hint: 'A newer plan may have replaced it. Refresh to see the current one.',
+        status: 409,
+        errorClass: 'permanent',
+      });
+    const plan = await plans.get(id);
+    await announce(plan?.run_id ?? null, id, status);
+    return c.json(plan);
+  });
+
+  return r;
+}

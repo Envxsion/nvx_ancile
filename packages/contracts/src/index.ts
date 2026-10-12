@@ -1,4 +1,5 @@
 export * from './api';
+export * from './auto';
 export * from './branching';
 export * from './claudecode';
 export * from './config';

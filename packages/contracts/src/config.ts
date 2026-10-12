@@ -82,7 +82,7 @@ export const ToolOverride = z.object({
 });
 export const ToolsFile = z.object({
   version: z.literal(1),
-  preset: z.enum(['careful', 'balanced', 'hands_off']).default('balanced'),
+  preset: z.enum(['careful', 'balanced', 'hands_off', 'auto']).default('balanced'),
   workspace_root: z.string().default('/workspace'),
   tools: z.record(z.string(), z.record(z.string(), ToolOverride)).default({}),
 });

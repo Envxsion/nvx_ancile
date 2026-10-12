@@ -20,6 +20,7 @@
 
 import {
   type Decision,
+  type EffectiveScope,
   type Explain,
   ExplainCompaction,
   ExplainMemory,
@@ -44,10 +45,22 @@ const preview = (v: unknown, max = 400) => {
  * action, not the call, so they are taken in order among those with the
  * call's action (calls are settled one at a time, in order).
  */
+/** A decision's rule, and for a scope rule the level that set it. */
+function ruleOf(d: Decision, scope: EffectiveScope | null | undefined) {
+  const rule = d.policy_id && /^(scope|floor|tier)\./.test(d.policy_id) ? d.policy_id : null;
+  const field = rule?.startsWith('scope.') ? rule.slice(6) : null;
+  const prov =
+    field && scope
+      ? (scope.provenance as Record<string, { level: string; note: string | null }>)[field]
+      : undefined;
+  return { rule, scope: field && prov ? { field, level: prov.level, note: prov.note } : null };
+}
+
 export function pairTools(
   parts: Part[],
   decisions: Decision[],
   actionOf: (tool: string) => string | undefined,
+  scope?: EffectiveScope | null,
 ): ExplainTool[] {
   const results = new Map(parts.flatMap((p) => (p.type === 'tool_result' ? [[p.call_id, p] as const] : [])));
   const left = [...decisions];
@@ -77,6 +90,7 @@ export function pairTools(
               action: decision.action,
               resource: decision.resource,
               at: decision.at,
+              ...ruleOf(decision, scope),
             }
           : null,
       };
@@ -89,6 +103,8 @@ export function assembleExplain(input: {
   factcheck: Factcheck | null;
   actionOf: (tool: string) => string | undefined;
   modelName: (id: string | null) => string | null;
+  /** The thread's effective scope, for scope reasons (optional). */
+  scope?: EffectiveScope | null;
 }): Explain {
   const m = input.message;
   const p = (m.provenance ?? {}) as Record<string, unknown>;
@@ -121,7 +137,7 @@ export function assembleExplain(input: {
     memory: memory.success ? memory.data : null,
     retrieval: retrieval.success ? retrieval.data : null,
     retrieval_error: re?.code ? { code: String(re.code), title: String(re.title ?? '') } : null,
-    tools: pairTools(m.parts, input.decisions, input.actionOf),
+    tools: pairTools(m.parts, input.decisions, input.actionOf, input.scope),
     compaction: compaction.success ? compaction.data : null,
     usage: m.usage,
     factcheck: input.factcheck,
@@ -129,6 +145,7 @@ export function assembleExplain(input: {
       ? { code: String(err.code), title: String(err.title ?? ''), hint: String(err.hint ?? '') }
       : null,
     flow: flow.success ? flow.data : null,
+    scope: input.scope ?? null,
     trace_url: `/admin/traces?trace=${encodeURIComponent(m.trace_id)}`,
   };
 }

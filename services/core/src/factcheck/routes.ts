@@ -13,7 +13,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError } from '@nvx/contracts';
+import { AncileError, type EffectiveScope } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { assembleExplain } from '../explain/assemble';
@@ -36,6 +36,8 @@ export interface TrustRouteDeps {
   modelName: (modelId: string | null) => string | null;
   /** The permission action a tool runs under, to pair calls with decisions. */
   actionOf: (tool: string) => string | undefined;
+  /** The thread's effective scope, for the Why view's scope reasons (docs/scopes.md). */
+  scopeOf?: (ref: { threadId: string }) => Promise<EffectiveScope>;
 }
 
 export function trustRoutes(deps: TrustRouteDeps) {
@@ -80,9 +82,10 @@ export function trustRoutes(deps: TrustRouteDeps) {
   r.get('/messages/:id/explain', async (c) => {
     const { m } = await load(c.req.param('id'));
     if (m.role !== 'assistant') throw notFound('That answer');
-    const [decisions, f] = await Promise.all([
+    const [decisions, f, scope] = await Promise.all([
       m.run_id ? deps.permissions.decisionsForRun(m.run_id) : Promise.resolve([]),
       deps.store.latestFor(m.id),
+      deps.scopeOf?.({ threadId: m.thread_id }).catch(() => null) ?? Promise.resolve(null),
     ]);
     return c.json(
       assembleExplain({
@@ -91,6 +94,7 @@ export function trustRoutes(deps: TrustRouteDeps) {
         factcheck: f ? toView(f) : null,
         actionOf: deps.actionOf,
         modelName: deps.modelName,
+        scope,
       }),
     );
   });

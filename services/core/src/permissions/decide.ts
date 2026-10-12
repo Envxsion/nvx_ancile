@@ -85,17 +85,35 @@ export interface GrantSource {
 }
 
 export type DecisionResult =
-  | { outcome: 'allow'; via: 'auto' | 'grant'; tier: Tier; resource: string; grantId?: string }
+  | {
+      outcome: 'allow';
+      /** `review`: Auto mode let a call decide() would have asked about run (permissions/auto). */
+      via: 'auto' | 'grant' | 'review';
+      tier: Tier;
+      resource: string;
+      grantId?: string;
+    }
   | {
       outcome: 'deny';
-      via: 'policy' | 'grant' | 'normalize';
+      /** `scope`: the notebook's or thread's scope (scopes/); `floor`: an Auto mode floor. */
+      via: 'policy' | 'grant' | 'normalize' | 'scope' | 'floor';
       tier: Tier;
       resource: string;
       reason: string;
       grantId?: string;
       policyId?: string;
+      /** The scope or floor rule that said no (scope.network_off, floor.fork_bomb, …). */
+      code?: string;
     }
-  | { outcome: 'ask'; tier: Exclude<Tier, 'auto'>; resource: string; suggestions: string[] };
+  | {
+      outcome: 'ask';
+      tier: Exclude<Tier, 'auto'>;
+      resource: string;
+      suggestions: string[];
+      /** Auto mode: why it asks, and the group its approval joins. */
+      reason?: string;
+      batchId?: string;
+    };
 
 export interface DecideDeps {
   policy: PolicyEvaluator;

@@ -220,12 +220,14 @@ export class CedarPolicy implements PolicyEvaluator {
 }
 
 /**
- * What a preset eases. Only Hands-off eases anything: writing a file inside
+ * What a preset eases. Only Hands-off and Auto ease anything (Auto's other
+ * easing is its reviewer, permissions/auto, whose floors still see every
+ * write first): writing a file inside
  * the workspace no longer asks. Never for a destructive action, never outside
  * the workspace, never for an outside app; base.cedar can still raise it
  * (an unattended automation, for one, still asks every time).
  */
-export const PRESET_AUTO: Record<string, readonly string[]> = { hands_off: ['fs.write'] };
+export const PRESET_AUTO: Record<string, readonly string[]> = { hands_off: ['fs.write'], auto: ['fs.write'] };
 
 export function presetRelax(preset: string | null | undefined): PolicyEvaluator['relax'] {
   const eased = PRESET_AUTO[preset ?? ''] ?? [];

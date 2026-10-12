@@ -85,5 +85,5 @@ export const Decision = z.object({
 });
 export type Decision = z.infer<typeof Decision>;
 
-export const PermissionPreset = z.enum(['careful', 'balanced', 'hands_off']);
+export const PermissionPreset = z.enum(['careful', 'balanced', 'hands_off', 'auto']);
 export type PermissionPreset = z.infer<typeof PermissionPreset>;

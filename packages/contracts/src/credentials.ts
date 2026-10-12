@@ -25,6 +25,8 @@ export const CredentialId = z.enum([
   'huggingface',
   'github',
   'memory_remote',
+  /** TypeSafe's Jev, Auto mode's reviewer when called directly (docs/auto-mode.md). */
+  'typesafe',
 ]);
 export type CredentialId = z.infer<typeof CredentialId>;
 

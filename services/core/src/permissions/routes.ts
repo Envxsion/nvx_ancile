@@ -34,6 +34,8 @@ import {
   AncileError,
   type Approval,
   ApprovalDecisionRequest,
+  BatchDecisionRequest,
+  type BatchDecisionResult,
   type GrantScope,
   PatchGrantRequest,
   PermissionPreset,
@@ -153,11 +155,12 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     return c.json({ preset });
   });
 
-  r.post('/approvals/:id', async (c) => {
-    const a = await store.getApproval(c.req.param('id'));
-    if (!a) throw notFound('That approval');
-    const req = await body(c, ApprovalDecisionRequest);
-    if (a.status !== 'pending') return c.json(approvalOut(a));
+  /** Answer one approval (the single route and the batch route share it). */
+  const answer = async (
+    a: ApprovalRecord,
+    req: z.infer<typeof ApprovalDecisionRequest>,
+  ): Promise<Approval & { grant_id?: string | null }> => {
+    if (a.status !== 'pending') return approvalOut(a);
 
     // Approve once with changed arguments: only where the waiting tool takes them, and decided again.
     if (req.updated_args !== undefined) {
@@ -274,7 +277,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
       pattern: req.scope === 'once' ? null : pattern,
       reason: req.reason ?? null,
     });
-    if (!won) return c.json(approvalOut((await store.getApproval(a.id)) ?? a));
+    if (!won) return approvalOut((await store.getApproval(a.id)) ?? a);
     const grantId = grant ? (await store.createGrant(grant)).id : null;
 
     await store.recordDecision({
@@ -293,7 +296,38 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     await deps.bus?.publish({ type: 'approval.resolved', approval_id: a.id }).catch(() => undefined);
     await deps.onResolved?.(a, status, req.reason ?? null, req.updated_args);
     await deps.worker.resume(a.run_id);
-    return c.json({ ...approvalOut({ ...a, status }), grant_id: grantId });
+    return { ...approvalOut({ ...a, status }), grant_id: grantId };
+  };
+
+  /**
+   * Auto mode groups its asks: answer several at once, each "just this once".
+   * One that is gone or already answered is reported, never an error.
+   */
+  r.post('/approvals/batch', async (c) => {
+    const req = await body(c, BatchDecisionRequest);
+    const items: BatchDecisionResult['items'] = [];
+    for (const id of [...new Set(req.approval_ids)]) {
+      const a = await store.getApproval(id);
+      if (!a) {
+        items.push({ approval_id: id, status: 'missing' });
+        continue;
+      }
+      const out = await answer(a, {
+        decision: req.decision,
+        scope: 'once',
+        ...(req.reason !== undefined && { reason: req.reason }),
+      });
+      items.push({ approval_id: id, status: out.status });
+    }
+    return c.json({ items });
+  });
+
+  // After /approvals/batch, so "batch" is never read as an id.
+  r.post('/approvals/:id', async (c) => {
+    const a = await store.getApproval(c.req.param('id'));
+    if (!a) throw notFound('That approval');
+    const req = await body(c, ApprovalDecisionRequest);
+    return c.json(await answer(a, req));
   });
 
   r.get('/grants', async (c) => c.json({ items: await store.listGrants(), next_cursor: null }));

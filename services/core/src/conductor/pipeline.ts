@@ -53,6 +53,7 @@ import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { ModelRequest, ToolDef } from '../gateway/types';
 import { approxTokens } from '../memory/inject';
+import { allowedSources, type ScopeResolver } from '../scopes';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
 import { type ReplayInput, replayedResult } from '../obs/replay';
@@ -218,6 +219,8 @@ export interface ConductorDeps {
   afterAnswer?: (a: AnsweredTurn) => Promise<void>;
   /** Flows (Phase 5b): when a flow applies, it answers instead of the single model round. */
   flows?: FlowsService;
+  /** Scopes (docs/scopes.md): which sources retrieval reads, and whether memory is read or written. */
+  scopes?: ScopeResolver;
 }
 
 export interface AnsweredTurn {
@@ -524,6 +527,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           runId: run.id,
           traceId: run.traceId,
           ...(cp.input.automation && { automation: true }),
+          tool: call.tool,
+          args: call.args,
+          callId: call.callId,
         });
         if (decision.outcome === 'allow') {
           await runTool(call, spec);
@@ -612,6 +618,10 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           .map((m) => m.content);
         const query = queryFor(questions);
         // The notebook's title is only for the answer's wording: read it beside the search.
+        // The scope's sources, read now: a source outside it is never searched.
+        const scope = await deps.scopes?.effective({ notebookId, threadId: cp.input.threadId });
+        const sourceIds = scope ? allowedSources(scope, cp.input.sourceIds) : cp.input.sourceIds;
+        if (scope?.scope.sources && !sourceIds?.length) return;
         const titleRead = deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null);
         try {
           const res = await deps.retriever.search({
@@ -619,7 +629,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             notebookId,
             query,
             k: DEFAULT_K,
-            ...(cp.input.sourceIds?.length && { sourceIds: cp.input.sourceIds }),
+            ...(sourceIds?.length && { sourceIds }),
           });
           cp.grounding = groundingFrom(res, { query, notebookId, notebookTitle: (await titleRead) ?? null });
         } catch (err) {
@@ -643,6 +653,11 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const injectMemory = async (target: ModelConfig | undefined): Promise<string> => {
         if (!deps.memory || !target) return '';
         try {
+          const scope = await deps.scopes?.effective({
+            notebookId: cp.input.notebookId,
+            threadId: cp.input.threadId,
+          });
+          if (scope && !scope.scope.memory_read) return '';
           const all = await messages();
           const query =
             [...historyFor(all, cp.input.userMessageId)].reverse().find((m) => m.role === 'user')?.content ??
@@ -1181,7 +1196,11 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         }
         await finalise(cp, 'complete', { emit });
         // Learn from the turn in the background; it never holds the answer up.
-        void deps.memory?.afterTurn({
+        const memoryScope = await deps.scopes
+          ?.effective({ notebookId: cp.input.notebookId, threadId: cp.input.threadId })
+          .catch(() => null);
+        // Memory is only learned from where the scope allows writing it (a failed read writes nothing).
+        if (!deps.scopes || memoryScope?.scope.memory_write) void deps.memory?.afterTurn({
           threadId: cp.input.threadId,
           notebookId: cp.input.notebookId,
           userMessageId: cp.input.userMessageId,

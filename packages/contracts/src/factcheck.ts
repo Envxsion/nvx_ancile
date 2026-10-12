@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { FlowProvenance } from './flows';
 import { RetrievalTrace } from './knowledge';
 import { Usage } from './messages';
+import { EffectiveScope } from './scopes';
 
 export const ClaimVerdict = z.enum(['verified', 'unverified', 'contradicted', 'not_checkable']);
 export type ClaimVerdict = z.infer<typeof ClaimVerdict>;
@@ -181,6 +182,13 @@ export const ExplainTool = z.object({
       action: z.string(),
       resource: z.string(),
       at: z.string(),
+      /** The rule that refused or stopped it: a scope field (scope.network) or an Auto mode floor (floor.…). */
+      rule: z.string().nullable().default(null),
+      /** For a scope rule: which level set it and why, from the scope in force now (docs/scopes.md). */
+      scope: z
+        .object({ field: z.string(), level: z.string(), note: z.string().nullable() })
+        .nullable()
+        .default(null),
     })
     .nullable(),
 });
@@ -209,6 +217,8 @@ export const Explain = z.object({
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   /** Flows (Phase 5b): the flow that answered, its path, decisions and steps. */
   flow: FlowProvenance.nullable().default(null),
+  /** The scope in force for the thread now, with the level behind each field (docs/scopes.md). */
+  scope: EffectiveScope.nullable().default(null),
   /** Where the full trace lives (Admin → Traces). */
   trace_url: z.string(),
 });

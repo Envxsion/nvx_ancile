@@ -35,6 +35,7 @@ import { tracedFetch } from '../context';
 import { DEFAULT_SECRET } from '../gateway/providers';
 import type { ModelRegistry } from '../gateway/registry';
 import { body } from '../http/body';
+import { TYPESAFE_KEY_SECRET } from '../permissions/auto/wire';
 import { GITHUB_TOKEN_SECRET } from '../repos/github';
 import type { SecretStore } from '../secrets';
 import { modelsOf, type ProviderTester, testFailed } from '../setup/routes';
@@ -79,6 +80,9 @@ export const CREDENTIALS: Record<CredentialId, Definition> = {
     env: 'ANCILE_MEMORY_REMOTE',
     check: 'format',
   },
+  // Auto mode's reviewer, called directly (docs/auto-mode.md). Checked by shape only:
+  // a test call would itself be a paid decision.
+  typesafe: { name: 'TypeSafe (Jev)', secret: TYPESAFE_KEY_SECRET, env: 'TYPESAFE_API_KEY', check: 'format' },
 };
 
 /** Secret name → the environment variable that wins over it (for EnvFirstSecretStore). */
@@ -274,6 +278,16 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
               : rejected('Hugging Face', 'token', 'huggingface.co/settings/tokens');
           throw err;
         }
+        await secrets.set(d.secret, value);
+      } else if (id !== 'memory_remote') {
+        if (/\s/.test(value) || value.length < 16)
+          throw new AncileError({
+            code: 'credentials.invalid',
+            title: `That doesn't look like a ${d.name} key`,
+            hint: 'Paste the whole key, with no spaces. Nothing was saved.',
+            status: 400,
+            errorClass: 'permanent',
+          });
         await secrets.set(d.secret, value);
       } else {
         if (!GIT_REMOTE.test(value))
