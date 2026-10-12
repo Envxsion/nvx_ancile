@@ -25,6 +25,7 @@ import { useUi } from '../../state/ui';
 import { PrivacyGroup } from '../../telemetry/ShareStats';
 import { Icon, type IconName } from '../../ui/Icon';
 import { Kbd } from '../../ui/primitives';
+import { UsageGroup } from '../../usage/UsageView';
 import {
   AccessibilityGroup,
   AdvancedGroup,
@@ -38,7 +39,7 @@ import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
 const GROUPS: {
-  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code';
+  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code' | 'usage';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -94,6 +95,13 @@ const GROUPS: {
     icon: 'command',
     body: ClaudeCodeGroup,
     lede: 'Use the Claude Code on this computer, and keep its sessions here as threads.',
+  },
+  {
+    id: 'usage',
+    label: 'Usage',
+    icon: 'pulse',
+    body: UsageGroup,
+    lede: 'Claude Code plan limits, and what NVX Ancile has used today, this week and this month.',
   },
   {
     id: 'privacy',
@@ -366,7 +374,8 @@ export function SettingsScreen() {
             current.id !== 'privacy' &&
             current.id !== 'sync' &&
             current.id !== 'keys' &&
-            current.id !== 'claude-code' ? (
+            current.id !== 'claude-code' &&
+            current.id !== 'usage' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

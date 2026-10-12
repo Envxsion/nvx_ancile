@@ -168,6 +168,8 @@ export interface LiveDeps {
   stopGraceMs?: number;
   /** Does a folder exist (tests)? */
   folderExists?: (cwd: string) => Promise<boolean>;
+  /** Plan limits: sees every pushed message (rate_limit_event) and each turn's end. */
+  limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
 }
 
 interface Turn {
@@ -917,6 +919,10 @@ export class ClaudeCodeLive {
       l.sessionId = sid;
       this.ownWrites.set(sid, this.now());
     }
+    if (m.type === 'rate_limit_event') {
+      await this.deps.limits?.observe(m).catch(() => undefined);
+      return;
+    }
     if (m.type === 'system' && m.subtype === 'init') {
       if (typeof m.model === 'string') l.model = m.model;
       if (typeof m.permissionMode === 'string') l.permissionMode = m.permissionMode;
@@ -1021,6 +1027,7 @@ export class ClaudeCodeLive {
         t.modelSpan?.span.end('ok');
         t.modelSpan = null;
         t.settle?.();
+        if (l.handle) this.deps.limits?.afterTurn(l.handle);
         return;
       default:
         return;
@@ -1253,13 +1260,19 @@ export class ClaudeCodeLive {
     let context: ClaudeCodeLiveState['context'] = null;
     if (l?.handle) {
       const u = await this.deps.bridge
-        .control<{ total_tokens: number; max_tokens: number; percentage: number }>(l.handle, 'context_usage')
+        .control<{
+          total_tokens: number;
+          max_tokens: number;
+          percentage: number;
+          compacts_at?: number | null;
+        }>(l.handle, 'context_usage')
         .catch(() => null);
       if (u && typeof u.max_tokens === 'number')
         context = {
           used_tokens: Math.round(u.total_tokens),
           max_tokens: Math.round(u.max_tokens),
           percent: u.percentage,
+          compacts_at: typeof u.compacts_at === 'number' ? u.compacts_at : null,
         };
     }
     return {
@@ -1382,6 +1395,12 @@ export class ClaudeCodeLive {
 
   sourceIdsOf(threadId: string): string[] | null {
     return this.lives.get(threadId)?.turn?.cp.sourceIds ?? null;
+  }
+
+  /** A live session's handle, if any is open (the plan-limits report can be asked on it). */
+  openHandle(): string | null {
+    for (const h of this.byHandle.keys()) return h;
+    return null;
   }
 
   /** For tests and the health view. */

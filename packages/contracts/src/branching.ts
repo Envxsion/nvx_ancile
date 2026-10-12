@@ -110,6 +110,10 @@ export const PathBudget = z.object({
     .nullable(),
   /** Messages a compaction now could replace (everything but the latest turns). */
   compactable: z.number().int(),
+  /** The share of the window where the meter warns and offers Compact now (§8.4). */
+  warn_at: z.number().optional(),
+  /** The share where the path is compacted by itself before sending (§8.4). */
+  compacts_at: z.number().optional(),
 });
 export type PathBudget = z.infer<typeof PathBudget>;
 

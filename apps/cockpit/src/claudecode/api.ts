@@ -142,6 +142,11 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
       // Only that thread, and only if it is loaded (an open or recently opened thread).
       if (e.thread_id) invalidateSoon(qc, keys.thread(e.thread_id));
       invalidateSoon(qc, CC_KEYS.sessions);
+      // A turn ended or a session synced: the totals in Settings → Usage moved.
+      invalidateSoon(qc, ['usage', 'report']);
+      break;
+    case 'limits':
+      void qc.invalidateQueries({ queryKey: ['usage', 'plan-limits'] });
       break;
     default:
       break;

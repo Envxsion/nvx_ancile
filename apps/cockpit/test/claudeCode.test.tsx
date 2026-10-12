@@ -561,7 +561,7 @@ describe('claude_code.changed', () => {
       vi.advanceTimersByTime(CC_INVALIDATE_MS);
       const asked = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
       expect(asked.sort()).toEqual(
-        [CC_KEYS.sessions, keys.thread('t0'), keys.thread('t1'), keys.thread('t2')]
+        [CC_KEYS.sessions, ['usage', 'report'], keys.thread('t0'), keys.thread('t1'), keys.thread('t2')]
           .map((k) => JSON.stringify(k))
           .sort(),
       );

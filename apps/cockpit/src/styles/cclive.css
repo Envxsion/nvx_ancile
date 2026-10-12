@@ -86,27 +86,6 @@
   background: var(--chalk);
   color: var(--fg);
 }
-.cc-live__meter {
-  position: relative;
-  width: 40px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--chalk-2);
-  overflow: hidden;
-}
-.cc-live__meter > span {
-  position: absolute;
-  inset: 0;
-  transform-origin: left;
-  background: var(--fg-3);
-  transition: transform var(--d-medium) var(--ease);
-}
-.cc-live__usage[data-tone='high'] .cc-live__meter > span {
-  background: var(--gilt);
-}
-.cc-live__usage[data-tone='over'] .cc-live__meter > span {
-  background: var(--fail);
-}
 @media (max-width: 560px) {
   .cc-live__meta {
     display: none;
@@ -144,6 +123,11 @@
 .cc-usage__note {
   color: var(--mute);
   font-size: var(--t-micro);
+}
+.cc-usage__plan {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
 }
 .cc-usage__foot {
   margin: 12px 0 0;

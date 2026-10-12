@@ -336,7 +336,10 @@ describe('live sessions', () => {
       max_tokens: 200_000,
       percentage: 0.5,
       model: 'opus',
+      compacts_at: null,
     });
+    // The fake SDK has no experimental usage method: a clear error, never a crash.
+    await expect(mgr.control(handle, 'usage')).rejects.toThrow(/does not report plan usage/);
     await mgr.interrupt(handle);
     const q = sdk.made[0] as FakeQuery;
     expect(q.calls).toEqual(['model:sonnet', 'flags:{"effortLevel":"high"}', 'mode:plan', 'interrupt']);

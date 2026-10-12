@@ -421,8 +421,10 @@ describe('the status line', () => {
     );
     expect(screen.getByText('Claude Code ready in cyberfolio')).toBeInTheDocument();
     expect(screen.getByText('opus · high effort')).toBeInTheDocument();
-    const meter = screen.getByRole('meter', { name: "Claude Code's context used" });
+    // The same meter as every thread's context, with Claude Code's own numbers.
+    const meter = screen.getByRole('meter', { name: '42% of context' });
     expect(meter).toHaveAttribute('aria-valuenow', '42');
+    expect(container.querySelector('.u-meter')).toHaveAttribute('data-tone', 'calm');
     expect(container.querySelector('.cc-live')).toHaveAttribute('data-state', 'ready');
   });
 
@@ -434,10 +436,40 @@ describe('the status line', () => {
     expect(screen.getByText('Working…')).toBeInTheDocument();
   });
 
-  it('the usage popover: context, last turn, and a cost that says it is an estimate', () => {
+  it('the usage popover: context, last turn, plan limits, and a cost that says it is an estimate', async () => {
+    mocked.get.mockResolvedValue({
+      available: true,
+      plan: 'max',
+      windows: [
+        {
+          id: 'five_hour',
+          kind: 'session',
+          label: null,
+          percent: 42,
+          resets_at: null,
+          status: null,
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      updated_at: new Date().toISOString(),
+      source: 'usage',
+      can_refresh: true,
+    });
     const last = msg({ id: 'm4', role: 'assistant', usage: { tokens: 12_400, costUsd: 0.42 } });
-    wrap(<UsageBody live={LIVE} last={last} />);
-    expect(screen.getByText('84k of 200k tokens (42%)')).toBeInTheDocument();
+    wrap(
+      <UsageBody
+        live={{
+          ...LIVE,
+          context: { used_tokens: 84_000, max_tokens: 200_000, percent: 42, compacts_at: 92 },
+        }}
+        last={last}
+      />,
+    );
+    expect(screen.getByText('84k of 200k tokens')).toBeInTheDocument();
+    expect(screen.getByText('42% of context: compacts at 92%')).toBeInTheDocument();
+    expect(await screen.findByText('Current session (5 hours)')).toBeInTheDocument();
+    expect(mocked.get).toHaveBeenCalledWith('/claude-code/plan-limits');
+    expect(screen.getByRole('link', { name: 'All usage' })).toBeInTheDocument();
     expect(screen.getByText('12,400 tokens')).toBeInTheDocument();
     expect(screen.getByText('$0.42')).toBeInTheDocument();
     expect(screen.getByText('estimate at API list prices, not your bill')).toBeInTheDocument();
