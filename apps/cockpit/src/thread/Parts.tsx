@@ -15,7 +15,7 @@
  */
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
-import { Streamdown } from 'streamdown';
+import { ProseWithArtifacts } from '../artifacts/ArtifactCard';
 import { modelName } from '../lib/format';
 import type { SubagentView } from '../lib/types';
 import { usePrefs } from '../state/prefs';
@@ -113,7 +113,10 @@ export function Parts({
   claims,
   holdText = false,
   subagents,
+  messageId = null,
 }: {
+  /** The answer these parts belong to: artifacts in it are versioned by it. */
+  messageId?: string | null;
   /** Claude Code subagent transcripts: under their tool step, or at the end. */
   subagents?: SubagentView[] | undefined;
   parts: Part[];
@@ -135,8 +138,10 @@ export function Parts({
       case 'text':
         if (holdText) return null;
         return (
-          <Streamdown
+          <ProseWithArtifacts
             key={s.key}
+            messageId={messageId}
+            live={streaming}
             className="md"
             mode={streaming && i === lastText ? 'streaming' : 'static'}
             isAnimating={streaming && i === lastText}
@@ -146,7 +151,7 @@ export function Parts({
             remarkPlugins={REMARK_PLUGINS}
           >
             {linkMarkers(streaming ? s.text : markClaims(s.text, s.base, claims))}
-          </Streamdown>
+          </ProseWithArtifacts>
         );
       case 'reasoning':
         return <Thinking key={s.key} text={s.text} live={streaming && i === segs.length - 1} />;

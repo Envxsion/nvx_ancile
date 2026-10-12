@@ -24,6 +24,7 @@ import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo
 import { Streamdown } from 'streamdown';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
+import { PythonBody, runMeta } from '../interpreter/PythonBody';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
 import type { SubagentView } from '../lib/types';
@@ -64,6 +65,7 @@ type Kind =
   | 'toolsearch'
   | 'monitor'
   | 'mcp'
+  | 'python'
   | 'other';
 
 const KINDS: Record<string, Kind> = {
@@ -91,6 +93,7 @@ const KINDS: Record<string, Kind> = {
   skill: 'skill',
   toolsearch: 'toolsearch',
   monitor: 'monitor',
+  python_run: 'python',
 };
 
 export function kindOf(tool: string): Kind {
@@ -119,6 +122,7 @@ const VERBS: Record<Exclude<Kind, 'other'>, [string, string, string]> = {
   toolsearch: ['Looked up tools', 'Looking up tools', 'look up tools'],
   monitor: ['Watched', 'Watching', 'watch'],
   mcp: ['Used', 'Using', 'use'],
+  python: ['Ran Python', 'Running Python', 'run Python'],
 };
 
 const ICONS: Record<Kind, IconName> = {
@@ -141,6 +145,7 @@ const ICONS: Record<Kind, IconName> = {
   toolsearch: 'search',
   monitor: 'eye',
   mcp: 'link',
+  python: 'play',
   other: 'zap',
 };
 
@@ -277,6 +282,16 @@ export function describe(
         full: rawPath,
         mono: !!path,
         meta: st.added || st.removed ? `+${st.added} −${st.removed}` : null,
+      };
+    }
+    case 'python': {
+      const code = s(a.code);
+      return {
+        verb,
+        target: code ? firstLine(code, 80) : 'some code',
+        full: code,
+        mono: !!code,
+        meta: runMeta(result),
       };
     }
     case 'delete':
@@ -853,6 +868,7 @@ function Body({
   const kind = kindOf(call.tool);
   const a = argsOf(call);
   // The lab's own tools keep the plain view their results were written for.
+  if (kind === 'python') return <PythonBody call={call} result={result} />;
   const lab = call.tool === call.tool.toLowerCase() && kind !== 'mcp';
   if (lab && kind !== 'shell' && kind !== 'edit' && kind !== 'grep' && kind !== 'glob')
     return <GenericBody call={call} result={result} />;

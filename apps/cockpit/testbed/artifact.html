@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en-GB" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Same frame policy as index.html: nested frames may not be navigated anywhere. -->
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
+    <title>Artifact sandbox testbed</title>
+  </head>
+  <body>
+    <!-- Dev server only (never built): tests/e2e/artifacts.spec.ts drives this page. -->
+    <main id="root"></main>
+    <script type="module" src="./artifact.tsx"></script>
+  </body>
+</html>

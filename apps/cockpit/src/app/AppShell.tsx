@@ -20,6 +20,7 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { type CSSProperties, useEffect } from 'react';
 import { ActivityHost } from '../activity/ActivityPanel';
 import { ApprovalDialog } from '../approvals/ApprovalDialog';
+import { ArtifactPanel } from '../artifacts/ArtifactPanel';
 import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
 import { FileEditorHost } from '../code/FileEditorHost';
 import { EditorsHost } from '../editors/EditorsHost';
@@ -223,6 +224,7 @@ export function AppShell() {
       <ActivityHost />
       <EditorsHost />
       <FileEditorHost />
+      <ArtifactPanel />
       <Toaster />
     </div>
   );

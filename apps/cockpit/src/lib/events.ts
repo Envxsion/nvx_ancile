@@ -19,7 +19,9 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { onActivityChanged } from '../activity/api';
 import { onReviewerStatus } from '../auto/store';
+import { artifactKeys } from '../artifacts/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
+import { onInterpreterRequested } from '../interpreter/host';
 import { onMemoryProposal } from '../memory/api';
 import { decisionChime } from '../notify/chime';
 import { onMcpServerChanged, onMcpToolsChanged } from '../ops/mcp';
@@ -55,6 +57,7 @@ export function useGlobalEvents(): void {
             if (e.thread_id) {
               void queryClient.invalidateQueries({ queryKey: branchKeys.tree(e.thread_id) });
               void queryClient.invalidateQueries({ queryKey: branchKeys.budget(e.thread_id) });
+              void queryClient.invalidateQueries({ queryKey: artifactKeys.thread(e.thread_id) });
             }
             break;
           case 'suggestion':
@@ -139,6 +142,9 @@ export function useGlobalEvents(): void {
                 at: Date.parse(e.at) || Date.now(),
                 ...(e.run_id && { runId: e.run_id }),
               });
+            break;
+          case 'interpreter.requested':
+            onInterpreterRequested(e);
             break;
           case 'notification':
             notify({

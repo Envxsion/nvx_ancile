@@ -397,6 +397,7 @@ export const Message = memo(function Message({
                 claims={claims}
                 holdText={streaming && whole}
                 subagents={m.subagents}
+                messageId={m.id}
               />
             </ClaimsProvider>
           </CiteProvider>
