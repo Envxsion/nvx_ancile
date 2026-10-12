@@ -24,6 +24,7 @@ import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo
 import { Streamdown } from 'streamdown';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
+import { ImageGenBody, imageMeta } from '../images/ImageGenBody';
 import { PythonBody, runMeta } from '../interpreter/PythonBody';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
@@ -66,6 +67,7 @@ type Kind =
   | 'monitor'
   | 'mcp'
   | 'python'
+  | 'image'
   | 'other';
 
 const KINDS: Record<string, Kind> = {
@@ -94,6 +96,7 @@ const KINDS: Record<string, Kind> = {
   toolsearch: 'toolsearch',
   monitor: 'monitor',
   python_run: 'python',
+  image_generate: 'image',
 };
 
 export function kindOf(tool: string): Kind {
@@ -123,6 +126,7 @@ const VERBS: Record<Exclude<Kind, 'other'>, [string, string, string]> = {
   monitor: ['Watched', 'Watching', 'watch'],
   mcp: ['Used', 'Using', 'use'],
   python: ['Ran Python', 'Running Python', 'run Python'],
+  image: ['Made an image', 'Making an image', 'make an image'],
 };
 
 const ICONS: Record<Kind, IconName> = {
@@ -146,6 +150,7 @@ const ICONS: Record<Kind, IconName> = {
   monitor: 'eye',
   mcp: 'link',
   python: 'play',
+  image: 'image',
   other: 'zap',
 };
 
@@ -292,6 +297,16 @@ export function describe(
         full: code,
         mono: !!code,
         meta: runMeta(result),
+      };
+    }
+    case 'image': {
+      const prompt = s(a.prompt);
+      return {
+        verb,
+        target: prompt ? firstLine(prompt, 80) : 'from a prompt',
+        full: prompt,
+        mono: false,
+        meta: imageMeta(result),
       };
     }
     case 'delete':
@@ -869,6 +884,7 @@ function Body({
   const a = argsOf(call);
   // The lab's own tools keep the plain view their results were written for.
   if (kind === 'python') return <PythonBody call={call} result={result} />;
+  if (kind === 'image') return <ImageGenBody call={call} result={result} />;
   const lab = call.tool === call.tool.toLowerCase() && kind !== 'mcp';
   if (lab && kind !== 'shell' && kind !== 'edit' && kind !== 'grep' && kind !== 'glob')
     return <GenericBody call={call} result={result} />;
@@ -949,7 +965,7 @@ export function ToolStep({
           ? firstLine(resultText(result), 90) || null
           : null;
   // A Python run is read for its output and figures: it stays open whatever the setting.
-  const openByDefault = !folded || state === 'waiting' || kind === 'python';
+  const openByDefault = !folded || state === 'waiting' || kind === 'python' || kind === 'image';
   const [shown, onToggle] = useOpened(openByDefault);
   return (
     <details

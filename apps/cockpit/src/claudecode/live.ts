@@ -177,6 +177,8 @@ export interface CcSend {
   model?: string | null;
   effort?: Effort | null;
   sourceIds?: string[];
+  /** Images attached to this turn (POST /threads/:id/images). */
+  imageIds?: string[];
   asBranch?: boolean;
   /** Another model answers this turn instead of Claude Code; the thread keeps its session. */
   other?: { id: string; name: string } | null;
@@ -198,6 +200,7 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     // "auto" is Claude Code's own choice: send nothing.
     ...(!other && o.effort && o.effort !== 'auto' && { effort: o.effort }),
     ...(o.sourceIds?.length && { source_ids: o.sourceIds }),
+    ...(o.imageIds?.length && { image_ids: o.imageIds }),
     ...(!other && o.asBranch && { as_branch: true }),
   };
   let s: SendTurnResult;

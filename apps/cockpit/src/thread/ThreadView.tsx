@@ -370,6 +370,14 @@ export function ThreadView({ threadId }: { threadId: string }) {
     if (cc) {
       const sourceIds = extras?.mentions.filter((m) => m.kind === 'source').map((m) => m.id);
       if (ccWorking) {
+        if (extras?.images?.length) {
+          notify({
+            level: 'info',
+            title: 'Images wait for this turn to end',
+            body: 'Send the message with its images once Claude Code has finished.',
+          });
+          return false;
+        }
         if (ccState.queued) {
           notify({
             level: 'info',
@@ -388,6 +396,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
         model: ccState.model,
         effort: ccState.effort,
         sourceIds,
+        ...(extras?.images?.length && { imageIds: extras.images.map((i) => i.id) }),
         asBranch: ccState.forkNext,
         other: ccState.other,
       });
@@ -414,6 +423,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       defaultModel: model?.id ?? null,
       mentions: extras?.mentions,
       flowId: extras?.flowId ?? null,
+      ...(extras?.images?.length && { images: extras.images }),
     });
     if (ok) setAnnounce('Message sent.');
     return ok;

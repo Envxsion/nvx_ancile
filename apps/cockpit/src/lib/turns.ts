@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { Part, SendTurnResult } from '@nvx/contracts';
+import type { ImageRecord, Part, SendTurnResult } from '@nvx/contracts';
 import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
 import { useCcStore } from '../claudecode/store';
 import { newIdempotencyKey } from '../engines/api';
@@ -145,13 +145,37 @@ export async function sendMessage(opts: {
   mentions?: { kind: 'source' | 'notebook' | 'repo'; id: string }[];
   /** Answer through this flow (`@flow`), for this one message. */
   flowId?: string | null;
+  /** Images attached to this message (POST /threads/:id/images); they go through /turns only. */
+  images?: ImageRecord[];
 }): Promise<boolean> {
-  const parts: Part[] = [{ type: 'text', text: opts.text }];
+  const images = opts.images ?? [];
+  const parts: Part[] = [
+    { type: 'text', text: opts.text },
+    ...images.map(
+      (i): Part => ({
+        type: 'image',
+        url: i.url,
+        mime: i.mime,
+        image_id: i.id,
+        ...(i.alt && { alt: i.alt }),
+        ...(i.width !== null && { width: i.width }),
+        ...(i.height !== null && { height: i.height }),
+      }),
+    ),
+  ];
   const sourceIds = (opts.mentions ?? []).filter((m) => m.kind === 'source').map((m) => m.id);
   const turnModel = turnModelFor(opts.threadId, opts.model, opts.defaultModel);
   // /turns takes sources only; a flow, a notebook or a repo still go the older way.
   const viaTurns =
     !opts.flowId && turnModel !== undefined && (opts.mentions ?? []).every((m) => m.kind === 'source');
+  if (images.length && !viaTurns) {
+    notify({
+      level: 'info',
+      title: 'Images go to one model, not a flow',
+      body: 'Pick a model for this message with @, or send it without the images.',
+    });
+    return false;
+  }
   let s: Started;
   try {
     if (viaTurns) {
@@ -160,6 +184,7 @@ export async function sendMessage(opts: {
         parent_id: opts.parentId,
         ...(turnModel && { model: turnModel }),
         ...(sourceIds.length && { source_ids: sourceIds }),
+        ...(images.length && { image_ids: images.map((i) => i.id) }),
         idempotency_key: newIdempotencyKey(),
       });
       s = {

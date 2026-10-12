@@ -16,6 +16,7 @@
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
 import { ProseWithArtifacts } from '../artifacts/ArtifactCard';
+import { ImageThreadProvider, ThreadImage } from '../images/ThreadImage';
 import { modelName } from '../lib/format';
 import type { SubagentView } from '../lib/types';
 import { usePrefs } from '../state/prefs';
@@ -39,7 +40,15 @@ type Segment =
   | { kind: 'text'; key: string; text: string; base: number }
   | { kind: 'reasoning'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: ToolResult | undefined }
-  | { kind: 'seam'; key: string; from: string; to: string };
+  | { kind: 'seam'; key: string; from: string; to: string }
+  | {
+      kind: 'image';
+      key: string;
+      src: string;
+      alt: string;
+      width: number | undefined;
+      height: number | undefined;
+    };
 
 function segments(parts: Part[]): Segment[] {
   const results = new Map(parts.flatMap((p) => (p.type === 'tool_result' ? [[p.call_id, p] as const] : [])));
@@ -55,6 +64,15 @@ function segments(parts: Part[]): Segment[] {
     else if (p.type === 'tool_call')
       out.push({ kind: 'tool', key: p.call_id, call: p, result: results.get(p.call_id) });
     else if (p.type === 'seam') out.push({ kind: 'seam', key: `s${i}`, from: p.from_model, to: p.to_model });
+    else if (p.type === 'image')
+      out.push({
+        kind: 'image',
+        key: `i${i}`,
+        src: p.url,
+        alt: p.alt ?? p.caption ?? '',
+        width: p.width,
+        height: p.height,
+      });
   });
   return out;
 }
@@ -169,6 +187,12 @@ export function Parts({
             subagent={subagents?.find((a) => a.callId === s.call.call_id)}
           />
         );
+      case 'image':
+        return (
+          <figure key={s.key} className="msg-image">
+            <ThreadImage src={s.src} alt={s.alt} width={s.width} height={s.height} />
+          </figure>
+        );
       case 'seam':
         return (
           <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">
@@ -181,7 +205,7 @@ export function Parts({
   };
 
   return (
-    <>
+    <ImageThreadProvider threadId={threadId}>
       {groupSegments(segs).map((item) => {
         if (item.kind === 'one') return one(item.seg, item.index);
         const steps = item.segs.flatMap((x) =>
@@ -197,6 +221,6 @@ export function Parts({
         // biome-ignore lint/suspicious/noArrayIndexKey: transcripts without a call have only their place
         <SubagentConversation key={`sub-${i}`} s={a} />
       ))}
-    </>
+    </ImageThreadProvider>
   );
 }
