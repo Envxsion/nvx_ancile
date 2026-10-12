@@ -434,7 +434,7 @@ describe('sending a turn', () => {
       kind: 'command',
       command: { name: '/model', args: 'opus', output: 'Set model to opus' },
     });
-    expect((users[0]?.provenance?.claude_code as { uuids: string[] }).uuids).toEqual(
+    expect((users[0]?.provenance?.claude_code as { uuids?: string[] } | undefined)?.uuids).toEqual(
       expect.arrayContaining(['c1', 'c2']),
     );
     // A later sync of the transcript adds nothing: the command's entries are on the sent message.
