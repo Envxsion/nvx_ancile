@@ -19,9 +19,17 @@
 //           |    200 "edition":"pro" to a free install: Pro is ready
 //           |    200 "downgrade":true: Pro ended (90+ days, revoked):
 //           |      one notice, one click, back to the free edition
-//           |    200 otherwise: a plain update
+//           |    200 otherwise: a plain update, or an older build
+//           |      after a release was pulled (a rollback)
 //           |    204: nothing newer (a lapsed Pro stays as it is)
 //           |    503 or no answer: try again at the next check
+//           |  Any 200 is an offer (nvx.sh decides, so the same version
+//           |  in the other edition, or an older one, is offered too).
+//           |  An older build would start on a database a newer one
+//           |  updated: the tray warns first, a second click asks Core
+//           |  for a backup, and only then installs. That older build
+//           |  then offers the backup from before the update (Core's
+//           |  start-up screen).
 //           |  What is on offer is told to Core (POST /internal/v1/
 //           |  desktop/update-offer) so Admin → Licence can say so.
 //           |  Nothing installs without a click in the tray menu.
@@ -43,6 +51,8 @@ const EVERY: Duration = Duration::from_secs(6 * 3600);
 static CHECKING: AtomicBool = AtomicBool::new(false);
 /// An install is under way: no check changes the tray line under it.
 static INSTALLING: AtomicBool = AtomicBool::new(false);
+/// The older build on offer was clicked once: the next click backs up and installs.
+static ARMED: AtomicBool = AtomicBool::new(false);
 
 /// The update found, waiting for the person to install it.
 pub struct Waiting(pub Mutex<Option<Update>>);
@@ -74,6 +84,41 @@ pub enum OfferKind {
     CrossToPro,
     /// The licence ended 90 or more days ago, or was revoked: back to free.
     Downgrade,
+}
+
+/// Is `offered` an older version than `current`? Dotted numbers; a
+/// pre-release (`0.4.0-beta.1`) comes before its release.
+pub fn is_older(offered: &str, current: &str) -> bool {
+    fn parts(v: &str) -> (Vec<u64>, bool) {
+        let v = v.trim().trim_start_matches('v');
+        let core = v.split(['-', '+']).next().unwrap_or(v);
+        let pre = v.split('+').next().unwrap_or(v).contains('-');
+        (
+            core.split('.').map(|p| p.parse().unwrap_or(0)).collect(),
+            pre,
+        )
+    }
+    let (a, a_pre) = parts(offered);
+    let (b, b_pre) = parts(current);
+    for i in 0..a.len().max(b.len()) {
+        let (x, y) = (
+            a.get(i).copied().unwrap_or(0),
+            b.get(i).copied().unwrap_or(0),
+        );
+        if x != y {
+            return x < y;
+        }
+    }
+    a_pre && !b_pre
+}
+
+/// The tray line for an older build: a warning first, then what the second click does.
+pub fn older_text(version: &str, armed: bool) -> String {
+    if armed {
+        format!("Back up your data and install NVX Ancile {version}")
+    } else {
+        format!("NVX Ancile {version} is older than this version: read before installing")
+    }
 }
 
 /// Read the server's "edition" and "downgrade" against what is installed.
@@ -136,8 +181,9 @@ fn ask_core(port: u16, service_token: &str) -> Option<FromCore> {
         .and_then(|s| serde_json::from_str(&s).ok())
 }
 
-/// Tell Core what is on offer (None: nothing), for Admin → Licence.
-fn tell_core(app: &AppHandle, offer: Option<(&str, &str, bool)>) {
+/// Tell Core what is on offer (None: nothing), for Admin → Licence:
+/// (version, edition, downgrade, older).
+fn tell_core(app: &AppHandle, offer: Option<(&str, &str, bool, bool)>) {
     let Some(sup) = crate::supervisor_of(app) else {
         return;
     };
@@ -147,13 +193,18 @@ fn tell_core(app: &AppHandle, offer: Option<(&str, &str, bool)>) {
     let url = core_url(sup.layout().ports.core, "update-offer");
     let auth = format!("Bearer {token}");
     let sent = match offer {
-        Some((version, edition, downgrade)) => ureq::post(&url)
+        Some((version, edition, downgrade, older)) => ureq::post(&url)
             .set("authorization", &auth)
             .set("content-type", "application/json")
             .timeout(Duration::from_secs(5))
             .send_string(
-                &serde_json::json!({ "version": version, "edition": edition, "downgrade": downgrade })
-                    .to_string(),
+                &serde_json::json!({
+                    "version": version,
+                    "edition": edition,
+                    "downgrade": downgrade,
+                    "older": older
+                })
+                .to_string(),
             ),
         None => ureq::delete(&url)
             .set("authorization", &auth)
@@ -224,8 +275,12 @@ fn run_check(app: &AppHandle) {
     let Ok(url) = Url::parse(&endpoint(wanted, installed, channel)) else {
         return;
     };
+    // nvx.sh answers 204 when there is nothing to install, so any 200 is an
+    // offer: the other edition of this version, or an older build after a rollback.
     let mut builder = match app.updater_builder().endpoints(vec![url]) {
-        Ok(b) => b.timeout(Duration::from_secs(30)),
+        Ok(b) => b
+            .timeout(Duration::from_secs(30))
+            .version_comparator(|_current, _release| true),
         Err(e) => {
             log::info!("updates: endpoint not usable ({e})");
             return;
@@ -254,13 +309,29 @@ fn run_check(app: &AppHandle) {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
             let kind = classify(installed, edition.as_deref(), downgrade);
-            log::info!("updates: {} is available ({kind:?})", update.version);
-            set_line(app, &tray_text(kind, &update.version), true);
+            let older = is_older(&update.version, &update.current_version);
+            log::info!(
+                "updates: {} is available ({kind:?}{})",
+                update.version,
+                if older { ", older" } else { "" }
+            );
+            ARMED.store(false, Ordering::SeqCst);
+            let line = if older {
+                older_text(&update.version, false)
+            } else {
+                tray_text(kind, &update.version)
+            };
+            set_line(app, &line, true);
             let offered = edition.as_deref().unwrap_or(installed.as_str());
             let offered = if offered == "pro" { "pro" } else { "free" };
             tell_core(
                 app,
-                Some((&update.version, offered, kind == OfferKind::Downgrade)),
+                Some((
+                    &update.version,
+                    offered,
+                    kind == OfferKind::Downgrade,
+                    older,
+                )),
             );
             if let Some(w) = app.try_state::<Waiting>() {
                 *w.0.lock().unwrap() = Some(update);
@@ -279,8 +350,23 @@ fn run_check(app: &AppHandle) {
     }
 }
 
-/// The tray's offer line: download, install, start again. One click, for
-/// every kind of offer (Pro arriving, Pro ended, or a plain update).
+/// Ask Core for a backup before an older build is installed over this data.
+fn backup_first(app: &AppHandle) -> Result<(), String> {
+    let sup = crate::supervisor_of(app).ok_or("NVX Ancile is not running")?;
+    let token = sup.service_token().ok_or("no service token")?;
+    let url = core_url(sup.layout().ports.core, "backup");
+    ureq::post(&url)
+        .set("authorization", &format!("Bearer {token}"))
+        .set("content-type", "application/json")
+        .timeout(Duration::from_secs(35 * 60))
+        .send_string(r#"{"reason":"before-downgrade"}"#)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// The tray's offer line: download, install, start again. One click for
+/// Pro arriving, Pro ended or a plain update. An older build takes two: the
+/// first warns, the second backs up the database and then installs.
 pub fn install(app: AppHandle) {
     std::thread::spawn(move || {
         let Some(update) = app
@@ -289,6 +375,27 @@ pub fn install(app: AppHandle) {
         else {
             return;
         };
+        if is_older(&update.version, &update.current_version) {
+            if !ARMED.swap(true, Ordering::SeqCst) {
+                set_line(&app, &older_text(&update.version, true), true);
+                crate::show_main(&app);
+                if let Some(w) = app.try_state::<Waiting>() {
+                    *w.0.lock().unwrap() = Some(update);
+                }
+                return;
+            }
+            ARMED.store(false, Ordering::SeqCst);
+            set_line(&app, "Backing up your data first…", false);
+            if let Err(e) = backup_first(&app) {
+                log::error!("updates: the backup before an older version failed ({e})");
+                set_line(
+                    &app,
+                    "The backup failed, so the older version was not installed",
+                    false,
+                );
+                return;
+            }
+        }
         INSTALLING.store(true, Ordering::SeqCst);
         set_line(
             &app,
@@ -313,7 +420,9 @@ pub fn install(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify, endpoint, tray_text, wants_pro, Edition, OfferKind};
+    use super::{
+        classify, endpoint, is_older, older_text, tray_text, wants_pro, Edition, OfferKind,
+    };
 
     #[test]
     fn endpoint_names_edition_installed_and_channel() {
@@ -371,6 +480,31 @@ mod tests {
             classify(Edition::Free, Some("free"), true),
             OfferKind::Normal,
             "a free install has nothing to leave"
+        );
+    }
+
+    #[test]
+    fn an_older_build_is_told_apart_from_a_newer_one() {
+        assert!(is_older("0.3.9", "0.4.0"));
+        assert!(is_older("0.4.0-beta.2", "0.4.0"));
+        assert!(is_older("0.9.0", "0.10.0"), "numbers, not text");
+        assert!(
+            !is_older("0.4.0", "0.4.0"),
+            "the other edition of this version"
+        );
+        assert!(!is_older("0.4.1", "0.4.0"));
+        assert!(!is_older("0.4.0", "0.4.0-beta.2"));
+    }
+
+    #[test]
+    fn an_older_build_is_warned_about_before_it_is_installed() {
+        assert_eq!(
+            older_text("0.3.9", false),
+            "NVX Ancile 0.3.9 is older than this version: read before installing"
+        );
+        assert_eq!(
+            older_text("0.3.9", true),
+            "Back up your data and install NVX Ancile 0.3.9"
         );
     }
 
