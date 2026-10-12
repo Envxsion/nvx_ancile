@@ -124,4 +124,45 @@ eachBackend('Claude Code store', (backend) => {
     await threads.deleteThread(t.id);
     expect((await store.sessions(ws)).find((s) => s.session_id === sid)).toBeUndefined();
   });
+
+  it('finds the thread that already holds a session’s entries (a terminal fork’s origin)', async () => {
+    const [u1, a1, a2, other] = [uid('u'), uid('a'), uid('a'), uid('x')];
+    const base = { status: 'complete' as const, trace_id: '0'.repeat(32), parts: [] };
+    const t1 = await threads.createThread({ id: uid('thr'), workspace_id: ws, title: 'Origin' });
+    const t2 = await threads.createThread({ id: uid('thr'), workspace_id: ws, title: 'Another' });
+    const m1 = uid('msg');
+    await threads.insertMessages([
+      {
+        ...base,
+        id: m1,
+        thread_id: t1.id,
+        parent_id: null,
+        role: 'user',
+        provenance: { claude_code: { session_id: 's1', uuid: u1, uuids: [u1] } },
+      },
+      {
+        ...base,
+        id: uid('msg'),
+        thread_id: t1.id,
+        parent_id: m1,
+        role: 'assistant',
+        provenance: { claude_code: { session_id: 's1', uuid: a2, uuids: [a1, a2] } },
+      },
+      {
+        ...base,
+        id: uid('msg'),
+        thread_id: t2.id,
+        parent_id: null,
+        role: 'user',
+        provenance: { claude_code: { session_id: 's2', uuid: a1, uuids: [a1] } },
+      },
+    ]);
+    // Most matches wins: t1 holds three of them, t2 one.
+    expect(await store.threadHolding(ws, [u1, a1, a2, uid('nope')])).toBe(t1.id);
+    expect(await store.threadHolding(ws, [other])).toBeNull();
+    expect(await store.threadHolding(ws, [])).toBeNull();
+    // A deleted thread holds nothing.
+    await threads.deleteThread(t1.id);
+    expect(await store.threadHolding(ws, [u1, a1, a2])).toBe(t2.id);
+  });
 });

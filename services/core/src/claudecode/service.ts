@@ -73,7 +73,7 @@ import {
   titleOf,
 } from './map';
 import { joinOutput } from './markup';
-import { type ClaudeCodeStore, cwdKey, cwdWithin, type SessionBinding } from './store';
+import { type ClaudeCodeStore, cwdKey, cwdWithin, FORK_PROBE, type SessionBinding } from './store';
 import { coversSdkChain, findTranscript, readTranscript, TRANSCRIPT_READER_VERSION } from './transcript';
 import type { ClaudeVerifier } from './verify';
 
@@ -244,6 +244,16 @@ export class ClaudeCodeService {
     const home = this.deps.home ?? homedir();
     const roots = (await this.settings()).exclude_folders.map((f) => expandHome(f, home)).filter(Boolean);
     return (cwd) => !!cwd && roots.some((r) => cwdWithin(cwd, r, this.platform));
+  }
+
+  /** Is this folder (or one it is inside) in Excluded folders? */
+  async folderExcluded(cwd: string): Promise<boolean> {
+    return (await this.excluded())(cwd);
+  }
+
+  /** The notebook a folder's sessions go to, for a thread started in NVX Ancile. */
+  notebookForFolder(cwd: string): Promise<string | null> {
+    return this.notebookFor(cwd);
   }
 
   /** "Don't bring in this folder": add it to the excluded folders and tidy up. */
@@ -756,12 +766,17 @@ export class ClaudeCodeService {
     const cwd = info.cwd ?? null;
     const traceId = currentContext()?.traceId ?? newTraceId();
 
+    const rebuilding = !!binding && binding.mapper_version < MAPPER_VERSION;
+    const history = await this.history(sessionId, !binding || rebuilding);
+    const chains = history.chains;
+
     let thread: ThreadRecord | undefined = binding
       ? await threads.getThread(binding.thread_id)
       : opts.threadId
         ? await threads.getThread(opts.threadId)
-        : undefined;
-    // A session forked from another one in Ancile shares its thread; only the thread's own session moves its head.
+        : await this.forkedFrom(chains);
+    // A session forked from another one (in Ancile, or in a terminal with /branch) shares its
+    // thread; only the thread's own session moves its head.
     const primary = !thread || thread.settings.claude_code?.session_id === sessionId;
     let lastTitle = binding?.title ?? null;
     if (!thread) {
@@ -783,9 +798,6 @@ export class ClaudeCodeService {
       lastTitle = title;
     }
 
-    const rebuilding = !!binding && binding.mapper_version < MAPPER_VERSION;
-    const history = await this.history(sessionId, !binding || rebuilding);
-    const chains = history.chains;
     const any = chains.some((c) => c.length > 0);
     // Built by an older mapping: rebuild it, unless something was written in Ancile.
     let mapperVersion = binding?.mapper_version ?? MAPPER_VERSION;
@@ -858,6 +870,29 @@ export class ClaudeCodeService {
     await this.deps.store.putSession(ws, binding2);
     if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
     return { thread_id: thread.id, added, notebook_id: thread.notebook_id };
+  }
+
+  /**
+   * A session never brought in whose first entries a thread already holds
+   * is a fork of that thread's session (Claude Code's /branch in a
+   * terminal copies the entries it forks from, uuids and all): it is
+   * brought in as a branch of that thread, not as a thread of its own.
+   */
+  private async forkedFrom(chains: CcSessionMessage[][]): Promise<ThreadRecord | undefined> {
+    const uuids = new Set<string>();
+    for (const chain of chains)
+      for (const e of chain.slice(0, FORK_PROBE)) if (typeof e?.uuid === 'string') uuids.add(e.uuid);
+    if (!uuids.size) return undefined;
+    const id = await this.deps.store
+      .threadHolding(this.deps.workspaceId, [...uuids])
+      .catch((err: unknown) => {
+        log.warn({ err: (err as Error).message }, 'could not look for the session a fork came from');
+        return null;
+      });
+    if (!id) return undefined;
+    const t = await this.deps.threads.getThread(id);
+    if (t) log.info({ thread_id: t.id }, 'a session forked in Claude Code joins the thread it came from');
+    return t;
   }
 
   /** Write one plan: new messages in chunks, then the messages it extends. */
@@ -1083,6 +1118,14 @@ export class ClaudeCodeService {
       return !b || b.last_modified < i.lastModified || b.mapper_version < MAPPER_VERSION;
     });
     if (!todo.length) return;
+    // Sessions never brought in go oldest first, so a session forked in a terminal comes
+    // after the one it came from and joins its thread as a branch (forkedFrom).
+    const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified;
+    todo.sort((a, b) => {
+      const na = bound.has(a.sessionId) ? 0 : 1;
+      const nb = bound.has(b.sessionId) ? 0 : 1;
+      return na !== nb ? na - nb : na === 1 ? age(a) - age(b) : 0;
+    });
     let done = 0;
     let fresh = 0;
     let lastEmit = 0;

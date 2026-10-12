@@ -2,7 +2,7 @@
  * ------------------------------------------------------------------
  *  Title    |  Claude Code bindings
  *  Ref      |  docs/claude-code.md · migrations/0013_claude_code.sql,
- *           |  0014_claude_code_mapper.sql
+ *           |  0014_claude_code_mapper.sql, 0018_claude_code_fork_lookup.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which notebook a folder's sessions go to, which thread
@@ -77,7 +77,16 @@ export interface ClaudeCodeStore {
   removeSession(workspaceId: string, sessionId: string): Promise<boolean>;
   /** What a thread already mirrors. */
   mirror(threadId: string): Promise<MirrorState>;
+  /**
+   * The thread (not deleted) that already holds the most of these Claude
+   * Code entry uuids, if any: a session forked in a terminal (/branch)
+   * shares its entries with the session it came from.
+   */
+  threadHolding(workspaceId: string, uuids: string[]): Promise<string | null>;
 }
+
+/** How many of a session's first entries are looked up to tell a fork. */
+export const FORK_PROBE = 50;
 
 interface MirrorRow {
   id: string;
@@ -171,6 +180,17 @@ export class PgClaudeCodeStore implements ClaudeCodeStore {
       from core.messages where thread_id = ${threadId} and deleted_at is null`;
     return buildMirror([...rows]);
   }
+
+  async threadHolding(workspaceId: string, uuids: string[]) {
+    if (!uuids.length) return null;
+    const rows = await this.sql<{ thread_id: string }[]>`
+      select m.thread_id, count(*)::int as n from core.messages m
+      join core.threads t on t.id = m.thread_id and t.deleted_at is null
+      where t.workspace_id = ${workspaceId} and m.deleted_at is null and m.provenance ? 'claude_code'
+        and (m.provenance->'claude_code'->'uuids') ?| ${uuids}::text[]
+      group by m.thread_id order by n desc, m.thread_id limit 1`;
+    return rows[0]?.thread_id ?? null;
+  }
 }
 
 export class MemoryClaudeCodeStore implements ClaudeCodeStore {
@@ -228,5 +248,26 @@ export class MemoryClaudeCodeStore implements ClaudeCodeStore {
         cc: (m.provenance?.claude_code as MirrorRow['cc']) ?? null,
       })),
     );
+  }
+
+  async threadHolding(workspaceId: string, uuids: string[]) {
+    if (!uuids.length) return null;
+    const want = new Set(uuids);
+    const counts = new Map<string, number>();
+    const all = [
+      ...(await this.threads.listThreads(workspaceId, { limit: 10_000 })),
+      ...(await this.threads.listThreads(workspaceId, { limit: 10_000, archived: true })),
+    ];
+    for (const t of all) {
+      for (const m of await this.threads.messages(t.id)) {
+        const cc = m.provenance?.claude_code as { uuids?: unknown } | undefined;
+        if (!Array.isArray(cc?.uuids)) continue;
+        const n = cc.uuids.filter((u) => typeof u === 'string' && want.has(u)).length;
+        if (n) counts.set(t.id, (counts.get(t.id) ?? 0) + n);
+      }
+    }
+    let best: string | null = null;
+    for (const [id, n] of counts) if (!best || n > (counts.get(best) ?? 0)) best = id;
+    return best;
   }
 }

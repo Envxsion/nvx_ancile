@@ -125,6 +125,9 @@ function basicChain() {
   ];
 }
 
+/** basicChain with uuids of its own: separate sessions never share entries (a fork does). */
+const chainOf = (p: string) => basicChain().map((e) => ({ ...e, uuid: `${p}-${e.uuid}` }));
+
 const textOf = (parts: Part[]) => parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
 
 describe('listing sessions', () => {
@@ -386,12 +389,12 @@ describe('names', () => {
   it('prefers the custom title, then the summary, then the first prompt', async () => {
     w.sessions.set('a', {
       info: info('a', { customTitle: 'nvx_folio', summary: 'S', firstPrompt: 'P' }),
-      chain: basicChain(),
+      chain: chainOf('a'),
     });
-    w.sessions.set('b', { info: info('b', { summary: 'A summary', firstPrompt: 'P' }), chain: basicChain() });
+    w.sessions.set('b', { info: info('b', { summary: 'A summary', firstPrompt: 'P' }), chain: chainOf('b') });
     w.sessions.set('c', {
       info: info('c', { summary: '', firstPrompt: 'The first prompt\nmore' }),
-      chain: basicChain(),
+      chain: chainOf('c'),
     });
     const r = await svc.importSessions({ session_ids: ['a', 'b', 'c'] });
     const titles = await Promise.all(
@@ -419,13 +422,13 @@ describe('folder notebooks', () => {
     const existing = await notebooks.create({ id: 'nbk_existing', workspace_id: WS, title: 'nvx_ancile' });
     w.sessions.set('a', {
       info: info('a', { cwd: 'C:\\Users\\p\\GitHub\\nvx_ancile' }),
-      chain: basicChain(),
+      chain: chainOf('a'),
     });
     w.sessions.set('b', {
       info: info('b', { cwd: 'C:\\Users\\p\\Desktop\\nvx_ancile' }),
-      chain: basicChain(),
+      chain: chainOf('b'),
     });
-    w.sessions.set('c', { info: info('c', { cwd: 'c:/users/p/github/NVX_ANCILE' }), chain: basicChain() });
+    w.sessions.set('c', { info: info('c', { cwd: 'c:/users/p/github/NVX_ANCILE' }), chain: chainOf('c') });
     const r = await svc.importSessions({ session_ids: ['a', 'b', 'c'] });
     const [a, b, c] = r.imported;
     expect(a?.notebook_id).toBe(existing.id);
@@ -575,10 +578,10 @@ describe('excluded folders', () => {
     svc = make({ home: HOME, store });
     await svc.patchSettings({ exclude_folders: [] });
     const other = 'C:\\Users\\p\\.claude-mem\\other';
-    w.sessions.set('o1', { info: info('o1', { cwd: OBSERVER }), chain: basicChain() });
-    w.sessions.set('o2', { info: info('o2', { cwd: OBSERVER }), chain: basicChain() });
-    w.sessions.set('k1', { info: info('k1', { cwd: other }), chain: basicChain() });
-    w.sessions.set('mine', { info: info('mine', { cwd: 'C:\\Code\\app' }), chain: basicChain() });
+    w.sessions.set('o1', { info: info('o1', { cwd: OBSERVER }), chain: chainOf('o1') });
+    w.sessions.set('o2', { info: info('o2', { cwd: OBSERVER }), chain: chainOf('o2') });
+    w.sessions.set('k1', { info: info('k1', { cwd: other }), chain: chainOf('k1') });
+    w.sessions.set('mine', { info: info('mine', { cwd: 'C:\\Code\\app' }), chain: chainOf('mine') });
     const r = await svc.importSessions({ session_ids: ['o1', 'o2', 'k1', 'mine'] });
     const [o1, o2, k1, mine] = r.imported;
     // Something written in Ancile in k1's thread.
@@ -666,7 +669,7 @@ describe('folder notebook colours', () => {
       ['b', 'C:\\Code\\two'],
       ['c', 'C:\\Code\\three'],
     ] as const)
-      w.sessions.set(id, { info: info(id, { cwd }), chain: basicChain() });
+      w.sessions.set(id, { info: info(id, { cwd }), chain: chainOf(id) });
     const r = await svc.importSessions({ session_ids: ['a', 'b', 'c'] });
     const books = await Promise.all(r.imported.map((i) => notebooks.get(i.notebook_id as string)));
     expect(books.map((b) => b?.color)).toEqual(['coral', 'jade', 'amber']);
@@ -783,6 +786,42 @@ describe('remapping older imports', () => {
     expect((await threads.messages(id)).map((m) => m.id)).toEqual(before);
     expect(textOf((await threads.messages(id))[0]?.parts ?? [])).toBe(COMMAND);
     expect((await store.sessions(WS))[0]?.mapper_version).toBe(MAPPER_VERSION);
+  });
+});
+
+describe('terminal forks', () => {
+  it('brings a session forked in a terminal (/branch) in as a branch of the thread it came from', async () => {
+    w.sessions.set('s1', { info: info('s1'), chain: basicChain() });
+    const origin = (await svc.importSessions({ session_ids: ['s1'] })).imported[0];
+    const tid = origin?.thread_id as string;
+    const before = await threads.messages(tid);
+    const answer = before.find((m) => m.role === 'assistant');
+
+    // Claude Code's /branch copies the entries it forks from, uuids and all, into a new session.
+    const fork = [
+      ...basicChain(),
+      user('f-u2', 'Now try it another way'),
+      assistant('f-a2', [{ type: 'text', text: 'Another way.' }]),
+    ];
+    w.sessions.set('f1', { info: info('f1', { lastModified: NOW + 1_000 }), chain: fork });
+    const r = await svc.importSessions({ session_ids: ['f1'] });
+    expect(r.imported[0]).toMatchObject({ session_id: 'f1', thread_id: tid });
+
+    const after = await threads.messages(tid);
+    const prompt = after.find((m) => textOf(m.parts) === 'Now try it another way');
+    expect(prompt?.parent_id).toBe(answer?.id); // hangs off where the fork was made
+    expect((prompt?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe('f1');
+    expect(after).toHaveLength(before.length + 2); // nothing it shares came in twice
+    const t = await threads.getThread(tid);
+    expect(t?.settings.claude_code?.session_id).toBe('s1'); // the thread's own session is unchanged
+    // Bound to that thread from now on: bringing it in again adds nothing.
+    const again = await svc.importSessions({ session_ids: ['f1'] });
+    expect(again.imported[0]).toMatchObject({ thread_id: tid, added: 0 });
+
+    // A session sharing nothing still gets a thread of its own.
+    w.sessions.set('x1', { info: info('x1'), chain: chainOf('x1') });
+    const other = (await svc.importSessions({ session_ids: ['x1'] })).imported[0];
+    expect(other?.thread_id).not.toBe(tid);
   });
 });
 
