@@ -66,6 +66,42 @@ Ancile-Proposal: mpr_01J9Z3
 - **Deleting a file:** **⋯ → Delete file** in Admin → Memory removes it in its own commit (`DELETE /api/v1/memory/files/<path>`, through the memory module like every other write). History keeps it, so **Undo** on the notice reverts that commit and the file comes back. AGENTS.md, USER.md and the folder's guides (`README.md`, `_template.md`) can't be deleted (`memory.protected`).
 - **Backup:** set `remote` in `config/memory.yaml` (or `ANCILE_MEMORY_REMOTE`) to push to a private git remote on a schedule.
 
+## Import and export
+
+**Admin → Memory → Import and export** (the fourth tab).
+
+**Export** makes a file on this computer and hands it to your browser to save. Nothing is uploaded.
+
+- **Zip:** every memory file as it is now (`git archive`).
+- **Markdown:** one readable file with every memory file in turn. NVX Ancile can import it back.
+- **Git bundle:** the whole repository, every change and its history included (`git bundle`). Open it with `git clone memory.bundle`.
+
+You can export all of memory or one notebook's file. A zip or Markdown export can leave private notebooks out. A bundle always holds everything, private notebooks included, so it can't (`memory.export_bundle_whole`). When an export holds a private notebook's memory, the tab and the file both say so: keep the file somewhere private.
+
+**Import** brings in what another tool remembered. Everything comes in as a suggestion: memory only takes content from outside after you say yes.
+
+| From | What you give it | Where it goes |
+|---|---|---|
+| NVX Ancile | A zip, git bundle or Markdown file that NVX Ancile exported | Each entry keeps its file and section. Superseded entries and guide files are left out. |
+| Claude Code | A `CLAUDE.md` or memory file **you pick**. NVX Ancile reads only that file and never looks in `~/.claude` on its own. | About you, house rules (`AGENTS.md`) or a notebook. Headings become sections. Code blocks and `@imports` are left out and counted. |
+| ChatGPT | ChatGPT doesn't document a format for exporting memory. Copy the list from Settings → Personalization → Memory → Manage and paste it, one memory per line. A JSON list of strings or of `{content}` also works. | About you, house rules or a notebook |
+| Notes | Markdown or plain text, picked or pasted | Each bullet or paragraph becomes one entry, under its heading |
+
+1. **Preview** reads the file and writes nothing. Entries already in memory, or repeated in the file, are marked and left unticked. Entries over 600 characters are cut and flagged.
+2. **Add N for review** makes the ticked entries into suggestions (`kind: imported`, `provenance: import`). They wait in the import's own review, not in the inbox.
+3. **Accept all**, or untick some and **Accept N ticked**. The accepted entries are written in **one commit**:
+
+```
+memory(import): 12 entries from ChatGPT memory
+
+Imported from memories.txt (ChatGPT memory); accepted by hand: 12 of 14.
+Files: USER.md.
+
+Ancile-Import: mim_01J…
+```
+
+**Undo this import** reverts that commit, so every entry from it goes at once. A notebook whose scope switches memory writing off takes no imports (`memory.import_not_allowed`).
+
 ## Editing by hand
 
 You can also edit `data/memory` with any editor and commit with git. Ancile re-indexes on change. Keep entries as single bullets and leave the trailers alone, and everything keeps working.

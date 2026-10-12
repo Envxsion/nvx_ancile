@@ -45,6 +45,15 @@ Rules for new codes:
 | `model.secret_missing` | 422 | "No key called <name> is stored." / Check the name, or paste the key itself instead. |
 | `model.restore_expired` | 410 | "Too late to undo that removal." / Undo works for ten minutes, and not across a restart; add the model again from Admin → Models. |
 | `model.catalogue_failed` | 502 | "Could not list the models <source> offers." / For OpenRouter, check your connection (you can still add a model by its id); for a server, check the address, key, and that it answers GET /models. |
+| `local_model.unknown` | 404 | "That model is not in the list of local models." / Pick one from Admin → Models → Download a local model. |
+| `local_model.ollama_missing` | 409 | "Ollama is not installed" (or "installed but not running", or "Ollama at <url> is not answering") / Install it from its official page (never done for you), or open it, then try again. `error.context.ollama` and `download_url` say which. |
+| `local_model.no_disk` | 507 | "Not enough disk for <model>." / Says how much it needs and how much is free, and where. Never overridden. |
+| `local_model.too_big` | 422 | "<Model> needs more memory than this computer has." / Says how much it needs; pick a smaller model, or start it anyway (`anyway: true`). |
+| `local_model.embedder_unavailable` | 503 | "The knowledge service is not connected." / Start NVX Ancile with its knowledge service, then try again. |
+| `local_model.download_not_found` | 404 | "That download is not running." / It may have finished before NVX Ancile last restarted. Start it again to carry on. |
+| `local_model.pull_failed` | 502 | "The download of <model> stalled" (or "stopped") / Check your connection, then press Resume: Ollama carries on from what it already has. Shown on the download, not as a response. |
+| `local_model.pull_refused` | 502 | "Ollama would not download <model>." / Quotes Ollama's reason; check the name or update Ollama. Shown on the download. |
+| `local_model.not_verified` | 502 | "<Model> downloaded but Ollama does not list it" (or the embedder did not load) / Start the download again; Ollama keeps what it already has. Shown on the download. |
 
 ### Permissions
 
@@ -135,6 +144,12 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `memory.proposal_decided` | 409 | "That memory suggestion was already dealt with." / Reload the inbox to see where it stands. |
 | `memory.repo_corrupt` | 500 | "The memory repository failed its integrity check." / See docs/runbooks/restore-backup.md. |
 | `memory.invalid_entry` | 422 | "Some lines couldn't be read as memory entries." / Names the lines; keep one idea per bullet. |
+| `memory.export_bundle_whole` | 422 | "A git bundle always holds all of memory." / A bundle carries every file and its history, private notebooks included. Choose a zip or Markdown to leave some out. |
+| `memory.import_unreadable` | 422 | "That file is not a zip file" (or a git bundle, or an NVX Ancile memory export) / Pick the file NVX Ancile exported (a .zip, a .bundle or a .md), or paste the text instead. |
+| `memory.import_too_large` | 413 | "That archive is too large to import." / Memory imports hold up to 5,000 files and 64 MB once opened. Import the files you need on their own. |
+| `memory.import_empty` | 422 | "Nothing to import." / Every entry is already in memory, or none was ticked (or no entries were found: imports read bullets and paragraphs). |
+| `memory.import_not_allowed` | 409 | "“<Notebook>” does not let memory learn." / Its scope has memory writing switched off. Turn it on in the notebook's scope, or import into About you instead. `error.context.notebook_id` names it. |
+| `memory.import_not_found` | 404 | "That import does not exist." / Open Memory → Import and export to see your imports. |
 
 ### Knowledge
 
@@ -161,6 +176,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `extract.empty` | 422 | "No text was found in this source." / Check it has readable text; for images or scans, enable OCR. |
 | `extract.original_missing` | 422 | "The uploaded file is missing." / Upload the file again. |
 | `embed.unavailable` | 503 | "The embedding model is unavailable." / Retry, or change the embedder in Settings. Text search still works meanwhile. |
+| `embed.download_off` | 409 | "Downloading models is switched off for the knowledge service." / Set KNOWLEDGE_MODEL_DOWNLOAD=true, or put the model in KNOWLEDGE_MODEL_CACHE yourself. |
 | `ingest.crashed` | 500 | "Ingestion stopped unexpectedly." / Retry. If it stops again, open Admin → Logs and filter by this source. |
 
 ### Fact-checking

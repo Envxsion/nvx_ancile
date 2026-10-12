@@ -19,6 +19,23 @@ NVX Ancile talks to models through APIs. There are four ways to connect one, and
 
 Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again. Add, replace or remove any of them in **Settings → API keys** (see [configuration](configuration.md#api-keys)). An added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
 
+## Download a local model
+
+**Admin → Models → Download a local model** offers a short list of models that run on this computer, so nothing you ask them leaves it. The list is `config/local-models.yaml`. Each entry gives the download size, the memory it needs (and the graphics memory to run fully on a graphics card), its licence with a link, and what it is good for.
+
+Before anything downloads, NVX Ancile checks this computer and says plainly whether each model fits:
+
+- **Fits well:** it fits on your graphics card (found with `nvidia-smi`), or in Apple silicon's shared memory.
+- **Fits, but slow:** there is enough memory, but it would run on the processor.
+- **Won't fit:** not enough memory (you can still choose **Download anyway**), or not enough free disk where Ollama keeps models (`OLLAMA_MODELS`, else `~/.ollama/models`). A full disk is never overridden.
+- **Cannot check:** Ollama runs on another computer (`OLLAMA_BASE_URL`), so its memory and disk can't be read from here.
+
+Chat models download through [Ollama](https://ollama.com), using its own pull. You see progress, can **Cancel**, and **Resume** carries on from what Ollama already has. When Ollama confirms the model is there, the model is switched on, or added as `ollama/<tag>`, in every model picker, ready.
+
+If Ollama is missing, NVX Ancile never installs it for you. The dialog links to the official download page for your system (on Linux it shows the official install command to copy). If it is installed but not running, open it and press **Check again**.
+
+The search embedder (BGE small) downloads through the knowledge service, with fastembed's own downloader into `KNOWLEDGE_MODEL_CACHE`. It needs `KNOWLEDGE_MODEL_DOWNLOAD` left on (`embed.download_off`).
+
 ## Try-out models
 
 Before you connect a model, the switcher offers two built-in **try-out** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.

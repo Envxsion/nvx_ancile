@@ -164,6 +164,35 @@ POST   /api/v1/models/restore { "id": "<id>" } → 201, the model (within ten mi
 
 `PatchModelRequest` also takes `family`, `max_output`, `capabilities`, `price`, and for OpenAI-compatible models `base_url`, `api_key` (replace the key) or `secret` (a stored key's name; `null` for none). A model from `config/models.yaml` takes only `enabled` and `hue` (`hue: null` follows the family).
 
+### Download a local model
+
+Contracts in `packages/contracts/src/localmodels.ts`; the list is `config/local-models.yaml`.
+
+```http
+GET  /api/v1/local-models                          → LocalModelsView { hardware, ollama, items: [… fit, installed, model_id, download] }
+POST /api/v1/local-models/<id>/download { "anyway": false } → 202 LocalDownload (resumes after a cancel or a failure)
+GET  /api/v1/local-models/downloads/<download id>  → LocalDownload { status, completed, total, step, resumed, model_id, error }
+POST /api/v1/local-models/downloads/<download id>/cancel → LocalDownload
+```
+
+`fit.verdict` is `good`, `slow` (on the processor, or only just), `no` (`blocker: disk | memory`) or `unknown` (Ollama on another computer), with plain `reasons`. A download refuses `local_model.ollama_missing` (409), `local_model.no_disk` (507, never overridden) and `local_model.too_big` (422, unless `anyway`). Chat models come through Ollama's `/api/pull`; done means Ollama's `/api/show` knows the model, which is then switched on, or added as `ollama/<tag>`, in every picker. The embedder comes through Knowledge's `/kn/v1/embeddings/prepare`.
+
+### Memory: export and import
+
+Contracts in `packages/contracts/src/memory.ts`.
+
+```http
+GET  /api/v1/memory/export/plan                      → MemoryExportPlan { files, entries, notebooks: [{ id, title, path, exists, private }] }
+GET  /api/v1/memory/export?format=zip|bundle|markdown[&notebook=<id>][&private=leave_out] → the file, as a download
+POST /api/v1/memory/imports/preview  MemoryImportRequest → MemoryImportPreview (writes nothing)
+POST /api/v1/memory/imports          MemoryImportRequest { …, include: [0, 2] } → 201 MemoryImportView
+GET  /api/v1/memory/imports                          → MemoryImportList
+GET  /api/v1/memory/imports/<id>                     → MemoryImportView
+POST /api/v1/memory/imports/<id>/decide { "accept": "all" | ["mpr_…"], "reject": "rest" | ["mpr_…"], "edits": { "mpr_…": "text" } } → MemoryImportDecisionResult
+```
+
+`MemoryImportRequest` is `{ origin: ancile | claude_code | chatgpt | markdown, filename?, text? | data_base64?, target: { kind: user | agents | notebook, notebook_id? } }`. An NVX Ancile export (zip, bundle or Markdown) keeps its own paths; the others go to `target`. Proposals from an import have `kind: imported`, `provenance: import` and `import_id`; they are left out of `GET /memory/proposals`. Accepted entries go into one commit (`memory(import): N entries from <label>`, trailer `Ancile-Import: mim_…`), so undoing any one of them (`POST /memory/proposals/<id> {decision: "undo"}`) reverts them all. A bundle cannot leave private notebooks out (`422 memory.export_bundle_whole`).
+
 ### Branch, compare, merge
 
 ```http
@@ -187,6 +216,12 @@ Context: `GET /threads/:id/context-budget?head=&model=` answers `PathBudget`: th
 ### Usage
 
 `GET /api/v1/usage?range=day|week|month&tz=Europe/London` answers `UsageReport` (`packages/contracts/src/usage.ts`): totals of tokens in, out and from cache, recorded cost and answers, over today (by hour) or the last 7 or 30 days (by day), cut at midnight in `tz` (an IANA zone; UTC when absent; 400 when unknown). `series` has every bucket, empty ones included, with tokens per engine; `by_engine` splits `gateway` (chat and flows), `claude_code`, `lab` and `other`; `by_model` lists the six busiest models and folds the rest into one row with `model_id: null`. `estimated_cost_usd` is the part of the cost that is Claude Code's own estimate at API list prices, not a bill. GPU compute is the Controller's month (`GET /compute/costs`).
+
+Claude Code's plan figures are also kept over time in `core.plan_limit_samples` (a sample when a window's share changes, or hourly), and engine context records (`provenance.engine_context`) carry `full_tokens`, the whole path's size, since track E. Pro's Engine insights read both.
+
+### Engine insights (Pro)
+
+`GET /api/v1/pro/insights/engines?days=7|30|90[&notebook_id=]` answers `proai.EngineInsightsReport`: `uses` (engine and model, local or not, answers, tokens, cost, purposes, top notebooks), `cost` (daily series by notebook, notebooks, dearest threads), `headroom` (each plan window's daily peak and trend), `context` (tokens sent, the full history's size, saved, saved share and dollars) and `suggestions` (a closed list of kinds). The free build answers it, and `GET /api/v1/pro/insights`, with `402 pro.feature_required` (`PRO_SEAM_ROUTES` in `packages/contracts/src/pro.ts`).
 
 ### Start-up, backups and Pro's data
 
@@ -297,6 +332,13 @@ POST /kn/v1/embeddings/check   → EmbeddingStatus (look for a changed embedding
 ```
 
 Core serves both to the Cockpit as `GET /api/v1/knowledge/embeddings` and `POST /api/v1/knowledge/embeddings/check`. See docs/configuration.md (Changing the embedding model).
+
+```http
+GET  /kn/v1/embeddings/local?model=BAAI/bge-small-en-v1.5  → { model, installed, downloadable } (never downloads)
+POST /kn/v1/embeddings/prepare { "model": "BAAI/bge-small-en-v1.5" } → { model_key, dim } (fastembed's own download; 409 embed.download_off)
+```
+
+Core's one-click local models use these for the embedder.
 
 Knowledge calls back to Core's `/internal/v1/openai/chat/completions` and `/internal/v1/openai/embeddings` (OpenAI-compatible) for every model call, so the Gateway traces and routes them.
 

@@ -42,7 +42,7 @@ The budget is the model's context window, less a reserve for the answer (its max
 
 A thread with no other engine's turns keeps the conductor's own history exactly as before. Only the instructions (below) are added.
 
-The answer records what it was given in `provenance.engine_context` (`EngineContextReport`): the window, the reserve, the tokens sent, the summary used, how many messages went as they are, how many tool steps were digested, which messages were recalled and how many were left out.
+The answer records what it was given in `provenance.engine_context` (`EngineContextReport`): the window, the reserve, the tokens sent, the summary used, how many messages went as they are, how many tool steps were digested, which messages were recalled and how many were left out, and (since track E) `full_tokens`, about what the whole path would have been sent as it is. Pro's Engine insights count the difference as tokens saved. TODO(phase-3): plain gateway chats in one engine record no `engine_context`, so their savings are not counted yet.
 
 ### Claude Code
 
