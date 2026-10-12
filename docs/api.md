@@ -90,6 +90,39 @@ POST /api/v1/approvals/apr_01J9ZT…
 
 The permission is decided again on the changed arguments first: a deny refuses the answer (422 `permission.edited_args_denied`, the approval stays open); anything else runs the tool with them. `updated_args` with any other scope or with `deny` is 422 `permission.edit_needs_once`; on an approval that is not `args_editable` it is 422 `permission.args_not_editable`.
 
+### Answer a group of approvals (Auto mode)
+
+```http
+POST /api/v1/approvals/batch
+{ "approval_ids": ["apr_01…", "apr_02…"], "decision": "approve", "reason": "fine" }
+→ { "items": [{ "approval_id": "apr_01…", "status": "approved" }, { "approval_id": "apr_02…", "status": "missing" }] }
+```
+
+Each is answered `once` (`BatchDecisionRequest`); nothing is remembered. An approval that is gone is `missing`; one already answered keeps its status. Auto mode groups its asks with the `approval.batched` run event (`batch_id`, `call_id`, `via`, `reason`) ahead of each `approval.required`; a call it ran by itself leaves an `auto.ran` event (`via`: plan, cache, reviewer or rules).
+
+### Auto mode plans
+
+```http
+POST /api/v1/auto/plans                         { "thread_id": "thr_…", "summary": "Fix the failing tests", "steps": [{ "action": "shell.exec", "resource": "shell:pnpm test*", "note": "run the tests" }] }  → 201 AutoPlan (proposed)
+GET  /api/v1/auto/plans/current?thread_id=thr_… → { "plan": AutoPlan | null }   (or ?run_id=)
+GET  /api/v1/auto/plans/apl_…                   → AutoPlan
+POST /api/v1/auto/plans/apl_…/decision          { "decision": "approve" | "reject" }  → AutoPlan
+```
+
+One plan per thread (or run); a new one supersedes the last. A step without a real literal start is 422 `auto.plan_too_broad`; answering a plan twice is 409 `auto.plan_not_pending`. Changes are `plan.changed` run events when the plan names a run.
+
+### Scopes
+
+```http
+GET   /api/v1/notebooks/nbk_…/scope          → StoredScope { level, id, private, patch, effective, updated_at }
+PATCH /api/v1/notebooks/nbk_…/scope          { "private": true, "network": false, "tools_deny": ["git.push*"] }
+GET   /api/v1/threads/thr_…/scope            → StoredScope
+PATCH /api/v1/threads/thr_…/scope            { "memory_write": false, "folders": ["/workspace/docs"] }
+GET   /api/v1/threads/thr_…/scope/effective  → EffectiveScope { scope, provenance, private, clamped }
+```
+
+A field sent as `null` goes back to inheriting. A thread PATCH that would widen its notebook is 422 `scope.widen`; a private notebook refuses cloud engines and data leaving the machine (422 `scope.private_conflict`). `provenance` names the level behind each field (`default`, `private`, `notebook`, `thread`). The Why view (`GET /messages/:id/explain`) carries the thread's `scope`, and each tool decision its `rule` and, for a scope rule, the level that set it. See docs/scopes.md.
+
 ### Edit and revoke grants
 
 ```http

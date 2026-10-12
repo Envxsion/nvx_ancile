@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run --project \"unit*\"",
     "test:boot": "vitest run --project boot",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",

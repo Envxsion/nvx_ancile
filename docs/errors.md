@@ -60,6 +60,34 @@ Rules for new codes:
 | `permission.args_not_editable` | 422 | "This tool's arguments can't be changed." / Approve or deny it as it is. |
 | `permission.edited_args_denied` | 422 | "Your changes are not allowed." / Names the policy or your deny; undo the change, or deny it. The approval stays open. |
 
+### Scopes {#scopes}
+
+What a notebook or thread may use (docs/scopes.md). The `scope.*` refusals marked "–" are not HTTP errors: they are the `code` on a gate decision (`via: "scope"`), given to the model as the tool result and shown in the Why view, and what `checkEngineAllowed` returns. The decision log records them as `policy_deny` with the field as the policy id (`scope.network`).
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `scope.widen` | 422 | "A thread can only narrow its notebook." / Names the fields; change the notebook's scope first, or choose less. |
+| `scope.private_conflict` | 422 | "A private notebook keeps everything on this machine." / Turn off "Private" for the notebook first. |
+| `scope.engine_not_allowed` | – | "<Engine> is not allowed here." / Change the notebook's or thread's engines. |
+| `scope.model_not_allowed` | – | "<Model> is blocked here" or "is not one of the models allowed here." / Pick an allowed model, or change the scope. |
+| `scope.data_stays_local` | – | "Nothing may leave this machine here." / Use a local model, or allow data to leave in the scope. |
+| `scope.private_notebook` | – | "This notebook is private, so only local models answer here" (never Claude Code). / Turn off "Private" if it should. |
+| `scope.tool_not_allowed` | – | "<action> is blocked here" or "is not one of the tools allowed here." / Change the scope's tools. |
+| `scope.mcp_server_not_allowed` | – | "The <server> MCP server is not allowed here." / Change the scope's MCP servers. |
+| `scope.folder_not_allowed` | – | "<path> is outside the folders allowed here." / Add the folder to the scope. |
+| `scope.network_off` | – | "The network is off here." / Turn the network on in the scope. |
+| `scope.memory_read_off` / `scope.memory_write_off` | – | "Memory is off here" / "Nothing may be written to memory here." / Change the scope's memory switches. |
+| `scope.source_not_allowed` | – | Reserved: retrieval skips sources outside the scope rather than failing. |
+
+### Auto mode {#auto-mode}
+
+docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and the rule as its `code` and policy id (`floor.fork_bomb`, `floor.recursive_delete_root`, `floor.protected_path`, `floor.secret_in_call`, …). A floor or reviewer that asks gives its reason on the `approval.batched` run event.
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `auto.plan_too_broad` | 422 | "A plan step must say what it touches." / Name a folder or command, such as fs:/workspace/src/** or shell:pnpm test*. |
+| `auto.plan_not_pending` | 409 | "This plan was already answered." / A newer plan may have replaced it; refresh to see the current one. |
+
 ### Runs
 
 | Code | HTTP | Title / hint |
@@ -244,7 +272,7 @@ Settings → API keys (`/api/v1/credentials`). A value is never echoed in an err
 | `credentials.from_environment` | 409 | "<Name> is set in the environment." / Change or remove <VARIABLE> where NVX Ancile is started, then restart it. |
 | `credentials.rejected` | 502 | "<Service> rejected the token." / Check you copied all of it and that it is still active, or make a new one at <where>. Nothing was saved. |
 | `credentials.check_failed` | 502 | "Couldn't reach <service> to check it." / Check your connection, then try again. Nothing was saved. |
-| `credentials.invalid` | 400 | "That doesn't look like a git remote." / Use an address git can push to, such as git@github.com:you/memory.git. |
+| `credentials.invalid` | 400 | "That doesn't look like a git remote." / Use an address git can push to, such as git@github.com:you/memory.git. For a key checked by its shape only (TypeSafe): "That doesn't look like a <Name> key." / Paste the whole key, with no spaces. |
 | `credentials.unavailable` | 503 | "Compute is not set up here." / RunPod is managed by the Controller. Start NVX Ancile with CONTROLLER_URL set, then add the key. |
 
 Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, as in setup; a RunPod key with the Controller's own codes (`compute.provider_auth`, `provider.auth`).
