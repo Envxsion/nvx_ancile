@@ -88,12 +88,13 @@ export class PgNotificationStore implements NotificationStore {
 
   async list({ limit, cursor, unreadOnly }: { limit: number; cursor?: string; unreadOnly?: boolean }) {
     const c = parseCursor(cursor);
+    // The cursor carries milliseconds; compare and order to the millisecond (threads/repo.ts).
     const rows = await this.sql<Row[]>`
       select id, kind, level, title, body, action, trace_id, read_at, created_at from core.notifications
       where user_id = ${this.userId}
         ${unreadOnly ? this.sql`and read_at is null` : this.sql``}
-        ${c ? this.sql`and (created_at, id) < (${c.at}::timestamptz, ${c.id})` : this.sql``}
-      order by created_at desc, id desc limit ${limit + 1}`;
+        ${c ? this.sql`and (date_trunc('milliseconds', created_at), id) < (${c.at}::timestamptz, ${c.id})` : this.sql``}
+      order by date_trunc('milliseconds', created_at) desc, id desc limit ${limit + 1}`;
     const counted = await this.sql<{ n: number }[]>`
       select count(*)::int as n from core.notifications where user_id = ${this.userId} and read_at is null`;
     const n = counted[0]?.n ?? 0;
