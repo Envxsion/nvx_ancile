@@ -11,7 +11,7 @@
  *           |  tests and the harness. Patches are stored as given:
  *           |  nulls are dropped, so a stored patch only has fields that
  *           |  were set. Your own tool presets live in core.tool_presets
- *           |  (0021); the built-in ones are never stored.
+ *           |  (0025); the built-in ones are never stored.
  * ------------------------------------------------------------------
  */
 

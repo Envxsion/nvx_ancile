@@ -717,7 +717,7 @@ export const scopes = core.table(
   (t) => [primaryKey({ columns: [t.level, t.refId] })],
 );
 
-/** Your own tool presets; the built-in ones live in contracts (0021, docs/scopes.md). */
+/** Your own tool presets; the built-in ones live in contracts (0025, docs/scopes.md). */
 export const toolPresets = core.table('tool_presets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

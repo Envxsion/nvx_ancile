@@ -144,7 +144,7 @@ class ChunkEmbedding(Base):
 
 
 class EmbedIndex(Base):
-    """One row: the model search reads, and the background re-embed (0003, ingest/reembed.py)."""
+    """One row: the model search reads, and the background re-embed (0004, ingest/reembed.py)."""
 
     __tablename__ = "embed_index"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
