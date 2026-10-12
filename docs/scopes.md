@@ -10,7 +10,7 @@ Scopes are floors. Permission presets, remembered grants and Auto mode's reviewe
 |---|---|---|
 | `engines` | Engines that may answer: `gateway_cloud`, `gateway_local`, `claude_code`, or another engine's id. `null` is any. | any |
 | `models_allow` / `models_deny` | Model ids (globs, `/` separated, `**` for any depth). | any / none |
-| `data_leaves_machine` | False: only local models, local reviewers and local tools. No cloud model, no Claude Code, no web. | true |
+| `data_leaves_machine` | False: only local models, local reviewers and local tools. No cloud model, no Claude Code, no web, and no GPU node rented from a provider (a RunPod pod is someone else's machine; a node on your own network counts as local, `ModelConfig.runs_on`). | true |
 | `sources` | Source ids retrieval may read. `null` is every source in the notebook. | all |
 | `context_links` | May context links (and context packs) from other threads and notebooks be read here (docs/notebooks.md). | true |
 | `memory_read` / `memory_write` | May memory be read into a turn, and learned from after it. | true / true |
@@ -60,7 +60,7 @@ A notebook marked private (`PATCH /notebooks/:id/scope { "private": true }`, sto
 
 Making a notebook private, or switching off data leaving the machine for a notebook or a thread, keeps everything here from then on. What went to cloud models before can't be called back, so NVX Ancile says plainly what it was.
 
-- At the moment of the change, every answer in the notebook (all its threads) or the thread is grouped by its model and engine, from the answers' own records (`core.messages.model_id`, and Claude Code's provenance). Deleted answers count: they were sent all the same. Local models (Ollama, local, a node you control) are left out.
+- At the moment of the change, every answer in the notebook (all its threads) or the thread is grouped by its model and engine, from the answers' own records (`core.messages.model_id`, and Claude Code's provenance). Deleted answers count: they were sent all the same. Local models (Ollama, local, a node on your own network) are left out. TODO(phase-6): answers from a rented node (RunPod) are left out too, because a stored answer records only `node/<model>`, not where the node ran.
 - The summary is kept in `core.scope_shared_history` and returned with the scope as `shared_before_local`: which engines and providers (a closed set: Claude Code, Anthropic, OpenAI, Google, OpenRouter, Mistral, Groq, DeepSeek, xAI, other cloud providers), how many answers, and the first and last date. No content, no titles and no model ids.
 - The scope editor shows it as "Sent before it became private": "Before this notebook became private on 12 Oct 2026, 14 answers came from models off this computer: Anthropic (10), Claude Code (4), from 1 Oct 2026 to 9 Oct 2026. What was sent to them then can't be recalled from here." A thread shows its own records and its notebook's.
 - Only a change that stops data leaving is recorded; narrowing anything else is not.
@@ -78,13 +78,12 @@ Always at execution time, from the scope as it is now:
 
 What the Why view shows: the thread's effective scope, and for each tool decision refused by a scope, the field and the level that set it.
 
+- **Flows** (`flows/turn.ts`, `makeTurnRuntime`): read again before every step, so a scope narrowed while a flow runs applies to its next step. Each model in a step's chain passes `checkEngineAllowed`; a refused one is skipped for the next (a `fallback` event gives the reason), and a step with none left stops with the scope's own error, before anything is sent. Retrieve steps and "named sources" edges search only the sources the scope allows, plus linked notebooks as the links service allows them now; "retrieved passages" edges get the turn's own retrieval, already scoped.
 - **Context links and context packs** (`scopes/combine.ts`, `checkLinkRead`): every read across a link passes the reading side's scope and the linked side's. The reader must allow `context_links`; a private or local-only place is read only where nothing leaves this machine (never by Claude Code, never where a cloud model may answer); the linked side may not allow fewer engines or models than the reader; only the sources its scope lets retrieval read are searched. Checked when a link is made (403 with the scope's code) and again on every read.
 
 ## Where two scopes meet: a notebook merge
 
 The merged notebook takes the narrower value of every field and private wins: switches only if both are on, deny lists combined, allow lists only what both allow, and each notebook keeps its own limit on its own sources. A second, different tool preset is folded into the notebook's own tool fields. See docs/notebooks.md.
-
-TODO(phase-3): Flows retrieval (`flows/turn.ts`) does not read the scope yet.
 
 ## For code
 

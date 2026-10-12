@@ -78,7 +78,7 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { historyFor, systemPrompt, withPartial } from './context';
+import { historyFor, systemPrompt, withPartial, withTurnContext } from './context';
 import { explainLinks, searchWithLinks } from './links';
 import {
   capPerSource,
@@ -775,7 +775,14 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         cp.compactionChecked = true;
         if (!deps.branches) return;
         const all = await messages();
-        const model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        // A flow can answer when no route can (its steps name their own models):
+        // an empty route is no reason to fail the turn here.
+        let model: ModelConfig | undefined;
+        try {
+          model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        } catch (err) {
+          if (!(err instanceof NoRouteError)) throw err;
+        }
         const prepared = await prepareTurnContext(
           {
             gateway: deps.gateway,
@@ -991,6 +998,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             .join('\n\n'),
           ...(cp.input.sourceIds?.length && { mentionedSources: cp.input.sourceIds }),
           memory: injectMemory,
+          // Scopes and context links hold inside a flow too, read again before every step.
+          ...(deps.scopes && {
+            scope: () =>
+              (deps.scopes as ScopeResolver).effective({
+                notebookId: cp.input.notebookId,
+                threadId: cp.input.threadId,
+              }),
+          }),
+          ...(deps.links && {
+            linked: async () =>
+              (await (deps.links as NonNullable<typeof deps.links>).forTurn(cp.input.threadId)).notebooks,
+          }),
           emit: (e) => emit(e),
           call: flowCall,
           tool: flowTool,
@@ -1097,18 +1116,22 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         );
         // ---- end Engines ----
         const req: ModelRequest = {
+          // What stays the same from turn to turn comes first, so providers' prompt
+          // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
+          // across turns: this turn's passages ride on the question, not the system prompt.
           system: [
             base,
             memory,
             engine?.instructions,
             engine?.history ? engine.note : cp.compaction?.note,
-            sources,
-            summariesBlock(cp.linked?.summaries ?? []),
             cp.input.instructions,
           ]
             .filter(Boolean)
             .join('\n\n'),
-          messages: history,
+          messages: withTurnContext(
+            history,
+            [sources, summariesBlock(cp.linked?.summaries ?? [])].filter(Boolean).join('\n\n'),
+          ),
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
           ...(tools.length && { tools }),
         };

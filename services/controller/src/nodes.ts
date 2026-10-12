@@ -27,6 +27,8 @@ import type { NodeRecord, Store } from './store';
 
 /** Route alias for a model served on a node. */
 export const aliasFor = (model: string) => `node/${model}`;
+/** The model name the node itself serves, from a route alias made by aliasFor. */
+export const servedFor = (alias: string) => (alias.startsWith('node/') ? alias.slice('node/'.length) : alias);
 
 const nodeIdFor = (provider: string, ref: string) =>
   `nod_${createHash('sha256').update(`${provider}:${ref}`).digest('hex').slice(0, 20)}`;

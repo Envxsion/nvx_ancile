@@ -103,6 +103,9 @@ export async function languageModelFor(
         `${m.display_name} runs on remote compute, but no Controller is configured.`,
       );
     return createOpenAICompatible({
+      // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
+      // and every token count and cost for them read zero.
+      includeUsage: true,
       name: 'controller',
       baseURL: `${ep.controllerUrl.replace(/\/$/, '')}/v1`,
       ...(!!ep.controllerToken && { apiKey: ep.controllerToken }),
@@ -122,12 +125,18 @@ export async function languageModelFor(
       return createGoogleGenerativeAI({ apiKey: needKey('Google') })(m.provider_model);
     case 'openrouter':
       return createOpenAICompatible({
+        // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
+        // and every token count and cost for them read zero.
+        includeUsage: true,
         name: 'openrouter',
         baseURL: m.base_url ?? 'https://openrouter.ai/api/v1',
         apiKey: needKey('OpenRouter'),
       })(m.provider_model);
     case 'ollama':
       return createOpenAICompatible({
+        // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
+        // and every token count and cost for them read zero.
+        includeUsage: true,
         name: 'ollama',
         baseURL: m.base_url ?? `${(ep.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
       })(m.provider_model);
@@ -137,9 +146,14 @@ export async function languageModelFor(
           'permanent',
           `${m.display_name} has no base_url; any OpenAI-compatible endpoint needs one.`,
         );
-      return createOpenAICompatible({ name: m.provider, baseURL: m.base_url, ...(!!apiKey && { apiKey }) })(
-        m.provider_model,
-      );
+      return createOpenAICompatible({
+        // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
+        // and every token count and cost for them read zero.
+        includeUsage: true,
+        name: m.provider,
+        baseURL: m.base_url,
+        ...(!!apiKey && { apiKey }),
+      })(m.provider_model);
   }
 }
 
@@ -176,17 +190,21 @@ export class AiSdkClient implements ModelClient {
         vision,
         ...(images && { images }),
       }) as SdkMessage[],
-      ...(req.tools?.length && {
-        tools: Object.fromEntries(
-          req.tools.map((t) => [
-            t.name,
-            tool({
-              description: t.description,
-              inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
-            }),
-          ]),
-        ) as ToolSet,
-      }),
+      // A model without the tools capability is never offered tools: vLLM started
+      // without a tool parser refuses the whole request ("auto" tool choice requires
+      // --enable-auto-tool-choice), so every turn to such a GPU node failed.
+      ...(req.tools?.length &&
+        m.capabilities.includes('tools') && {
+          tools: Object.fromEntries(
+            req.tools.map((t) => [
+              t.name,
+              tool({
+                description: t.description,
+                inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
+              }),
+            ]),
+          ) as ToolSet,
+        }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
       ...(req.maxOutputTokens !== undefined && { maxOutputTokens: req.maxOutputTokens }),

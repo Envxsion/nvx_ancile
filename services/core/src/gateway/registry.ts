@@ -234,7 +234,11 @@ export class ModelRegistry {
       const spec = classes[tc];
       classes[tc] = spec && !Array.isArray(spec) ? { ...spec, chain: ids } : ids;
     }
-    if (this.opts.offline) {
+    // The try-out models stand in only while no real model can answer. Once one
+    // can, a failing model must fail visibly, never fall back to a model that
+    // does not use AI (docs/models.md, Try-out models). Asked for by name, they still answer.
+    const realReady = [...ready.values()].some((m) => m.provider !== 'fake' && canChat(m));
+    if (this.opts.offline && !realReady) {
       for (const [tc, spec] of Object.entries(classes)) {
         if (!tc.startsWith('chat') && tc !== 'utility' && !tc.startsWith('factcheck')) continue;
         const ids = Array.isArray(spec) ? spec : spec.chain;

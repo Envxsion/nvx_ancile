@@ -43,6 +43,26 @@ export function historyFor(
     );
 }
 
+/**
+ * This turn's context (retrieved passages, linked summaries) on the question
+ * being answered, ahead of its words. Kept out of the system prompt so the
+ * prompt's start (system prompt, then earlier turns) is the same from turn to
+ * turn and providers' prompt caches hold; the passages change every turn.
+ */
+export function withTurnContext(history: ModelMessage[], block: string): ModelMessage[] {
+  if (!block) return history;
+  const i = history.findLastIndex((m) => m.role === 'user');
+  const q = history[i];
+  if (!q) return history;
+  const lead = `${block}\n\n---\n\n`;
+  const next: ModelMessage = {
+    ...q,
+    content: `${lead}${q.content}`,
+    ...(q.parts && { parts: [{ type: 'text', text: lead }, ...q.parts] }),
+  };
+  return [...history.slice(0, i), next, ...history.slice(i + 1)];
+}
+
 export function withPartial(history: ModelMessage[], parts: Part[]): ModelMessage[] {
   return parts.length ? [...history, { role: 'assistant', content: textOf(parts), parts }] : history;
 }
@@ -55,10 +75,12 @@ export async function systemPrompt(opts: {
   now?: Date;
 }): Promise<string> {
   const template = await loadPrompt(opts.promptsDir, 'system.base', BUILTIN_SYSTEM);
-  const now = (opts.now ?? new Date()).toISOString().replace('T', ' ').slice(0, 16);
+  // The date only: a clock to the minute at the top of the system prompt made
+  // every turn's prompt new to the provider, so no prompt cache ever held.
+  const now = (opts.now ?? new Date()).toISOString().slice(0, 10);
   const base = render(template, {
     user_name: 'the user',
-    now: `${now} UTC`,
+    now: `${now} (UTC)`,
     model_name: opts.model?.display_name ?? 'a language model',
     notebook_title: opts.notebookTitle ?? null,
   });

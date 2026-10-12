@@ -27,6 +27,7 @@
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { type AppEnv, apiError } from '../http';
+import { servedFor } from '../nodes';
 import { FAKE_SCHEME } from '../providers/fake';
 import type { ComputeProvider } from '../providers/types';
 import type { NodeRecord, Store, StoreEvent } from '../store';
@@ -219,15 +220,18 @@ export function openaiRoutes(deps: DataPlaneDeps) {
       await deps.store.settleQueued(node.id, 'dispatched');
       void noteActivity(node).catch(() => undefined);
 
+      // The node knows its model by the name it serves ("qwen2.5:7b"), not by the
+      // route's alias ("node/qwen2.5:7b"); vLLM and Ollama answer 404 to the alias.
+      const nodeBody = { ...body, model: servedFor(route.alias) };
       let res: Response;
       const endpoint = node.endpoint_url as string;
       if (endpoint.startsWith(FAKE_SCHEME) && deps.provider?.serve) {
-        res = await deps.provider.serve(node.provider_ref, path, body);
+        res = await deps.provider.serve(node.provider_ref, path, nodeBody);
       } else {
         res = await forward(
           endpoint,
           path,
-          body,
+          nodeBody,
           c.req.header('traceparent'),
           c.req.raw.signal,
           deps.nodeToken,
