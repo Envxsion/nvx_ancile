@@ -56,6 +56,15 @@ A notebook marked private (`PATCH /notebooks/:id/scope { "private": true }`, sto
 - This is a floor, not a default: a notebook patch cannot switch it back on (`422 scope.private_conflict`), and stored values are clamped anyway.
 - Auto mode asks only local reviewers (a local model, or the rules).
 
+## Private after shared
+
+Making a notebook private, or switching off data leaving the machine for a notebook or a thread, keeps everything here from then on. What went to cloud models before can't be called back, so NVX Ancile says plainly what it was.
+
+- At the moment of the change, every answer in the notebook (all its threads) or the thread is grouped by its model and engine, from the answers' own records (`core.messages.model_id`, and Claude Code's provenance). Deleted answers count: they were sent all the same. Local models (Ollama, local, a node you control) are left out.
+- The summary is kept in `core.scope_shared_history` and returned with the scope as `shared_before_local`: which engines and providers (a closed set: Claude Code, Anthropic, OpenAI, Google, OpenRouter, Mistral, Groq, DeepSeek, xAI, other cloud providers), how many answers, and the first and last date. No content, no titles and no model ids.
+- The scope editor shows it as "Sent before it became private": "Before this notebook became private on 12 Oct 2026, 14 answers came from models off this computer: Anthropic (10), Claude Code (4), from 1 Oct 2026 to 9 Oct 2026. What was sent to them then can't be recalled from here." A thread shows its own records and its notebook's.
+- Only a change that stops data leaving is recorded; narrowing anything else is not.
+
 ## Where scopes are enforced
 
 Always at execution time, from the scope as it is now:

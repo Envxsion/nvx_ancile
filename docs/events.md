@@ -61,3 +61,9 @@ es.onmessage = (e) => {
 };
 // EventSource sends Last-Event-ID on reconnect by itself.
 ```
+
+## Track G additions
+
+- `approval.batched` (run event) may carry `out_of_plan: true` and `plan_id`: an approved Auto plan is in force and this call fits none of its steps. The Cockpit shows "1 step outside your plan" with Allow once, Add to plan and Deny.
+- `mcp.tools_changed` (global): an MCP server's tool list changed since it was approved (`state: "changed"`), or the new list was approved (`state: "approved"`). `key` is `<origin>:<server>`, `origin` is `host` or `claude_code`; `added`, `removed` and `changed` are counts. The diff itself is on `GET /mcp/approvals`. A `notification` (warn, category `health`, "Review the change") goes with each new change.
+- `auto.reviewer` (global): Auto mode's reviewer went `offline` (rules only, asking more often) or came back `online`. Once per change, never per call. `reason` is `no_key`, `key_rejected`, `network` or `model_not_pulled`; `outage_id` is new for each outage; `local_only` says only local reviewers were allowed.

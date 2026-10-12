@@ -111,6 +111,13 @@ POST /api/v1/auto/plans/apl_…/decision          { "decision": "approve" | "rej
 
 One plan per thread (or run); a new one supersedes the last. A step without a real literal start is 422 `auto.plan_too_broad`; answering a plan twice is 409 `auto.plan_not_pending`. Changes are `plan.changed` run events when the plan names a run.
 
+```http
+POST /api/v1/auto/plans/apl_…/steps   { "action": "shell.exec", "resource": "shell:git push origin fix", "note": "Push the fix" }  → AutoPlan
+GET  /api/v1/auto/reviewer            → ReviewerStatus { status: online | offline | unknown, outage_id, reason, local_only, since }
+```
+
+"Add to plan" on a step outside the approved plan (an `approval.batched` event with `out_of_plan: true`): the step is checked like any other (422 `auto.plan_too_broad`); a plan that is no longer the approved one in force is 409 `auto.plan_not_active`. The Cockpit then answers the waiting approval once. `GET /auto/reviewer` says whether a reviewer answers or Auto mode is on its rules alone; changes arrive as the `auto.reviewer` global event.
+
 ### Scopes
 
 ```http
@@ -120,6 +127,8 @@ GET   /api/v1/threads/thr_…/scope            → StoredScope
 PATCH /api/v1/threads/thr_…/scope            { "memory_write": false, "folders": ["/workspace/docs"] }
 GET   /api/v1/threads/thr_…/scope/effective  → EffectiveScope { scope, provenance, private, clamped }
 ```
+
+`StoredScope.shared_before_local` lists, newest first, each time this notebook (or, for a thread, the thread or its notebook) stopped letting data leave the machine, with what had already left: `{ change: private | local_only, changed_at, turns, first_at, last_at, destinations: [{ destination, turns }] }`. Destinations are a closed set (`claude_code`, `anthropic`, `openai`, `google`, `openrouter`, `mistral`, `groq`, `deepseek`, `xai`, `other_cloud`); no content and no model ids.
 
 Tool presets are named sets of tool rules a notebook or thread can choose with `tool_preset` (docs/scopes.md, Tool presets):
 
@@ -308,8 +317,10 @@ Under `/api/v1` (shapes in `packages/contracts/src/mcp.ts`, docs/plugins.md). Se
 | `DELETE /mcp/servers/:id` | 204; disconnects, removes its tools and secrets |
 | `POST /mcp/servers/:id/test` | Reconnect now; the view after the attempt |
 | `PATCH /mcp/servers/:id/tools/:tool` (UpdateMcpToolRequest) | Tier (`null` goes back to the server's own) or switch a tool off; applied at once |
+| `GET /mcp/approvals` | `{items: McpToolApproval[]}`: each server's approved tool list, NVX Ancile's host and Claude Code's own, with `state` and the `diff` when changed |
+| `POST /mcp/approvals/:key/approve` (ApproveMcpToolsRequest `{fingerprint}`) | Approve the list a changed server offers now. `key` is `host:<name>` or `claude_code:<name>`. A fingerprint that is no longer current is 409 `mcp.tools_changed_again` |
 
-Secret values are never returned: a secret is `{key, set}`. Changes are published as `mcp.server_changed`.
+Secret values are never returned: a secret is `{key, set}`. Changes are published as `mcp.server_changed`. A server's view carries `approval` (its McpToolApproval), and a tool held back since its server changed has `held: true`. Tool-list changes are published as `mcp.tools_changed`.
 
 ## Repositories and GitHub
 

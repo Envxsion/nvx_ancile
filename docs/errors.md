@@ -92,6 +92,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 |---|---|---|
 | `auto.plan_too_broad` | 422 | "A plan step must say what it touches." / Name a folder or command, such as fs:/workspace/src/** or shell:pnpm test*. |
 | `auto.plan_not_pending` | 409 | "This plan was already answered." / A newer plan may have replaced it; refresh to see the current one. |
+| `auto.plan_not_active` | 409 | "This plan is no longer the approved one." / A newer plan may have replaced it, or it was declined. Allow the step once instead. (Add to plan, `POST /auto/plans/:id/steps`.) |
 
 ### Runs
 
@@ -321,6 +322,8 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `mcp.secret_missing` | 400 | "No value is stored for <key>." / Type the value for <key>, or take it out of the list. |
 | `mcp.tier_not_allowed` | 400 | "<tool> can delete or change things, so it always asks first." / Choose Gated or Critical for this tool. |
 | `mcp.transport_mismatch` | 400 | "A command (stdio) server has no <field>." (or a web address (http) one) / The way a server connects cannot change. Remove it and add it again. |
+| `mcp.tools_changed` | 403 (gate) | A gate refusal, not an HTTP error: `via: "mcp_changed"`, logged as `policy_deny` with this policy id. "<server> added (or changed) <tool> after you approved its tools." / Review the change in Admin → Plugins before it can run. docs/plugins.md. |
+| `mcp.tools_changed_again` | 409 | "<server> changed its tools again." / Look over the new list, then approve it. (`POST /mcp/approvals/:key/approve` with a fingerprint that is no longer current.) |
 
 ### Claude Code
 

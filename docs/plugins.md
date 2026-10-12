@@ -147,6 +147,21 @@ Servers in this file show in Admin → Plugins as read-only: edit the file and r
 
 With no override, a tool's tier comes from its MCP hints: read-only → auto, destructive → critical, anything else → gated. A tool built with `@nvx/plugin-sdk` brings its own tier. OAuth tokens are encrypted at rest.
 
+### When a server changes its tools {#rug-pull}
+
+A server you approved can change its tools later: add one, or give an old one a new description or input schema that tells the model something else (a "rug pull"). NVX Ancile notices and asks you again, once.
+
+- **Fingerprint.** The first list a server gives (when you add it, or on first start for a server in config/mcp.yaml) is the approved one. Each tool is hashed (SHA-256) over canonical JSON of its name, description and input schema, with keys sorted, so the order a server lists things in does not matter. The server's fingerprint covers all its tools (`core.mcp_tool_approvals`, `services/core/src/mcp/guard.ts`).
+- **Checked every time.** On every connect, reconnect and `tools/list_changed`, the list is compared with the approved one.
+- **On a change:** the server is marked "changed since approved"; its grants are revoked and Auto mode forgets its cached verdicts for the server's tools; you get one notification ("<server> changed its tools", Review the change) and an `mcp.tools_changed` event. Admin → Plugins shows what is new, changed and removed, with one button: Approve new tool list.
+- **Until you approve:** new and changed tools are not offered to the model at all, and the gate refuses them (`via: "mcp_changed"`, code `mcp.tools_changed`), in every preset. Unchanged tools carry on, but ask again because their grants were revoked. A list that goes back to the approved one is approved again by itself.
+- **Approving** sends the fingerprint you were shown (`POST /mcp/approvals/:key/approve`); if the server changed again meanwhile, nothing is approved (`mcp.tools_changed_again`).
+- **Removing** a server, or renaming it, forgets its fingerprint: added again, its first list is the approved one.
+
+Claude Code's own MCP servers (the ones in your Claude Code settings, used by a live session) get the same check. A session's start names its servers and their tools; the first list seen is approved, and a later session with a different list marks the server changed, so its new tools are refused at the same PreToolUse gate. Claude Code reports tool names only, so for its servers a new tool is caught but a changed description is not (`coverage: "names"`). They are listed in Admin → Plugins under "Claude Code's servers that changed".
+
+TODO(phase-5): fingerprint Claude Code's servers' descriptions and schemas once the Agent SDK reports them.
+
 ## Memory providers
 
 Implement the `MemoryProvider` interface (`packages/plugin-sdk/src/memory.ts`): `list`, `read`, `write`, `search` and `history`, plus an optional `check`. Writes carry a `baseVersion`, and a provider that can't merge must throw `MemoryConflict`. The Cockpit then shows the side-by-side conflict view. `plugins/example-memory-provider` sketches one backed by an Obsidian vault folder, using content hashes as versions.
