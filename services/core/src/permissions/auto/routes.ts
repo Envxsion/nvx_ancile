@@ -7,14 +7,22 @@
  *  Purpose  |  Propose a plan for a thread or run, read the current
  *           |  one, and approve or reject it. Once approved, calls
  *           |  that fit a step run without asking (floors and scopes
- *           |  still apply).
+ *           |  still apply). "Add to plan" adds a step to the approved
+ *           |  plan; GET /auto/reviewer says whether a reviewer is
+ *           |  answering or Auto mode is on its rules alone.
  *  How      |  Thin over PlanStore. Each change is also a `plan.changed`
  *           |  run event when the plan belongs to a run, so an open
  *           |  thread sees it at once.
  * ------------------------------------------------------------------
  */
 
-import { AncileError, PlanDecisionRequest, ProposePlanRequest } from '@nvx/contracts';
+import {
+  AddPlanStepRequest,
+  AncileError,
+  PlanDecisionRequest,
+  ProposePlanRequest,
+  type ReviewerStatus,
+} from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../../app';
 import { body } from '../../http/body';
@@ -25,6 +33,8 @@ import { type PlanStore, sessionKey } from './plans';
 export interface AutoRouteDeps {
   plans: PlanStore;
   events?: Pick<RunEventLog, 'append'>;
+  /** Is a reviewer answering? (AutoReview.reviewerStatus) */
+  reviewer?: () => ReviewerStatus;
 }
 
 export function autoRoutes(deps: AutoRouteDeps) {
@@ -68,6 +78,39 @@ export function autoRoutes(deps: AutoRouteDeps) {
     });
     await announce(plan.run_id, plan.id, 'proposed');
     return c.json(plan, 201);
+  });
+
+  r.get('/auto/reviewer', (c) =>
+    c.json(
+      deps.reviewer?.() ??
+        ({
+          status: 'unknown',
+          outage_id: null,
+          reason: null,
+          local_only: false,
+          since: null,
+        } satisfies ReviewerStatus),
+    ),
+  );
+
+  r.post('/auto/plans/:id/steps', async (c) => {
+    const id = c.req.param('id');
+    const step = await body(c, AddPlanStepRequest);
+    const plan = await plans.get(id);
+    if (!plan) throw notFound('That plan');
+    const key = sessionKey({ threadId: plan.thread_id, runId: plan.run_id }) ?? 'none';
+    const current = await plans.current(key);
+    const next = current?.id === id ? await plans.addStep(id, step) : undefined;
+    if (!next)
+      throw new AncileError({
+        code: 'auto.plan_not_active',
+        title: 'This plan is no longer the approved one',
+        hint: 'A newer plan may have replaced it, or it was declined. Allow the step once instead.',
+        status: 409,
+        errorClass: 'permanent',
+      });
+    await announce(next.run_id, id, 'approved');
+    return c.json(next);
   });
 
   r.get('/auto/plans/:id', async (c) => {

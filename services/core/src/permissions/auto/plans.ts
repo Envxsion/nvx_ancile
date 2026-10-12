@@ -11,7 +11,9 @@
  *  How      |  core.auto_plans; MemoryPlanStore for tests. A new plan
  *           |  supersedes the session's earlier ones. A step is an
  *           |  action glob and a resource glob with a real literal
- *           |  start, so "anything" can never be a step.
+ *           |  start, so "anything" can never be a step. A step can be
+ *           |  added to the approved plan in force ("Add to plan" on a
+ *           |  step outside it); it is checked like any other.
  *  Note     |  A plan never lifts a floor or a scope: those are checked
  *           |  before a plan is consulted.
  * ------------------------------------------------------------------
@@ -40,6 +42,8 @@ export interface PlanStore {
   decide(id: string, status: 'approved' | 'rejected'): Promise<boolean>;
   /** The session's latest plan that is not superseded. */
   current(key: string): Promise<AutoPlan | undefined>;
+  /** Add a step to an approved plan. Undefined when it is not approved (or superseded). */
+  addStep(id: string, step: AutoPlanStep): Promise<AutoPlan | undefined>;
 }
 
 /** The literal start of a glob, up to its first wildcard. */
@@ -119,6 +123,15 @@ export class MemoryPlanStore implements PlanStore {
     const { key: _k, ...out } = p;
     return out;
   }
+
+  async addStep(id: string, step: AutoPlanStep) {
+    validateSteps([step]);
+    const p = this.plans.get(id);
+    if (p?.status !== 'approved') return undefined;
+    p.steps = [...p.steps, step];
+    const { key: _k, ...out } = p;
+    return out;
+  }
 }
 
 interface Row {
@@ -176,6 +189,15 @@ export class PgPlanStore implements PlanStore {
     const [r] = await this.sql<Row[]>`
       select * from core.auto_plans where session_key = ${key} and status <> 'superseded'
       order by created_at desc, id desc limit 1`;
+    return r && fromRow(r);
+  }
+
+  async addStep(id: string, step: AutoPlanStep) {
+    validateSteps([step]);
+    const [r] = await this.sql<Row[]>`
+      update core.auto_plans set steps = steps || ${this.sql.json(pgSafe([step]) as never)}::jsonb
+      where id = ${id} and status = 'approved'
+      returning *`;
     return r && fromRow(r);
   }
 }

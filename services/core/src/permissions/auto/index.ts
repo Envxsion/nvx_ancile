@@ -21,6 +21,11 @@
  *           |  scope has stopped. When nothing may leave the machine,
  *           |  only local reviewers are asked. Every decision goes to
  *           |  the trace with an input hash, never the arguments.
+ *           |  When no reviewer but the rules can answer, Auto mode is
+ *           |  "reviewer offline": said once per outage (reviewerStatus
+ *           |  and onReviewerStatus), with the reason. An ask while an
+ *           |  approved plan is in force is marked out of plan, so the
+ *           |  Cockpit can offer "Add to plan".
  * ------------------------------------------------------------------
  */
 
@@ -32,7 +37,11 @@ import {
   type AutoReviewRecord,
   type AutoVia,
   type EffectiveScope,
+  type ReviewerOfflineReason,
+  type ReviewerStatus,
 } from '@nvx/contracts';
+import { ClassifiedError } from '@nvx/resilience';
+import { ulid } from 'ulid';
 import { logFor } from '../../obs/logger';
 import { startSpan } from '../../obs/spans';
 import type { RunEventInput } from '../../runs/events';
@@ -68,6 +77,10 @@ export interface AutoContext {
 export interface AutoOutcome extends AutoReviewRecord {
   /** Set on an ask: the group its approval joins. */
   batch_id: string | null;
+  /** An approved plan is in force and this ask fits none of its steps. */
+  out_of_plan?: boolean;
+  /** That plan, when out_of_plan. */
+  plan_id?: string;
 }
 
 export interface AutoDeps {
@@ -81,6 +94,16 @@ export interface AutoDeps {
   cacheTtlMs?: number;
   /** How long asks in one run keep joining the same group (default 2 minutes). */
   batchWindowMs?: number;
+  /** The reviewer went offline (rules only) or came back: called once per change. */
+  onReviewerStatus?: (status: ReviewerStatus) => void;
+}
+
+/** Why one reviewer could not answer. */
+function failureReason(r: Reviewer, err: unknown): ReviewerOfflineReason {
+  if (r.local) return 'model_not_pulled';
+  const status = err instanceof ClassifiedError ? err.status : undefined;
+  if (status === 401 || status === 403) return 'key_rejected';
+  return 'network';
 }
 
 /** The hash a trace records instead of the call. */
@@ -122,10 +145,69 @@ export class AutoReview {
   >();
   private readonly batches = new Map<string, { id: string; openedAt: number; n: number }>();
   private readonly now: () => number;
+  private status: ReviewerStatus = {
+    status: 'unknown',
+    outage_id: null,
+    reason: null,
+    local_only: false,
+    since: null,
+  };
 
   constructor(private readonly deps: AutoDeps) {
     this.reviewers = [...deps.reviewers.filter((r) => r.id !== 'rules'), new RulesReviewer()];
     this.now = deps.now ?? Date.now;
+  }
+
+  /** Is a reviewer answering, or is Auto mode on its rules alone (asking more often)? */
+  reviewerStatus(): ReviewerStatus {
+    return { ...this.status };
+  }
+
+  private reviewerAnswered() {
+    if (this.status.status === 'online') return;
+    const was = this.status.status;
+    this.status = { status: 'online', outage_id: null, reason: null, local_only: false, since: this.iso() };
+    if (was === 'offline') {
+      log.info({}, 'auto review: a reviewer answers again');
+      this.deps.onReviewerStatus?.(this.reviewerStatus());
+    }
+  }
+
+  private reviewerOffline(reason: ReviewerOfflineReason, localOnly: boolean) {
+    if (this.status.status === 'offline') {
+      // The same outage: the reason may sharpen, but nobody is told twice.
+      this.status = { ...this.status, reason, local_only: localOnly };
+      return;
+    }
+    this.status = {
+      status: 'offline',
+      outage_id: `rvo_${ulid()}`,
+      reason,
+      local_only: localOnly,
+      since: this.iso(),
+    };
+    log.warn({ reason, local_only: localOnly }, 'auto review: no reviewer answers; rules only');
+    this.deps.onReviewerStatus?.(this.reviewerStatus());
+  }
+
+  private iso() {
+    return new Date(this.now()).toISOString();
+  }
+
+  /**
+   * Forget cached verdicts for actions starting with `actionPrefix` (an MCP
+   * server whose tools changed: mcp/guard.ts). They are reviewed afresh.
+   */
+  forget(actionPrefix: string): number {
+    let n = 0;
+    for (const key of [...this.cache.keys()]) {
+      const sig = key.slice(key.indexOf('\u0000') + 1);
+      if (sig.startsWith(actionPrefix)) {
+        this.cache.delete(key);
+        n++;
+      }
+    }
+    return n;
   }
 
   /** The deterministic floors (the scope's checks among them). */
@@ -199,6 +281,10 @@ export class AutoReview {
       out = { ...out, verdict: again.verdict, rule: again.rule, reason: again.reason, via: 'floor' };
       this.cache.delete(sig);
     }
+    // An approved plan is in force and this fits none of its steps: one step outside your plan.
+    // (Not when a floor asks: adding it to the plan would change nothing.)
+    if (out.verdict === 'ask' && out.via !== 'floor' && !again && plan?.status === 'approved')
+      out = { ...out, out_of_plan: true, plan_id: plan.id };
     await this.finish(ctx, out);
     return out;
   }
@@ -210,9 +296,15 @@ export class AutoReview {
   ): Promise<AutoOutcome> {
     const mayLeave = ctx.scope ? ctx.scope.scope.data_leaves_machine && !ctx.scope.private : true;
     const tried: AutoReviewerId[] = [];
+    // Why each reviewer before the rules could not answer: failures first, then ones not set up.
+    const failed: ReviewerOfflineReason[] = [];
+    const missing: ReviewerOfflineReason[] = [];
     for (const r of this.reviewers) {
       if (!r.local && !mayLeave) continue;
-      if (!(await r.available().catch(() => false))) continue;
+      if (!(await r.available().catch(() => false))) {
+        if (r.id !== 'rules') missing.push(r.local ? 'model_not_pulled' : 'no_key');
+        continue;
+      }
       try {
         const answer = await r.review({
           call: ctx.call,
@@ -223,6 +315,8 @@ export class AutoReview {
         const fits = answer.p_fits >= AUTO_THRESHOLDS.minFits;
         const clean = answer.p_injection <= AUTO_THRESHOLDS.maxInjection;
         const via: AutoVia = r.id === 'rules' ? 'rules' : 'reviewer';
+        if (r.id === 'rules') this.reviewerOffline(failed[0] ?? missing[0] ?? 'no_key', !mayLeave);
+        else this.reviewerAnswered();
         return this.outcome(ctx, {
           verdict: fits && clean ? 'allow' : 'ask',
           via,
@@ -241,6 +335,7 @@ export class AutoReview {
         });
       } catch (err) {
         tried.push(r.id);
+        if (r.id !== 'rules') failed.push(failureReason(r, err));
         // The status only: a reviewer's error body is never logged.
         log.warn(
           { reviewer: r.id, err: (err as Error).message },
@@ -249,6 +344,7 @@ export class AutoReview {
       }
     }
     // Unreachable in practice (rules never fail), but never allow by default.
+    this.reviewerOffline(failed[0] ?? missing[0] ?? 'no_key', !mayLeave);
     return this.outcome(ctx, {
       verdict: 'ask',
       via: 'rules',
@@ -338,6 +434,8 @@ export class AutoReview {
               via: out.via === 'floor' ? 'floor' : out.via === 'rules' ? 'rules' : 'reviewer',
               reason: out.reason,
               ...(ctx.callId && { call_id: ctx.callId }),
+              ...(out.out_of_plan && { out_of_plan: true }),
+              ...(out.plan_id && { plan_id: out.plan_id }),
             }
           : null;
     if (event) await this.deps.emit(ctx.runId, event).catch(() => undefined);
