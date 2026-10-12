@@ -123,7 +123,7 @@ export class ClaudeCodeEngine implements Engine {
       user_message_id: r.user_message_id,
       assistant_message_id: r.assistant_message_id,
       model_id: t.requestedModelId,
-      context_notice: r.context_shared ? CLAUDE_CODE_CONTEXT_NOTICE : null,
+      context_notice: r.context_shared ? (r.context_notice ?? CLAUDE_CODE_CONTEXT_NOTICE) : null,
       ...(r.branched && { branched: r.branched }),
     };
   }

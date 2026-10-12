@@ -3,7 +3,12 @@
  * answer, recall of older turns by relevance, and the digest of other
  * engines' turns that goes to Claude Code. Pure functions, no database.
  */
-import type { Part } from '@nvx/contracts';
+import {
+  CLAUDE_CODE_CONTEXT_NOTICE,
+  CLAUDE_CODE_SOURCES_NOTICE,
+  claudeCodeContextNotice,
+  type Part,
+} from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   assembleForGateway,
@@ -245,6 +250,21 @@ describe('Claude Code turn plan', () => {
     });
     expect(p.prefix).toBeNull();
     expect(p.seed).toBeNull();
+  });
+
+  it('says when all it sends is a note on the sources: no turns, and the notice reads so', () => {
+    const p = planClaudeTurn({
+      messages: mixed(),
+      parentId: 'm2',
+      threadSessionId: 'S',
+      summary: null,
+      seen: () => false,
+      notes: ['1 source added since your last turn: Spec'],
+    });
+    expect(p.prefix).toContain('Notebook: 1 source added');
+    expect(p.report).toMatchObject({ foreign_turns: 0, source_notes: 1 });
+    expect(claudeCodeContextNotice(p.report)).toBe(CLAUDE_CODE_SOURCES_NOTICE);
+    expect(claudeCodeContextNotice({ ...p.report, foreign_turns: 2 })).toBe(CLAUDE_CODE_CONTEXT_NOTICE);
   });
 
   it('gives a new session (the folder changed) the whole thread so far, its own turns included', () => {

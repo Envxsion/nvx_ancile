@@ -327,6 +327,8 @@ export const SendClaudeCodeResult = z.object({
   assistant_message_id: z.string(),
   /** The turn sends Claude Code a digest of other models' turns (docs/engines.md). */
   context_shared: z.boolean().optional(),
+  /** What the turn sends, in a line (with context_shared): the thread's context, or only a note on its sources. */
+  context_notice: z.string().optional(),
   /**
    * The turn went on in a branch (a fork of the session) by itself:
    * "open_in_terminal", a Claude Code process outside NVX Ancile has the

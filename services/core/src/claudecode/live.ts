@@ -46,13 +46,13 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import {
   AncileError,
-  CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
   type ClaudeCodeFolderRequest,
   type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
+  claudeCodeContextNotice,
   type EngineContextReport,
   type ImagePart,
   type Part,
@@ -834,6 +834,8 @@ export class ClaudeCodeLive {
       user_message_id: userId,
       assistant_message_id: assistantId,
       ...(checkpoint.prefix && { context_shared: true }),
+      ...(checkpoint.prefix &&
+        checkpoint.engineContext && { context_notice: claudeCodeContextNotice(checkpoint.engineContext) }),
       ...(branched && { branched }),
     };
     this.sent.set(key, { at: this.now(), result });
@@ -1007,10 +1009,11 @@ export class ClaudeCodeLive {
         type: 'context.shared',
         message_id: cp.assistantMessageId,
         engine: 'claude_code',
-        notice: CLAUDE_CODE_CONTEXT_NOTICE,
+        notice: claudeCodeContextNotice(cp.engineContext),
         turns: cp.engineContext.foreign_turns,
         tokens: cp.engineContext.tokens,
         seeded_from_summary: cp.engineContext.seeded_from_summary,
+        source_notes: cp.engineContext.source_notes ?? 0,
       });
 
     const turn: Turn = {

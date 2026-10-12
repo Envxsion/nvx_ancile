@@ -163,6 +163,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     tokens: z.number().int().nonnegative(),
     /** The session was started afresh from NVX Ancile's compaction summary. */
     seeded_from_summary: z.boolean(),
+    /** Notes on the notebook's sources sent with the turn (sources added or removed). */
+    source_notes: z.number().int().nonnegative().optional(),
   }),
   z.object({ ...base, type: z.literal('warning'), code: z.string(), message: z.string() }),
   z.object({
