@@ -14,7 +14,12 @@
 
 import { FULL_CONTEXT } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
-import { systemPrompt, withTurnContext } from '../../src/conductor/context';
+import {
+  LATEST_QUESTION,
+  REFERENCE_HEADER,
+  systemPrompt,
+  withTurnContext,
+} from '../../src/conductor/context';
 import { assemble } from '../../src/flows/context';
 import type { ModelMessage } from '../../src/gateway/types';
 
@@ -36,13 +41,31 @@ describe('a cache-friendly prompt', () => {
     ];
     const out = withTurnContext(history, 'Sources:\n[1] passage');
     expect(out.slice(0, 2)).toEqual(history.slice(0, 2));
-    expect(out[2]?.content).toBe('Sources:\n[1] passage\n\n---\n\nsecond');
-    expect(out[2]?.parts?.[0]).toEqual({ type: 'text', text: 'Sources:\n[1] passage\n\n---\n\n' });
+    const lead = `${REFERENCE_HEADER}\n\nSources:\n[1] passage\n\n---\n\n${LATEST_QUESTION}\n\n`;
+    expect(out[2]?.content).toBe(`${lead}second`);
+    expect(out[2]?.parts?.[0]).toEqual({ type: 'text', text: lead });
     expect(out[2]?.parts?.[1]).toEqual({ type: 'text', text: 'second' });
     // A later tool round keeps the passages on the same question.
     const round2 = withTurnContext([...history, { role: 'assistant', content: 'calling a tool' }], 'S');
-    expect(round2[2]?.content).toBe('S\n\n---\n\nsecond');
+    expect(round2[2]?.content).toBe(`${REFERENCE_HEADER}\n\nS\n\n---\n\n${LATEST_QUESTION}\n\nsecond`);
     expect(withTurnContext(history, '')).toBe(history);
+  });
+
+  it('labels the passages as reference material, and the latest question comes last', () => {
+    const history: ModelMessage[] = [
+      { role: 'user', content: 'What is the pump speed?' },
+      { role: 'assistant', content: '1,450 rpm.' },
+      { role: 'user', content: 'And its flow rate?' },
+    ];
+    const out = withTurnContext(history, 'Sources:\n[1] Pump P-101 runs at 1,450 rpm and moves 40 m3/h.');
+    const text = out.at(-1)?.content ?? '';
+    expect(out.at(-1)?.role).toBe('user');
+    expect(text.startsWith(REFERENCE_HEADER)).toBe(true);
+    // Nothing follows the question: it is the last thing the model reads.
+    expect(text.endsWith(`${LATEST_QUESTION}\n\nAnd its flow rate?`)).toBe(true);
+    expect(text.indexOf('Sources:')).toBeLessThan(text.indexOf(LATEST_QUESTION));
+    expect(out[0]).toEqual(history[0]);
+    expect(text).not.toContain('What is the pump speed?');
   });
 
   it("keeps a flow step's passages out of its system prompt too", async () => {

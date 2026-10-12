@@ -48,13 +48,22 @@ export function historyFor(
  * being answered, ahead of its words. Kept out of the system prompt so the
  * prompt's start (system prompt, then earlier turns) is the same from turn to
  * turn and providers' prompt caches hold; the passages change every turn.
+ *
+ * Eval note: with passages placed after the history, a 7B model once
+ * re-answered the previous question. The block is therefore labelled as
+ * reference material for the latest question, and the question itself is
+ * always the last thing the model reads (test/conductor/cache-prefix.test.ts).
  */
+export const REFERENCE_HEADER =
+  'Reference material for the latest question only (it is not a question to answer):';
+export const LATEST_QUESTION = 'The latest question, to answer now:';
+
 export function withTurnContext(history: ModelMessage[], block: string): ModelMessage[] {
   if (!block) return history;
   const i = history.findLastIndex((m) => m.role === 'user');
   const q = history[i];
   if (!q) return history;
-  const lead = `${block}\n\n---\n\n`;
+  const lead = `${REFERENCE_HEADER}\n\n${block}\n\n---\n\n${LATEST_QUESTION}\n\n`;
   const next: ModelMessage = {
     ...q,
     content: `${lead}${q.content}`,
