@@ -40,7 +40,7 @@ The search embedder (BGE small) downloads through the knowledge service, with fa
 
 Before you connect a model, the switcher offers two built-in **try-out** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.
 
-Once any real model is ready, the model switcher and the flow pickers stop listing them. Turn on **Settings → Advanced → Show try-out models** to keep them. Admin → Models always lists them.
+Once any real model is ready, the model switcher and the flow pickers stop listing them, and routing no longer falls back to them: a real model that fails says so, instead of being answered by a model that does not use AI. Turn on **Settings → Advanced → Show try-out models** to keep them. Admin → Models always lists them.
 
 ## Editing and removing a model
 
