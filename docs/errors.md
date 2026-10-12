@@ -403,6 +403,25 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `interpreter.runtime_mismatch` | 502 | "A downloaded Python runtime file did not match its pinned fingerprint." / It was thrown away and nothing ran. Try again later; report it if it keeps happening. |
 | `interpreter.file_not_allowed` | 404 | "<file> is not part of the Python runtime." / Only the pinned Pyodide files and the allowed packages are served. |
 
+### Images
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `image.too_large` | 413 | "<name> is too large." / Images can be up to 20 MB (remote ones 10 MB). Use a smaller or more compressed copy. |
+| `image.type_not_allowed` | 415 | "<name> is not an image NVX Ancile can show." / Use a PNG, JPEG, WebP or GIF file. SVG is not accepted as an image. |
+| `image.not_found` | 404 | "That image doesn't exist." / It may have been deleted with its thread. Attach or make it again. |
+| `image.too_many` | 400 | "Up to 8 images can go with one message." / Remove some, or send them over more than one message. |
+| `image.model_no_vision` | 422 | "<model> can't see images." / Choose a model that reads images (marked vision in Admin → Models), or send the message without them. |
+| `image.no_provider` | 409 | "No image provider is set up." / Add an OpenAI or OpenRouter key in Settings → API keys, or a local Automatic1111 or Forge address in config/images.yaml. (Given to the model as the tool result.) |
+| `image.provider_unknown` | 400 | "There is no image provider called <id>." / Lists the providers set up. |
+| `image.provider_failed` | 502 (or the provider's status) | "<provider> did not make the image." / What it said; check its key or address, or try another provider. |
+| `image.bad_args` | 400 | "That image_generate call is not valid." / Names the argument and what was expected. |
+| `image.remote_not_allowed` | 403 | "Images from <host> have not been allowed here." / Choose "Load image" on the image first. The choice is remembered for this notebook. |
+| `image.remote_blocked` | 400 | "That image address cannot be loaded." / Why (not http or https, an unusual port, inside your network or this computer); only public addresses are fetched. |
+| `image.remote_failed` | 502 | "The image from <host> could not be loaded." / What happened; open the link in your browser instead, if you trust it. |
+
+Scope refusals for images use the scope codes (`scope.private_notebook`, `scope.data_stays_local`) with titles that name what would have left the machine.
+
 ### Claude Code
 
 | Code | HTTP | Title / hint |

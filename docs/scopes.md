@@ -74,6 +74,7 @@ Always at execution time, from the scope as it is now:
 - **Retrieval** (`conductor/pipeline.ts`): only sources in the scope are searched; when none are, the turn goes ungrounded.
 - **Memory**: not read into a turn when `memory_read` is off, not learned from when `memory_write` is off.
 - **Engines and models**: engine selection calls `checkEngineAllowed(scope, { engine, modelId, local })` from `services/core/src/scopes`.
+- **Images** (docs/images.md): an attached image goes wherever its turn goes, so the engine and model check covers it. `image_generate`'s resource is its provider's URL, so a cloud provider is data leaving the machine; where nothing may leave, only a provider on this computer runs. Remote images in answers are never loaded there.
 
 What the Why view shows: the thread's effective scope, and for each tool decision refused by a scope, the field and the level that set it.
 

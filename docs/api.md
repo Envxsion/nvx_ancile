@@ -474,6 +474,20 @@ Under `/api/v1` (packages/contracts/src/interpreter.ts, docs/interpreter.md). `p
 | `POST /interpreter/requests/:id/result` | The claiming window's `InterpreterOutcome` (stdout, stderr, PNG figures, error, duration). Figures are stored and named by id in the tool result |
 | `GET /interpreter/figures/:id` | A stored figure, `image/png` with `nosniff` and a sandboxing CSP |
 
+## Images
+
+Under `/api/v1` (packages/contracts/src/images.ts, docs/images.md). `image_generate` is a built-in tool (action `image.generate`); `POST /threads/:id/turns` and `POST /claude-code/threads/:id/send` take `image_ids` (up to 8, images of that thread): `422 image.model_no_vision` when the model answering cannot see images, `404 image.not_found` for an id that is not this thread's.
+
+| Route | Does |
+|---|---|
+| `GET /images/providers` | `ImageProviders {items, default_id, empty_hint}`: each provider from config/images.yaml with `ready` and, when not, `reason`; `empty_hint` is the one line to show when none is ready |
+| `POST /threads/:id/images` | Multipart, the image as `file` (PNG, JPEG, WebP or GIF by its bytes, up to 20 MB; `alt` optional). 201 `ImageRecord`. `413 image.too_large`, `415 image.type_not_allowed` |
+| `GET /threads/:id/images` | `{items: ImageRecord[]}`: the thread's images, attached, generated and loaded |
+| `GET /images/:id` | The bytes, with `nosniff` and a sandboxing CSP; 404 for an image of another workspace or a deleted thread |
+| `GET /threads/:id/image-hosts` | `RemoteImageHosts {remembered_in: notebook \| thread, hosts, allowed}`; `allowed` is false where nothing may leave this machine |
+| `POST /threads/:id/image-hosts {host}` | Allow a host's images for the thread's notebook (or the thread). 403 `scope.private_notebook` / `scope.data_stays_local` where nothing may leave |
+| `GET /threads/:id/images/remote?url=` | A remote image, fetched by Core only from an allowed host: public addresses only, at most 10 MB, raster types only. `403 image.remote_not_allowed`, `400 image.remote_blocked`, `413 image.too_large`, `502 image.remote_failed` |
+
 ## Works with Claude Code
 
 Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudecode.ts`):
