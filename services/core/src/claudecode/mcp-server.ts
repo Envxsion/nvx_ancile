@@ -39,10 +39,12 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { SearchHit, SearchResponse } from '@nvx/contracts';
+import { searchWithLinks } from '../conductor/links';
 import { capPerSource, DEFAULT_LIMITS, fetchK, type RetrievalLimits } from '../conductor/retrieval';
 import { currentContext, newTraceId, type RequestContext } from '../context';
 import type { LabPasses } from '../lab/hosted';
 import { hostedTool, hostedTools } from '../lab/hosted';
+import type { LinkedNotebook } from '../links/service';
 import { logFor } from '../obs/logger';
 import { startSpan } from '../obs/spans';
 import type { Gate } from '../permissions/gate';
@@ -82,6 +84,11 @@ export interface ClaudeMcpDeps {
   sourceIdsOf?(threadId: string): string[] | null;
   /** Passages one source may give one search, and the default k (config/retrieval.yaml). */
   limits?: RetrievalLimits;
+  /**
+   * Notebooks this thread may read through context links, checked for Claude
+   * Code as the reader (docs/notebooks.md). Their passages name the notebook.
+   */
+  linkedNotebooks?(threadId: string): Promise<LinkedNotebook[]>;
 }
 
 const text = (t: string, isError = false): CallToolResult => ({
@@ -289,11 +296,13 @@ export class ClaudeMcpEndpoint {
         : `Not allowed: ${d.reason ?? 'NVX Ancile said no'}`;
 
     if (name === 'search' || name === 'read_source') {
-      if (!notebookId) return text('This thread is not in a notebook, so it has no sources to search.', true);
+      const linked = (await deps.linkedNotebooks?.(threadId).catch(() => [])) ?? [];
+      const first = notebookId ?? linked[0]?.notebookId ?? null;
+      if (!first) return text('This thread is not in a notebook, so it has no sources to search.', true);
       const d = await this.check(
         threadId,
         notebookId,
-        { action: 'knowledge.search', resource: `notebook:${notebookId}`, tier: 'auto', destructive: false },
+        { action: 'knowledge.search', resource: `notebook:${first}`, tier: 'auto', destructive: false },
         traceId,
       );
       if (d.outcome === 'deny') return text(denied(d), true);
@@ -305,14 +314,34 @@ export class ClaudeMcpEndpoint {
         const k =
           typeof args.k === 'number' ? Math.min(Math.max(Math.floor(args.k), 1), 20) : Math.min(limits.k, 20);
         const sourceIds = deps.sourceIdsOf?.(threadId) ?? undefined;
-        const found = await deps.search({
-          notebookId,
+        // The thread's own notebook and every notebook linked to it, ranked together.
+        const { response: found, via } = await searchWithLinks({
+          retriever: {
+            search: (q) =>
+              deps.search({
+                notebookId: q.notebookId,
+                query: q.query,
+                k: fetchK(q.k, limits.perSource),
+                ...(q.sourceIds?.length && { sourceIds: q.sourceIds }),
+              }),
+          },
+          workspaceId: deps.workspaceId,
           query,
-          k: fetchK(k, limits.perSource),
-          ...(sourceIds?.length && { sourceIds }),
+          limits: { k, perSource: limits.perSource },
+          own: notebookId ? { notebookId, sourceIds } : null,
+          linked,
         });
         // One huge source cannot fill the answer: at most perSource passages from each.
-        const res = { ...found, hits: capPerSource(found.hits, k, limits.perSource) };
+        const res = {
+          ...found,
+          hits: capPerSource(found.hits, k, limits.perSource).map((h) => {
+            const v = via.get(h.chunk_id);
+            // A linked passage names its notebook, so the citation it becomes names it too.
+            return v
+              ? { ...h, source_title: `${h.source_title} (linked notebook "${v.notebook_title}")` }
+              : h;
+          }),
+        };
         if (!res.hits.length)
           return text(`Nothing in the sources of ${t.notebookTitle ?? 'this notebook'} matches that.`);
         const passages =
@@ -320,8 +349,20 @@ export class ClaudeMcpEndpoint {
         return text(formatPassages(passages));
       }
       const sourceId = typeof args.source_id === 'string' ? args.source_id : '';
-      const inNotebook = (await deps.notebookSources(notebookId)).some((s) => s.id === sourceId);
-      if (!inNotebook) return text('That source is not in this notebook.', true);
+      const inNotebook =
+        !!notebookId && (await deps.notebookSources(notebookId)).some((s) => s.id === sourceId);
+      const inLinked =
+        !inNotebook &&
+        (
+          await Promise.all(
+            linked.map(async (l) =>
+              l.sourceIds
+                ? l.sourceIds.includes(sourceId)
+                : (await deps.notebookSources(l.notebookId)).some((s) => s.id === sourceId),
+            ),
+          )
+        ).some(Boolean);
+      if (!inNotebook && !inLinked) return text('That source is not in this notebook.', true);
       const { markdown } = await deps.sourceContent(sourceId);
       const offset = typeof args.offset === 'number' ? Math.max(0, Math.floor(args.offset)) : 0;
       const limit =

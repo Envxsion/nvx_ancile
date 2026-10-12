@@ -22,7 +22,9 @@ declare module 'vitest' {
   }
 }
 
-const DB = 'ancile_coretest';
+// CORE_TEST_DB_NAME lets two checkouts test against one server side by side (ancile_coretest_*).
+const NAME = process.env.CORE_TEST_DB_NAME ?? 'ancile_coretest';
+const DB = /^ancile_coretest[a-z0-9_]*$/.test(NAME) ? NAME : 'ancile_coretest';
 const INIT = fileURLToPath(new URL('../../../../infra/db/init.sql', import.meta.url));
 
 export default async function setup(project: TestProject) {

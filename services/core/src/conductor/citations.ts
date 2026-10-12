@@ -112,6 +112,8 @@ export function applyCitations(
         source_title: hit.source_title,
         // The whole passage, not the shortened quote: a later look compares it with the source.
         text_sha256: passageHash(span.text),
+        // Read through a context link: the citation names the notebook it came from.
+        ...(hit.via && { notebook_id: hit.via.notebook_id, notebook_title: hit.via.notebook_title }),
       },
     ];
   });

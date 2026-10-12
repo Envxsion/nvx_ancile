@@ -100,6 +100,8 @@ export const notebooks = core.table(
     archivedAt: ts('archived_at'),
     pinnedAt: ts('pinned_at'),
     deletedAt: ts('deleted_at'),
+    /** Merged into this notebook (0031, docs/notebooks.md); set with deleted_at. */
+    mergedInto: text('merged_into'),
     lastOpenedAt: ts('last_opened_at'),
     createdAt: created(),
     updatedAt: updated(),
@@ -892,4 +894,50 @@ export const claudeCodeRepoPairs = core.table(
     decidedAt: ts('decided_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.notebookA, t.notebookB] })],
+);
+
+// ---- Phase 3 (C): notebook merge and context links (0031) ----
+
+/** A notebook merged into another: what moved, so it can be undone in time (docs/notebooks.md). */
+export const notebookMerges = core.table(
+  'notebook_merges',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    intoId: text('into_id')
+      .notNull()
+      .references(() => notebooks.id),
+    fromId: text('from_id')
+      .notNull()
+      .references(() => notebooks.id),
+    fromTitle: text('from_title').notNull(),
+    record: jsonb('record').notNull(),
+    mergedAt: ts('merged_at').notNull().defaultNow(),
+    undoUntil: ts('undo_until').notNull(),
+    undoneAt: ts('undone_at'),
+  },
+  (t) => [index('notebook_merges_into').on(t.intoId, t.mergedAt), index('notebook_merges_from').on(t.fromId)],
+);
+
+/** A thread or notebook drawing on another's sources or summary (docs/notebooks.md). */
+export const contextLinks = core.table(
+  'context_links',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    fromKind: text('from_kind', { enum: ['thread', 'notebook'] }).notNull(),
+    fromId: text('from_id').notNull(),
+    toKind: text('to_kind', { enum: ['thread', 'notebook'] }).notNull(),
+    toId: text('to_id').notNull(),
+    kind: text('kind', { enum: ['sources', 'summary'] }).notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    uniqueIndex('context_links_pair').on(t.fromKind, t.fromId, t.toKind, t.toId),
+    index('context_links_to').on(t.toKind, t.toId),
+  ],
 );

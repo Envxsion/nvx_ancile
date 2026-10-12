@@ -37,6 +37,7 @@ import {
   type EngineContextReport,
   type ModelConfig,
   type Part,
+  type RetrievalTrace,
   type RunEvent,
   type Usage,
 } from '@nvx/contracts';
@@ -53,6 +54,7 @@ import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
+import { summariesBlock, type TurnLinks } from '../links/service';
 import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
@@ -77,6 +79,7 @@ import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
 import { historyFor, systemPrompt, withPartial } from './context';
+import { explainLinks, searchWithLinks } from './links';
 import {
   capPerSource,
   DEFAULT_LIMITS,
@@ -171,6 +174,8 @@ export interface TurnCheckpoint {
   replayUsed?: number[];
   /** Engines (docs/engines.md): how a mixed thread's context was fitted (provenance.engine_context). */
   engineContext?: EngineContextReport | null;
+  /** Context links read for this turn (provenance.links); absent on older checkpoints. */
+  linked?: TurnLinks | null;
 }
 
 /** Engines (docs/engines.md): what a model round is given beyond the conductor's own parts. */
@@ -258,6 +263,8 @@ export interface ConductorDeps {
   scopes?: ScopeResolver;
   /** Engines (docs/engines.md): fitted context for mixed threads, and NVX Ancile's instructions. */
   engineContext?: EngineContextHook;
+  /** Context links (docs/notebooks.md): other notebooks' sources and threads' summaries, scope-checked now. */
+  links?: { forTurn(threadId: string): Promise<TurnLinks> };
 }
 
 export interface AnsweredTurn {
@@ -383,6 +390,10 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         log.info({ invalid: checked.trace.invalid_markers }, 'stripped citations that matched no passage');
     } else if (cp.grounding) retrieval = { retrieval: cp.grounding.trace };
     if (cp.retrievalError) retrieval = { ...retrieval, retrieval_error: cp.retrievalError };
+    const links = explainLinks(
+      cp.linked ?? null,
+      (retrieval.retrieval as RetrievalTrace | undefined) ?? null,
+    );
     const usage: Usage = {
       input_tokens: cp.usage.input,
       output_tokens: cp.usage.output,
@@ -406,6 +417,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         }),
         ...(cp.compaction && { compaction: compactionOut(cp.compaction) }),
         ...(cp.engineContext && { engine_context: cp.engineContext }),
+        ...(links.length && { links }),
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
         route: routeOf(cp),
         ...(error && { error }),
@@ -649,38 +661,53 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         return 'waiting';
       };
 
-      /** Once per turn, in a notebook: find the passages this question needs. */
+      /** Once per turn, in a notebook or through links: find the passages this question needs. */
       const retrieve = async () => {
         cp.retrieved = true;
         const notebookId = cp.input.notebookId;
-        if (!notebookId || !deps.retriever) return;
+        // Context links, checked against both scopes now (docs/notebooks.md).
+        cp.linked = deps.links
+          ? await deps.links.forTurn(cp.input.threadId).catch((err: unknown) => {
+              log.warn({ err }, 'context links could not be read; answering without them');
+              return null;
+            })
+          : null;
+        const linked = cp.linked?.notebooks ?? [];
+        if (!deps.retriever || (!notebookId && !linked.length)) return;
         const started = Date.now();
         const all = await messages();
         const questions = historyFor(all, cp.input.userMessageId)
           .filter((m) => m.role === 'user')
           .map((m) => m.content);
         const query = queryFor(questions);
-        // The notebook's title is only for the answer's wording: read it beside the search.
         // The scope's sources, read now: a source outside it is never searched.
-        const scope = await deps.scopes?.effective({ notebookId, threadId: cp.input.threadId });
+        const scope = notebookId
+          ? await deps.scopes?.effective({ notebookId, threadId: cp.input.threadId })
+          : undefined;
         const sourceIds = scope ? allowedSources(scope, cp.input.sourceIds) : cp.input.sourceIds;
-        if (scope?.scope.sources && !sourceIds?.length) return;
-        const titleRead = deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null);
+        const ownAllowed = !!notebookId && !(scope?.scope.sources && !sourceIds?.length);
+        if (!ownAllowed && !linked.length) return;
+        // The notebook's title is only for the answer's wording: read it beside the search.
+        const titleRead = notebookId
+          ? (deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null))
+          : Promise.resolve(null);
         try {
           const limits = deps.retrievalLimits ?? DEFAULT_LIMITS;
-          const res = await deps.retriever.search({
+          const { response, via } = await searchWithLinks({
+            retriever: deps.retriever,
             workspaceId: cp.input.workspaceId,
-            notebookId,
             query,
-            k: limits.k,
-            ...(sourceIds?.length && { sourceIds }),
+            limits,
+            own: ownAllowed && notebookId ? { notebookId, sourceIds } : null,
+            linked,
           });
           // One source gives at most perSource passages, whatever the retriever returned.
-          const capped = { ...res, hits: capPerSource(res.hits, limits.k, limits.perSource) };
+          const capped = { ...response, hits: capPerSource(response.hits, limits.k, limits.perSource) };
           cp.grounding = groundingFrom(capped, {
             query,
             notebookId,
             notebookTitle: (await titleRead) ?? null,
+            via,
           });
         } catch (err) {
           cp.grounding = null;
@@ -959,7 +986,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           compaction: cp.compaction
             ? { skipThrough: cp.compaction.skipThrough, summary: cp.compaction.note }
             : null,
-          groundingBlock: cp.grounding?.block ?? '',
+          groundingBlock: [cp.grounding?.block ?? '', summariesBlock(cp.linked?.summaries ?? [])]
+            .filter(Boolean)
+            .join('\n\n'),
           ...(cp.input.sourceIds?.length && { mentionedSources: cp.input.sourceIds }),
           memory: injectMemory,
           emit: (e) => emit(e),
@@ -1074,6 +1103,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             engine?.instructions,
             engine?.history ? engine.note : cp.compaction?.note,
             sources,
+            summariesBlock(cp.linked?.summaries ?? []),
             cp.input.instructions,
           ]
             .filter(Boolean)

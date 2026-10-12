@@ -24,6 +24,7 @@ import {
   CreateNoteRequest,
   DismissDuplicateRequest,
   type EmbeddingStatus,
+  MergeNotebookRequest,
   MergeSourcesRequest,
   MessageToNoteRequest,
   type Notebook,
@@ -45,6 +46,7 @@ import type { TombstoneStore } from '../knowledge/integrity';
 import { badRequest, notFound } from '../obs/errors';
 import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
+import type { NotebookMergeService } from './merge';
 import type { NotebookRecord, NotebookRepo } from './repo';
 
 export interface NotebookRouteDeps {
@@ -56,6 +58,8 @@ export interface NotebookRouteDeps {
   flowStore?: Pick<FlowStore, 'orphan'>;
   /** A deleted or merged source leaves its name behind, for answers that cited it (track G). */
   tombstones?: TombstoneStore;
+  /** Merging one notebook into another (docs/notebooks.md); absent: the routes answer 404. */
+  merge?: NotebookMergeService;
 }
 
 type Stats = { sources: number; ready: number; chunks: number };
@@ -161,6 +165,28 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     await deps.flowStore?.orphan('notebook', n.id);
     return c.body(null, 204);
   });
+
+  /* ---- Merging a notebook into this one ---------------------------------- */
+
+  const merger = () => {
+    if (!deps.merge) throw notFound('Merging notebooks');
+    return deps.merge;
+  };
+
+  r.get('/notebooks/:id/merge-preview', async (c) => {
+    const from = c.req.query('from');
+    if (!from) throw badRequest('from: which notebook to merge into this one');
+    return c.json(await merger().preview(c.req.param('id'), from));
+  });
+
+  r.post('/notebooks/:id/merge', async (c) => {
+    const req = await body(c, MergeNotebookRequest);
+    return c.json(await merger().apply(c.req.param('id'), req), 201);
+  });
+
+  r.get('/notebooks/:id/merges', async (c) => c.json({ items: await merger().list(c.req.param('id')) }));
+
+  r.post('/notebook-merges/:id/undo', async (c) => c.json(await merger().undo(c.req.param('id'))));
 
   /* ---- A notebook's sources ---------------------------------------------- */
 

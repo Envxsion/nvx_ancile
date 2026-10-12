@@ -25,6 +25,7 @@ import {
   type EffectiveScope,
   type Explain,
   ExplainCompaction,
+  ExplainLink,
   ExplainMemory,
   type ExplainTool,
   type Factcheck,
@@ -114,6 +115,13 @@ export function assembleExplain(input: {
   const memory = ExplainMemory.safeParse(p.memory);
   const compaction = ExplainCompaction.safeParse(p.compaction);
   const flow = FlowProvenance.safeParse(p.flow);
+  // Context links the turn considered; an entry that no longer parses is left out, never trusted.
+  const links = Array.isArray(p.links)
+    ? p.links.flatMap((l) => {
+        const r = ExplainLink.safeParse(l);
+        return r.success ? [r.data] : [];
+      })
+    : [];
   const attempts = Array.isArray(p.attempts)
     ? (p.attempts as { model?: unknown; reason?: unknown; detail?: unknown }[]).map((a) => ({
         model: String(a.model ?? ''),
@@ -156,6 +164,7 @@ export function assembleExplain(input: {
       : null,
     flow: flow.success ? flow.data : null,
     scope: input.scope ?? null,
+    links,
     origin,
     trace_url: `/admin/traces?trace=${encodeURIComponent(m.trace_id)}`,
   };

@@ -77,6 +77,8 @@ export const GATEWAY = 'g'.repeat(32);
 export interface HarnessOptions {
   /** Notebook retrieval for grounded turns. */
   retriever?: import('../../src/conductor/retrieval').Retriever;
+  /** Context links a turn reads through (docs/notebooks.md). */
+  links?: { forTurn(threadId: string): Promise<import('../../src/links/service').TurnLinks> };
   models?: ModelConfig[];
   taskClasses?: Record<string, string[]>;
   offline?: boolean;
@@ -247,6 +249,7 @@ export async function harness(opts: HarnessOptions = {}) {
           promptsDir: join(dir, 'no-prompts'),
           deltaMs: 0,
           ...(opts.retriever && { retriever: opts.retriever }),
+          ...(opts.links && { links: opts.links }),
           notebookTitle: async () => 'Test notebook',
           branches,
           flows,

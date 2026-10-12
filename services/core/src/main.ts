@@ -111,6 +111,10 @@ import { labRoutes } from './lab/routes';
 import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
 import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
+import { linkRoutes } from './links/routes';
+import { LinkService } from './links/service';
+import { PgLinkStore } from './links/store';
+import { threadSummary } from './links/summary';
 import { localModelRoutes } from './localmodels/routes';
 import { LocalModels } from './localmodels/service';
 import { logIngestRoutes, logRoutes } from './logs/routes';
@@ -129,6 +133,8 @@ import { GitMemoryProvider } from './memory/repo';
 import { memoryRoutes } from './memory/routes';
 import { DEFAULT_MEMORY_CONFIG, MemoryService } from './memory/service';
 import { MemoryTransfer } from './memory/transfer';
+import { NotebookMergeService } from './notebooks/merge';
+import { PgMergeStore } from './notebooks/merge-store';
 import { PgNotebookRepo } from './notebooks/repo';
 import { notebookRoutes } from './notebooks/routes';
 import { notificationRoutes, PgNotificationStore, startNotificationSink } from './notifications/routes';
@@ -631,6 +637,47 @@ async function main() {
   // Claude Code through the bridge; Ancile's MCP server gives them the notebook's sources.
   const claudePasses = new LabPasses();
   const claudeSecret = randomBytes(32).toString('base64url');
+  // ---- Phase 3 (C): context links and notebook merge (docs/notebooks.md) ----
+  const contextLinks = new LinkService({
+    workspaceId: owner.workspaceId,
+    store: new PgLinkStore(sql),
+    scopes,
+    lookup: {
+      thread: async (id) => {
+        const t = await threads.getThread(id);
+        return t ? { title: t.title, notebook_id: t.notebook_id, workspace_id: t.workspace_id } : null;
+      },
+      notebook: async (id) => {
+        const n = await notebooks.get(id);
+        return n ? { title: n.title, workspace_id: n.workspace_id } : null;
+      },
+    },
+    summaryOf: threadSummary({ threads, branches: branchStore }),
+  });
+  const notebookMerge = new NotebookMergeService({
+    workspaceId: owner.workspaceId,
+    store: new PgMergeStore(sql),
+    scopes: scopeStore,
+    kn,
+    memory: {
+      read: async (path) => {
+        try {
+          const f = await memory.file(path);
+          return { content: f.content, version: f.version };
+        } catch {
+          return null;
+        }
+      },
+      save: async (path, content, base, message) => {
+        const r = await memory.save(path, { content, base_sha: base, message });
+        return { version: r.version };
+      },
+      revert: async (sha) => {
+        await memory.revert(sha);
+      },
+    },
+  });
+  // ---- end Phase 3 (C) ----
   const ccHost = env.ANCILE_HOST === '0.0.0.0' || env.ANCILE_HOST === '::' ? '127.0.0.1' : env.ANCILE_HOST;
   /** A notebook's sources, id and title (the MCP server's list, and what a live session is told changed). */
   const notebookSources = async (id: string) =>
@@ -673,6 +720,9 @@ async function main() {
     traceOf: (threadId) => claudeLive.traceOf(threadId),
     sourceIdsOf: (threadId) => claudeLive.sourceIdsOf(threadId),
     limits: retrievalLimits,
+    // Claude Code reads through a link only where its scope and the linked one allow Claude Code.
+    linkedNotebooks: async (threadId) =>
+      (await contextLinks.forTurn(threadId, { engine: 'claude_code', local: false })).notebooks,
   });
   // ---- Engines (docs/engines.md): one thread, any model ----
   const engineStore = new PgEngineStore(sql);
@@ -865,6 +915,7 @@ async function main() {
         flows,
         memory,
         engineContext: gatewayContextHook({ threads, store: engineStore }),
+        links: contextLinks,
         // Grounded mode (DESIGN.md §10.7): every answer in the notebook is fact-checked.
         afterAnswer: async (a) => {
           // Pro (Flow lab): a shadow flow answers the same question off the record. Never awaited.
@@ -1310,7 +1361,16 @@ async function main() {
       }),
       // Room on the disk before a source is added (system/disk.ts).
       sourceDiskGuard({ dataDir }),
-      notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore, tombstones }),
+      notebookRoutes({
+        workspaceId: owner.workspaceId,
+        notebooks,
+        threads,
+        kn,
+        flowStore,
+        tombstones,
+        merge: notebookMerge,
+      }),
+      linkRoutes(contextLinks),
       scopeRoutes({
         store: scopeStore,
         history: new SharedHistory({

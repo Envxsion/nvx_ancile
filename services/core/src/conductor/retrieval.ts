@@ -113,7 +113,13 @@ export interface Grounding {
 /** Number the hits and write them as the model will read them. */
 export function groundingFrom(
   res: SearchResponse,
-  meta: { query: string; notebookId: string; notebookTitle: string | null },
+  meta: {
+    query: string;
+    notebookId: string | null;
+    notebookTitle: string | null;
+    /** Passages read through a context link, by chunk id (conductor/links.ts). */
+    via?: ReadonlyMap<string, { link_id: string; notebook_id: string; notebook_title: string }>;
+  },
 ): Grounding {
   let used = 0;
   const hits: RetrievalTrace['hits'] = [];
@@ -124,6 +130,7 @@ export function groundingFrom(
     if (used + text.length > BLOCK_CHARS && hits.length > 0) break;
     used += text.length;
     const marker = hits.length + 1;
+    const via = meta.via?.get(h.chunk_id);
     hits.push({
       marker,
       kind: h.kind,
@@ -135,9 +142,11 @@ export function groundingFrom(
       rerank_score: h.rerank_score,
       ranks: h.ranks,
       cited: false,
+      ...(via && { via }),
     });
     const where = [
       h.source_title,
+      via ? `from the linked notebook "${via.notebook_title}"` : null,
       h.page != null ? `page ${h.page}` : null,
       h.heading_path.length ? h.heading_path.join(' › ') : null,
       h.kind === 'insight' ? 'summary' : null,
@@ -158,9 +167,19 @@ export function groundingFrom(
     grounded: false,
   };
   if (!hits.length) return { trace, block: '', spans };
-  const name = meta.notebookTitle ? `the notebook "${meta.notebookTitle}"` : 'this notebook';
+  const name = !meta.notebookId
+    ? null
+    : meta.notebookTitle
+      ? `the notebook "${meta.notebookTitle}"`
+      : 'this notebook';
+  const linked = hits.some((h) => h.via);
   const block = [
-    `You are answering inside ${name}. Numbered passages from its sources follow.`,
+    name
+      ? `You are answering inside ${name}. Numbered passages from its sources follow.`
+      : 'Numbered passages from the notebooks linked to this thread follow.',
+    ...(linked && name
+      ? ['Some come from notebooks linked to this one; each of those says which notebook it is from.']
+      : []),
     'Base your answer on them. After each sentence that uses a passage, cite it by its number in square brackets, like [2]; cite several as [1][3]. Use only these numbers, and never invent one.',
     'Quote sparingly and exactly. If the passages do not answer the question, say so plainly first, then answer from general knowledge and say which parts are not from the sources.',
     '',

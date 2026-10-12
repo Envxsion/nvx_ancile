@@ -23,6 +23,7 @@ import type { Sql } from 'postgres';
 import { resolveScope } from './resolve';
 import { PgScopeStore, type ScopeStore } from './store';
 
+export { checkLinkRead, keepsLocal, type MergedScope, type MergeSide, mergeScopes } from './combine';
 export {
   allowedSources,
   checkEngineAllowed,

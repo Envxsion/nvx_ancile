@@ -60,19 +60,19 @@ export const SCOPE_FIELDS = Object.keys(DEFAULT_SCOPE) as ScopeField[];
 /** Engines that never leave the machine. Anything else is treated as cloud. */
 export const LOCAL_ENGINES: readonly string[] = ['gateway_local'];
 
-const BOOLEAN_FIELDS = [
+export const BOOLEAN_FIELDS = [
   'data_leaves_machine',
   'context_links',
   'memory_read',
   'memory_write',
   'network',
 ] as const satisfies readonly ScopeField[];
-const DENY_FIELDS = [
+export const DENY_FIELDS = [
   'models_deny',
   'tools_deny',
   'mcp_servers_deny',
 ] as const satisfies readonly ScopeField[];
-const ALLOW_FIELDS = [
+export const ALLOW_FIELDS = [
   'engines',
   'models_allow',
   'sources',
@@ -110,6 +110,26 @@ function narrowList(field: AllowField, parent: string[] | null, child: string[])
   if (parent === null) return child;
   return child.filter((c) => parent.some((p) => covers(field, p, c)));
 }
+
+/**
+ * The entries both lists allow (null is "no limit"): each entry of one that
+ * the other covers. Used where two scopes meet (a notebook merge, a context
+ * link) and the narrower must win.
+ */
+export function intersectAllow(field: AllowField, a: string[] | null, b: string[] | null): string[] | null {
+  if (a === null) return b === null ? null : [...b];
+  if (b === null) return [...a];
+  return [...new Set([...narrowList(field, b, a), ...narrowList(field, a, b)])];
+}
+
+/** Is every entry of `child` covered by `parent` (null parent covers all; null child is "all")? */
+export function allowCovers(field: AllowField, parent: string[] | null, child: string[] | null): boolean {
+  if (parent === null) return true;
+  if (child === null) return false;
+  return narrowList(field, parent, child).length === child.length;
+}
+
+export type { AllowField };
 
 /**
  * The fields of a thread patch that would widen the notebook's effective
