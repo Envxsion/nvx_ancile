@@ -1,5 +1,5 @@
 /**
- * Flows (DESIGN.md §16, ROADMAP Phase 5b): validation, precedence, the
+ * Flows (DESIGN.md Â§16, ROADMAP Phase 5b): validation, precedence, the
  * executor on every template, context policies, resume after a crash, the
  * cost cap, regenerate "same route" versus "again", and the routes.
  */
@@ -573,6 +573,17 @@ describe('flow routes', () => {
     const a = r.body.edges.find((e) => e.node_id === 'a');
     const b = r.body.edges.find((e) => e.node_id === 'b');
     expect((a?.total ?? 0) > (b?.total ?? 0)).toBe(true);
+  });
+
+  it('answers a request that does not match the contract with a 400 that names the field, not a 500', async () => {
+    h = await harness();
+    const r = await h.call<{ error: { code: string; title: string } }>('POST', '/flows', {
+      name: 'No scope',
+      nodes: io,
+      edges: [{ id: 'e1', from: 'input', to: 'output' }],
+    });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body.error)).toContain('scope');
   });
 
   it('will not activate a flow with problems', async () => {
