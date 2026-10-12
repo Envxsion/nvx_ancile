@@ -400,6 +400,48 @@ describe('sending a turn', () => {
     expect(fresh.planned[0]?.parts).toEqual(answer?.parts);
   });
 
+  it('a slash command sent from NVX Ancile shows once: the sent message becomes the command', async () => {
+    bridge.script = (b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S, model: 'claude-opus-5-5' });
+      // Claude Code records the command as its own entry, not as the prompt NVX Ancile wrote.
+      b.msg(h, {
+        type: 'user',
+        uuid: 'c1',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content:
+            '<command-name>/model</command-name><command-message>model</command-message><command-args>opus</command-args>',
+        },
+      });
+      b.msg(h, {
+        type: 'user',
+        uuid: 'c2',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: { role: 'user', content: '<local-command-stdout>Set model to opus</local-command-stdout>' },
+      });
+      b.msg(h, { type: 'result', subtype: 'success', is_error: false, session_id: S });
+    };
+    const sent = await live.send('thr_1', { text: '/model opus', idempotency_key: 'key-cmd-0001' });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const all = (await threads.messages('thr_1')).filter((m) => !m.deleted_at);
+    const users = all.filter((m) => m.role === 'user' && m.id !== 'msg_u1');
+    expect(users).toHaveLength(1);
+    expect(users[0]?.id).toBe(sent.user_message_id);
+    expect(users[0]?.provenance?.claude_code).toMatchObject({
+      kind: 'command',
+      command: { name: '/model', args: 'opus', output: 'Set model to opus' },
+    });
+    expect((users[0]?.provenance?.claude_code as { uuids: string[] }).uuids).toEqual(
+      expect.arrayContaining(['c1', 'c2']),
+    );
+    // A later sync of the transcript adds nothing: the command's entries are on the sent message.
+    const mirror = await store.mirror('thr_1');
+    expect(mirror.byUuid.get('c1')).toBe(sent.user_message_id);
+  });
+
   it('refuses a session written to by Claude Code elsewhere a moment ago, and offers a branch', async () => {
     modified = NOW - 10_000;
     await expect(

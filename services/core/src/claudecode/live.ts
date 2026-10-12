@@ -971,6 +971,7 @@ export class ClaudeCodeLive {
 
     const mirror = await this.deps.store.mirror(cp.threadId);
     const plan = planSync(turn.entries, mirror, () => `msg_${ulid()}`, cp.userMessageId);
+    await this.adoptCommand(cp, plan, sessionId);
     // The first answer under the prompt is the message the run has been streaming into.
     const first = plan.planned.find(
       (p) => !p.extends && p.role === 'assistant' && p.parent_id === cp.userMessageId,
@@ -1523,6 +1524,41 @@ export class ClaudeCodeLive {
             : reason?.trim() || 'The user declined this.',
     });
     return true;
+  }
+
+  /**
+   * A slash command sent from NVX Ancile: Claude Code records it as its own
+   * command entry, not as the prompt NVX Ancile already wrote, so the sync
+   * would add it a second time. The message the person sent becomes that
+   * command message instead (its entries, its folded output), and whatever
+   * hung off the copy hangs off it.
+   */
+  private async adoptCommand(
+    cp: ClaudeCodeCheckpoint,
+    plan: ReturnType<typeof planSync>,
+    sessionId: string,
+  ): Promise<void> {
+    const typed = cp.text.trim();
+    if (!/^[/!]/.test(typed)) return;
+    const name = typed.split(/\s+/, 1)[0]?.toLowerCase() ?? '';
+    const cmd = plan.planned.find(
+      (p) =>
+        !p.extends &&
+        p.role === 'user' &&
+        p.kind === 'command' &&
+        (p.command?.name.toLowerCase() === name || (name.startsWith('!') && p.command?.name === '!')),
+    );
+    if (!cmd) return;
+    const prov = provenanceOf(sessionId, cmd);
+    await this.deps.threads.updateMessage(cp.userMessageId, {
+      parts: cmd.parts,
+      provenance: {
+        claude_code: { ...prov, uuids: [cp.promptUuid, ...prov.uuids] } satisfies CcProvenance,
+      },
+    });
+    plan.planned = plan.planned.filter((p) => p !== cmd);
+    for (const p of plan.planned) if (p.parent_id === cmd.id) p.parent_id = cp.userMessageId;
+    if (plan.head === cmd.id) plan.head = cp.userMessageId;
   }
 
   /* ---- interrupt, state, commands ------------------------------------------ */
