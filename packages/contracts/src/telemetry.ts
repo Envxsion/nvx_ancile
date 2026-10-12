@@ -112,6 +112,9 @@ export const FEATURES = [
   'focus_mode',
   'theme_toggle',
   'export',
+  'memory_export',
+  'memory_import',
+  'local_model_download',
 ] as const;
 export const Feature = z.enum(FEATURES);
 export type Feature = z.infer<typeof Feature>;
