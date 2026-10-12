@@ -16,6 +16,12 @@
  *           |  a dialog pauses single keys): j and k walk child and
  *           |  parent, h and l move between siblings, Enter jumps the
  *           |  conversation there, c compares with where you are.
+ *           |  Big trees stay quick: past BIG_TREE nodes only what is
+ *           |  on screen is drawn (xyflow's own windowing), past
+ *           |  ELK_MAX the layout is a one-pass layered one
+ *           |  (outline.ts quickLayout) instead of elk, and the
+ *           |  accessible mirror lists the nodes near the cursor, each
+ *           |  with its level and place among its siblings.
  *  Note     |  Right-click a node for everything else.
  * ------------------------------------------------------------------
  */
@@ -48,6 +54,7 @@ import type { ThreadView } from '../lib/types';
 import { Icon } from '../ui/Icon';
 import type { MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
+import { flattenTree, quickLayout } from './outline';
 import { askDelete, openCompare, useBranchLayer } from './store';
 
 const elk = new ELK();
@@ -57,6 +64,13 @@ const SIZE: Record<Variant, { w: number; h: number }> = {
   panel: { w: 220, h: 58 },
   full: { w: 264, h: 66 },
 };
+/** Past this many nodes only what is on screen is drawn. */
+export const BIG_TREE = 150;
+/** Past this many nodes the layout is quickLayout, not elk (elk takes seconds on thousands). */
+export const ELK_MAX = 300;
+/** The accessible mirror lists this many nodes either side of the cursor. */
+export const MIRROR_RADIUS = 40;
+
 /** Below this zoom node text is too small to read. */
 const READABLE_ZOOM: Record<Variant, number> = { panel: 0.72, full: 0.6 };
 
@@ -143,6 +157,13 @@ const NODE_TYPES = { msg: MsgNodeView };
 /** Lay the tree out top to bottom, children in the order they were written. */
 async function layout(tree: Tree, variant: Variant): Promise<Map<string, { x: number; y: number }>> {
   const { w, h } = SIZE[variant];
+  if (tree.nodes.length > ELK_MAX)
+    return quickLayout(tree.nodes, (n) => n.parent_id, {
+      w,
+      h,
+      gapX: variant === 'full' ? 28 : 18,
+      gapY: variant === 'full' ? 44 : 30,
+    });
   const graph = await elk.layout({
     id: 'root',
     layoutOptions: {
@@ -202,9 +223,16 @@ function Canvas({ threadId, variant, tree }: { threadId: string; variant: Varian
   const byId = useMemo(() => new Map(tree.nodes.map((n) => [n.id, n] as const)), [tree]);
   const kids = useMemo(() => {
     const m = new Map<string | null, BranchTreeNode[]>();
-    for (const n of tree.nodes) m.set(n.parent_id, [...(m.get(n.parent_id) ?? []), n]);
+    for (const n of tree.nodes) {
+      const list = m.get(n.parent_id);
+      if (list) list.push(n);
+      else m.set(n.parent_id, [n]);
+    }
     return m;
   }, [tree]);
+  // The accessible mirror: tree order, with level and place among siblings.
+  const outline = useMemo(() => flattenTree(tree.nodes, (n) => n.parent_id), [tree]);
+  const outlineAt = useMemo(() => new Map(outline.map((r, i) => [r.node.id, i] as const)), [outline]);
   const branchById = useMemo(() => new Map(tree.branches.map((b) => [b.id, b] as const)), [tree]);
   // Which flow answered a node: from the tree itself when Core sends it, else
   // from the messages already loaded for this thread (the visible path).
@@ -421,7 +449,8 @@ function Canvas({ threadId, variant, tree }: { threadId: string; variant: Varian
         elementsSelectable={false}
         panOnScroll
         zoomOnDoubleClick={false}
-        minZoom={0.25}
+        onlyRenderVisibleElements={tree.nodes.length > BIG_TREE}
+        minZoom={tree.nodes.length > ELK_MAX ? 0.1 : 0.25}
         maxZoom={1.6}
         onNodeClick={(e, node) => {
           if (e.shiftKey) markCompare(byId.get(node.id));
@@ -452,27 +481,43 @@ function Canvas({ threadId, variant, tree }: { threadId: string; variant: Varian
           />
         ) : null}
       </ReactFlow>
-      {/* Accessible mirror of the canvas: one item per node, in tree order. */}
+      {/* Accessible mirror of the canvas, in tree order: the nodes near the cursor (all of a small tree). */}
       <ul className="sr-only">
-        {tree.nodes.map((n) => (
-          // biome-ignore lint/a11y/useFocusableInteractive: the tree owns focus via aria-activedescendant
-          <li
-            key={n.id}
-            id={`tnode-${n.id}`}
-            role="treeitem"
-            aria-selected={n.id === selected}
-            aria-current={n.active || undefined}
-          >
-            {n.role === 'user' ? 'You' : 'Reply'}: {n.preview}
-            {n.collapsed ? `, and ${n.collapsed} more` : ''}
-          </li>
-        ))}
+        {mirrorSlice(outline.length, selected ? outlineAt.get(selected) : undefined).map((i) => {
+          const r = outline[i];
+          if (!r) return null;
+          const n = r.node;
+          return (
+            // biome-ignore lint/a11y/useFocusableInteractive: the tree owns focus via aria-activedescendant
+            <li
+              key={n.id}
+              id={`tnode-${n.id}`}
+              role="treeitem"
+              aria-level={r.level}
+              aria-posinset={r.pos}
+              aria-setsize={r.size}
+              aria-selected={n.id === selected}
+              aria-current={n.active || undefined}
+            >
+              {n.role === 'user' ? 'You' : 'Reply'}: {n.preview}
+              {n.collapsed ? `, and ${n.collapsed} more` : ''}
+            </li>
+          );
+        })}
       </ul>
       {menu ? (
         <FloatingMenu x={menu.x} y={menu.y} items={menuFor(menu.n)} onClose={() => setMenu(null)} />
       ) : null}
     </div>
   );
+}
+
+/** Which rows of the mirror to list: all of a small tree, else MIRROR_RADIUS either side of the cursor. */
+export function mirrorSlice(count: number, at: number | undefined): number[] {
+  if (count <= MIRROR_RADIUS * 2 + 1) return Array.from({ length: count }, (_, i) => i);
+  const mid = at ?? 0;
+  const from = Math.max(0, Math.min(count - (MIRROR_RADIUS * 2 + 1), mid - MIRROR_RADIUS));
+  return Array.from({ length: MIRROR_RADIUS * 2 + 1 }, (_, i) => from + i);
 }
 
 /** A node's menu, opened where you right-clicked (or under the node, from the keyboard). */

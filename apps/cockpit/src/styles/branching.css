@@ -718,3 +718,23 @@ button.status-seg[aria-disabled='true'] {
     linear-gradient(180deg, transparent, currentColor 20px, currentColor calc(100% - 20px), transparent);
   mask-composite: intersect;
 }
+
+/* --- The outline, windowed (tree/TreeOutline.tsx) ------------------------ */
+/* Its own scroller, so only the rows near the screen are in the page. */
+.tree--windowed {
+  position: relative;
+  display: block;
+  max-height: calc(100vh - 240px);
+  min-height: 120px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.tree__spacer {
+  position: relative;
+}
+.tree--windowed .tree__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 0;
+}

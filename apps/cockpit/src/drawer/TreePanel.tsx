@@ -8,11 +8,14 @@
  *           |  path drawn in signal.
  *  How      |  LiveTree draws the real tree (tree/BranchTree.tsx) for
  *           |  the open thread, with a way to go full screen. On demo
- *           |  data, TreePanel keeps the hand-built outline.
+ *           |  data, TreePanel keeps the hand-built outline, drawn as a
+ *           |  windowed list (tree/TreeOutline.tsx): only the rows near
+ *           |  the screen are in the page, so a thousand points cost
+ *           |  what thirty do.
  * ------------------------------------------------------------------
  */
 
-import { type CSSProperties, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useMemo, useState } from 'react';
 import * as demo from '../fixtures/demo';
 import { useBinding } from '../keys/dispatch';
 import { useBranchTree } from '../lib/branching';
@@ -21,52 +24,91 @@ import { useThreadIdFromRoute } from '../lib/models';
 import type { TreeNodeView } from '../lib/types';
 import { notify } from '../state/notify';
 import { LazyBranchTree as BranchTree } from '../tree/LazyTree';
+import type { OutlineRow } from '../tree/outline';
 import { useBranchLayer } from '../tree/store';
+import { TreeOutline } from '../tree/TreeOutline';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Tip } from '../ui/primitives';
 
-interface Row {
-  node: TreeNodeView;
-  depth: number;
+const parentOf = (n: TreeNodeView) => n.parentId;
+
+/** One row of the outline: the glyph, its branch name, the preview, its model. */
+function OutlineRowView({ row }: { row: OutlineRow<TreeNodeView> }) {
+  const node = row.node;
+  const model = modelById(node.modelId);
+  return (
+    <>
+      <span className="tree__glyph" data-role={node.role} />
+      <span className="tree__text">
+        {node.branch ? (
+          <span className="tree__branch" style={{ '--hue': hueVar(node.branch.hue) } as CSSProperties}>
+            {node.branch.name}
+          </span>
+        ) : null}
+        <span className="tree__preview">{node.preview}</span>
+      </span>
+      {node.collapsed > 0 ? (
+        <span
+          className="tree__collapsed"
+          data-num
+          title={`${node.collapsed} more messages in a straight line`}
+        >
+          +{node.collapsed}
+        </span>
+      ) : null}
+      {model ? (
+        <span
+          className="tree__model"
+          style={{ '--hue': hueVar(model.hue) } as CSSProperties}
+          title={model.name}
+        />
+      ) : null}
+    </>
+  );
 }
 
-function flatten(nodes: TreeNodeView[]): Row[] {
-  const children = (id: string | null) => nodes.filter((n) => n.parentId === id);
-  const out: Row[] = [];
-  const walk = (id: string | null, depth: number) => {
-    for (const n of children(id)) {
-      out.push({ node: n, depth });
-      walk(n.id, depth + 1);
-    }
-  };
-  walk(null, 0);
-  return out;
-}
-
-export function TreePanel() {
-  const rows = useMemo(() => flatten(demo.tree), []);
+/** The demo's outline (or any list of tree nodes), windowed, with the panel's keys. */
+export function TreePanel({ nodes = demo.tree }: { nodes?: TreeNodeView[] } = {}) {
   const [selected, setSelected] = useState(
-    rows.find((r) => r.node.id === 'msg_a1')?.node.id ?? rows[0]?.node.id,
+    nodes.find((n) => n.id === 'msg_a1')?.id ?? nodes.find((n) => !n.parentId)?.id,
   );
   const [focused, setFocused] = useState(false);
+  const index = useMemo(() => new Map(nodes.map((n) => [n.id, n] as const)), [nodes]);
+  const kids = useMemo(() => {
+    const m = new Map<string | null, TreeNodeView[]>();
+    for (const n of nodes) {
+      const list = m.get(n.parentId);
+      if (list) list.push(n);
+      else m.set(n.parentId, [n]);
+    }
+    return m;
+  }, [nodes]);
 
-  const byId = (id: string | undefined) => demo.tree.find((n) => n.id === id);
-  const siblings = (n: TreeNodeView) => demo.tree.filter((x) => x.parentId === n.parentId);
+  const byId = (id: string | undefined | null) => (id ? index.get(id) : undefined);
+  const siblings = (n: TreeNodeView) => kids.get(n.parentId) ?? [n];
+  const open = useCallback(
+    () =>
+      notify({
+        level: 'info',
+        title: 'This is the sample tree',
+        body: 'Open one of your own threads to jump between its branches.',
+      }),
+    [],
+  );
 
   const move = (pick: (n: TreeNodeView) => TreeNodeView | undefined) => {
     const n = byId(selected);
     const next = n && pick(n);
     if (next) setSelected(next.id);
   };
-  useBinding('tree.parent', () => move((n) => byId(n.parentId ?? undefined)), focused);
+  useBinding('tree.parent', () => move((n) => byId(n.parentId)), focused);
   useBinding(
     'tree.child',
     () =>
-      move(
-        (n) =>
-          demo.tree.find((x) => x.parentId === n.id && x.active) ??
-          demo.tree.find((x) => x.parentId === n.id),
-      ),
+      move((n) => {
+        const c = kids.get(n.id) ?? [];
+        return c.find((x) => x.active) ?? c[0];
+      }),
     focused,
   );
   useBinding(
@@ -87,22 +129,14 @@ export function TreePanel() {
       }),
     focused,
   );
-  useBinding(
-    'list.open',
-    () =>
-      notify({
-        level: 'info',
-        title: 'This is the sample tree',
-        body: 'Open one of your own threads to jump between its branches.',
-      }),
-    focused,
-  );
+  useBinding('list.open', open, focused);
 
   return (
     <div className="panel">
       <div className="panel__bar">
         <span className="mute">
-          <span data-num>3</span> branches · <span data-num>{rows.length}</span> points
+          <span data-num>{nodes.filter((n) => n.branch).length || 1}</span> branches ·{' '}
+          <span data-num>{nodes.length}</span> points
         </span>
         <button
           type="button"
@@ -114,64 +148,17 @@ export function TreePanel() {
           Compare
         </button>
       </div>
-      <div
-        className="tree"
-        role="tree"
-        aria-label="Branches in this thread"
-        tabIndex={0}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        aria-activedescendant={selected ? `tree-${selected}` : undefined}
-      >
-        {rows.map(({ node, depth }) => {
-          const model = modelById(node.modelId);
-          return (
-            // biome-ignore lint/a11y/useFocusableInteractive: the tree owns focus via aria-activedescendant
-            <div
-              key={node.id}
-              id={`tree-${node.id}`}
-              role="treeitem"
-              aria-selected={selected === node.id}
-              aria-level={depth + 1}
-              className="tree__row"
-              data-active={node.active || undefined}
-              data-selected={selected === node.id || undefined}
-              style={{ '--depth': depth } as CSSProperties}
-              onClick={() => setSelected(node.id)}
-              onKeyDown={() => {}}
-            >
-              <span className="tree__glyph" data-role={node.role} />
-              <span className="tree__text">
-                {node.branch ? (
-                  <span
-                    className="tree__branch"
-                    style={{ '--hue': hueVar(node.branch.hue) } as CSSProperties}
-                  >
-                    {node.branch.name}
-                  </span>
-                ) : null}
-                <span className="tree__preview">{node.preview}</span>
-              </span>
-              {node.collapsed > 0 ? (
-                <span
-                  className="tree__collapsed"
-                  data-num
-                  title={`${node.collapsed} more messages in a straight line`}
-                >
-                  +{node.collapsed}
-                </span>
-              ) : null}
-              {model ? (
-                <span
-                  className="tree__model"
-                  style={{ '--hue': hueVar(model.hue) } as CSSProperties}
-                  title={model.name}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      <TreeOutline
+        nodes={nodes}
+        parentOf={parentOf}
+        selected={selected}
+        onSelect={setSelected}
+        onOpen={open}
+        label="Branches in this thread"
+        onFocusChange={setFocused}
+        rowProps={(r) => ({ 'data-active': r.node.active || undefined })}
+        renderRow={(r) => <OutlineRowView row={r} />}
+      />
       <p className="panel__foot mute">Focus the tree, then j and k walk the path, h and l switch versions.</p>
     </div>
   );
