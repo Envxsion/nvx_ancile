@@ -12,7 +12,13 @@ import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { AppEnv } from '../../src/app';
 import { fitOf, type HardwareProbe, parseNvidia } from '../../src/localmodels/hardware';
-import { NETWORK_TROUBLE, OllamaClient, ollamaBase, ollamaDownload, ollamaInstalled } from '../../src/localmodels/ollama';
+import {
+  NETWORK_TROUBLE,
+  OllamaClient,
+  ollamaBase,
+  ollamaDownload,
+  ollamaInstalled,
+} from '../../src/localmodels/ollama';
 import { localModelRoutes } from '../../src/localmodels/routes';
 import { LocalModels } from '../../src/localmodels/service';
 import { errorHandler } from '../../src/obs/errors';

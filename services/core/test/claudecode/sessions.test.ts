@@ -365,6 +365,7 @@ describe('syncing', () => {
       parent_id: before.at(-1)?.id ?? null,
       role: 'user',
       parts: [{ type: 'text', text: 'Remember PERIWINKLE-42' }],
+      trace_id: 't-gw',
       status: 'complete',
     });
     const a = { id: 'msg_gw_a' };
@@ -374,6 +375,7 @@ describe('syncing', () => {
       parent_id: q.id,
       role: 'assistant',
       parts: [{ type: 'text', text: 'Noted.' }],
+      trace_id: 't-gw',
       status: 'complete',
       model_id: 'ollama/llama3.2:3b',
     });

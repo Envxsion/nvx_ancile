@@ -215,7 +215,8 @@ export class OllamaClient {
             }
             // Ollama reports its own network trouble (registry timeouts, resets) the
             // same way as a refusal: that is a stalled download, and Resume fixes it.
-            if (ev.error) throw new OllamaError(ev.error, NETWORK_TROUBLE.test(ev.error) ? 'stalled' : 'refused');
+            if (ev.error)
+              throw new OllamaError(ev.error, NETWORK_TROUBLE.test(ev.error) ? 'stalled' : 'refused');
             yield ev;
             if (ev.status === 'success') done = true;
           }
