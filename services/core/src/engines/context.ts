@@ -38,6 +38,7 @@
 import type { EngineContextReport } from '@nvx/contracts';
 import type { ModelMessage } from '../gateway/types';
 import { approxTokens } from '../memory/inject';
+import { isClaudeCodeCompaction } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type TreeRecord } from '../threads/repo';
 import { digestParts } from './digest';
@@ -390,12 +391,15 @@ export function planClaudeTurn(opts: {
     opts.messages.some((m) => m.parent_id === anchor.id && ccOf(m)?.session_id === cc?.session_id);
   const foreign = path.slice(a + 1).filter((m) => !ccOf(m));
 
-  // An NVX Ancile compaction this session has not been given: start afresh from it.
+  // An NVX Ancile compaction this session has not been given: start afresh from it. Unless
+  // the session compacted itself (in a terminal) after everything that summary covers: its
+  // own context is already short, and starting afresh would compact the same turns twice.
   const summary = opts.summary;
+  const upto = summary ? path.findIndex((m) => m.id === summary.uptoMessageId) : -1;
+  const compactedSince =
+    upto >= 0 && !!sessionId && terminalCompactionAfter(path, upto, sessionId, opts.fresh === true);
   const seedable =
-    !!summary &&
-    path.some((m) => m.id === summary.uptoMessageId) &&
-    !(sessionId && opts.seen(sessionId, summary.id));
+    !!summary && upto >= 0 && !compactedSince && !(sessionId && opts.seen(sessionId, summary.id));
   // With no Claude Code message on the path at all (and a parent), there is no session place to go on from.
   const noPlace = (!anchor || opts.fresh === true) && path.length > 0;
   if (summary && (seedable || noPlace)) {
@@ -441,6 +445,27 @@ export function planClaudeTurn(opts: {
     seed: null,
     report: claudeReport(d.tokens, foreign.length, d.included, false, null),
   };
+}
+
+/**
+ * Did Claude Code compact this session by itself after `from` on the path
+ * (its compaction rows, brought in from the transcript, are there)?
+ */
+export function terminalCompactionAfter(
+  path: Pick<MessageRecord, 'provenance'>[],
+  from: number,
+  sessionId: string,
+  fresh = false,
+): boolean {
+  if (fresh) return false;
+  for (let i = from + 1; i < path.length; i++) {
+    const m = path[i] as MessageRecord;
+    const cc = (m.provenance as Record<string, unknown> | undefined)?.claude_code as
+      | { session_id?: unknown }
+      | undefined;
+    if (isClaudeCodeCompaction(m) && cc?.session_id === sessionId) return true;
+  }
+  return false;
 }
 
 function claudeReport(

@@ -53,6 +53,18 @@ export function partsText(parts: Part[]): string {
 
 export const messageTokens = (m: Pick<MessageRecord, 'parts'>) => approxTokens(partsText(m.parts)) + 4;
 
+/**
+ * Claude Code's own compaction rows (the divider and its summary), brought
+ * in from its transcript. They are a record of what Claude Code did in its
+ * session, never sent to a model by NVX Ancile: NVX Ancile's summary is the
+ * record of a mixed thread (docs/engines.md), so they do not count here.
+ */
+export function isClaudeCodeCompaction(m: Pick<MessageRecord, 'provenance'>): boolean {
+  const kind = ((m.provenance as Record<string, unknown> | undefined)?.claude_code as { kind?: unknown } | undefined)
+    ?.kind;
+  return kind === 'compact_boundary' || kind === 'compact_summary';
+}
+
 /** Where a compaction of this path would cut: the last reply before the verbatim tail. */
 export function cutPoint(path: Pick<MessageRecord, 'id' | 'role'>[], keepRecent = KEEP_RECENT): number {
   for (let i = path.length - keepRecent - 1; i >= 0; i--) if (path[i]?.role === 'assistant') return i;
@@ -86,7 +98,7 @@ export function pathBudget(opts: {
 }): PathBudget {
   const { summary, messages, replaced } = compactedPath(opts.path, opts.summaries);
   const history =
-    messages.reduce((n, m) => n + messageTokens(m), 0) +
+    messages.reduce((n, m) => n + (isClaudeCodeCompaction(m) ? 0 : messageTokens(m)), 0) +
     (summary ? summary.tokens + approxTokens(SUMMARY_HEADER) : 0);
   const window = opts.model?.context_window ?? 0;
   const reserve = opts.model ? Math.min(opts.model.max_output, Math.floor(window / 4)) : 0;
