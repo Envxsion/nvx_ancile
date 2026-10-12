@@ -11,7 +11,10 @@
  *  How      |  header.payload.signature, base64url, unpadded. The
  *           |  header must be {alg:"EdDSA", kid} with kid equal to the
  *           |  payload's and present in the key map; Ed25519 over the
- *           |  ASCII bytes of "header.payload". 120 s of clock skew.
+ *           |  ASCII bytes of "header.payload". Ten minutes of clock
+ *           |  skew either way (ROADMAP.md track G); "now" comes from
+ *           |  the licence clock (license/clock.ts), which trusts
+ *           |  nvx.sh's time over a clock that is clearly wrong.
  *           |  Unknown features are dropped (closed enum).
  *  Note     |  A free build ignores every token (build_free). Keys
  *           |  come from NVX_LICENSE_KEYS at build time; none are
@@ -25,7 +28,8 @@ import { license } from '@nvx/contracts';
 type Status = license.LicenseStatus;
 type Failure = license.TokenFailure;
 
-export const SKEW_S = 120;
+/** Clock skew allowed either way, in seconds (the same ten minutes as license/clock.ts). */
+export const SKEW_S = 600;
 /** A token this close to expiry, not yet renewed, is flagged so the screen can say so. */
 export const RENEWAL_DUE_S = 3 * 24 * 3600;
 

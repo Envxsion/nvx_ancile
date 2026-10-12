@@ -91,15 +91,110 @@ describe('licence clock', () => {
 
   it('learns the true time from the licence server and from a token', async () => {
     let t = Date.parse('2026-01-01T00:00:00Z');
-    const clock = new LicenceClock(new MemorySettings(), () => t);
+    // The monotonic clock moves with the fake one: real time passes here.
+    const clock = new LicenceClock(
+      new MemorySettings(),
+      () => t,
+      () => t,
+    );
     await clock.load();
     clock.observeHeader('Fri, 09 Oct 2026 00:00:00 GMT');
     expect(new Date(clock.now()).toISOString()).toBe('2026-10-09T00:00:00.000Z');
     clock.observe(Date.parse('2026-10-10T00:00:00Z'));
     expect(new Date(clock.now()).toISOString()).toBe('2026-10-10T00:00:00.000Z');
     clock.observeHeader('not a date');
+    // Eleven months later this computer's clock is still nine months slow: the server's time moves on.
     t = Date.parse('2026-12-01T00:00:00Z');
-    expect(new Date(clock.now()).toISOString()).toBe('2026-12-01T00:00:00.000Z');
+    expect(new Date(clock.now()).toISOString()).toBe('2027-09-08T00:00:00.000Z');
+  });
+});
+
+describe('a wrong clock (ROADMAP.md track G)', () => {
+  const MIN = 60_000;
+  const DAY = 86_400_000;
+  const T = Date.parse('2026-10-12T09:00:00Z');
+
+  it('believes a clock within ten minutes of the server', async () => {
+    let t = T + 7 * MIN;
+    let mono = 0;
+    const clock = new LicenceClock(
+      new MemorySettings(),
+      () => t,
+      () => mono,
+    );
+    await clock.load();
+    clock.observeServer(T);
+    t += 5 * MIN;
+    mono += 5 * MIN;
+    expect(clock.now()).toBe(t);
+  });
+
+  it('does not end a licence early when the clock is a year ahead', async () => {
+    const issued = Math.floor(T / 1000) - DAY / 1000;
+    const { token: tok, keys } = token({ iat: issued, exp: issued + 14 * 86_400 });
+    let t = T + 365 * DAY; // a year ahead
+    let mono = 0;
+    const clock = new LicenceClock(
+      new MemorySettings(),
+      () => t,
+      () => mono,
+    );
+    await clock.load();
+    // Before any check, the clock alone says the token is long expired…
+    expect(verifyToken(tok, { keys, build: 'pro', deviceId: 'dev-1', now: clock.now() }).failure).toBe(
+      'expired',
+    );
+    // …nvx.sh's reply says what time it really is, and brings the floor back.
+    clock.observeServer(T);
+    t += 2 * DAY;
+    mono += 2 * DAY;
+    expect(clock.now()).toBe(T + 2 * DAY);
+    expect(
+      verifyToken(tok, { keys, build: 'pro', deviceId: 'dev-1', now: clock.now() }).failure,
+    ).toBeUndefined();
+    expect(clock.offset()).toBe(-365 * DAY);
+  });
+
+  it('uses the last server time when the clock is clearly behind it, across a restart too', async () => {
+    const settings = new MemorySettings();
+    let t = T;
+    let mono = 0;
+    const clock = new LicenceClock(
+      settings,
+      () => t,
+      () => mono,
+    );
+    await clock.load();
+    clock.observeServer(T);
+    t = T - 3 * 3600_000; // set three hours back
+    mono += 30 * MIN;
+    expect(clock.now()).toBe(T + 30 * MIN);
+    expect(clock.behind()).toBe(true);
+    // After a restart there is no monotonic reference: never earlier than the server time seen.
+    const again = new LicenceClock(
+      settings,
+      () => t,
+      () => 0,
+    );
+    await again.load();
+    expect(again.now()).toBeGreaterThanOrEqual(T + 30 * MIN);
+  });
+
+  it('keeps an expired token expired when the clock is wound back after a check', async () => {
+    const issued = Math.floor(T / 1000) - 20 * 86_400;
+    const { token: tok, keys } = token({ iat: issued, exp: issued + 14 * 86_400 });
+    let t = T;
+    const clock = new LicenceClock(
+      new MemorySettings(),
+      () => t,
+      () => 0,
+    );
+    await clock.load();
+    clock.observeServer(T);
+    t = (issued + 86_400) * 1000;
+    expect(verifyToken(tok, { keys, build: 'pro', deviceId: 'dev-1', now: clock.now() }).failure).toBe(
+      'expired',
+    );
   });
 });
 

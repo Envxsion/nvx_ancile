@@ -88,13 +88,15 @@ describe('licence tokens (NVX family format)', () => {
     expect(verifyToken(`${t}.extra`, opts).failure).toBe('bad_token');
   });
 
-  it('allows 120 s of clock skew, then expires', () => {
-    expect(verifyToken(mint({ ...base, exp: s(-60_000) }), opts).status.tier).toBe('pro');
-    expect(verifyToken(mint({ ...base, exp: s(-200_000) }), opts)).toMatchObject({
+  it('allows ten minutes of clock skew either way, then expires', () => {
+    expect(verifyToken(mint({ ...base, exp: s(-9 * 60_000) }), opts).status.tier).toBe('pro');
+    expect(verifyToken(mint({ ...base, exp: s(-11 * 60_000) }), opts)).toMatchObject({
       failure: 'expired',
       status: { tier: 'free', lapse: 'expired' },
     });
-    expect(verifyToken(mint({ ...base, iat: s(600_000) }), opts).failure).toBe('bad_token');
+    // Issued "in the future" by a computer whose clock is a few minutes slow: fine.
+    expect(verifyToken(mint({ ...base, iat: s(9 * 60_000) }), opts).failure).toBeUndefined();
+    expect(verifyToken(mint({ ...base, iat: s(11 * 60_000) }), opts).failure).toBe('bad_token');
   });
 
   it('flags a token close to expiry', () => {
