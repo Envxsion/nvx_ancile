@@ -120,6 +120,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `message.restore_parent_first` | 409 | "Undo the later delete first." / These messages hang from one deleted afterwards; undo that delete, then this one. |
 | `thread.nothing_to_compact` | 409 | "This path is already short." / Compaction keeps the latest 4 messages verbatim; there is nothing older to summarise yet. |
 | `thread.merge_no_model` | 503 | "No model could write the combined answer." / Pick the messages to keep yourself, or add a model in Settings → Models. |
+| `thread.busy` | 409 | "Another window is sending in this thread." / Wait for it to finish, or send as a branch. Another Cockpit window (by its `x-ancile-client` id) holds the thread's send lock: from its send until the run it started ends. The Cockpit offers **Send as a branch**, which sends once that turn ends. docs/api.md, One sender at a time. |
 
 ### Memory
 

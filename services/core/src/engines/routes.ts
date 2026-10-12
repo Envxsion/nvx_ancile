@@ -14,12 +14,13 @@
  * ------------------------------------------------------------------
  */
 
-import { type InstructionsView, PutInstructionsRequest, SendTurnRequest } from '@nvx/contracts';
+import { CLIENT_ID_HEADER, type InstructionsView, PutInstructionsRequest, SendTurnRequest } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { ThreadRepo } from '../threads/repo';
+import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import type { Engines } from './index';
 import { effective, instructionsNote } from './note';
 import type { EngineStore } from './store';
@@ -29,6 +30,8 @@ export function engineRoutes(deps: {
   threads: ThreadRepo;
   store: EngineStore;
   workspaceId: string;
+  /** One sender per thread across windows (threads/send-lock.ts). */
+  sendLocks?: SendLocks;
 }) {
   const r = new Hono<AppEnv>();
   const thread = async (id: string) => {
@@ -51,16 +54,18 @@ export function engineRoutes(deps: {
   r.post('/threads/:id/turns', async (c) => {
     const t = await thread(c.req.param('id'));
     const req = await body(c, SendTurnRequest);
-    const out = await deps.engines().send(t, {
-      text: req.text,
-      parentId: req.parent_id,
-      model: req.model ?? null,
-      ...(req.effort && { effort: req.effort }),
-      ...(req.source_ids && { sourceIds: req.source_ids }),
-      ...(req.as_branch && { asBranch: true }),
-      ...(req.task_class && { taskClass: req.task_class }),
-      idempotencyKey: req.idempotency_key,
-    });
+    const out = await withSendLock(deps.sendLocks, t.id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      deps.engines().send(t, {
+        text: req.text,
+        parentId: req.parent_id,
+        model: req.model ?? null,
+        ...(req.effort && { effort: req.effort }),
+        ...(req.source_ids && { sourceIds: req.source_ids }),
+        ...(req.as_branch && { asBranch: true }),
+        ...(req.task_class && { taskClass: req.task_class }),
+        idempotencyKey: req.idempotency_key,
+      }),
+    );
     return c.json(out, 202);
   });
 

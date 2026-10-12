@@ -16,6 +16,7 @@
 
 import {
   AncileError,
+  CLIENT_ID_HEADER,
   CreateThreadRequest,
   EditMessageRequest,
   type Message,
@@ -43,6 +44,7 @@ import type { RunWorker } from '../runs/worker';
 import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
 import { cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
+import { holderOf, type SendLocks, withSendLock } from './send-lock';
 import { assertChatModel, startTurn, type TurnDeps, usableChatModel } from './service';
 
 /** Longest text part a person can send (characters); far beyond any context window. */
@@ -72,6 +74,8 @@ export interface ThreadRouteDeps extends TurnDeps {
   notebookExists?: (id: string) => Promise<boolean>;
   /** Deleting a thread keeps its own flows as workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
+  /** One sender per thread across windows (send-lock.ts); absent: idempotency and the run index only. */
+  sendLocks?: SendLocks;
 }
 
 const threadOut = (t: ThreadRecord): Thread => ({
@@ -309,15 +313,17 @@ export function threadRoutes(deps: ThreadRouteDeps) {
   r.post('/threads/:id/messages', async (c) => {
     const t = await thread(c.req.param('id'));
     const req = await body(c, SendMessageRequest);
-    const started = await startTurn(deps, {
-      thread: t,
-      user: { parentId: req.parent_id, parts: userParts(req.parts) },
-      model: req.model,
-      ...(req.default_model && { defaultModel: req.default_model }),
-      taskClass: req.task_class,
-      mentions: req.mentions,
-      ...(req.flow_id && { flowId: req.flow_id }),
-    });
+    const started = await withSendLock(deps.sendLocks, t.id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      startTurn(deps, {
+        thread: t,
+        user: { parentId: req.parent_id, parts: userParts(req.parts) },
+        model: req.model,
+        ...(req.default_model && { defaultModel: req.default_model }),
+        taskClass: req.task_class,
+        mentions: req.mentions,
+        ...(req.flow_id && { flowId: req.flow_id }),
+      }),
+    );
     return c.json(started, 202);
   });
 
@@ -346,13 +352,16 @@ export function threadRoutes(deps: ThreadRouteDeps) {
           ? undefined
           : null;
     }
-    const started = await startTurn(deps, {
-      thread: t,
-      user: { existingId: m.parent_id },
-      model,
-      ...(flowReplay && { flowReplay }),
-      ...(routeAgain && { routeAgain }),
-    });
+    const parentId = m.parent_id;
+    const started = await withSendLock(deps.sendLocks, t.id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      startTurn(deps, {
+        thread: t,
+        user: { existingId: parentId },
+        model,
+        ...(flowReplay && { flowReplay }),
+        ...(routeAgain && { routeAgain }),
+      }),
+    );
     return c.json(started, 202);
   });
 
@@ -369,11 +378,13 @@ export function threadRoutes(deps: ThreadRouteDeps) {
     }
     const req = await body(c, EditMessageRequest);
     const t = await thread(m.thread_id);
-    const started = await startTurn(deps, {
-      thread: t,
-      user: { parentId: m.parent_id, parts: userParts(req.parts), editOfId: m.id },
-      model: req.model,
-    });
+    const started = await withSendLock(deps.sendLocks, t.id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      startTurn(deps, {
+        thread: t,
+        user: { parentId: m.parent_id, parts: userParts(req.parts), editOfId: m.id },
+        model: req.model,
+      }),
+    );
     return c.json(started, 202);
   });
 

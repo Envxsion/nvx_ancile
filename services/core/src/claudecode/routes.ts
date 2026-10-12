@@ -18,6 +18,7 @@
  */
 
 import {
+  CLIENT_ID_HEADER,
   ClaudeCodeFolderRequest,
   ClaudeCodeProject,
   CreateClaudeCodeThreadRequest,
@@ -31,6 +32,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
 import { badRequest } from '../obs/errors';
+import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import { ccErrors } from './errors';
 import type { ClaudeCodeLive } from './live';
 import type { ClaudeCodeService } from './service';
@@ -40,6 +42,8 @@ const SignInRequest = z.object({ method: z.enum(['claudeai', 'console', 'sso']).
 export function claudeCodeRoutes(deps: {
   service: () => ClaudeCodeService;
   live?: () => ClaudeCodeLive | null;
+  /** One sender per thread across windows (threads/send-lock.ts). */
+  sendLocks?: SendLocks;
 }) {
   const r = new Hono<AppEnv>();
   const svc = deps.service;
@@ -57,7 +61,11 @@ export function claudeCodeRoutes(deps: {
 
   r.post('/claude-code/threads/:id/send', async (c) => {
     const req = await body(c, SendClaudeCodeRequest);
-    return c.json(await live().send(c.req.param('id'), req), 202);
+    const id = c.req.param('id');
+    const out = await withSendLock(deps.sendLocks, id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      live().send(id, req),
+    );
+    return c.json(out, 202);
   });
 
   r.post('/claude-code/threads/:id/interrupt', async (c) =>

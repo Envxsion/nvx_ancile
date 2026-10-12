@@ -870,3 +870,26 @@ export const interpreterFigures = core.table(
   },
   (t) => [index('interpreter_figures_thread').on(t.threadId)],
 );
+
+// ---- Track G: the per-thread send lock, one repository in two folders (0030) ----
+
+/** One sender per thread at a time across windows: the holder, the run it started, a lease (docs/api.md). */
+export const threadSendLocks = core.table('thread_send_locks', {
+  threadId: text('thread_id').primaryKey(),
+  holder: text('holder').notNull(),
+  runId: text('run_id'),
+  leaseUntil: ts('lease_until').notNull(),
+  acquiredAt: ts('acquired_at').notNull().defaultNow(),
+});
+
+/** "Keep apart" or "Show together" for two folder notebooks that are one repository (docs/claude-code.md). */
+export const claudeCodeRepoPairs = core.table(
+  'claude_code_repo_pairs',
+  {
+    notebookA: text('notebook_a').notNull(),
+    notebookB: text('notebook_b').notNull(),
+    choice: text('choice', { enum: ['keep_apart', 'show_together'] }).notNull(),
+    decidedAt: ts('decided_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.notebookA, t.notebookB] })],
+);

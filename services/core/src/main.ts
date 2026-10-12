@@ -174,6 +174,7 @@ import { PgBranchStore } from './threads/branches';
 import { branchRoutes } from './threads/branchRoutes';
 import { PgThreadRepo } from './threads/repo';
 import { threadRoutes } from './threads/routes';
+import { PgSendLocks } from './threads/send-lock';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
@@ -467,6 +468,8 @@ async function main() {
 
   // Durable runs.
   const runStore = new PgRunStore(sql);
+  // One sender per thread across windows (threads/send-lock.ts).
+  const sendLocks = new PgSendLocks(sql);
   // Anonymous usage statistics (docs/telemetry.md): off until you say yes.
   let tierNow: () => 'free' | 'pro' | 'max_access' = () => 'free';
   const telemetry = new Telemetry({
@@ -1245,6 +1248,7 @@ async function main() {
         notebookExists: async (id) => (await notebooks.get(id))?.workspace_id === owner.workspaceId,
         flowStore,
         branches: branchStore,
+        sendLocks,
         afterSend: branchSuggester({
           gateway,
           registry,
@@ -1375,9 +1379,15 @@ async function main() {
           notebookOf: async (id) => (await threads.getThread(id))?.notebook_id ?? null,
         }),
       }),
-      claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
+      claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive, sendLocks }),
       activityRoutes({ activity }),
-      engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),
+      engineRoutes({
+        engines: () => engines,
+        threads,
+        store: engineStore,
+        workspaceId: owner.workspaceId,
+        sendLocks,
+      }),
       usageRoutes({
         workspaceId: owner.workspaceId,
         source: new PgUsageSource(sql),

@@ -72,6 +72,16 @@ data: {"seq":58,…,"message_id":"msg_01J9ZR…"}
 
 Every event is listed in [events.md](events.md).
 
+### One sender at a time
+
+Two Cockpit windows (later a phone) can have one thread open. Each window sends `x-ancile-client: <its own random id>` (8 to 64 letters, digits, `-` or `_`; never a person, never a secret). Every route that starts a turn in a thread (`POST /threads/:id/messages`, `POST /threads/:id/turns`, `POST /messages/:id/regenerate`, `POST /messages/:id/edit` and `POST /claude-code/threads/:id/send`) takes the thread's send lock first, on top of idempotency keys:
+
+- The lock is shared across clients in the database (`core.thread_send_locks`, one row per thread), and taken in one atomic statement.
+- A window holds it from the moment it sends until the run its send started is no longer active. The same window sending again is let in, and hears what it always did (`run.already_running` while its turn runs, or the same turn again for a repeated `idempotency_key`).
+- Another window gets **409 `thread.busy`**: "Another window is sending in this thread" / "Wait for it to finish, or send as a branch." The Cockpit offers **Send as a branch**: the message waits until that turn ends, then goes from the message the window was answering, as a branch (in a Claude Code thread, a fork of the session).
+- Nothing has to tidy it up. A send that fails lets go at once; one that crashed before starting a run frees it when its 30-second lease runs out; the run it started ending (however it ends) frees it too.
+- A request without the header is a sender of its own.
+
 ### Answer an approval
 
 ```http
