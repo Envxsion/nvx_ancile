@@ -34,6 +34,7 @@ import {
   useState,
 } from 'react';
 import { syncThread } from '../claudecode/api';
+import { groupTogether, useNotebookLinks } from '../claudecode/SameRepo';
 import { openEditor } from '../editors/store';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
@@ -319,6 +320,7 @@ export function Rail() {
   const setPref = usePrefs((s) => s.set);
   const narrow = useMediaQuery('(max-width: 820px)');
   const notebooks = useNotebooks();
+  const links = useNotebookLinks(!useUi((s) => s.demo));
   const threads = useThreads();
   const [showArchive, setShowArchive] = useState(false);
   const archived = useArchivedThreads(showArchive);
@@ -361,13 +363,20 @@ export function Rail() {
     }
     return {
       pinned,
-      notebooks: nbs
-        .filter((n) => match(n.title) || ts.some((t) => t.notebookId === n.id))
-        .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
-        .map((n) => ({ ...n, threads: ts.filter((t) => t.notebookId === n.id && !t.pinned) })),
+      // Notebooks of one repository the person chose to show together stay side by side.
+      notebooks: groupTogether(
+        nbs
+          .filter((n) => match(n.title) || ts.some((t) => t.notebookId === n.id))
+          .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)),
+        links.data?.groups ?? [],
+      ).items.map((n) => ({ ...n, threads: ts.filter((t) => t.notebookId === n.id && !t.pinned) })),
       byDate,
     };
-  }, [notebooks.data, threads.data, q]);
+  }, [notebooks.data, threads.data, q, links.data]);
+  const joined = useMemo(
+    () => groupTogether(groups.notebooks, links.data?.groups ?? []).joined,
+    [groups.notebooks, links.data],
+  );
 
   const rows: Row[] = useMemo(
     () => [
@@ -640,8 +649,9 @@ export function Rail() {
                       <Link
                         to="/n/$notebookId"
                         params={{ notebookId: n.id }}
-                        className="rail__item rail__item--notebook"
+                        className={`rail__item rail__item--notebook${joined.has(n.id) ? ' rail__item--joined' : ''}`}
                         data-active={params.notebookId === n.id || undefined}
+                        title={joined.has(n.id) ? 'Same repository as the notebook above' : undefined}
                         style={{ '--hue': hueVar((n.color as Hue) ?? 'chalk') } as CSSProperties}
                         dir="auto"
                       >

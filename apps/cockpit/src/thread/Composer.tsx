@@ -101,6 +101,12 @@ export interface ClaudeCodeComposer {
   /** A turn is running: Send queues, and an empty composer offers Stop. */
   working: boolean;
   onStop: () => void;
+  /**
+   * Claude Code cannot carry the session on from this computer (not
+   * installed, signed out): the one line to show instead of a composer
+   * that would fail. null when it can, or when another model answers next.
+   */
+  readOnly?: string | null;
 }
 
 export interface SendExtras {
@@ -485,7 +491,7 @@ export function Composer({
 
   const send = async (override?: string) => {
     const value = (override ?? text).trim();
-    if (!value || sending) return;
+    if (!value || sending || claudeCode?.readOnly) return;
     // A command NVX Ancile does itself is never sent to Claude Code.
     if (claudeCode && value.startsWith('/')) {
       const typed = parseTyped(value, claudeCode.commands);
@@ -602,7 +608,7 @@ export function Composer({
     addFiles(e.dataTransfer.files);
   };
 
-  const canSend = !!text.trim() && !sending && !busy;
+  const canSend = !!text.trim() && !sending && !busy && !claudeCode?.readOnly;
   const modelPick = picked.find((p) => p.kind === 'model');
 
   return (
@@ -787,8 +793,11 @@ export function Composer({
         className="composer__input"
         rows={1}
         value={text}
+        readOnly={!!claudeCode?.readOnly}
+        aria-readonly={claudeCode?.readOnly ? true : undefined}
         spellCheck={prefs.spellcheck}
         placeholder={
+          claudeCode?.readOnly ??
           placeholder ??
           (claudeCode
             ? notebookId

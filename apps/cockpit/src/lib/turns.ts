@@ -25,6 +25,7 @@ import { newIdempotencyKey } from '../engines/api';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
+import { isThreadBusy, markBusy } from '../thread/busy-store';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
@@ -177,6 +178,11 @@ export async function sendMessage(opts: {
       });
     }
   } catch (error) {
+    // Another window is sending here: the notice above the composer offers to send it as a branch.
+    if (error instanceof ApiCallError && isThreadBusy(error.body.error.code)) {
+      markBusy(opts.threadId, () => sendMessage(opts));
+      return false;
+    }
     reportFailure(error, 'Your message');
     return false;
   }

@@ -100,6 +100,39 @@ export function WhatCameBefore({ summary }: { summary: string }) {
   );
 }
 
+export const TERMINAL_COMPACTION = 'Claude Code compacted its context in the terminal';
+
+/**
+ * In a thread other models answer too: Claude Code's own compaction as one
+ * folded terminal entry, its summary inside. NVX Ancile's summary is the
+ * thread's record there.
+ */
+export function TerminalCompaction({ summary }: { summary: string | null }) {
+  const head = (
+    <>
+      <Icon name="terminal" size={12} className="cc-row__icon" />
+      <span className="cc-note__title">{TERMINAL_COMPACTION}</span>
+    </>
+  );
+  if (!summary)
+    return (
+      <div className="cc-row cc-note" data-kind="terminal-compaction">
+        <div className="cc-row__line">{head}</div>
+      </div>
+    );
+  return (
+    <details className="cc-row cc-note" data-kind="terminal-compaction">
+      <summary className="cc-row__line">
+        {head}
+        <Icon name="chevronRight" size={11} className="cc-chev cc-row__end" />
+      </summary>
+      <div className="cc-note__body">
+        <Prose text={summary} />
+      </div>
+    </details>
+  );
+}
+
 /** A slash command you ran in Claude Code: the command, and its output folded away. */
 export function CommandRow({ e }: { e: Extract<CcEvent, { kind: 'command' }> }) {
   const head = (
@@ -197,8 +230,11 @@ export function UnknownMark({ count }: { count: number }) {
 export function CcEventRow({ e }: { e: CcEvent }) {
   switch (e.kind) {
     case 'compact_boundary':
+      // In a mixed thread the summary row carries the entry (an older import put it on the divider).
+      if (e.terminal) return e.summary ? <TerminalCompaction summary={e.summary} /> : null;
       return <CompactionDivider summary={e.summary} />;
     case 'compact_summary':
+      if (e.terminal) return <TerminalCompaction summary={e.summary || null} />;
       return e.summary ? <WhatCameBefore summary={e.summary} /> : null;
     case 'command':
       return <CommandRow e={e} />;

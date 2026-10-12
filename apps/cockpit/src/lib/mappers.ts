@@ -408,6 +408,9 @@ export function toMessageView(m: Message): MessageView | null {
  */
 export function toMessageViews(messages: Message[]): MessageView[] {
   const out: MessageView[] = [];
+  // A thread other models answer too: Claude Code's own compaction is a folded terminal entry,
+  // since NVX Ancile's summary is the record there (docs/engines.md).
+  const mixed = isMixedThread(messages);
   for (const m of messages) {
     const onlyResults = m.parts.length > 0 && m.parts.every((p) => p.type === 'tool_result');
     if (m.role === 'tool' || (m.role === 'user' && onlyResults)) {
@@ -422,9 +425,24 @@ export function toMessageViews(messages: Message[]): MessageView[] {
       continue;
     }
     const v = toMessageView(m);
+    if (v?.cc && mixed && (v.cc.kind === 'compact_boundary' || v.cc.kind === 'compact_summary'))
+      v.cc = { ...v.cc, terminal: true };
     if (v) out.push(v);
   }
   return out;
+}
+
+/** Does the thread hold answers by another model besides Claude Code's own? */
+export function isMixedThread(messages: Pick<Message, 'role' | 'provenance'>[]): boolean {
+  let cc = false;
+  let other = false;
+  for (const m of messages) {
+    if (m.role !== 'assistant') continue;
+    if ((m.provenance as Provenance | undefined)?.claude_code) cc = true;
+    else other = true;
+    if (cc && other) return true;
+  }
+  return false;
 }
 
 export function toThreadView(p: ThreadPath): ThreadView {
