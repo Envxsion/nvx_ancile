@@ -29,7 +29,7 @@ import { z } from 'zod';
 import { computeCosts, monthOf } from '../costs/compute';
 import { type AppEnv, apiError, trace } from '../http';
 import { componentLogger } from '../logger';
-import { register } from '../nodes';
+import { reconcile, register } from '../nodes';
 import { type ExecutorDeps, runOperation } from '../operations/executor';
 import { advance, createOperation, isTerminal, precheck, resolveIdempotency } from '../operations/machine';
 import { ProviderError } from '../providers/types';
@@ -60,7 +60,20 @@ export function controlRoutes(deps: ControlDeps) {
   // Also mounted standalone (wake path, rule runner), so it sets its own trace id.
   app.use('*', trace);
 
-  app.get('/nodes', async (c) => c.json({ items: (await store.listNodes()).map(publicNode) }));
+  // Listing also reconciles with the provider (at most every 15 s, a few seconds at most),
+  // so a pod deleted in the provider's console does not stay "running" here.
+  let lastSync = 0;
+  app.get('/nodes', async (c) => {
+    const t = now().getTime();
+    if (t - lastSync > 15_000 && deps.provider.id !== 'fake' && deps.provider.id !== 'none') {
+      lastSync = t;
+      await Promise.race([
+        reconcile(store, deps.provider, now()).catch(() => 0),
+        new Promise((r) => setTimeout(r, 5_000).unref?.()),
+      ]);
+    }
+    return c.json({ items: (await store.listNodes()).map(publicNode) });
+  });
 
   // Which provider manages nodes; connecting RunPod from the app (docs/compute.md).
   app.get('/provider', async (c) => {
