@@ -165,3 +165,25 @@ export function proRoutes(deps: {
   }
   return r;
 }
+
+/**
+ * Where a Pro feature lives under /api/v1/pro, so the free build (and a Pro
+ * build without that feature's routes) answers 402 there rather than 404:
+ * the Cockpit then shows the feature as part of Pro.
+ */
+export const PRO_PATHS: Partial<Record<proContract.ProFeature, string>> = {
+  context_packs: '/context-packs',
+};
+
+/** 402 pro.feature_required for every path of a Pro feature no Pro route answered. Mount after proRoutes. */
+export function lockedProRoutes(): Hono<AppEnv> {
+  const r = new Hono<AppEnv>();
+  for (const [feature, path] of Object.entries(PRO_PATHS) as [proContract.ProFeature, string][]) {
+    const locked = () => {
+      throw featureRequired(feature);
+    };
+    r.all(`/pro${path}`, locked);
+    r.all(`/pro${path}/*`, locked);
+  }
+  return r;
+}

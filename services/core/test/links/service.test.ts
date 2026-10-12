@@ -195,6 +195,76 @@ describe('reading through links in a turn', () => {
   });
 });
 
+describe('context packs in a turn (Pro hands them over; Core checks the scopes)', () => {
+  it('gives an allowed pack and refuses one from a private or local-only place', async () => {
+    await scopes.setPrivate('nbk_p', true);
+    const svc = new LinkService({
+      workspaceId: WS,
+      store,
+      scopes: scopeResolver(scopes),
+      lookup: {
+        thread: async (id) => threads.get(id) ?? null,
+        notebook: async (id) => notebooks.get(id) ?? null,
+      },
+      summaryOf: async () => null,
+      packs: async () => [
+        {
+          pack_id: 'cpk_ok',
+          name: 'Pump basics',
+          via: 'notebook',
+          local_only: false,
+          origins: [
+            { kind: 'notebook', id: 'nbk_b' },
+            { kind: 'notebook', id: 'nbk_gone' },
+          ],
+          text: 'Pumps need priming.',
+          sources: [
+            { notebook_id: 'nbk_b', notebook_title: 'Bravo', source_ids: ['src_1'] },
+            { notebook_id: 'nbk_b', notebook_title: 'Bravo', source_ids: [] },
+          ],
+        },
+        {
+          pack_id: 'cpk_private',
+          name: 'Diary bits',
+          via: 'thread',
+          local_only: false,
+          origins: [{ kind: 'notebook', id: 'nbk_p' }],
+          text: 'Secret.',
+          sources: [],
+        },
+        {
+          pack_id: 'cpk_local',
+          name: 'Local only',
+          via: 'thread',
+          local_only: true,
+          origins: [],
+          text: 'Stays here.',
+          sources: [],
+        },
+      ],
+    });
+    const t = await svc.forTurn('thr_1');
+    expect(t.notebooks).toEqual([
+      {
+        linkId: 'cpk_ok',
+        source: 'pack',
+        via: 'notebook',
+        notebookId: 'nbk_b',
+        title: 'Bravo',
+        sourceIds: ['src_1'],
+      },
+    ]);
+    expect(t.summaries.map((x) => [x.linkId, x.source, x.title])).toEqual([
+      ['cpk_ok', 'pack', 'Pump basics'],
+    ]);
+    expect(summariesBlock(t.summaries)).toContain('Context pack "Pump basics"');
+    expect(t.skipped.map((x) => [x.link_id, x.kind, x.code])).toEqual([
+      ['cpk_private', 'pack', 'scope.private_notebook'],
+      ['cpk_local', 'pack', 'scope.data_stays_local'],
+    ]);
+  });
+});
+
 describe('routes', () => {
   it('serves both ends and refuses a widening link with the scope’s code', async () => {
     const app = new Hono<AppEnv>();

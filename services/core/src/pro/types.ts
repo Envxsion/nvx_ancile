@@ -222,8 +222,47 @@ export interface ProAnswers {
   memoryHistory(limit: number): Promise<{ at: string }[]>;
 }
 
+/**
+ * What context packs (Pro) need from Core: sources through the knowledge
+ * service, a thread's summary, a place's instructions, and the scope check
+ * that decides whether a pack may be attached somewhere. Notes and memory
+ * entries Pro reads from Core's tables itself.
+ */
+export interface ProPackHost {
+  /** One source with its extracted text (null when it is gone or not in this workspace). */
+  sourceText(
+    id: string,
+  ): Promise<{ id: string; title: string; kind: string; content_hash: string | null; text: string } | null>;
+  /** The sources a notebook holds now. */
+  notebookSources(notebookId: string): Promise<{ id: string; title: string }[]>;
+  /** Add pasted text as a source (an imported pack's source), optionally into a notebook. */
+  addTextSource(input: { title: string; text: string; notebookId: string | null }): Promise<{ id: string }>;
+  /** A thread's summary, or a digest of its latest turns; null when it has neither. */
+  summaryOf(threadId: string): Promise<string | null>;
+  /** The instructions and persona set on a notebook or thread. */
+  instructionsOf(
+    place: import('@nvx/contracts').packs.PackOrigin,
+  ): Promise<{ instructions: string; persona: string }>;
+  /** A place's title in this workspace, and its notebook (a thread's); null when it is not here. */
+  place(
+    place: import('@nvx/contracts').packs.PackOrigin,
+  ): Promise<{ title: string; notebookId: string | null } | null>;
+  /** Nothing may leave this machine here (a private notebook, or data leaving switched off). */
+  keepsLocal(place: import('@nvx/contracts').packs.PackOrigin): Promise<boolean>;
+  /** May a pack made from these places be attached to `target`? Both scopes, as a context link. */
+  checkAttach(
+    target: import('@nvx/contracts').packs.PackTarget,
+    pack: { name: string; local_only: boolean; origins: import('@nvx/contracts').packs.PackOrigin[] },
+  ): Promise<{ ok: true } | { ok: false; code: string; reason: string }>;
+}
+
 /** Points in Core's own work where Pro may take part. Each is optional and may not fail Core. */
 export interface ProHooks {
+  /** Context packs attached to this thread or its notebook, for one turn. Core checks every scope. */
+  turnContext?(q: {
+    threadId: string;
+    notebookId: string | null;
+  }): Promise<import('../links/service').PackTurnContext[]>;
   /** An answer was saved (Flow lab: a shadow flow answers the same question off the record). */
   afterAnswer?(a: import('../conductor/pipeline').AnsweredTurn): Promise<void>;
   /** A router asks whether its route is already known (Flow lab: learned from your choices). */
@@ -243,6 +282,8 @@ export interface ProServices {
   hasFeature(feature: pro.ProFeature): boolean;
   /** The workspace's own data, for sync. */
   sync?: ProSyncSource;
+  /** Sources, summaries, instructions and scope checks for context packs. */
+  packs?: ProPackHost;
   /** The single owner of a free install: Teams starts from them. */
   owner: { userId: string; workspaceId: string };
   now(): Date;

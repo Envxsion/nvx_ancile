@@ -112,7 +112,7 @@ import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
 import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
 import { linkRoutes } from './links/routes';
-import { LinkService } from './links/service';
+import { LinkService, type LinkServiceDeps } from './links/service';
 import { PgLinkStore } from './links/store';
 import { threadSummary } from './links/summary';
 import { localModelRoutes } from './localmodels/routes';
@@ -155,7 +155,8 @@ import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
 import { proAnswers } from './pro/answers';
 import { proDataRoutes } from './pro/data';
-import { ownerIdentity, proRoutes } from './pro/routes';
+import { proPackHost } from './pro/packs';
+import { lockedProRoutes, ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
 import { sqlSyncSource } from './pro/sync-source';
 import type { ProHooks } from './pro/types';
@@ -638,6 +639,9 @@ async function main() {
   const claudePasses = new LabPasses();
   const claudeSecret = randomBytes(32).toString('base64url');
   // ---- Phase 3 (C): context links and notebook merge (docs/notebooks.md) ----
+  /** Context packs attached to a thread or its notebook (Pro); set once Pro has loaded. */
+  let proTurnContext: NonNullable<LinkServiceDeps['packs']> = async () => [];
+  const summaryOf = threadSummary({ threads, branches: branchStore });
   const contextLinks = new LinkService({
     workspaceId: owner.workspaceId,
     store: new PgLinkStore(sql),
@@ -652,7 +656,8 @@ async function main() {
         return n ? { title: n.title, workspace_id: n.workspace_id } : null;
       },
     },
-    summaryOf: threadSummary({ threads, branches: branchStore }),
+    summaryOf,
+    packs: (q) => proTurnContext(q),
   });
   const notebookMerge = new NotebookMergeService({
     workspaceId: owner.workspaceId,
@@ -1168,6 +1173,15 @@ async function main() {
           hasFeature: hasProFeature,
           owner: { userId: owner.userId, workspaceId: owner.workspaceId },
           sync: sqlSyncSource(sql, { userId: owner.userId, workspaceId: owner.workspaceId }),
+          packs: proPackHost({
+            workspaceId: owner.workspaceId,
+            kn,
+            scopes,
+            threads,
+            notebooks,
+            engines: engineStore,
+            summaryOf,
+          }),
           answers: proAnswers({
             workspaceId: owner.workspaceId,
             repo: threads,
@@ -1190,6 +1204,10 @@ async function main() {
       );
   // Where Pro takes part in answering: read when each answer runs, so a lapse stops it at once.
   proHooks = proFeatures?.hooks;
+  if (proHooks?.turnContext) {
+    const packsFor = proHooks.turnContext.bind(proHooks);
+    proTurnContext = (q) => (hasProFeature('context_packs') ? packsFor(q) : Promise.resolve([]));
+  }
   if (proHooks?.routeHint) {
     const hint = proHooks.routeHint.bind(proHooks);
     flows.deps.routeHint = (q) => (hasProFeature('flow_lab') ? hint(q) : Promise.resolve(null));
@@ -1456,6 +1474,8 @@ async function main() {
         },
       }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
+      // A Pro feature with no route here (the free build) answers 402, so the Cockpit shows it as Pro.
+      lockedProRoutes(),
       toolRoutes({ tools, servers: mcpServers, guard: mcpGuard }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       // The code editor: read and save files, through the same gate as fs.read and fs.write.
