@@ -11,7 +11,9 @@
  *           |  resource, lets Auto mode settle what decide() would ask
  *           |  about, writes the outcome to the decision log, and
  *           |  counts grant use.
- *  How      |  scope (a floor, in every preset) → Auto mode floors →
+ *  How      |  scope (a floor, in every preset) → the MCP rug-pull
+ *           |  guard (a tool added or changed since its server was
+ *           |  approved is refused, in every preset) → Auto mode floors →
  *           |  decide() → Auto mode's plan, cache and reviewer for a
  *           |  GATED ask, with floors and scope checked again after.
  *           |  Returns the decision; asking the person (an approval) is
@@ -24,6 +26,7 @@
  */
 
 import type { EffectiveScope, Tier } from '@nvx/contracts';
+import type { McpToolCheck } from '../mcp/guard';
 import { checkToolCall, type ScopeResolver } from '../scopes';
 import type { AutoReview } from './auto';
 import { type DecideDeps, type DecisionResult, decide } from './decide';
@@ -66,6 +69,8 @@ export function createGate(
     scopes?: ScopeResolver;
     /** Auto mode (docs/auto-mode.md). */
     auto?: GateAuto;
+    /** MCP tool lists you approved (mcp/guard.ts): new and changed tools are refused. */
+    mcpTools?: { check(principal: string, action: string): Promise<McpToolCheck> };
   },
 ): Gate {
   const record = async (req: GateRequest, result: DecisionResult) => {
@@ -81,7 +86,10 @@ export function createGate(
           ? result.via === 'grant'
             ? 'grant'
             : 'auto'
-          : result.via === 'policy' || result.via === 'scope' || result.via === 'floor'
+          : result.via === 'policy' ||
+              result.via === 'scope' ||
+              result.via === 'floor' ||
+              result.via === 'mcp_changed'
             ? 'policy_deny'
             : 'denied',
       grantId: result.grantId ?? null,
@@ -121,6 +129,30 @@ export function createGate(
             reason: s.reason,
             policyId: `scope.${s.field}`,
             code: s.code,
+          };
+          await record(req, result);
+          return result;
+        }
+      }
+
+      // ---- an MCP tool its server added or changed after you approved it: refused ----
+      if (deps.mcpTools && req.action.startsWith('mcp.')) {
+        const m = await deps.mcpTools.check(req.principal, req.action).catch(
+          (): McpToolCheck => ({
+            ok: false,
+            code: 'mcp.tools_changed',
+            reason: 'NVX Ancile could not check this MCP tool against the list you approved',
+          }),
+        );
+        if (!m.ok) {
+          const result: DecisionResult = {
+            outcome: 'deny',
+            via: 'mcp_changed',
+            tier: req.toolTier,
+            resource,
+            reason: m.reason,
+            policyId: m.code,
+            code: m.code,
           };
           await record(req, result);
           return result;

@@ -34,6 +34,7 @@ import { logFor } from '../obs/logger';
 import type { SecretStore } from '../secrets';
 import type { SettingsStore } from '../settings';
 import type { ToolOverride } from '../tools/registry';
+import type { McpToolGuard } from './guard';
 import { effectiveTool, type McpManager, type McpServerHealth, type McpServerSpec } from './manager';
 import type { McpServerRow, McpServerStore } from './store';
 
@@ -131,6 +132,8 @@ export interface McpServiceDeps {
   manager: McpManager;
   /** config/mcp.yaml servers. */
   files: McpServerSpec[];
+  /** The rug-pull guard: each server's approved tool list (guard.ts). */
+  guard?: McpToolGuard;
 }
 
 type Resolved = { kind: 'file'; spec: McpServerSpec } | { kind: 'app'; row: McpServerRow };
@@ -238,6 +241,7 @@ export class McpService {
 
   private toolsView(name: string): McpToolView[] {
     const overrides = this.m.specOf(name)?.tools ?? {};
+    const held = this.m.heldOf(name);
     return this.m.toolsOf(name).map((t) => {
       const e = effectiveTool(t, overrides[t.name]);
       return {
@@ -250,6 +254,7 @@ export class McpService {
         disabled: e.disabled,
         destructive: e.destructive,
         read_only: t.readOnly,
+        ...(held.has(t.name) && { held: true }),
       };
     });
   }
@@ -316,19 +321,29 @@ export class McpService {
     return new Set(await this.deps.secrets.names());
   }
 
+  /** The server's approved tool list, as the guard keeps it. */
+  private async withApproval(v: McpServerView): Promise<McpServerView> {
+    const g = this.deps.guard;
+    if (!g) return v;
+    const shadowed = v.source === 'app' && !!this.fileNamed(v.name);
+    return { ...v, approval: shadowed ? null : await g.view('host', v.name) };
+  }
+
   async list(): Promise<McpServerView[]> {
     const saved = await this.saved();
     const rows = await this.deps.store.list();
-    return [
-      ...this.deps.files.map((f) => this.fileView(f, saved)),
-      ...rows.map((r) => this.appView(r, saved)),
-    ];
+    return Promise.all(
+      [
+        ...this.deps.files.map((f) => this.fileView(f, saved)),
+        ...rows.map((r) => this.appView(r, saved)),
+      ].map((v) => this.withApproval(v)),
+    );
   }
 
   async view(id: string): Promise<McpServerView> {
     const r = await this.resolve(id);
     const saved = await this.saved();
-    return r.kind === 'file' ? this.fileView(r.spec, saved) : this.appView(r.row, saved);
+    return this.withApproval(r.kind === 'file' ? this.fileView(r.spec, saved) : this.appView(r.row, saved));
   }
 
   /* ---- Changes ---- */
@@ -447,7 +462,11 @@ export class McpService {
       !same(updated.env, row.env) ||
       !same(updated.headers, row.headers);
     if (reconnect) {
-      if (updated.name !== row.name) await this.m.disconnect(row.name);
+      if (updated.name !== row.name) {
+        await this.m.disconnect(row.name);
+        // A new name is a new server to the guard: its first list is approved afresh.
+        await this.deps.guard?.forget('host', row.name);
+      }
       void this.m.connect(this.appSpec(updated));
       log.info({ server: updated.name, id: row.id }, 'MCP server changed; reconnecting');
     }
@@ -458,7 +477,11 @@ export class McpService {
     const r = await this.resolve(id);
     if (r.kind === 'file') throw readOnly(r.spec.name);
     const row = r.row;
-    if (!this.fileNamed(row.name)) await this.m.remove(row.name);
+    if (!this.fileNamed(row.name)) {
+      await this.m.remove(row.name);
+      // Added again later, its first list is approved afresh.
+      await this.deps.guard?.forget('host', row.name);
+    }
     for (const k of row.secret_keys) await this.deps.secrets.delete(mcpSecretName(row.id, k));
     await this.deps.store.remove(row.id);
     log.info({ server: row.name, id: row.id }, 'MCP server removed');

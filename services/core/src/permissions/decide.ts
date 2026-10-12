@@ -95,8 +95,12 @@ export type DecisionResult =
     }
   | {
       outcome: 'deny';
-      /** `scope`: the notebook's or thread's scope (scopes/); `floor`: an Auto mode floor. */
-      via: 'policy' | 'grant' | 'normalize' | 'scope' | 'floor';
+      /**
+       * `scope`: the notebook's or thread's scope (scopes/); `floor`: an Auto
+       * mode floor; `mcp_changed`: an MCP tool added or changed after its
+       * server was approved (mcp/guard.ts).
+       */
+      via: 'policy' | 'grant' | 'normalize' | 'scope' | 'floor' | 'mcp_changed';
       tier: Tier;
       resource: string;
       reason: string;

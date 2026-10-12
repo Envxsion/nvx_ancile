@@ -23,7 +23,11 @@
  *           |  and secret headers on every request. A name that had to
  *           |  be cleaned or shortened gets a short hash so two tools
  *           |  never collide. Every status change is published as
- *           |  mcp.server_changed.
+ *           |  mcp.server_changed. Every list a server gives is shown
+ *           |  to the rug-pull guard (guard.ts) before its tools are
+ *           |  registered: tools added or changed since you approved
+ *           |  the server are held back until you approve the new
+ *           |  list, so the model never sees them.
  *  Note     |  TODO(phase-5): OAuth for remote servers (tokens in the
  *           |  secret store), elicitation → approval UI.
  * ------------------------------------------------------------------
@@ -41,6 +45,7 @@ import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import type { SecretStore } from '../secrets';
 import { type ToolOverride, type ToolRegistry, tierFromMcpAnnotations } from '../tools/registry';
+import type { McpToolGuard } from './guard';
 
 const log = logFor('mcp');
 
@@ -82,6 +87,8 @@ export interface McpToolInfo {
   /** The name the model sees (`<server>__<tool>`). */
   id: string;
   description: string;
+  /** The description exactly as the server gave it (null when it gave none): what is fingerprinted. */
+  rawDescription?: string | null;
   inputSchema: unknown;
   /** From SDK metadata when present, else from the MCP hints; never auto when destructive. */
   defaultTier: Tier;
@@ -139,6 +146,8 @@ interface Live {
   backoffMs: number;
   stopped: boolean;
   tools: McpToolInfo[];
+  /** Tools the guard holds back (added or changed since approval). */
+  held: Set<string>;
 }
 
 /** Text of an MCP tool result, for the model and the preview. */
@@ -186,8 +195,21 @@ export class McpManager {
       version?: string;
       /** Where mcp.server_changed goes (the global event stream). */
       events?: Pick<EventBus, 'publish'>;
+      /** The rug-pull guard: every listed set of tools is checked against the approved one. */
+      guard?: McpToolGuard;
     } = {},
-  ) {}
+  ) {
+    // A new list approved: its held tools are registered at once, without a reconnect.
+    opts.guard?.onApproved((origin, server) => {
+      if (origin !== 'host') return;
+      const entry = this.live.get(server);
+      if (!entry?.client) return;
+      entry.held = opts.guard?.held('host', server) ?? new Set();
+      this.registerTools(entry);
+      const h = this.health.get(server);
+      if (h) this.emit(h);
+    });
+  }
 
   /** Connect every enabled server; failures are recorded, never thrown. */
   async start(servers: McpServerSpec[]): Promise<void> {
@@ -201,7 +223,15 @@ export class McpManager {
    */
   async connect(spec: McpServerSpec): Promise<McpServerHealth> {
     const prev = this.live.get(spec.name);
-    const entry: Live = { spec, client: null, retry: null, backoffMs: 1_000, stopped: false, tools: [] };
+    const entry: Live = {
+      spec,
+      client: null,
+      retry: null,
+      backoffMs: 1_000,
+      stopped: false,
+      tools: [],
+      held: new Set(),
+    };
     this.live.set(spec.name, entry);
     this.setHealth(spec, {
       status: spec.enabled ? 'connecting' : 'disabled',
@@ -279,6 +309,8 @@ export class McpManager {
     const { spec } = entry;
     this.registry.unregisterSource((s) => s.kind === 'mcp' && s.server === spec.name);
     for (const t of entry.tools) {
+      // Added or changed since you approved the server: not offered until you approve the new list.
+      if (entry.held.has(t.name)) continue;
       this.registry.register(
         {
           name: t.id,
@@ -317,10 +349,25 @@ export class McpManager {
     const { tools } = await client.listTools();
     if (entry.stopped) return false;
     const { spec } = entry;
+    const listed = tools as ListedTool[];
+    // Fail closed: a list the guard cannot check is not registered (the error reconnects later).
+    const seen = this.opts.guard
+      ? await this.opts.guard.observe(
+          'host',
+          spec.name,
+          listed.map((t) => ({
+            name: t.name,
+            description: t.description ?? null,
+            inputSchema: t.inputSchema,
+          })),
+        )
+      : null;
+    if (entry.stopped) return false;
+    entry.held = seen?.held ?? new Set();
     // Names this server already holds are free to take again.
     const own = new Set(entry.tools.map((t) => t.id));
     const named = new Set<string>();
-    entry.tools = (tools as ListedTool[]).map((t) => {
+    entry.tools = listed.map((t) => {
       const id = mcpToolName(
         spec.name,
         t.name,
@@ -331,6 +378,7 @@ export class McpManager {
         name: t.name,
         id,
         description: t.description ?? `${t.name} (from ${spec.name})`,
+        rawDescription: t.description ?? null,
         inputSchema: t.inputSchema,
         ...describeTool(t),
       };
@@ -475,6 +523,11 @@ export class McpManager {
   /** The tools a connected server offers, before overrides. */
   toolsOf(name: string): McpToolInfo[] {
     return this.live.get(name)?.tools ?? [];
+  }
+
+  /** Tools held back until the server's changed list is approved. */
+  heldOf(name: string): Set<string> {
+    return this.live.get(name)?.held ?? new Set();
   }
 
   /** The spec the manager runs for a name, with the overrides that apply now. */

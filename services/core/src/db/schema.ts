@@ -801,3 +801,41 @@ export const engineSourceMarks = core.table(
   },
   (t) => [primaryKey({ columns: [t.workspaceId, t.threadId] })],
 );
+
+// ---- Track G: MCP tool-list fingerprints, shared-before-local history (0026) ----
+
+/** The tool list each MCP server was approved with, and what it offers now (docs/plugins.md). */
+export const mcpToolApprovals = core.table(
+  'mcp_tool_approvals',
+  {
+    origin: text('origin', { enum: ['host', 'claude_code'] }).notNull(),
+    server: text('server').notNull(),
+    approvedTools: jsonb('approved_tools').notNull(),
+    approvedFingerprint: text('approved_fingerprint').notNull(),
+    approvedAt: ts('approved_at').notNull().defaultNow(),
+    currentTools: jsonb('current_tools').notNull(),
+    currentFingerprint: text('current_fingerprint').notNull(),
+    changedAt: ts('changed_at'),
+    coverage: text('coverage', { enum: ['full', 'names'] })
+      .notNull()
+      .default('full'),
+  },
+  (t) => [primaryKey({ columns: [t.origin, t.server] })],
+);
+
+/** What had left this machine before a notebook or thread became private or local only (docs/scopes.md). */
+export const scopeSharedHistory = core.table(
+  'scope_shared_history',
+  {
+    id: text('id').primaryKey(),
+    level: text('level', { enum: ['notebook', 'thread'] }).notNull(),
+    refId: text('ref_id').notNull(),
+    change: text('change', { enum: ['private', 'local_only'] }).notNull(),
+    turns: integer('turns').notNull(),
+    firstAt: ts('first_at'),
+    lastAt: ts('last_at'),
+    destinations: jsonb('destinations').notNull(),
+    changedAt: ts('changed_at').notNull().defaultNow(),
+  },
+  (t) => [index('scope_shared_history_ref').on(t.level, t.refId, t.changedAt)],
+);
