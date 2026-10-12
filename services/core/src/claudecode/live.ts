@@ -1149,10 +1149,18 @@ export class ClaudeCodeLive {
       const e = limit
         ? ccErrors.planLimit(limit.resetsAt, this.now())
         : ccErrors.liveFailed(turn.error ?? String(result?.subtype ?? 'error'));
-      return { code: e.code, title: e.title, hint: e.hint, ...(limit?.resetsAt && { resets_at: limit.resetsAt }) };
+      return {
+        code: e.code,
+        title: e.title,
+        hint: e.hint,
+        ...(limit?.resetsAt && { resets_at: limit.resetsAt }),
+      };
     })();
     if (limit)
-      log.info({ thread_id: cp.threadId, resets_at: limit.resetsAt }, "a Claude Code turn stopped at the plan's limit");
+      log.info(
+        { thread_id: cp.threadId, resets_at: limit.resetsAt },
+        "a Claude Code turn stopped at the plan's limit",
+      );
     const newRows: NewMessage[] = [];
     let main: { parts: Part[]; usage: Usage | null } | null = null;
     const raws = plan.planned.flatMap((p) => p.raws ?? []);

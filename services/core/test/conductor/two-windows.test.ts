@@ -7,8 +7,8 @@
  */
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeCodeRoutes } from '../../src/claudecode/routes';
 import type { ClaudeCodeLive } from '../../src/claudecode/live';
+import { claudeCodeRoutes } from '../../src/claudecode/routes';
 import type { ClaudeCodeService } from '../../src/claudecode/service';
 import type { Engines } from '../../src/engines';
 import { engineRoutes } from '../../src/engines/routes';
@@ -101,7 +101,14 @@ describe('two windows, one thread (turns and Claude Code send)', () => {
     const start = async (threadId: string) => {
       await new Promise((r) => setTimeout(r, 20));
       const id = `run_${++n}`;
-      await runs.create({ id, kind: 'chat_turn', traceId: '1'.repeat(32), threadId, messageId: null, checkpoint: {} });
+      await runs.create({
+        id,
+        kind: 'chat_turn',
+        traceId: '1'.repeat(32),
+        threadId,
+        messageId: null,
+        checkpoint: {},
+      });
       return { run_id: id, user_message_id: `u${n}`, assistant_message_id: `a${n}` };
     };
     const engines = {
@@ -143,7 +150,10 @@ describe('two windows, one thread (turns and Claude Code send)', () => {
     const { runs, post } = await setup();
     const [a, b] = await Promise.all([
       post('/threads/thr_1/turns', 'window-aaaa-1', { text: 'One', idempotency_key: 'key-aaaa-0001' }),
-      post('/claude-code/threads/thr_1/send', 'window-bbbb-2', { text: 'Two', idempotency_key: 'key-bbbb-0001' }),
+      post('/claude-code/threads/thr_1/send', 'window-bbbb-2', {
+        text: 'Two',
+        idempotency_key: 'key-bbbb-0001',
+      }),
     ]);
     expect([a.status, b.status].sort()).toEqual([202, 409]);
     expect((a.status === 409 ? a : b).body.error?.code).toBe('thread.busy');

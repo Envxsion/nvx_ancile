@@ -5,8 +5,9 @@
  * or from the plan figures NVX Ancile already holds. Any other failure
  * stays "stopped before it answered".
  */
-import { join } from 'node:path';
+
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { RunEvent } from '@nvx/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LiveBridge, LiveEvent, LiveOpenParams } from '../../src/claudecode/bridge-protocol';
@@ -76,7 +77,12 @@ const stopsAtLimit =
       b.msg(h, {
         type: 'rate_limit_event',
         session_id: S,
-        rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: RESET / 1000, utilization: 1 },
+        rate_limit_info: {
+          status: 'rejected',
+          rateLimitType: 'five_hour',
+          resetsAt: RESET / 1000,
+          utilization: 1,
+        },
       });
     b.msg(h, {
       type: 'result',
@@ -111,7 +117,15 @@ async function execute(runId: string): Promise<RunOutcome> {
     checkpoint: async () => undefined,
     once: async (s, kind, input, effect) => {
       const out = await effect();
-      await runs.putStep({ runId, seq: s, kind, idempotencyKey: `${runId}:${s}`, status: 'succeeded', input, output: out });
+      await runs.putStep({
+        runId,
+        seq: s,
+        kind,
+        idempotencyKey: `${runId}:${s}`,
+        status: 'succeeded',
+        input,
+        output: out,
+      });
       return out;
     },
   };
@@ -205,13 +219,14 @@ describe('the plan limit reached mid-turn', () => {
     const answer = await threads.getMessage(sent.assistant_message_id);
     expect(answer?.status).toBe('error');
     expect(answer?.parts).toEqual([{ type: 'text', text: 'Half of the refactor is done' }]);
-    expect((answer?.provenance as { error?: unknown }).error).toMatchObject({
+    expect((answer?.provenance as { error?: unknown } | undefined)?.error).toMatchObject({
       code: 'claude_code.plan_limit',
       resets_at: new Date(RESET).toISOString(),
     });
     // The plan figures saw the event too (it is saved alongside the turn's end).
     const limits = (live as unknown as { deps: { limits: PlanLimits } }).deps.limits;
-    for (let i = 0; i < 100 && !(await limits.blockedUntil()); i++) await new Promise((r) => setTimeout(r, 5));
+    for (let i = 0; i < 100 && !(await limits.blockedUntil()); i++)
+      await new Promise((r) => setTimeout(r, 5));
     expect(await limits.blockedUntil()).toBe(new Date(RESET).toISOString());
   });
 
@@ -264,7 +279,9 @@ describe('the plan limit reached mid-turn', () => {
 
 describe('words for the limit', () => {
   it('names the reset in local time, the day when it is not today, and nothing when unknown', () => {
-    expect(planLimitTitle(new Date(RESET).toISOString(), NOW)).toBe('Claude Code limit reached, resets at 14:00');
+    expect(planLimitTitle(new Date(RESET).toISOString(), NOW)).toBe(
+      'Claude Code limit reached, resets at 14:00',
+    );
     const monday = new Date(2026, 9, 19, 9, 5, 0);
     expect(planLimitTitle(monday.toISOString(), NOW)).toBe('Claude Code limit reached, resets Mon 09:05');
     expect(planLimitTitle(null, NOW)).toBe('Claude Code limit reached');

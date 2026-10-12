@@ -12,13 +12,18 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CcSessionInfo, LiveBridge, LiveEvent, LiveOpenParams } from '../../src/claudecode/bridge-protocol';
+import type {
+  CcSessionInfo,
+  LiveBridge,
+  LiveEvent,
+  LiveOpenParams,
+} from '../../src/claudecode/bridge-protocol';
 import { ClaudeCodeLive, type LiveServiceView } from '../../src/claudecode/live';
 import { planSync } from '../../src/claudecode/map';
 import { MemoryClaudeCodeStore } from '../../src/claudecode/store';
 import { readTranscript } from '../../src/claudecode/transcript';
 import { claudeHooks } from '../../src/engines/claude';
-import { planClaudeTurn, pathTo } from '../../src/engines/context';
+import { pathTo, planClaudeTurn } from '../../src/engines/context';
 import { gatewayContextHook } from '../../src/engines/gateway';
 import { MemoryEngineStore } from '../../src/engines/store';
 import { BuiltinPolicy } from '../../src/permissions/cedar';
@@ -152,7 +157,15 @@ async function execute(runId: string) {
     checkpoint: async () => undefined,
     once: async (s, kind, input, effect) => {
       const out = await effect();
-      await runs.putStep({ runId, seq: s, kind, idempotencyKey: `${runId}:${s}`, status: 'succeeded', input, output: out });
+      await runs.putStep({
+        runId,
+        seq: s,
+        kind,
+        idempotencyKey: `${runId}:${s}`,
+        status: 'succeeded',
+        input,
+        output: out,
+      });
       return out;
     },
   };
@@ -200,7 +213,12 @@ async function build(withTerminal: boolean) {
   let head = 'm_r3';
   if (withTerminal) {
     const path = join(dir, `${SID}.jsonl`);
-    await writeFile(path, `${fixture().map((r) => JSON.stringify(r)).join('\n')}\n`);
+    await writeFile(
+      path,
+      `${fixture()
+        .map((r) => JSON.stringify(r))
+        .join('\n')}\n`,
+    );
     const read = await readTranscript(path, SID);
     if (!read.ok) throw new Error(read.reason);
     expect(read.stats.compactions).toBe(1);
@@ -219,7 +237,12 @@ async function build(withTerminal: boolean) {
           status: 'complete' as const,
           trace_id: 't',
           provenance: {
-            claude_code: { session_id: SID, uuid: p.uuids.at(-1) ?? '', uuids: p.uuids, ...(p.kind && { kind: p.kind }) },
+            claude_code: {
+              session_id: SID,
+              uuid: p.uuids.at(-1) ?? '',
+              uuids: p.uuids,
+              ...(p.kind && { kind: p.kind }),
+            },
           },
         })),
     );
@@ -254,7 +277,12 @@ beforeEach(async () => {
     userId: 'usr_1',
     bridge,
     service,
-    sessionInfo: async (id): Promise<CcSessionInfo> => ({ sessionId: id, summary: 't', lastModified: 1, cwd: CWD }),
+    sessionInfo: async (id): Promise<CcSessionInfo> => ({
+      sessionId: id,
+      summary: 't',
+      lastModified: 1,
+      cwd: CWD,
+    }),
     threads,
     store: new MemoryClaudeCodeStore(threads),
     runs,
@@ -281,7 +309,9 @@ describe('Claude Code compacted in the terminal, in a mixed thread', () => {
   it('comes in as its own rows: a divider and the summary, hung after the turn it followed', async () => {
     const head = await build(true);
     const path = pathTo(await threads.messages('thr_1'), head);
-    const kinds = path.map((m) => (m.provenance?.claude_code as { kind?: string } | undefined)?.kind ?? m.role);
+    const kinds = path.map(
+      (m) => (m.provenance?.claude_code as { kind?: string } | undefined)?.kind ?? m.role,
+    );
     expect(kinds).toEqual([
       'user',
       'assistant',
@@ -299,7 +329,11 @@ describe('Claude Code compacted in the terminal, in a mixed thread', () => {
 
   it('the next live turn carries the same session on: no fresh session, no summary sent again', async () => {
     const head = await build(true);
-    const sent = await live.send('thr_1', { text: 'And the docs?', parent_id: head, idempotency_key: 'key-tc-0001' });
+    const sent = await live.send('thr_1', {
+      text: 'And the docs?',
+      parent_id: head,
+      idempotency_key: 'key-tc-0001',
+    });
     expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
     expect(bridge.opened[0]).toMatchObject({ resume: SID });
     expect(bridge.opened[0]?.fork).toBeUndefined();
@@ -310,7 +344,11 @@ describe('Claude Code compacted in the terminal, in a mixed thread', () => {
 
   it('without the terminal compaction, the same thread is seeded from NVX Ancile’s summary once', async () => {
     const head = await build(false);
-    const sent = await live.send('thr_1', { text: 'And the docs?', parent_id: head, idempotency_key: 'key-tc-0002' });
+    const sent = await live.send('thr_1', {
+      text: 'And the docs?',
+      parent_id: head,
+      idempotency_key: 'key-tc-0002',
+    });
     await execute(sent.run_id);
     expect(bridge.opened[0]?.resume).toBeUndefined();
     expect(bridge.sent[0]).toContain(ANCILE_SUMMARY);

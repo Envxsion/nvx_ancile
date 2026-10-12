@@ -75,9 +75,12 @@ export function planLimitTitle(resetsAt: string | null, now: number = Date.now()
 export function limitFromResult(result: Record<string, unknown> | null): { resetsAt: string | null } | null {
   if (!result) return null;
   const text = typeof result.result === 'string' ? result.result : '';
-  const errors = Array.isArray(result.errors) ? result.errors.filter((e) => typeof e === 'string').join(' ') : '';
+  const errors = Array.isArray(result.errors)
+    ? result.errors.filter((e) => typeof e === 'string').join(' ')
+    : '';
   const words = `${text} ${errors}`;
-  if (!/usage limit reached|limit reached|hit your (?:usage )?limit|rate[_ ]limit(?:ed)?/i.test(words)) return null;
+  if (!/usage limit reached|limit reached|hit your (?:usage )?limit|rate[_ ]limit(?:ed)?/i.test(words))
+    return null;
   if (result.is_error !== true && !/error/.test(String(result.subtype ?? ''))) return null;
   const epoch = /\|(\d{10,13})\b/.exec(words)?.[1];
   if (!epoch) return { resetsAt: null };

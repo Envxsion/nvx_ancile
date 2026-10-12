@@ -60,8 +60,9 @@ export const messageTokens = (m: Pick<MessageRecord, 'parts'>) => approxTokens(p
  * record of a mixed thread (docs/engines.md), so they do not count here.
  */
 export function isClaudeCodeCompaction(m: Pick<MessageRecord, 'provenance'>): boolean {
-  const kind = ((m.provenance as Record<string, unknown> | undefined)?.claude_code as { kind?: unknown } | undefined)
-    ?.kind;
+  const kind = (
+    (m.provenance as Record<string, unknown> | undefined)?.claude_code as { kind?: unknown } | undefined
+  )?.kind;
   return kind === 'compact_boundary' || kind === 'compact_summary';
 }
 

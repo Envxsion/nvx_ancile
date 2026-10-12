@@ -7,7 +7,6 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_SCOPE } from '../../src/scopes';
 import type { EffectiveScope, ModelConfig } from '@nvx/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { LiveBridge } from '../../src/claudecode/bridge-protocol';
@@ -21,6 +20,7 @@ import { createGate } from '../../src/permissions/gate';
 import { MemoryPermissionStore } from '../../src/permissions/store';
 import { MemoryRunEventLog } from '../../src/runs/events';
 import { MemoryRunStore } from '../../src/runs/store';
+import { DEFAULT_SCOPE } from '../../src/scopes';
 import { MemoryThreadRepo } from '../../src/threads/repo';
 
 const WS = 'wsp_01TESTWORKSPACE000000000000';
@@ -103,12 +103,16 @@ describe('Claude Code missing on this machine', () => {
   });
 
   it('refuses a turn to Claude Code with what to do, and writes nothing', async () => {
-    await expect(live.send('thr_1', { text: 'Go on', idempotency_key: 'key-avail-0001' })).rejects.toMatchObject({
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-avail-0001' }),
+    ).rejects.toMatchObject({
       code: 'claude_code.not_installed',
     });
     availability = 'signed_out';
     expect((await live.state('thr_1')).availability).toBe('signed_out');
-    await expect(live.send('thr_1', { text: 'Go on', idempotency_key: 'key-avail-0002' })).rejects.toMatchObject({
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-avail-0002' }),
+    ).rejects.toMatchObject({
       code: 'claude_code.signed_out',
     });
     expect(await threads.messages('thr_1')).toHaveLength(1);
@@ -125,7 +129,8 @@ describe('Claude Code missing on this machine', () => {
     } as unknown as Engine;
     const engines = new Engines({
       registry: {
-        get: (id: string) => (id === 'openai/gpt-5' ? ({ id, provider: 'openai', via: 'direct' } as ModelConfig) : undefined),
+        get: (id: string) =>
+          id === 'openai/gpt-5' ? ({ id, provider: 'openai', via: 'direct' } as ModelConfig) : undefined,
         chain: () => [],
       },
       gateway,
@@ -137,11 +142,21 @@ describe('Claude Code missing on this machine', () => {
     });
     const thread = await threads.getThread('thr_1');
     if (!thread) throw new Error('no thread');
-    const out = await engines.send(thread, { text: 'Carry on', model: 'openai/gpt-5', idempotencyKey: 'key-avail-0003' });
+    const out = await engines.send(thread, {
+      text: 'Carry on',
+      parentId: undefined,
+      model: 'openai/gpt-5',
+      idempotencyKey: 'key-avail-0003',
+    });
     expect(out.engine).toBe('gateway');
     expect(gatewaySent).toEqual(['Carry on']);
     await expect(
-      engines.send(thread, { text: 'To Claude Code', model: null, idempotencyKey: 'key-avail-0004' }),
+      engines.send(thread, {
+        text: 'To Claude Code',
+        parentId: undefined,
+        model: null,
+        idempotencyKey: 'key-avail-0004',
+      }),
     ).rejects.toMatchObject({ code: 'claude_code.not_installed' });
   });
 });
