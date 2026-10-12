@@ -24,7 +24,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Command } from 'cmdk';
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { openActivity } from '../activity/api';
-import { CC_KEYS, syncThread } from '../claudecode/api';
+import { syncThread, useClaudeCodeStatus } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { openEditor } from '../editors/store';
 import { useModelGroups } from '../engines/api';
@@ -38,7 +38,6 @@ import { compactNow } from '../lib/branching';
 import { useNotebooks, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
-import { queryClient } from '../lib/query';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
 import { openBeam } from '../pro/beam';
@@ -199,6 +198,18 @@ interface Cmd {
   words?: string;
   run: () => void;
   when?: boolean;
+  /** Shown but not offered, with why (one line). */
+  disabled?: string;
+}
+
+/** Why "New Claude Code thread in a folder" cannot start one yet, or undefined when it can. */
+export function newClaudeCodeBlocked(
+  status: Pick<ClaudeCodeStatus, 'installed'> | undefined,
+  failed: boolean,
+): string | undefined {
+  if (status?.installed) return undefined;
+  if (status) return 'Claude Code is not installed. Set it up in Settings → Claude Code';
+  return failed ? "Claude Code's status could not be read" : 'Checking for Claude Code';
 }
 
 export function Palette() {
@@ -251,8 +262,9 @@ export function Palette() {
   };
 
   const thread = threadId ? threads.data?.find((t) => t.id === threadId) : undefined;
-  // Read what is already known; the palette never asks Core about Claude Code by itself.
-  const ccStatus = open ? queryClient.getQueryData<ClaudeCodeStatus>(CC_KEYS.status) : undefined;
+  // Claude Code's status, asked for while the palette is open (kept for 30 seconds).
+  const cc = useClaudeCodeStatus({ enabled: open });
+  const ccStatus = open ? cc.data : undefined;
   const go = (to: string, params?: Record<string, string>) => () =>
     navigate({ to, ...(params && { params }) } as Parameters<typeof navigate>[0]);
 
@@ -488,7 +500,8 @@ export function Palette() {
       label: 'New Claude Code thread in a folder',
       icon: 'terminal',
       words: 'claude code session folder project start',
-      when: !!ccStatus?.installed,
+      // Always listed: until Claude Code is known to be there, it says why it cannot start one.
+      disabled: newClaudeCodeBlocked(ccStatus, cc.isError),
       run: () => openEditor({ kind: 'new-claude-code', notebookId: thread?.notebookId ?? null, cwd: null }),
     },
     {
@@ -585,7 +598,7 @@ export function Palette() {
                   {recent.map(([key, u]) => {
                     const [kind, id] = key.split(':') as [Use['kind'], string];
                     const cmd = kind === 'command' ? commands.find((c) => c.id === id) : undefined;
-                    if (kind === 'command' && !cmd) return null;
+                    if (kind === 'command' && (!cmd || cmd.disabled)) return null;
                     return (
                       <Command.Item
                         key={`recent-${key}`}
@@ -651,10 +664,13 @@ export function Palette() {
                     <Command.Item
                       key={c.id}
                       value={`command ${c.label} ${c.words ?? ''}`}
+                      disabled={!!c.disabled}
+                      data-unavailable={c.disabled ? true : undefined}
                       onSelect={() => run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })}
                     >
                       <Icon name={c.icon} size={15} />
                       <span className="palette__label">{c.label}</span>
+                      {c.disabled ? <span className="mute palette__meta">{c.disabled}</span> : null}
                       {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
                     </Command.Item>
                   ))}
@@ -816,17 +832,22 @@ export function Palette() {
 
               {!typed && scope === 'all' ? (
                 <Command.Group heading="Start here">
-                  {commands.slice(0, 6).map((c) => (
-                    <Command.Item
-                      key={`start-${c.id}`}
-                      value={`start ${c.label}`}
-                      onSelect={() => run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })}
-                    >
-                      <Icon name={c.icon} size={15} />
-                      <span className="palette__label">{c.label}</span>
-                      {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
-                    </Command.Item>
-                  ))}
+                  {commands
+                    .filter((c) => !c.disabled)
+                    .slice(0, 6)
+                    .map((c) => (
+                      <Command.Item
+                        key={`start-${c.id}`}
+                        value={`start ${c.label}`}
+                        onSelect={() =>
+                          run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })
+                        }
+                      >
+                        <Icon name={c.icon} size={15} />
+                        <span className="palette__label">{c.label}</span>
+                        {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
+                      </Command.Item>
+                    ))}
                 </Command.Group>
               ) : null}
             </Command.List>
