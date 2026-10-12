@@ -838,6 +838,8 @@ export const scopeSharedHistory = core.table(
     changedAt: ts('changed_at').notNull().defaultNow(),
   },
   (t) => [index('scope_shared_history_ref').on(t.level, t.refId, t.changedAt)],
+);
+
 // ---- Phase 3 (B): artifacts and the code interpreter (0027) ----
 
 /** What the person decided for one artifact: network off unless they allowed it (docs/artifacts.md). */
