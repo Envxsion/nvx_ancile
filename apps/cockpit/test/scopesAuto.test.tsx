@@ -7,7 +7,14 @@
  * and each decision's rule; a thread's instructions show its notebook's as
  * placeholders.
  */
-import type { AutoPlan, EffectiveScope, RunEvent, ScopeValues, StoredScope } from '@nvx/contracts';
+import {
+  type AutoPlan,
+  BUILTIN_TOOL_PRESETS,
+  type EffectiveScope,
+  type RunEvent,
+  type ScopeValues,
+  type StoredScope,
+} from '@nvx/contracts';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -54,6 +61,7 @@ function effective(p: Partial<ScopeValues>, extra: Partial<EffectiveScope> = {})
 }
 
 const prov = (p: Record<string, { level: string; note: string | null }>) => p as EffectiveScope['provenance'];
+const at0 = '2026-10-12T00:00:00Z';
 
 /** The notebook turned the network off; the thread turned memory writing off; tools_deny was clamped. */
 const NOTEBOOK: StoredScope = {
@@ -215,6 +223,99 @@ describe('the notebook scope editor', () => {
       'A private notebook keeps everything on this machine',
     );
     expect(row('Claude Code')).toHaveAttribute('data-error');
+  });
+});
+
+describe('tool presets in the scope editor', () => {
+  const OWN = {
+    id: 'tp_docs',
+    name: 'Docs only',
+    description: 'Read the docs folder',
+    builtin: false,
+    updated_at: at0,
+    tools_allow: ['fs.read'],
+    tools_deny: [],
+    mcp_servers_allow: [],
+    mcp_servers_deny: [],
+    network: false,
+  };
+
+  it('a notebook picks a built-in or its own preset and saves only tool_preset', async () => {
+    serve({ '/tool-presets': { presets: [...BUILTIN_TOOL_PRESETS, OWN] } });
+    mocked.patch.mockResolvedValue(NOTEBOOK);
+    wrap(<ScopeEditor level="notebook" id="nb_1" onClose={vi.fn()} />);
+    const select = await screen.findByRole('combobox', { name: 'Tool preset' });
+    expect(select).toHaveValue('');
+    await waitFor(() =>
+      expect(within(select).getByRole('option', { name: 'Docs only' })).toBeInTheDocument(),
+    );
+    expect(within(select).getByRole('group', { name: 'Your presets' })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'read_only' } });
+    // The description says what it allows, and the summary names it.
+    expect(screen.getByText(/No writes, no shell/)).toBeInTheDocument();
+    expect(screen.getByText(/Read only tools/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save scope' }));
+    await waitFor(() =>
+      expect(mocked.patch).toHaveBeenCalledWith('/notebooks/nb_1/scope', { tool_preset: 'read_only' }),
+    );
+  });
+
+  it("a thread says its notebook's preset still applies, and None goes back to inheriting", async () => {
+    const applied = {
+      level: 'notebook' as const,
+      id: 'coding',
+      name: 'Coding',
+      missing: false,
+      tools_allow: ['fs.*'],
+      tools_deny: [],
+      mcp_servers_allow: null,
+      mcp_servers_deny: [],
+      network: true,
+    };
+    const thread: StoredScope = {
+      ...THREAD,
+      patch: { tool_preset: 'read_only' },
+      effective: {
+        ...THREAD.effective,
+        tool_presets: [applied, { ...applied, level: 'thread', id: 'read_only', name: 'Read only' }],
+      },
+    };
+    serve({ '/threads/thr_1/scope': thread });
+    mocked.patch.mockResolvedValue(thread);
+    wrap(<ScopeEditor level="thread" id="thr_1" onClose={vi.fn()} />);
+    const select = await screen.findByRole('combobox', { name: 'Tool preset' });
+    expect(select).toHaveValue('read_only');
+    expect(screen.getByText(/The notebook's Coding preset applies too/)).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: '' } });
+    expect(
+      screen.getByText(/The notebook's Coding preset applies\. Choose one to narrow it further/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save scope' }));
+    await waitFor(() =>
+      expect(mocked.patch).toHaveBeenCalledWith('/threads/thr_1/scope', { tool_preset: null }),
+    );
+  });
+
+  it('the summary names the presets in force', () => {
+    const s = effective(
+      {},
+      {
+        tool_presets: [
+          {
+            level: 'notebook',
+            id: 'research',
+            name: 'Research',
+            missing: false,
+            tools_allow: null,
+            tools_deny: [],
+            mcp_servers_allow: null,
+            mcp_servers_deny: [],
+            network: true,
+          },
+        ],
+      },
+    );
+    expect(scopeSummary(s)).toBe('Research tools');
   });
 });
 

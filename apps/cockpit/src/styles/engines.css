@@ -252,6 +252,12 @@
 .scope-row[data-locked] .scope-row__label {
   color: var(--fg-3);
 }
+.scope-preset {
+  flex: none;
+  width: auto;
+  min-width: 150px;
+  max-width: 45%;
+}
 .scope-prov {
   flex: none;
   color: var(--mute);

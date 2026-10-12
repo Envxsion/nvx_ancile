@@ -18,6 +18,26 @@ Scopes are floors. Permission presets, remembered grants and Auto mode's reviewe
 | `mcp_servers_allow` / `mcp_servers_deny` | MCP server names. | any / none |
 | `folders` | Folders tools may touch. `null` leaves it to permissions. | workspace |
 | `network` | May tools reach the network at all (including localhost). | true |
+| `tool_preset` | A tool preset this level chose (below). `null` is none. | none |
+
+## Tool presets
+
+A tool preset is a named set of tool rules (`tools_allow`, `tools_deny`, `mcp_servers_allow`, `mcp_servers_deny`, `network`) that a notebook or a thread chooses with `tool_preset`. Three ship with NVX Ancile and cannot be changed (`BUILTIN_TOOL_PRESETS` in `packages/contracts/src/scopes.ts`):
+
+| Preset | Allows |
+|---|---|
+| `research` (Research) | Web search and fetch, sources, notebooks, memory (read and propose), reading files, flows, MCP servers. |
+| `coding` (Coding) | Files, the shell, git and GitHub, source search, memory, web search and fetch, MCP servers. Never `git.push_force`. |
+| `read_only` (Read only) | Reading files and folders, git status, log, diff and branches, source search, notebooks, reading memory. No MCP servers, no network. |
+
+Every built-in preset also allows Claude Code's own bookkeeping (`claude_code.*`: todo lists, subagents, plan mode); each subagent's own tool calls are checked again.
+
+Your own presets are kept in `core.tool_presets` (`POST /tool-presets`). How they compose:
+
+- A preset **only narrows**. Its rules are a separate layer, not merged into the level's own fields: a call must pass the scope's fields and then every preset in force (`EffectiveScope.tool_presets`, notebook first). So a thread may always choose a preset, and choosing one never widens its notebook. The notebook's preset keeps applying to every thread in it.
+- The editor still shows each level's own lists; the preset is shown beside them.
+- A preset that is deleted or no longer readable fails closed: no tool runs until another is chosen. A preset still in use cannot be deleted (`409 tool_preset.in_use`).
+- Permissions still decide every call a preset lets through. A preset never grants anything.
 
 ## Inheritance: a thread can only narrow
 

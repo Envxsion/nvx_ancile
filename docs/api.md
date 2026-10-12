@@ -121,6 +121,18 @@ PATCH /api/v1/threads/thr_…/scope            { "memory_write": false, "folders
 GET   /api/v1/threads/thr_…/scope/effective  → EffectiveScope { scope, provenance, private, clamped }
 ```
 
+Tool presets are named sets of tool rules a notebook or thread can choose with `tool_preset` (docs/scopes.md, Tool presets):
+
+```http
+GET    /api/v1/tool-presets             → { presets: ToolPreset[] }  (built-in first: research, coding, read_only)
+POST   /api/v1/tool-presets             { "name": "Docs only", "tools_allow": ["fs.read", "knowledge.*"], "network": false } → 201 ToolPreset
+PATCH  /api/v1/tool-presets/tp_…        { "tools_deny": ["fs.delete"] } → ToolPreset
+DELETE /api/v1/tool-presets/tp_…        → 204
+PATCH  /api/v1/notebooks/nbk_…/scope    { "tool_preset": "read_only" }
+```
+
+A built-in preset cannot be changed or deleted (409 `tool_preset.builtin`); a preset a notebook or thread still uses cannot be deleted (409 `tool_preset.in_use`); choosing one that does not exist is 422 `tool_preset.not_found`. `EffectiveScope.tool_presets` lists every preset in force with the level that chose it.
+
 A field sent as `null` goes back to inheriting. A thread PATCH that would widen its notebook is 422 `scope.widen`; a private notebook refuses cloud engines and data leaving the machine (422 `scope.private_conflict`). `provenance` names the level behind each field (`default`, `private`, `notebook`, `thread`). The Why view (`GET /messages/:id/explain`) carries the thread's `scope`, and each tool decision its `rule` and, for a scope rule, the level that set it. See docs/scopes.md.
 
 ### Edit and revoke grants

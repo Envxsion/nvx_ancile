@@ -78,6 +78,11 @@ What a notebook or thread may use (docs/scopes.md). The `scope.*` refusals marke
 | `scope.network_off` | – | "The network is off here." / Turn the network on in the scope. |
 | `scope.memory_read_off` / `scope.memory_write_off` | – | "Memory is off here" / "Nothing may be written to memory here." / Change the scope's memory switches. |
 | `scope.source_not_allowed` | – | Reserved: retrieval skips sources outside the scope rather than failing. |
+| `tool_preset.not_found` | 422 | "That tool preset does not exist." / Choose another preset, or none. A preset deleted after it was chosen fails closed: `scope.tool_not_allowed` with the field `tool_preset`. |
+| `tool_preset.builtin` | 409 | "Built-in tool presets cannot be changed." / Make your own preset instead. |
+| `tool_preset.in_use` | 409 | "This tool preset is still in use." / Says how many notebooks and threads use it; choose another preset there first. |
+
+A refusal by a tool preset uses the same `scope.tool_not_allowed`, `scope.mcp_server_not_allowed` or `scope.network_off` codes with the field `tool_preset`, so the decision log records it as `scope.tool_preset` and the reason names the preset ("fs.write is not in the Read only tool preset").
 
 ### Auto mode {#auto-mode}
 

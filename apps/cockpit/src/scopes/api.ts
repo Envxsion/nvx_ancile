@@ -13,21 +13,26 @@
  *           |  effective scope with provenance). checkModel() mirrors
  *           |  Core's checkEngineAllowed so the model picker can say
  *           |  no before a send is refused; Core still decides.
+ *           |  GET /tool-presets lists the tool presets a level can
+ *           |  choose (the built-in ones are in contracts too).
  *  Note     |  Never cached across a change: a PATCH puts its answer
  *           |  in place and marks every scope stale, since a notebook
  *           |  change moves its threads too.
  * ------------------------------------------------------------------
  */
 
-import type {
-  EffectiveScope,
-  PatchNotebookScopeRequest,
-  PatchThreadScopeRequest,
-  ScopeEngine,
-  ScopeField,
-  ScopeLevel,
-  ScopeValues,
-  StoredScope,
+import {
+  BUILTIN_TOOL_PRESETS,
+  type EffectiveScope,
+  type PatchNotebookScopeRequest,
+  type PatchThreadScopeRequest,
+  type ScopeEngine,
+  type ScopeField,
+  type ScopeLevel,
+  type ScopeValues,
+  type StoredScope,
+  type ToolPreset,
+  type ToolPresetList,
 } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -56,6 +61,7 @@ export const DEFAULT_SCOPE: ScopeValues = {
   mcp_servers_deny: [],
   folders: null,
   network: true,
+  tool_preset: null,
 };
 
 export const ALL_ENGINES: ScopeEngine[] = ['gateway_cloud', 'gateway_local', 'claude_code'];
@@ -101,6 +107,28 @@ export async function patchNotebookScope(
   // Its threads' effective scopes moved with it.
   void queryClient.invalidateQueries({ queryKey: SCOPE_KEYS.all });
   return r;
+}
+
+/**
+ * Every tool preset: the built-in ones, then your own. In the demo, and
+ * until Core answers, the built-in ones alone.
+ */
+export function useToolPresets() {
+  const demo = useUi((s) => s.demo);
+  return useQuery({
+    queryKey: ['tool-presets'] as const,
+    queryFn: async () =>
+      (await api.get<ToolPresetList>('/tool-presets')).presets ?? [...BUILTIN_TOOL_PRESETS],
+    enabled: !demo,
+    staleTime: 60_000,
+    retry: false,
+    placeholderData: [...BUILTIN_TOOL_PRESETS],
+  });
+}
+
+/** A preset's name for the editor and the summary; an id it cannot find is shown as is. */
+export function presetName(presets: readonly ToolPreset[] | undefined, id: string): string {
+  return (presets ?? BUILTIN_TOOL_PRESETS).find((p) => p.id === id)?.name ?? id;
 }
 
 /* ---- Globs ---------------------------------------------------------------- */
@@ -207,7 +235,9 @@ export function scopeSummary(scope: EffectiveScope): string {
   if (!s.memory_read) bits.push('no memory');
   else if (!s.memory_write) bits.push('memory read only');
   if (!s.context_links) bits.push('no context links');
-  if (s.tools_allow !== null || s.tools_deny.length) bits.push('tools limited');
+  const presets = scope.tool_presets ?? [];
+  if (presets.length) bits.push(`${presets.map((p) => p.name).join(' and ')} tools`);
+  else if (s.tools_allow !== null || s.tools_deny.length) bits.push('tools limited');
   if (s.mcp_servers_allow !== null || s.mcp_servers_deny.length) bits.push('MCP servers limited');
   if (s.folders !== null) bits.push(plural(s.folders.length, 'folder'));
   if (s.models_allow !== null || s.models_deny.length) bits.push('models limited');
@@ -257,4 +287,5 @@ export const FIELD_WORDS: Record<ScopeField, string> = {
   mcp_servers_deny: 'MCP servers blocked',
   folders: 'folders',
   network: 'network',
+  tool_preset: 'tool preset',
 };

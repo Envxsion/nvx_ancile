@@ -13,7 +13,10 @@
  *           |  the thread can only narrow. Every field says which level
  *           |  set it, so the Cockpit can explain a refusal.
  *  Note     |  Scopes are floors. Permissions, presets and Auto mode's
- *           |  reviewer work inside them and never past them.
+ *           |  reviewer work inside them and never past them. A tool
+ *           |  preset (Research, Coding, Read only, or your own) is a
+ *           |  named set of tool rules a level can choose; every preset
+ *           |  in force narrows the tools further (docs/scopes.md).
  * ------------------------------------------------------------------
  */
 
@@ -40,6 +43,163 @@ const Folder = z
   .refine((p) => p.replace(/\\/g, '/').startsWith('/') || /^[A-Za-z]:[\\/]/.test(p), {
     message: 'must be an absolute path',
   });
+
+/* ---- Tool presets ---------------------------------------------------------- */
+
+/** A tool preset's id: the built-in ones (research, coding, read_only) or tp_… for your own. */
+export const ToolPresetId = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
+export type ToolPresetId = z.infer<typeof ToolPresetId>;
+
+/**
+ * What a tool preset allows. It can only narrow: an allow list of `null` is
+ * "whatever the scope allows", deny lists add to the scope's, and `network`
+ * false switches tool network access off.
+ */
+export const ToolPresetRules = z.object({
+  tools_allow: z.array(Glob).max(200).nullable(),
+  tools_deny: z.array(Glob).max(200),
+  mcp_servers_allow: z.array(Glob).max(100).nullable(),
+  mcp_servers_deny: z.array(Glob).max(100),
+  network: z.boolean(),
+});
+export type ToolPresetRules = z.infer<typeof ToolPresetRules>;
+
+export const ToolPreset = ToolPresetRules.extend({
+  id: ToolPresetId,
+  name: z.string().trim().min(1).max(60),
+  description: z.string().max(300),
+  /** Built-in presets ship with NVX Ancile and cannot be changed or deleted. */
+  builtin: z.boolean(),
+  updated_at: z.string().nullable(),
+});
+export type ToolPreset = z.infer<typeof ToolPreset>;
+
+/** GET /tool-presets: built-in presets first, then your own by name. */
+export const ToolPresetList = z.object({ presets: z.array(ToolPreset) });
+export type ToolPresetList = z.infer<typeof ToolPresetList>;
+
+/** POST /tool-presets. Rules left out allow whatever the scope allows. */
+export const CreateToolPresetRequest = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    description: z.string().trim().max(300).default(''),
+    tools_allow: ToolPresetRules.shape.tools_allow.default(null),
+    tools_deny: ToolPresetRules.shape.tools_deny.default([]),
+    mcp_servers_allow: ToolPresetRules.shape.mcp_servers_allow.default(null),
+    mcp_servers_deny: ToolPresetRules.shape.mcp_servers_deny.default([]),
+    network: z.boolean().default(true),
+  })
+  .strict();
+export type CreateToolPresetRequest = z.input<typeof CreateToolPresetRequest>;
+
+/** PATCH /tool-presets/:id: any subset. */
+export const UpdateToolPresetRequest = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    description: z.string().trim().max(300),
+    tools_allow: ToolPresetRules.shape.tools_allow,
+    tools_deny: ToolPresetRules.shape.tools_deny,
+    mcp_servers_allow: ToolPresetRules.shape.mcp_servers_allow,
+    mcp_servers_deny: ToolPresetRules.shape.mcp_servers_deny,
+    network: z.boolean(),
+  })
+  .partial()
+  .strict();
+export type UpdateToolPresetRequest = z.infer<typeof UpdateToolPresetRequest>;
+
+/**
+ * A preset in force on an effective scope, with the level that chose it.
+ * `missing`: the chosen preset no longer exists, so no tool may run until
+ * another is chosen (it fails closed).
+ */
+export const AppliedToolPreset = ToolPresetRules.extend({
+  level: z.enum(['notebook', 'thread']),
+  id: ToolPresetId,
+  name: z.string(),
+  missing: z.boolean(),
+});
+export type AppliedToolPreset = z.infer<typeof AppliedToolPreset>;
+
+/** Claude Code's own bookkeeping (TodoWrite, Task, …): every built-in preset allows it. */
+const CLAUDE_CODE_BOOKKEEPING = 'claude_code.*';
+
+/**
+ * The presets that ship with NVX Ancile. The rules only ever narrow the scope
+ * they sit in; permissions still decide every call they let through.
+ */
+export const BUILTIN_TOOL_PRESETS: readonly ToolPreset[] = [
+  {
+    id: 'research',
+    name: 'Research',
+    description: 'Search the web, sources and memory, and read files. Nothing is written or run.',
+    builtin: true,
+    updated_at: null,
+    tools_allow: [
+      'web.*',
+      'knowledge.*',
+      'notebooks.read',
+      'memory.read',
+      'memory.propose',
+      'fs.read',
+      'fs.list',
+      'flow.ask',
+      'mcp.**',
+      CLAUDE_CODE_BOOKKEEPING,
+    ],
+    tools_deny: [],
+    mcp_servers_allow: null,
+    mcp_servers_deny: [],
+    network: true,
+  },
+  {
+    id: 'coding',
+    name: 'Coding',
+    description: 'Files, the shell, git and GitHub, plus search. Force pushes are never allowed.',
+    builtin: true,
+    updated_at: null,
+    tools_allow: [
+      'fs.*',
+      'shell.*',
+      'git.*',
+      'github.*',
+      'knowledge.search',
+      'memory.read',
+      'memory.propose',
+      'web.search',
+      'web.fetch',
+      'mcp.**',
+      CLAUDE_CODE_BOOKKEEPING,
+    ],
+    tools_deny: ['git.push_force'],
+    mcp_servers_allow: null,
+    mcp_servers_deny: [],
+    network: true,
+  },
+  {
+    id: 'read_only',
+    name: 'Read only',
+    description:
+      'Read files, git history, sources and memory. No writes, no shell, no MCP servers, no network.',
+    builtin: true,
+    updated_at: null,
+    tools_allow: [
+      'fs.read',
+      'fs.list',
+      'git.status',
+      'git.log',
+      'git.diff',
+      'git.branches',
+      'knowledge.search',
+      'notebooks.read',
+      'memory.read',
+      CLAUDE_CODE_BOOKKEEPING,
+    ],
+    tools_deny: [],
+    mcp_servers_allow: [],
+    mcp_servers_deny: [],
+    network: false,
+  },
+];
 
 /**
  * Every field of a scope, fully resolved. Lists that are `null` mean "no
@@ -70,6 +230,11 @@ export const ScopeValues = z.object({
   folders: z.array(Folder).nullable(),
   /** May tools reach the network at all? */
   network: z.boolean(),
+  /**
+   * The tool preset chosen at the most specific level; null is none. Every
+   * preset in force (EffectiveScope.tool_presets) applies, not just this one.
+   */
+  tool_preset: ToolPresetId.nullable(),
 });
 export type ScopeValues = z.infer<typeof ScopeValues>;
 
@@ -97,6 +262,8 @@ export const ScopePatch = z
     mcp_servers_deny: z.array(Glob).max(100).nullable(),
     folders: z.array(Folder).max(50).nullable(),
     network: z.boolean().nullable(),
+    /** A tool preset for this level. It only narrows, so a thread may always choose one. */
+    tool_preset: ToolPresetId.nullable(),
   })
   .partial()
   .strict();
@@ -125,6 +292,8 @@ export const EffectiveScope = z.object({
    * was narrowed after the thread was set). They are clamped to the notebook.
    */
   clamped: z.array(ScopeField),
+  /** Every tool preset in force, notebook first; each one narrows the tools further. */
+  tool_presets: z.array(AppliedToolPreset),
 });
 export type EffectiveScope = z.infer<typeof EffectiveScope>;
 

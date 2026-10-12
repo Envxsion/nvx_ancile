@@ -19,17 +19,21 @@
  *           |  thread value set back to the notebook's goes back to
  *           |  inheriting (null). Core's 422 (scope.widen,
  *           |  scope.private_conflict) shows inline, on the rows it
- *           |  names, and the editor stays open.
+ *           |  names, and the editor stays open. "Tool preset" picks a
+ *           |  named set of tool rules (Research, Coding, Read only or
+ *           |  your own); a thread's preset narrows its notebook's.
  * ------------------------------------------------------------------
  */
 
 import type {
+  AppliedToolPreset,
   EffectiveScope,
   PatchNotebookScopeRequest,
   ScopeEngine,
   ScopeField,
   ScopeValues,
   StoredScope,
+  ToolPreset,
 } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useId, useMemo, useState } from 'react';
@@ -48,10 +52,12 @@ import {
   FIELD_WORDS,
   patchNotebookScope,
   patchThreadScope,
+  presetName,
   provenanceOf,
   scopeSummary,
   useNotebookScope,
   useThreadScope,
+  useToolPresets,
 } from './api';
 
 type Level = 'notebook' | 'thread';
@@ -230,6 +236,10 @@ function Form({
   });
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState<Failure | null>(null);
+  // The preset this level itself chose; a thread's notebook preset applies anyway.
+  const storedPreset = stored.patch.tool_preset ?? null;
+  const [preset, setPreset] = useState<string | null>(storedPreset);
+  const presets = useToolPresets().data;
   const sources = useSources(notebookId).data;
   const detailsOpen = useMemo(
     () =>
@@ -277,9 +287,30 @@ function Form({
     }));
   };
 
+  // Presets in force once saved: the other level's, then this level's choice.
+  const inherited = (eff.tool_presets ?? []).filter((p) => p.level !== level);
+  const picked = preset ? presets?.find((p) => p.id === preset) : undefined;
+  const chosen: AppliedToolPreset[] = preset
+    ? [
+        {
+          level,
+          id: preset,
+          name: presetName(presets, preset),
+          missing: !picked,
+          tools_allow: picked?.tools_allow ?? [],
+          tools_deny: picked?.tools_deny ?? [],
+          mcp_servers_allow: picked?.mcp_servers_allow ?? [],
+          mcp_servers_deny: picked?.mcp_servers_deny ?? [],
+          network: picked?.network ?? false,
+        },
+      ]
+    : [];
+  const inheritedNames = inherited.map((p) => p.name).join(' and ');
+
   // The summary of what would be saved, kept up to date as you change things.
   const preview: EffectiveScope = {
     ...eff,
+    tool_presets: [...inherited, ...chosen],
     private: isPrivate,
     scope: {
       ...draft,
@@ -303,6 +334,7 @@ function Form({
     if (!same(draft.engines, eff.scope.engines)) patch.engines = draft.engines;
     for (const l of LISTS) put(l.field, preview.scope[l.field]);
     put('sources', draft.sources);
+    if (preset !== storedPreset) patch.tool_preset = preset;
     if (level === 'notebook' && priv !== stored.private) patch.private = priv;
     return patch as PatchNotebookScopeRequest;
   };
@@ -419,6 +451,15 @@ function Form({
         })}
       </fieldset>
 
+      <PresetField
+        level={level}
+        value={preset}
+        presets={presets ?? []}
+        inherited={inheritedNames}
+        onChange={setPreset}
+        error={flagged('tool_preset')}
+      />
+
       <details
         className="scope-ed__more"
         open={
@@ -529,6 +570,82 @@ function Row({
       ) : null}
       <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} describedBy={hintId} />
     </div>
+  );
+}
+
+/**
+ * The tool preset this level chooses. A preset only narrows: a thread's
+ * preset applies on top of its notebook's, never instead of it.
+ */
+function PresetField({
+  level,
+  value,
+  presets,
+  inherited,
+  onChange,
+  error,
+}: {
+  level: Level;
+  value: string | null;
+  presets: readonly ToolPreset[];
+  /** The other level's presets, by name ("" when none). */
+  inherited: string;
+  onChange: (id: string | null) => void;
+  error: boolean;
+}) {
+  const fid = useId();
+  const hintId = useId();
+  const current = value ? presets.find((p) => p.id === value) : undefined;
+  const own = presets.filter((p) => !p.builtin);
+  const hint = current
+    ? current.description || 'Your own preset'
+    : level === 'thread' && inherited
+      ? `The notebook's ${inherited} preset applies. Choose one to narrow it further.`
+      : 'Any tool the scope and permissions allow';
+  return (
+    <fieldset className="scope-ed__group">
+      <legend>Tools</legend>
+      <div className="scope-row" data-error={error || undefined}>
+        <div className="scope-row__text">
+          <label htmlFor={fid} className="scope-row__label">
+            Tool preset
+          </label>
+          <span id={hintId} className="scope-row__hint">
+            {hint}
+            {level === 'thread' && inherited && current
+              ? ` The notebook's ${inherited} preset applies too.`
+              : ''}
+          </span>
+        </div>
+        <select
+          id={fid}
+          className="input scope-preset"
+          value={value ?? ''}
+          aria-describedby={hintId}
+          aria-invalid={error || undefined}
+          onChange={(e) => onChange(e.target.value || null)}
+        >
+          <option value="">{level === 'thread' && inherited ? 'Only the notebook’s' : 'None'}</option>
+          {presets
+            .filter((p) => p.builtin)
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          {own.length ? (
+            <optgroup label="Your presets">
+              {own.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          {value && !current ? <option value={value}>{value} (missing)</option> : null}
+        </select>
+      </div>
+    </fieldset>
   );
 }
 
