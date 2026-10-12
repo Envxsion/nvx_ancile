@@ -167,6 +167,16 @@ Context: `GET /threads/:id/context-budget?head=&model=` answers `PathBudget`: th
 
 `GET /api/v1/usage?range=day|week|month&tz=Europe/London` answers `UsageReport` (`packages/contracts/src/usage.ts`): totals of tokens in, out and from cache, recorded cost and answers, over today (by hour) or the last 7 or 30 days (by day), cut at midnight in `tz` (an IANA zone; UTC when absent; 400 when unknown). `series` has every bucket, empty ones included, with tokens per engine; `by_engine` splits `gateway` (chat and flows), `claude_code`, `lab` and `other`; `by_model` lists the six busiest models and folds the rest into one row with `model_id: null`. `estimated_cost_usd` is the part of the cost that is Claude Code's own estimate at API list prices, not a bill. GPU compute is the Controller's month (`GET /compute/costs`).
 
+### Start-up, backups and Pro's data
+
+Contracts in `packages/contracts/src/system.ts`.
+
+- `GET /api/v1/system/startup` answers `StartupStatus`: `running`, or `stopped` with the error that stopped Core before it opened the database (`system.database_newer`, `system.backup_failed`, `system.disk_full`, `system.migration_failed`), the `actions` that fit, every backup, the one it suggests restoring, and the backups folder. While stopped, Core answers every other `/api/v1` route with that same error.
+- While stopped: `POST /api/v1/system/startup/restore {backup}` (a name from the list; a safety backup of what is there now is taken first), `POST /api/v1/system/startup/retry`, and `POST /api/v1/system/startup/continue-without-backup` (only after `system.backup_failed`; the next start updates once without a backup). Each answers `{restarting}`: true when the desktop app starts every service again.
+- `GET /api/v1/system/backups` answers `BackupList`; `POST /api/v1/system/backups` takes one now (`reason: "manual"`).
+- `POST /internal/v1/desktop/backup {reason: "before-downgrade"}` (service token): the desktop app before it installs an older build.
+- `GET /api/v1/system/pro-data` answers `ProDataSummary` (each table in the `pro` schema and its rows); `GET /api/v1/system/pro-data/export` answers `ProDataExport`, every row as JSON (bytes as base64), as a download. Both work in the free build and with a lapsed licence: Pro's data is never locked away or deleted.
+
 ### Why did the AI say this?
 
 ```http
