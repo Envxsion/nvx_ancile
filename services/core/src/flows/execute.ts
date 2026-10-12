@@ -41,12 +41,27 @@ import {
   type RuleCondition,
 } from '@nvx/contracts';
 import { z } from 'zod';
+import { servedWindow } from '../gateway/ollama-chat';
 import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
 import type { RunEventInput } from '../runs/events';
 import { assemble, type ContextSources, type Upstream } from './context';
 import { buildGraph, flowEdges, incomingFlowEdges } from './graph';
 
 /* ---- The runtime a flow runs against ------------------------------------------ */
+
+/** A worker's default context: the last few turns and the passages, not the whole branch. */
+export const WORKER_CONTEXT: ContextPolicy = {
+  ...FULL_CONTEXT,
+  conversation: { mode: 'last_n', n: 4 },
+};
+
+/** What a step may send its model: its window, less room for the answer and the prompt's frame. */
+export function stepBudget(
+  m: Pick<ModelConfig, 'provider' | 'via' | 'context_window' | 'max_output'>,
+): number {
+  const window = servedWindow(m);
+  return Math.max(1_024, window - Math.min(m.max_output, Math.floor(window / 4)) - 1_000);
+}
 
 export interface ModelCallResult {
   text: string;
@@ -461,8 +476,13 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       .filter((n) => state.outputs[n.id] !== undefined)
       .map((n) => ({ node: n.id, label: labelOf(n), text: state.outputs[n.id] as string }));
 
-  /** The policy for a node reached by `edge`: the edge's own, a Context node's, or the default. */
-  const policyFor = (id: string, edge?: FlowEdge): ContextPolicy => {
+  /**
+   * The policy for a node reached by `edge`: the edge's own, a Context node's,
+   * or the default. The default for a worker (a step that does not answer, or
+   * a manager's task) is the last few turns plus passages; a manager and the
+   * step that answers keep the whole branch (with its compaction summary).
+   */
+  const policyFor = (id: string, edge?: FlowEdge, worker = false): ContextPolicy => {
     if (edge?.context) return edge.context;
     for (const e of incomingFlowEdges(g, id)) {
       if (!state.fired[e.id]) continue;
@@ -470,7 +490,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       const from = g.nodes.get(e.from);
       if (from?.kind === 'context') return from.params;
     }
-    return FULL_CONTEXT;
+    return worker ? WORKER_CONTEXT : FULL_CONTEXT;
   };
 
   const vars = (): Record<string, string> => ({
@@ -638,7 +658,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
   > => {
     if (n.params.pinned_output !== undefined) return { output: n.params.pinned_output, status: 'pinned' };
     const model = rt.mock ? rt.mock.models[0] : rt.model(n.params.model);
-    const policy = policyFor(n.id, via.edge);
+    const chosen = policyFor(n.id, via.edge, via.task !== undefined || !speakers.has(n.id));
+    // Never more than the step's own model can read, whatever the policy says.
+    const policy =
+      model && chosen.budget_tokens === undefined ? { ...chosen, budget_tokens: stepBudget(model) } : chosen;
     const upstream = via.upstream ?? (policy.upstream === 'all' ? allOutputs() : upstreamOf(n.id));
     const payload = await assemble({
       policy,
