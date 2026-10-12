@@ -1,5 +1,6 @@
 export * from './activity';
 export * from './api';
+export * from './artifacts';
 export * from './auto';
 export * from './branching';
 export * from './claudecode';
@@ -10,8 +11,10 @@ export * from './engines';
 export * from './errors';
 export * from './events';
 export * from './factcheck';
+export * from './files';
 export * from './flows';
 export * from './ids';
+export * from './interpreter';
 export * from './knowledge';
 export * as license from './license';
 export * from './mcp';

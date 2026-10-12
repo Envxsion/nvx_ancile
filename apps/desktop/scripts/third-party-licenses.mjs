@@ -178,6 +178,10 @@ export const OVERRIDES = {
     },
   },
   npm: {
+    khroma: {
+      licence: 'MIT',
+      note: 'package.json declares no licence; the package ships its MIT licence file ("Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"), as https://github.com/fabiospampinato/khroma/blob/master/license (checked 2026-10-12). Mermaid depends on it.',
+    },
     '@openauthjs/openauth': {
       licence: 'MIT',
       copyright: '2024 SST',

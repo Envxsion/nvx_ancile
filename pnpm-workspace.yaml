@@ -8,3 +8,9 @@ packages:
 allowBuilds:
   esbuild: true
   protobufjs: true
+peerDependencyRules:
+  # react-dom-umd is React 18's prebuilt UMD file, inlined into sandboxed
+  # React artifacts as text (apps/cockpit/src/artifacts). It is never imported
+  # beside the Cockpit's own React 19, so its peer range does not apply.
+  allowedVersions:
+    react-dom@18>react: '19'

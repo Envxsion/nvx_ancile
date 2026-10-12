@@ -424,5 +424,13 @@ export const GlobalEvent = z.discriminatedUnion('type', [
     /** A short name for what it suggests, e.g. the new topic for a branch. */
     title: z.string().optional(),
   }),
+  z.object({
+    ...base,
+    /** python_run needs a window to run it (docs/interpreter.md): one claims it, the rest ignore it. */
+    type: z.literal('interpreter.requested'),
+    request_id: z.string(),
+    thread_id: z.string().nullable(),
+    call_id: z.string().nullable(),
+  }),
 ]);
 export type GlobalEvent = z.infer<typeof GlobalEvent>;
