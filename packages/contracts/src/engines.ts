@@ -1,0 +1,170 @@
+/**
+ * ------------------------------------------------------------------
+ *  Title    |  Engines: one thread, any model
+ *  Ref      |  docs/engines.md · docs/claude-code.md
+ *  ID       |  contracts
+ * ------------------------------------------------------------------
+ *  Purpose  |  The shapes for answering a thread's turns with more than
+ *           |  one engine: NVX Ancile's own gateway (every configured
+ *           |  model), the person's own Claude Code, and later other
+ *           |  agent CLIs. A thread keeps its Claude Code binding while
+ *           |  any turn may go to any model.
+ *  How      |  The engine is chosen per message from the model id
+ *           |  (`claude-code/<model>` is Claude Code). Each engine gets
+ *           |  the thread's context assembled for it within its own
+ *           |  budget (docs/engines.md), and the answer records how.
+ *  Note     |  Engine kinds are an open set: `gateway` and
+ *           |  `claude_code` today; a future adapter (Codex, Gemini CLI)
+ *           |  adds its own lower-case kind without a contract change.
+ * ------------------------------------------------------------------
+ */
+
+import { z } from 'zod';
+
+/** Model ids with this prefix are answered by Claude Code (`claude-code/opus`, `claude-code/default`). */
+export const CLAUDE_CODE_MODEL_PREFIX = 'claude-code/';
+/** The provider name Claude Code's models carry in the model registry (Mode A). */
+export const CLAUDE_CODE_PROVIDER = 'claude_code';
+
+export const isClaudeCodeModel = (id: string | null | undefined): boolean =>
+  !!id && id.startsWith(CLAUDE_CODE_MODEL_PREFIX);
+
+/** `gateway`, `claude_code`, or a future adapter's own kind. */
+export const EngineKind = z.string().regex(/^[a-z][a-z0-9_]{1,39}$/);
+export type EngineKind = z.infer<typeof EngineKind>;
+export const KNOWN_ENGINES = ['gateway', 'claude_code'] as const;
+
+export const EngineCapabilities = z.object({
+  streaming: z.boolean(),
+  /** It can call NVX Ancile's tools (always through the permission gate). */
+  tools: z.boolean(),
+  images: z.boolean(),
+  /**
+   * It keeps its own conversation (a Claude Code session): NVX Ancile never
+   * re-sends it its own history, only a digest of what other engines said.
+   */
+  own_context: z.boolean(),
+  /** Tokens it can read at once; null when the engine manages its own context. */
+  context_window: z.number().int().positive().nullable(),
+});
+export type EngineCapabilities = z.infer<typeof EngineCapabilities>;
+
+/** GET /engines: one engine and whether it can answer now. */
+export const EngineInfo = z.object({
+  id: z.string(),
+  kind: EngineKind,
+  display_name: z.string(),
+  available: z.boolean(),
+  /** Why it cannot answer now, in words; null when it can. */
+  reason: z.string().nullable(),
+  capabilities: EngineCapabilities,
+  /** Model ids that choose this engine (for Claude Code: `claude-code/…`). */
+  model_prefix: z.string().nullable(),
+});
+export type EngineInfo = z.infer<typeof EngineInfo>;
+
+export const EngineList = z.object({ items: z.array(EngineInfo) });
+export type EngineList = z.infer<typeof EngineList>;
+
+/**
+ * POST /threads/:id/turns: one turn, answered by whichever engine the
+ * model chooses. In a thread bound to a Claude Code session, no model (or
+ * a `claude-code/…` model) carries the session on; any other model answers
+ * through the gateway and the thread keeps its binding.
+ */
+export const SendTurnRequest = z
+  .object({
+    text: z.string().min(1).max(200_000),
+    /** The message this turn answers from; absent: the thread's active head. */
+    parent_id: z.string().nullable().optional(),
+    /** Any model id, `claude-code/<model>` included; absent: the thread decides. */
+    model: z.string().max(200).nullable().optional(),
+    /** Claude Code only. */
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    /** Source ids to ground this turn on. */
+    source_ids: z.array(z.string()).max(50).optional(),
+    /** Claude Code only: fork the session even from its latest message. */
+    as_branch: z.boolean().optional(),
+    /** Gateway only. */
+    task_class: z.string().max(80).optional(),
+    idempotency_key: z.string().min(8).max(200),
+  })
+  .strict();
+export type SendTurnRequest = z.infer<typeof SendTurnRequest>;
+
+export const SendTurnResult = z.object({
+  run_id: z.string(),
+  user_message_id: z.string(),
+  /** The answer being written; null when the engine names it later (Claude Code). */
+  assistant_message_id: z.string().nullable(),
+  engine: EngineKind,
+  /** The model asked for, as given (null: the engine's default). */
+  model_id: z.string().nullable(),
+  /**
+   * The one-line notice the composer shows when this turn sends thread
+   * context to Claude Code ("This thread's context will be sent to Claude
+   * Code"); null when nothing of the thread leaves for it.
+   */
+  context_notice: z.string().nullable(),
+});
+export type SendTurnResult = z.infer<typeof SendTurnResult>;
+
+/** The notice text, one line, for the composer and the run event. */
+export const CLAUDE_CODE_CONTEXT_NOTICE = "This thread's context will be sent to Claude Code";
+
+/**
+ * provenance.engine_context on an answer: what its engine was given and
+ * why, for the "Why did the AI say this?" view.
+ */
+export const EngineContextReport = z.object({
+  engine: EngineKind,
+  /** Gateway: the model's window, what was kept back for the answer, and what was used. */
+  window: z.number().int().nonnegative().nullable(),
+  reserve: z.number().int().nonnegative(),
+  tokens: z.number().int().nonnegative(),
+  /** The compaction summary used in place of the older path, if one was. */
+  summary_id: z.string().nullable(),
+  /** Messages sent as they are (tool steps still collapsed to one-line digests). */
+  verbatim: z.number().int().nonnegative(),
+  /** Tool calls and results collapsed to one-line digests. */
+  digested: z.number().int().nonnegative(),
+  /** Older messages brought back because they bear on the question. */
+  recalled: z.array(z.string()),
+  /** Messages left out to fit the budget. */
+  dropped: z.number().int().nonnegative(),
+  /** Claude Code: turns by other engines given to it as a digest. */
+  foreign_turns: z.number().int().nonnegative().default(0),
+  /** Claude Code: the session was started afresh from NVX Ancile's summary. */
+  seeded_from_summary: z.boolean().default(false),
+});
+export type EngineContextReport = z.infer<typeof EngineContextReport>;
+
+/**
+ * NVX Ancile's own instructions for a thread or notebook, which every
+ * engine follows: the gateway as part of its system prompt, Claude Code
+ * in its appended system note (kept short and stable for prompt caching).
+ */
+export const AncileInstructions = z.object({
+  /** How to answer here, in your words. */
+  instructions: z.string().max(4_000).default(''),
+  /** Who the assistant is here (a short persona). */
+  persona: z.string().max(1_000).default(''),
+});
+export type AncileInstructions = z.infer<typeof AncileInstructions>;
+
+export const PutInstructionsRequest = z
+  .object({
+    instructions: z.string().max(4_000).optional(),
+    persona: z.string().max(1_000).optional(),
+  })
+  .strict();
+export type PutInstructionsRequest = z.infer<typeof PutInstructionsRequest>;
+
+/** GET /threads/:id/instructions: the thread's own, its notebook's, and what an engine is given. */
+export const InstructionsView = z.object({
+  thread: AncileInstructions,
+  notebook: AncileInstructions.nullable(),
+  /** The note as engines receive it (the thread wins over its notebook, field by field). */
+  effective: z.string(),
+});
+export type InstructionsView = z.infer<typeof InstructionsView>;

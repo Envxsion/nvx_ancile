@@ -144,6 +144,24 @@ export const RunEvent = z.discriminatedUnion('type', [
     detail: z.string().optional(),
   }),
   z.object({ ...base, type: z.literal('usage'), message_id: z.string(), usage: Usage }),
+  /**
+   * Engines (docs/engines.md): this turn sends some of the thread to an
+   * engine outside NVX Ancile (Claude Code). One line the thread shows
+   * once, above the answer: `notice` is the words to show.
+   */
+  z.object({
+    ...base,
+    type: z.literal('context.shared'),
+    message_id: z.string(),
+    engine: z.string(),
+    notice: z.string(),
+    /** Turns by other engines given to it as a digest. */
+    turns: z.number().int().nonnegative(),
+    /** About how many tokens of the thread went with the turn. */
+    tokens: z.number().int().nonnegative(),
+    /** The session was started afresh from NVX Ancile's compaction summary. */
+    seeded_from_summary: z.boolean(),
+  }),
   z.object({ ...base, type: z.literal('warning'), code: z.string(), message: z.string() }),
   z.object({
     ...base,

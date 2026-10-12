@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { ClaudeCodeBinding } from './claudecode';
 import { ModelHue } from './config';
+import { AncileInstructions } from './engines';
 import { RunStatus } from './events';
 import { Message, Part } from './messages';
 import { DecisionScope } from './permissions';
@@ -118,6 +119,8 @@ export const ThreadSettings = z
     lab_session: z.string().optional(),
     /** The Claude Code session this thread continues (docs/claude-code.md). */
     claude_code: ClaudeCodeBinding.optional(),
+    /** NVX Ancile's instructions and persona for this thread, which every engine follows (docs/engines.md). */
+    ancile: AncileInstructions.optional(),
   })
   .partial();
 
