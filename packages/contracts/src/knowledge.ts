@@ -292,7 +292,8 @@ export type EmbeddingStatus = z.infer<typeof EmbeddingStatus>;
 /** What a grounded answer was given and what it used: the "why" view reads this. */
 export const RetrievalTrace = z.object({
   query: z.string(),
-  notebook_id: z.string(),
+  /** The thread's notebook; null for a thread outside one that read through context links. */
+  notebook_id: z.string().nullable(),
   mode: SearchMode,
   embedder: z.string().nullable(),
   ms: z.number(),
@@ -309,6 +310,8 @@ export const RetrievalTrace = z.object({
       rerank_score: z.number().nullable(),
       ranks: z.object({ vector: z.number().int().nullable(), text: z.number().int().nullable() }),
       cited: z.boolean(),
+      /** Read through a context link from another notebook (docs/notebooks.md); absent for the thread's own. */
+      via: z.object({ link_id: z.string(), notebook_id: z.string(), notebook_title: z.string() }).optional(),
     }),
   ),
   /** Citation numbers in the answer that matched no passage; stripped before it was saved. */

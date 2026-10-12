@@ -8,7 +8,15 @@
  */
 import { z } from 'zod';
 
-export const PRO_FEATURES = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights'] as const;
+export const PRO_FEATURES = [
+  'beam',
+  'team',
+  'sync',
+  'fleet',
+  'flow_lab',
+  'insights',
+  'context_packs',
+] as const;
 export const ProFeature = z.enum(PRO_FEATURES);
 export type ProFeature = z.infer<typeof ProFeature>;
 
@@ -48,5 +56,9 @@ export const PRO_FEATURE_WORDS: Record<ProFeature, { title: string; body: string
   insights: {
     title: 'Insights',
     body: 'Where your time, money and models go, from your own history, on this computer.',
+  },
+  context_packs: {
+    title: 'Context packs',
+    body: 'Save sources, notes, a summary, memory and instructions as one pack, attach it anywhere in one click, and share it as a signed file.',
   },
 };

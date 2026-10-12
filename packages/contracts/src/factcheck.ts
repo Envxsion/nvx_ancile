@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { FlowProvenance } from './flows';
 import { RetrievalTrace } from './knowledge';
 import { Usage } from './messages';
+import { ExplainLink } from './notebooks';
 import { EffectiveScope } from './scopes';
 
 export const ClaimVerdict = z.enum(['verified', 'unverified', 'contradicted', 'not_checkable']);
@@ -237,6 +238,8 @@ export const Explain = z.object({
   flow: FlowProvenance.nullable().default(null),
   /** The scope in force for the thread now, with the level behind each field (docs/scopes.md). */
   scope: EffectiveScope.nullable().default(null),
+  /** Context links this answer considered: which gave passages or a summary, and which a scope refused. */
+  links: z.array(ExplainLink).default([]),
   /**
    * Where the answer was written: in NVX Ancile (`ancile`), by Claude Code in
    * a live turn from NVX Ancile (`claude_code_live`), or by Claude Code in

@@ -61,6 +61,12 @@ export const CitationRefPart = z.object({
    * Absent on older answers.
    */
   text_sha256: z.string().optional(),
+  /**
+   * Set when the passage was read through a context link from another
+   * notebook (docs/notebooks.md): that notebook, so the citation names it.
+   */
+  notebook_id: z.string().optional(),
+  notebook_title: z.string().optional(),
 });
 /** Where a fallback model continued a stream another model started. */
 export const SeamPart = z.object({

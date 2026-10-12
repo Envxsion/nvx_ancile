@@ -377,6 +377,7 @@ export const ScopeDenyCode = z.enum([
   'scope.memory_read_off',
   'scope.memory_write_off',
   'scope.source_not_allowed',
+  'scope.context_links_off',
 ]);
 export type ScopeDenyCode = z.infer<typeof ScopeDenyCode>;
 

@@ -31,6 +31,9 @@ export const ID_PREFIX = {
   mcpServer: 'mcp',
   secret: 'sec',
   diagnostic: 'dia',
+  notebookMerge: 'nbm',
+  contextLink: 'lnk',
+  contextPack: 'cpk',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;
