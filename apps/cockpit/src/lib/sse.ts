@@ -93,7 +93,10 @@ export function openStream<T extends { seq: number }>(opts: StreamOptions<T>): (
     };
   };
 
+  // Closing twice is a no-op: an onState('closed') handler may call close again
+  // (factcheck.ts does, through its own cleanup), and must not loop.
   const close = () => {
+    if (closed) return;
     closed = true;
     source?.close();
     if (timer) clearTimeout(timer);
