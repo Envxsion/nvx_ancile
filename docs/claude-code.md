@@ -84,8 +84,12 @@ Type in a Claude Code thread and it carries the session on, in your own installe
 - **A turn is a run.** Each message you send is a run in Admin → Runs, with a trace, a status and Stop, and its answer streams into the thread like any other: thinking, text, and each tool step as it happens. Stop (or cancelling the run) is Claude Code's own interrupt; what streamed is kept, marked stopped.
 - **One session, one place.** NVX Ancile never opens a session twice, and never writes to one that Claude Code is using somewhere else: if the session's file was written by another process in the last minute, sending says "This session is open in Claude Code somewhere else". Close it there, or press **Continue as a branch**: that forks the session (`as_branch`), so both carry on separately.
 - **Branches are forks.** Send from an earlier message (edit, regenerate, or reply to an older answer) and Claude Code forks the session at that message's entry; the fork is a new Claude Code session, bound to the same thread, and its messages hang off that message as a branch. One thread can hold several sessions, one per branch. Sending from the latest message of a branch carries on the session that branch belongs to.
+- **Forks made in a terminal.** A session forked in a terminal (`/branch`) starts with copies of the entries it forked from, under the same ids. When it is first brought in and a thread already holds those entries, it joins that thread as a branch instead of becoming a thread of its own; only what it added comes in, hanging off the message it forked from. The thread keeps its own session for its title and latest message. Sessions never brought in are brought in oldest first, so the session a fork came from is there before the fork.
 - **Nothing twice.** Each message a turn writes carries the ids Claude Code gives the same entries in its own file, using the same mapping an import uses, so the import watcher adds nothing twice; it leaves a session alone while a turn is writing it, and the turn brings in anything else Claude Code wrote (a compaction, say) when it ends.
-- **Model and effort.** A send may choose the model and effort; they apply to the session from then on.
+- **Model and effort.** A send may choose the model and effort; they apply to the session from then on. Effort **auto** sends no effort at all, so Claude Code picks its own default for the model; a session that had an effort set reopens without it.
+- **A new session in a folder.** `POST /claude-code/threads {cwd, notebook_id?}` makes a thread for a new session in a folder on this computer (a full path to a folder that exists, not an excluded one). It goes in the folder's notebook unless you choose one, and the notebook's scope is checked first: Claude Code must be allowed there, and the folder must be inside its allowed folders when it has any. The session itself starts with the thread's first message, and the thread is bound to the session Claude Code names then; its title follows the session as usual.
+- **Editing the first message.** Claude Code cannot fork before a session's first entry, so editing the first message (a send with `parent_id: null`) starts a new session in the same folder, bound to the same thread. The new first message is a branch at the root; the original session and its messages stay.
+- **The answer's id.** A send answers with the run, your message and the answer it streams into (`assistant_message_id`), so the thread can show the answer at once.
 - **Telemetry.** With Claude Code usage reporting off, sessions run with `DISABLE_TELEMETRY` too.
 
 ### Other models in a Claude Code thread
@@ -133,7 +137,7 @@ Passages are numbered across a turn, so the markers in an answer are unique. Whe
 
 ### Commands
 
-Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing; new commands appear without an NVX Ancile update. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
+Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing (or from the session a turn left open); new commands appear without an NVX Ancile update. Each name is listed once: when Claude Code lists a command twice (a skill found in two places, say), the entry that says the most is kept. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
 
 | Command | In NVX Ancile |
 |---|---|
@@ -183,7 +187,7 @@ Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Clau
 ## Limits in this release
 
 - The folder recorded is the one Claude Code gives for the session; a session that moved folder part-way through (`/cd`) shows its current folder only when Claude Code reports it. TODO(phase-3): follow folder changes within a session.
-- A fork made in NVX Ancile keeps the message ids it shares with its session, so it hangs off the thread as a branch. A fork made in a terminal (`/branch`) still comes in as a thread of its own. TODO(phase-3): bring terminal forks in as branches of the thread they came from.
+- A fork made in a terminal joins the thread it came from only when that thread already holds the entries it copied. One brought in before its origin (the origin's file was gone, say) stays a thread of its own.
 - A slash command sent from NVX Ancile is written by Claude Code under its own id, so it may show once as you typed it and once as the command chip after the turn. TODO(phase-3): match a sent command to Claude Code's entry for it.
 - A session is "open elsewhere" when its file was written by another process in the last minute; one open in a terminal but idle for longer is not detected. TODO(phase-3): ask Claude Code itself whether a session is open.
 - A hosted MCP server added while a session is open reaches it on the session's next start (the MCP server for sessions does not push tool changes yet).
