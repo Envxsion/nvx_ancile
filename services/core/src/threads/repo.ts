@@ -244,6 +244,8 @@ export class PgThreadRepo implements ThreadRepo {
     const limit = opts.limit ?? 200;
     const after = parseCursor(opts.cursor);
     const sql = this.sql;
+    // The cursor carries milliseconds (toISOString) and Postgres keeps
+    // microseconds, so paging and its order both work to the millisecond.
     const rows = await sql<(ThreadRow & { leaves: number; live: boolean })[]>`
       select t.*,
         (select count(*)::int from core.messages m where m.thread_id = t.id and m.deleted_at is null
@@ -254,8 +256,8 @@ export class PgThreadRepo implements ThreadRepo {
       where t.workspace_id = ${workspaceId} and t.deleted_at is null
         and ${opts.archived ? sql`t.archived_at is not null` : sql`t.archived_at is null`}
         ${opts.notebookId ? sql`and t.notebook_id = ${opts.notebookId}` : sql``}
-        ${after ? sql`and (t.updated_at, t.id) < (${after.at}::timestamptz, ${after.id})` : sql``}
-      order by t.updated_at desc, t.id desc limit ${limit}`;
+        ${after ? sql`and (date_trunc('milliseconds', t.updated_at), t.id) < (${after.at}::timestamptz, ${after.id})` : sql``}
+      order by date_trunc('milliseconds', t.updated_at) desc, t.id desc limit ${limit}`;
     return rows.map((r) => ({ ...threadFromRow(r), leaves: r.leaves, live: r.live }));
   }
 
