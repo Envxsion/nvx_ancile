@@ -17,6 +17,7 @@
 import { GlobalEvent } from '@nvx/contracts';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
+import { onActivityChanged } from '../activity/api';
 import { onReviewerStatus } from '../auto/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
 import { onMemoryProposal } from '../memory/api';
@@ -83,6 +84,9 @@ export function useGlobalEvents(): void {
             break;
           case 'claude_code.changed':
             onClaudeCodeChanged(e, queryClient);
+            break;
+          case 'activity.changed':
+            onActivityChanged(e, queryClient);
             break;
           case 'source.progress': {
             // Move the bar now; refetch the lists when a source settles.

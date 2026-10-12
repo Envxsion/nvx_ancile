@@ -16,6 +16,7 @@
 
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { ActivitySegment, ImportSegment } from '../activity/ActivityPanel';
 import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
 import { live as demoLive } from '../fixtures/demo';
 import { tourEvent } from '../help/tours';
@@ -126,6 +127,10 @@ export function StatusBar() {
       {show.node ? <NodeSegment demo={demo} /> : null}
 
       <span className="statusbar__spacer" />
+
+      {demo ? null : <ImportSegment />}
+
+      <ActivitySegment />
 
       {demo ? (
         <span

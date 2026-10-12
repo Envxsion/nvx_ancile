@@ -75,4 +75,13 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('dialog', { name: /command/i })).toBeVisible();
     await expectAccessible(page);
   });
+
+  test('the activity panel, open', async ({ page }) => {
+    await open(page, '/');
+    await page.getByRole('button', { name: /running\. Show activity/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Activity' });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole('heading', { name: /Background shells/ })).toBeVisible();
+    await expectAccessible(page);
+  });
 });

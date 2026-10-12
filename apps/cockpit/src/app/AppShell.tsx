@@ -18,6 +18,7 @@
 import { watchSystemTheme } from '@nvx/aperture';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { type CSSProperties, useEffect } from 'react';
+import { ActivityHost } from '../activity/ActivityPanel';
 import { ApprovalDialog } from '../approvals/ApprovalDialog';
 import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
 import { EditorsHost } from '../editors/EditorsHost';
@@ -218,6 +219,7 @@ export function AppShell() {
       <TourOverlay />
       <BeamHost />
       <ClaudeCodeSessionsHost />
+      <ActivityHost />
       <EditorsHost />
       <Toaster />
     </div>

@@ -25,6 +25,7 @@ import type {
   GlobalEvent,
   ImportClaudeCodeSessionsRequest,
   ImportClaudeCodeSessionsResult,
+  ImportProgress as ImportProgressShape,
 } from '@nvx/contracts';
 import { type QueryClient, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { create } from 'zustand';
@@ -58,14 +59,26 @@ export const useInstallProgress = create<InstallProgress>((set) => ({
 /* ---- Background import progress ------------------------------------------ */
 
 interface ImportProgress {
-  /** "Bringing in 12 of 40 sessions", while Core brings sessions in by itself. */
+  /** "Bringing in 12 of 40 sessions (nvx_ancile)", while Core brings sessions in by itself. */
   line: string | null;
+  /** The same, as Core sent it: done of total, the folder, and whether it waits while you type. */
+  progress: ImportProgressShape | null;
   set: (line: string | null) => void;
+  setProgress: (p: ImportProgressShape | null) => void;
+}
+
+/** The words for an import's progress. */
+export function importLine(p: ImportProgressShape): string {
+  const count = `${p.done} of ${p.total} ${p.total === 1 ? 'session' : 'sessions'}`;
+  if (p.paused) return `Paused while you type: ${count} brought in`;
+  return p.project ? `Bringing in ${count} (${p.project})` : `Bringing in ${count}`;
 }
 
 export const useImportProgress = create<ImportProgress>((set) => ({
   line: null,
-  set: (line) => set({ line }),
+  progress: null,
+  set: (line) => set({ line, ...(line === null && { progress: null }) }),
+  setProgress: (progress) => set({ progress, line: progress ? importLine(progress) : null }),
 }));
 
 /**
@@ -120,7 +133,9 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
       break;
     case 'sessions': {
       const d = readSessionsDetail(e.detail);
-      if (d?.kind === 'progress') useImportProgress.getState().set(d.line);
+      // Core sends the progress itself (done, total, folder, paused); older Cores only the detail.
+      if (e.progress !== undefined) useImportProgress.getState().setProgress(e.progress);
+      else if (d?.kind === 'progress') useImportProgress.getState().set(d.line);
       if (d?.kind === 'done') {
         useImportProgress.getState().set(null);
         if (d.count > 0) {

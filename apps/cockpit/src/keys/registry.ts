@@ -84,6 +84,7 @@ export const BINDINGS: readonly BindingDef[] = [
   },
   { id: 'help.open', keys: 'g h', label: 'Help', group: 'Go to', scope: 'global' },
   { id: 'center.open', keys: 'g i', label: 'Notifications', group: 'Go to', scope: 'global' },
+  { id: 'activity.open', keys: 'g r', label: 'Activity: what is running', group: 'Go to', scope: 'global' },
   { id: 'rail.filter', keys: 'g f', label: 'Filter the sidebar', group: 'Go to', scope: 'global' },
   { id: 'go.settings', keys: 'g s', label: 'Settings', group: 'Go to', scope: 'global' },
   { id: 'history.back', keys: 'mod+[', label: 'Back', group: 'Go to', scope: 'global', inInputs: true },

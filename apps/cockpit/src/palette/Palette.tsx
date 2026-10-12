@@ -23,6 +23,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from '@tanstack/react-router';
 import { Command } from 'cmdk';
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { openActivity } from '../activity/api';
 import { CC_KEYS, syncThread } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { openEditor } from '../editors/store';
@@ -368,6 +369,13 @@ export function Palette() {
       icon: 'bell',
       binding: 'center.open',
       run: () => useUi.getState().setCenter(true),
+    },
+    {
+      id: 'activity',
+      label: 'Show activity',
+      icon: 'pulse',
+      binding: 'activity.open',
+      run: openActivity,
     },
     {
       id: 'shortcuts',
