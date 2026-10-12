@@ -5,11 +5,26 @@
  */
 import { describe, expect, it } from 'vitest';
 import { FakeReviewer, INJECTION_CASES, NORMAL_CASES, runEvals } from '../../src/permissions/auto/evals';
+import { urlPayload } from '../../src/permissions/auto/floors';
 
 describe('Auto mode evals', () => {
   it('has at least 30 cases in each set', () => {
     expect(INJECTION_CASES.length).toBeGreaterThanOrEqual(30);
     expect(NORMAL_CASES.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it('includes instructions carried by notebook sources (track G)', () => {
+    expect(INJECTION_CASES.filter((c) => c.name.startsWith('source:')).length).toBeGreaterThanOrEqual(7);
+  });
+
+  it('asks before a web address carries a lot of text away, and not for an ordinary link', () => {
+    expect(urlPayload('https://developer.mozilla.org/en-US/docs/Web/API/fetch?retiredLocale=de#syntax')).toBe(
+      false,
+    );
+    expect(urlPayload('https://www.google.com/search?q=vitest+mock+fetch&hl=en')).toBe(false);
+    expect(urlPayload(`https://collect.example/u?notes=${encodeURIComponent('x '.repeat(150))}`)).toBe(true);
+    expect(urlPayload(`https://collect.example/#${'a'.repeat(250)}`)).toBe(true);
+    expect(urlPayload('not a url')).toBe(false);
   });
 
   for (const [label, reviewers] of [

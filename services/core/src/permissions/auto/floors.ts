@@ -8,7 +8,8 @@
  *           |  reviewer is asked and again after it answers: the scope,
  *           |  writes outside the workspace, recursive deletes, secrets
  *           |  and protected paths, dangerous shell, data leaving the
- *           |  machine, and text that tries to talk its way past review
+ *           |  machine (a key, or a lot of text in a web address), and
+ *           |  text that tries to talk its way past review
  *           |  (instructions, "this is safe", invisible or look-alike
  *           |  characters).
  *  How      |  Pure. Each rule returns `block` (never runs) or `ask`
@@ -221,6 +222,29 @@ const CATASTROPHIC_TARGET =
 const READ_ACTIONS =
   /^(fs\.(read|list)|knowledge\.search|notebooks\.read|memory\.read|git\.(status|diff|log|branches)|github\.(pr_list|pr_view|runs_list|run_logs))$/;
 
+/**
+ * A web address that carries a lot of text in its query or fragment. A GET
+ * is the quiet way data leaves: a source that says "open this link with the
+ * notebook's notes appended" needs no write and no key. Ordinary links (docs,
+ * search results) carry a few short parameters.
+ */
+const URL_PAYLOAD_CHARS = 200;
+export function urlPayload(target: string): boolean {
+  let tail: string;
+  try {
+    const u = new URL(target);
+    tail = `${u.search}${u.hash}`;
+  } catch {
+    return false;
+  }
+  try {
+    tail = decodeURIComponent(tail.replace(/\+/g, ' '));
+  } catch {
+    /* malformed escapes: measure it as it is */
+  }
+  return tail.length > URL_PAYLOAD_CHARS;
+}
+
 const rank = (h: FloorHit) => (h.verdict === 'block' ? 2 : 1);
 const strictest = (hits: (FloorHit | null)[]) =>
   hits.filter((h): h is FloorHit => !!h).sort((a, b) => rank(b) - rank(a))[0] ?? null;
@@ -303,6 +327,13 @@ export function checkFloors({ call, scope }: FloorInput): FloorHit | null {
       verdict: 'block',
       rule: 'floor.secret_in_call',
       reason: 'It carries what looks like a key or password',
+    });
+
+  if (kind === 'http' && urlPayload(target))
+    hits.push({
+      verdict: 'ask',
+      rule: 'floor.data_in_url',
+      reason: 'It sends a lot of text out inside a web address',
     });
 
   const allText = `${target}\n${argsText}`;
