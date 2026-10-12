@@ -4,9 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <!-- Artifacts and the Python sandbox are srcdoc frames: no frame may ever be navigated to a URL,
-         so an artifact cannot leave by navigating itself (docs/artifacts.md). -->
-    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
+    <!-- The Cockpit's Content Security Policy. vite.config.ts writes the policy from
+         packages/contracts/src/csp.ts here, with the hash of each inline script below
+         (docs/desktop.md). Frames load only the frame host (public/frame.html). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'" />
     <meta name="description" content="NVX Ancile: a private AI workspace for serious knowledge work." />
     <title>NVX Ancile</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

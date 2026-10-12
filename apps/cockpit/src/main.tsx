@@ -11,6 +11,7 @@
  * ------------------------------------------------------------------
  */
 
+import './lib/strict';
 import '@nvx/aperture/tokens.css';
 import '@nvx/aperture/ancile.css';
 import '@nvx/aperture/prefs.css';

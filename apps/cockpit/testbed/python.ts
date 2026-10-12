@@ -36,7 +36,8 @@ function allowed(all: Record<string, Pkg>): Record<string, Pkg> {
 }
 
 async function runtimeFile(name: string): Promise<ArrayBuffer> {
-  const res = await fetch(`${PYODIDE_CDN}${name}`);
+  // Through the dev server (vite.config.ts): the page may only connect to its own origin.
+  const res = await fetch(`/testbed-cdn${new URL(PYODIDE_CDN).pathname}${name}`);
   if (!res.ok) throw new Error(`${name}: ${res.status}`);
   const bytes = await res.arrayBuffer();
   const want =

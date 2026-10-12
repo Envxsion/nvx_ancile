@@ -113,6 +113,38 @@ cargo run
 
 The profile name keeps its keychain entries separate too. By default the app uses ports from 17700, away from a development stack (7700) and the test stack (7800).
 
+## Content Security Policy
+
+The app has two kinds of page, and each has its own policy.
+
+**The start-up screen** (`apps/desktop/splash`) is served by Tauri. Its policy is in `tauri.conf.json` (`app.security.csp`): `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. Tauri adds the hashes of the page's inline script and style when it builds, and the `ipc:` sources (`http://ipc.localhost` on Windows) are how the screen hears the supervisor's status events. It is the only page with a capability.
+
+**The Cockpit** is served by Core on `http://127.0.0.1:<port>` (17700, or a free port when that is taken); the window moves there when the services are up. Core is the Cockpit's own origin, so `'self'` covers every request it makes: REST, the event streams (SSE) and, in development, the dev server's socket. The Cockpit has no Tauri capability and makes no IPC call, so its policy has no `ipc:`. The policy lives in `packages/contracts/src/csp.ts` and reaches the page twice; policies only ever add up, so each part can only narrow the other:
+
+- A `<meta>` in every page the build writes (`vite.config.ts` fills it, with the hash of each inline script):
+
+  ```
+  default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self';
+  worker-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'
+  ```
+
+- A header from Core (and from the dev server), for what a `<meta>` cannot say: `frame-ancestors 'none'; frame-src http://<host>/frame.html`, the frame host's exact URL at the address the browser used. The frame host itself is sent with `sandbox allow-scripts`.
+
+The exceptions, and why each is there:
+
+| Directive | Exception | Why |
+|---|---|---|
+| `script-src` | `'sha256-…'` | The theme script in `<head>` (`BOOT_SCRIPT`), so the first paint has the right theme; the dev server's React refresh preamble in development. Hashes are computed at build time, so a changed script that is not rebuilt does not run. No `'unsafe-inline'`, no `'unsafe-eval'` (zod runs jitless for this, `src/lib/strict.ts`). |
+| `style-src` | `'unsafe-inline'` | `<style>` elements made at run time: a person's own CSS (Settings → Advanced), Radix's scroll lock, the dev server's CSS. Styles cannot fetch past `img-src` and `font-src`. |
+| `img-src` | `data: blob: https:` | Pictures Python and artifacts draw (`data:`), files offered for download (`blob:`), and a picture in an answer that the person chose to load (`https:`; never loaded without that click). |
+| `font-src` | `data:` | Fonts pdf.js embeds from a PDF. |
+| `frame-src` | `'self'`, narrowed by the header to `/frame.html` | Artifacts and the Python sandbox (below). |
+
+**The frame host.** Artifacts and the Python sandbox used to be `srcdoc` frames. A `srcdoc` frame (or a `data:` or `blob:` one) inherits its parent's policy, so with the strict `script-src` above, no artifact could run a script. They now load `/frame.html`, an empty page with its own policy (`FRAME_HOST_CSP`, the widest any of them needs), and the Cockpit posts the document to it once; the host writes it into itself. The content still never comes from Core, the frame is still `sandbox="allow-scripts"` with an opaque origin, each document still carries its own narrower policy first, and no frame can be navigated anywhere but the frame host. docs/artifacts.md has the details.
+
+Checked by `tests/e2e/csp.spec.ts` (every route, no violation, an injected inline script does not run), the artifact and Python sandbox suites (which now run under the policy), `apps/cockpit/test/csp.test.ts` and `services/core/test/http/csp.test.ts`.
+
 ## Signing and updates
 
 Release builds are made by `.github/workflows/release.yml` on Windows, macOS and Linux. Signing and auto-update turn on only when their secrets are set in the repository's settings; none is in the code.

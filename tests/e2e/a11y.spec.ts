@@ -8,47 +8,8 @@
  * labels most often go wrong.
  */
 import { expect, type Page, test } from '@playwright/test';
-import { expectAccessible, mod } from './fixtures';
+import { expectAccessible, mod, DEMO_ROUTES as ROUTES } from './fixtures';
 import { BACKEND } from './playwright.config';
-
-/** The demo data's own ids (apps/cockpit/src/fixtures/demo.ts). */
-const DEMO_THREAD = 'thr_01J9ZK00000000000000000BUF';
-const DEMO_NOTEBOOK = 'nbk_01J9ZK0000000000000000DEPO';
-
-const SETTINGS = [
-  'appearance',
-  'layout',
-  'reading',
-  'composer',
-  'keyboard',
-  'notifications',
-  'accessibility',
-  'advanced',
-];
-const ADMIN = [
-  'health',
-  'compute',
-  'diagnostics',
-  'logs',
-  'traces',
-  'grants',
-  'decisions',
-  'memory',
-  'models',
-  'routing',
-  'plugins',
-  'automations',
-  'license',
-];
-
-const ROUTES = [
-  '/',
-  `/t/${DEMO_THREAD}`,
-  `/n/${DEMO_NOTEBOOK}`,
-  '/flows',
-  ...SETTINGS.map((g) => `/settings/${g}`),
-  ...ADMIN.map((s) => `/admin/${s}`),
-];
 
 async function open(page: Page, route: string) {
   await page.goto(route);

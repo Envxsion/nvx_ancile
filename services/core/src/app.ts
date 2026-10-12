@@ -35,6 +35,7 @@ import { bodyLimit } from 'hono/body-limit';
 import type { z } from 'zod';
 import type { EventBus } from './events/bus';
 import type { ServiceState } from './health/supervisor';
+import { cockpitPageHeaders } from './http/csp';
 import { cockpitOrigins, requestGuard } from './http/guard';
 import { lastEventId, sseStream } from './http/sse';
 import { mountPlanned } from './http/stubs';
@@ -225,7 +226,7 @@ export function createApp(deps: AppDeps) {
   if (deps.cockpitDist) {
     const dist = deps.cockpitDist;
     app.use('/assets/*', serveStatic({ root: dist }));
-    app.use('/*', serveStatic({ root: dist }));
+    app.use('/*', cockpitPageHeaders(), serveStatic({ root: dist }));
     app.get('*', async (c) => c.html(await readFile(join(dist, 'index.html'), 'utf8')));
   }
 
