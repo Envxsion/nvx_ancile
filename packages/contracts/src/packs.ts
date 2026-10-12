@@ -30,6 +30,8 @@ export const PackItem = z.discriminatedUnion('kind', [
     source_id: z.string(),
     title: z.string(),
     content_hash: z.string().nullable(),
+    /** The notebook it was taken from: a turn searches it there. */
+    notebook_id: z.string().nullable(),
     /** Only in an exported file: the source's text, so it can be added on import. */
     text: z.string().optional(),
   }),
@@ -65,6 +67,8 @@ export type ContextPackList = z.infer<typeof ContextPackList>;
 /** POST /pro/context-packs: pick what goes in by id; Pro reads each item now. */
 export const CreateContextPackRequest = z
   .object({
+    /** The notebook or thread the pack is made from: its sources and notes are the ones offered. */
+    from: z.object({ kind: z.enum(['thread', 'notebook']), id: z.string() }),
     name: z.string().trim().min(1).max(80),
     description: z.string().trim().max(400).default(''),
     source_ids: z.array(z.string()).max(50).default([]),

@@ -233,6 +233,10 @@ export interface ProPackHost {
   sourceText(
     id: string,
   ): Promise<{ id: string; title: string; kind: string; content_hash: string | null; text: string } | null>;
+  /** Notes of a notebook, by id (others are left out). */
+  notes(notebookId: string, ids: string[]): Promise<{ id: string; title: string; content_md: string }[]>;
+  /** Memory entries by id, as the memory index holds them. */
+  memoryEntries(ids: string[]): Promise<{ id: string; path: string; text: string }[]>;
   /** The sources a notebook holds now. */
   notebookSources(notebookId: string): Promise<{ id: string; title: string }[]>;
   /** Add pasted text as a source (an imported pack's source), optionally into a notebook. */

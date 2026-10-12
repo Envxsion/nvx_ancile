@@ -1183,6 +1183,13 @@ async function main() {
             notebooks,
             engines: engineStore,
             summaryOf,
+            memoryEntries: async (ids) =>
+              ids.length
+                ? [
+                    ...(await sql<{ id: string; path: string; text: string }[]>`
+                      select id, path, text from core.memory_entries where id = any(${ids})`),
+                  ]
+                : [],
           }),
           answers: proAnswers({
             workspaceId: owner.workspaceId,

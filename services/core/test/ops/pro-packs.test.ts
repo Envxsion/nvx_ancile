@@ -117,6 +117,7 @@ describe('what Pro is lent for packs', () => {
       notebooks,
       engines,
       summaryOf: async (id) => (id === 'thr_1' ? 'A summary.' : null),
+      memoryEntries: async (ids) => ids.map((id) => ({ id, path: 'USER.md', text: 'Likes tea.' })),
     });
   });
 
@@ -148,6 +149,18 @@ describe('what Pro is lent for packs', () => {
       persona: '',
     });
     expect(await host.summaryOf('thr_1')).toBe('A summary.');
+    const note = await notebooks.createNote({
+      id: 'not_1',
+      notebook_id: 'nbk_a',
+      kind: 'human',
+      title: 'N',
+      content_md: 'x',
+    });
+    expect(await host.notes('nbk_a', [note.id, 'not_missing'])).toEqual([
+      { id: 'not_1', title: 'N', content_md: 'x' },
+    ]);
+    expect(await host.notes('nbk_p', [note.id])).toEqual([]);
+    expect(await host.memoryEntries(['m1'])).toEqual([{ id: 'm1', path: 'USER.md', text: 'Likes tea.' }]);
     expect(await host.keepsLocal({ kind: 'notebook', id: 'nbk_p' })).toBe(true);
     expect(await host.keepsLocal({ kind: 'notebook', id: 'nbk_a' })).toBe(false);
   });

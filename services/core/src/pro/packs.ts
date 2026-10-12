@@ -32,9 +32,10 @@ export function proPackHost(deps: {
   kn: Pick<KnowledgeClient, 'get' | 'post'>;
   scopes: ScopeResolver;
   threads: Pick<ThreadRepo, 'getThread'>;
-  notebooks: Pick<NotebookRepo, 'get'>;
+  notebooks: Pick<NotebookRepo, 'get' | 'getNote'>;
   engines: Pick<EngineStore, 'notebookInstructions'>;
   summaryOf(threadId: string): Promise<string | null>;
+  memoryEntries(ids: string[]): Promise<{ id: string; path: string; text: string }[]>;
 }): ProPackHost {
   const ws = deps.workspaceId;
   const scopeOf = (p: packs.PackOrigin) =>
@@ -83,6 +84,16 @@ export function proPackHost(deps: {
       return { id: s.id };
     },
     summaryOf: deps.summaryOf,
+    async notes(notebookId, ids) {
+      const out: { id: string; title: string; content_md: string }[] = [];
+      for (const id of ids) {
+        const n = await deps.notebooks.getNote(id);
+        if (n && n.notebook_id === notebookId)
+          out.push({ id: n.id, title: n.title, content_md: n.content_md });
+      }
+      return out;
+    },
+    memoryEntries: deps.memoryEntries,
     async instructionsOf(p) {
       if (p.kind === 'thread') {
         const t = await deps.threads.getThread(p.id);
