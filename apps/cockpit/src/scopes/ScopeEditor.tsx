@@ -22,6 +22,10 @@
  *           |  names, and the editor stays open. "Tool preset" picks a
  *           |  named set of tool rules (Research, Coding, Read only or
  *           |  your own); a thread's preset narrows its notebook's.
+ *           |  "Sent before it became private" lists what had already
+ *           |  left this computer when the notebook (or thread) stopped
+ *           |  letting data leave: engines and providers, how many
+ *           |  answers, and the dates. It can't be recalled; it says so.
  * ------------------------------------------------------------------
  */
 
@@ -32,6 +36,7 @@ import type {
   ScopeEngine,
   ScopeField,
   ScopeValues,
+  SharedBeforeLocal,
   StoredScope,
   ToolPreset,
 } from '@nvx/contracts';
@@ -55,6 +60,7 @@ import {
   presetName,
   provenanceOf,
   scopeSummary,
+  sharedBeforeText,
   useNotebookScope,
   useThreadScope,
   useToolPresets,
@@ -390,6 +396,8 @@ function Form({
         </div>
       ) : null}
 
+      {stored.shared_before_local?.length ? <SharedBefore records={stored.shared_before_local} /> : null}
+
       {level === 'notebook' ? (
         <Row
           label="Private"
@@ -515,6 +523,29 @@ function Form({
         </button>
       </div>
     </div>
+  );
+}
+
+/** What had already left this computer before this level stopped letting it (newest first). */
+function SharedBefore({ records }: { records: SharedBeforeLocal[] }) {
+  return (
+    <section className="scope-shared" aria-label="Sent before it became private">
+      <h3 className="scope-shared__h">
+        <Icon name="clock" size={12} />
+        Sent before it became private
+      </h3>
+      <ul>
+        {records.map((r) => {
+          const t = sharedBeforeText(r);
+          return (
+            <li key={r.id}>
+              <p>{t.lede}</p>
+              {t.detail ? <p className="mute">{t.detail}</p> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

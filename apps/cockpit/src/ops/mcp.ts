@@ -12,6 +12,9 @@
  *  How      |  A draft holds what the form shows. createBody/updateBody
  *           |  build the request and check it with the contract schema;
  *           |  problems come back per field, in words.
+ *           |  Approvals: each server's approved tool list (the rug-pull
+ *           |  guard). A changed list is shown with its diff and is
+ *           |  approved once by the fingerprint you were shown.
  *  Note     |  Secrets: a saved one shows as "Saved" and is sent back
  *           |  without a value (keep). Replacing it sends the new value.
  *           |  A removed row is left out of the list, which deletes it.
@@ -22,6 +25,8 @@ import {
   CreateMcpServerRequest,
   type GlobalEvent,
   type McpServerView,
+  type McpToolApproval,
+  type McpToolDiff,
   type McpToolView,
   type Tier,
   UpdateMcpServerRequest,
@@ -31,6 +36,40 @@ import { api } from '../lib/api';
 
 export const MCP_SERVERS_KEY = ['ops', 'mcp-servers'] as const;
 export const TOOLS_KEY = ['ops', 'tools'] as const;
+export const MCP_APPROVALS_KEY = ['ops', 'mcp-approvals'] as const;
+
+/** GET /mcp/approvals: every server's approved tool list, host and Claude Code's own. */
+export function fetchMcpApprovals(): Promise<McpToolApproval[]> {
+  return api.get<{ items: McpToolApproval[] }>('/mcp/approvals').then((r) => r.items ?? []);
+}
+
+/** Approve the list a server offers now, by the fingerprint you were shown. */
+export function approveTools(
+  a: Pick<McpToolApproval, 'key' | 'current_fingerprint'>,
+): Promise<McpToolApproval> {
+  return api.post<McpToolApproval>(`/mcp/approvals/${encodeURIComponent(a.key)}/approve`, {
+    fingerprint: a.current_fingerprint,
+  });
+}
+
+/** "2 new, 1 changed, 1 removed": what moved since the list was approved. */
+export function diffWords(d: McpToolDiff): string {
+  const parts = [
+    d.added.length ? `${d.added.length} new` : '',
+    d.changed.length ? `${d.changed.length} changed` : '',
+    d.removed.length ? `${d.removed.length} removed` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : 'No tools moved';
+}
+
+type ToolsChanged = Extract<GlobalEvent, { type: 'mcp.tools_changed' }>;
+
+/** `mcp.tools_changed`: the servers, the approvals and the assistant's tools are all stale. */
+export function onMcpToolsChanged(_e: ToolsChanged, qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: MCP_SERVERS_KEY });
+  void qc.invalidateQueries({ queryKey: MCP_APPROVALS_KEY });
+  void qc.invalidateQueries({ queryKey: TOOLS_KEY });
+}
 
 /** GET /mcp/servers. Takes the bare list or the usual `{ items }` page. */
 export function fetchMcpServers(): Promise<McpServerView[]> {

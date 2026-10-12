@@ -14,10 +14,15 @@
  *           |  answer with the server as Core now sees it, which goes
  *           |  straight into the cached list. mcp.server_changed on the
  *           |  event stream moves the dot (lib/events.ts → ./mcp.ts).
+ *           |  A server whose tools changed since you approved it (a
+ *           |  rug pull) shows what moved and one "Approve new tool
+ *           |  list" button; its new and changed tools are refused
+ *           |  until then. Claude Code's own servers that changed are
+ *           |  listed under the servers, with the same review.
  * ------------------------------------------------------------------
  */
 
-import type { McpServerView, McpToolView, Tier } from '@nvx/contracts';
+import type { McpServerView, McpToolApproval, McpToolView, Tier } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../lib/api';
@@ -32,7 +37,11 @@ import { EmptyState, Skeleton, StatusDot, TierBadge } from '../ui/primitives';
 import { LoadFailed, reportFailure } from './common';
 import { McpServerDialog } from './McpServerDialog';
 import {
+  approveTools,
+  diffWords,
+  fetchMcpApprovals,
   fetchMcpServers,
+  MCP_APPROVALS_KEY,
   MCP_SERVERS_KEY,
   putServer,
   STATUS_DOT,
@@ -118,6 +127,8 @@ export function McpServersSection() {
           ))}
         </ul>
       )}
+
+      <ClaudeCodeChanges />
 
       <McpServerDialog
         open={adding || editing !== null}
@@ -234,6 +245,8 @@ export function McpServerCard({
           />
         )}
       </div>
+
+      {s.approval?.state === 'changed' ? <ToolsChangedNote approval={s.approval} /> : null}
 
       {s.status === 'error' && s.last_error ? (
         <p className="mcp__note mcp__note--fail" role="status">
@@ -353,6 +366,11 @@ export function McpToolRow({ serverId, tool: t }: { serverId: string; tool: McpT
         <span className="mcp-tool__name">
           <code>{t.name}</code>
           {t.overridden ? <span className="mcp__badge">Changed</span> : null}
+          {t.held ? (
+            <span className="mcp__badge mcp__badge--held" title="Approve the new tool list to let it run">
+              Waiting for your approval
+            </span>
+          ) : null}
           {t.destructive ? <span className="mcp-tool__flag mute">Changes things</span> : null}
           {t.read_only && !t.destructive ? <span className="mcp-tool__flag mute">Only reads</span> : null}
         </span>
@@ -380,5 +398,101 @@ export function McpToolRow({ serverId, tool: t }: { serverId: string; tool: McpT
         />
       </div>
     </li>
+  );
+}
+
+/* ---- When a server changes its tools (rug-pull guard) ------------------------ */
+
+const KIND_WORD = { added: 'New', changed: 'Changed', removed: 'Removed' } as const;
+
+/** What moved since the list was approved, and one button to approve the new list. */
+export function ToolsChangedNote({ approval: a, label }: { approval: McpToolApproval; label?: string }) {
+  const approve = useMutation({
+    mutationFn: () => approveTools(a),
+    onSuccess: (next) => {
+      notify({
+        level: 'success',
+        title: `${label ?? a.server}: new tool list approved`,
+        body: 'Its tools can run again. Each still asks as before.',
+      });
+      queryClient.setQueryData<McpToolApproval[]>(MCP_APPROVALS_KEY, (l) =>
+        l?.map((x) => (x.key === next.key ? next : x)),
+      );
+      void queryClient.invalidateQueries({ queryKey: MCP_SERVERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: MCP_APPROVALS_KEY });
+      return queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
+    },
+    onError: (e) => {
+      void queryClient.invalidateQueries({ queryKey: MCP_SERVERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: MCP_APPROVALS_KEY });
+      reportFailure(e, 'Approving the tool list');
+    },
+  });
+  const d = a.diff ?? { added: [], changed: [], removed: [] };
+  const rows = (['added', 'changed', 'removed'] as const).flatMap((k) => d[k].map((name) => ({ k, name })));
+  return (
+    <div className="mcp__note mcp__note--changed" role="status">
+      <p>
+        <strong>Its tools changed since you approved it:</strong> {diffWords(d).toLowerCase()}. New and
+        changed tools are refused until you approve the new list. Answers you had it remember were cleared.
+        {a.coverage === 'names'
+          ? ' Claude Code only reports tool names, so changed descriptions are not seen.'
+          : ''}
+      </p>
+      {rows.length ? (
+        <ul className="mcp__diff">
+          {rows.map((r) => (
+            <li key={`${r.k}-${r.name}`} data-kind={r.k}>
+              <span className="mcp__badge">{KIND_WORD[r.k]}</span>
+              <code>{r.name}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mcp__diff-acts">
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          onClick={() => approve.mutate()}
+          disabled={approve.isPending}
+          data-busy={approve.isPending || undefined}
+        >
+          {approve.isPending ? 'Approving…' : 'Approve new tool list'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Claude Code's own MCP servers whose tools changed since a session first saw them. */
+export function ClaudeCodeChanges() {
+  const approvals = useQuery({ queryKey: MCP_APPROVALS_KEY, queryFn: fetchMcpApprovals });
+  const changed = (approvals.data ?? []).filter((a) => a.origin === 'claude_code' && a.state === 'changed');
+  if (!changed.length) return null;
+  return (
+    <section className="mcp-cc" aria-labelledby="mcp-cc-h">
+      <h3 className="admin__h" id="mcp-cc-h">
+        Claude Code's servers that changed
+      </h3>
+      <p className="mute">
+        These are your Claude Code MCP servers. A live session can't use their new tools until you approve.
+      </p>
+      <ul className="mcp-list">
+        {changed.map((a) => (
+          <li key={a.key} className="mcp m-glass" aria-label={`${a.server}, changed since approved`}>
+            <div className="mcp__head">
+              <div className="mcp__names">
+                <strong>
+                  {a.server}
+                  <span className="mcp__badge">Claude Code</span>
+                </strong>
+                {a.changed_at ? <span className="mute">Changed {relative(a.changed_at)}</span> : null}
+              </div>
+            </div>
+            <ToolsChangedNote approval={a} label={`Claude Code's ${a.server}`} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

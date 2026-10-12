@@ -470,3 +470,33 @@
     margin-bottom: 12px;
   }
 }
+
+/* What had already left this computer before it became private: a plain record, no alarm colours. */
+.scope-shared {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--chalk);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  font-size: var(--t-small);
+}
+.scope-shared__h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--fg);
+}
+.scope-shared ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scope-shared p {
+  margin: 0;
+  color: var(--fg-2);
+}

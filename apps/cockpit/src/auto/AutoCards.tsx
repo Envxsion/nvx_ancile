@@ -18,14 +18,21 @@
  *           |  /approvals/batch for "Allow all" and "Deny all".
  *           |  Plan: GET /auto/plans/current?thread_id=, refetched on
  *           |  plan.changed; POST /auto/plans/:id/decision.
+ *           |  A step outside your approved plan joins the batch card
+ *           |  ("1 step outside your plan") with Allow once, Add to
+ *           |  plan (POST /auto/plans/:id/steps, then allow once) and
+ *           |  Deny. Above the cards, a quiet line says when the
+ *           |  reviewer is offline (GET /auto/reviewer, auto.reviewer),
+ *           |  once per outage, until you dismiss it.
  *  Note     |  "Change" puts "About the plan: " in the composer: the
  *           |  agent revises its plan from what you write. The plan
  *           |  stays waiting until then.
  * ------------------------------------------------------------------
  */
 
-import type { AutoPlan, BatchDecisionResult } from '@nvx/contracts';
+import type { AutoPlan, BatchDecisionResult, ReviewerStatus } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { usePermissionPreset } from '../approvals/preset';
@@ -37,7 +44,18 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { Tip } from '../ui/primitives';
-import { autoWhy, type Batch, type BatchItem, openBatch, useAuto } from './store';
+import {
+  autoWhy,
+  type Batch,
+  type BatchItem,
+  batchTitle,
+  dismissedOutage,
+  dismissOutage,
+  openBatch,
+  REVIEWER_KEY,
+  reviewerOfflineCopy,
+  useAuto,
+} from './store';
 
 export const AUTO_KEYS = {
   plan: (threadId: string) => ['auto', 'plan', threadId] as const,
@@ -260,6 +278,23 @@ export async function answerItem(item: BatchItem, decision: 'approve' | 'deny'):
   void queryClient.invalidateQueries({ queryKey: keys.approvals });
 }
 
+/** Add this step to the approved plan, then let this call run once. */
+export async function addToPlan(threadId: string, item: BatchItem): Promise<void> {
+  if (!item.approvalId || !item.planId || !item.resource) return;
+  try {
+    await api.post<AutoPlan>(`/auto/plans/${encodeURIComponent(item.planId)}/steps`, {
+      action: item.action,
+      resource: item.resource,
+      note: `Added from a step outside the plan (${item.tool ?? item.action})`,
+    });
+    void queryClient.invalidateQueries({ queryKey: AUTO_KEYS.plan(threadId) });
+  } catch (error) {
+    failed(error, 'Adding the step');
+    return;
+  }
+  await answerItem(item, 'approve');
+}
+
 export async function answerBatch(batch: Batch, decision: 'approve' | 'deny'): Promise<void> {
   const ids = batch.items.flatMap((i) => (i.state === 'waiting' && i.approvalId ? [i.approvalId] : []));
   if (!ids.length) return;
@@ -302,10 +337,12 @@ export function BatchCard({ batch: given }: { batch: Batch }) {
         onClick={() => setOpen((o) => !o)}
       >
         <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} className="auto-card__chev" />
-        <span className="auto-card__title">
-          {waiting.length} {waiting.length === 1 ? 'step needs' : 'steps need'} you
+        <span className="auto-card__title">{batchTitle(waiting)}</span>
+        <span className="auto-card__lede">
+          {waiting.length && waiting.every((i) => i.outOfPlan)
+            ? 'Your approved plan does not cover this'
+            : 'Auto mode could not settle these by itself'}
         </span>
-        <span className="auto-card__lede">Auto mode could not settle these by itself</span>
       </button>
       {open ? (
         <ul className="auto-card__items">
@@ -318,7 +355,10 @@ export function BatchCard({ batch: given }: { batch: Batch }) {
                     {item.action}
                     {item.resource ? <span className="mute"> {shortResource(item.resource)}</span> : null}
                   </span>
-                  <span className="auto-card__why">{item.reason}</span>
+                  <span className="auto-card__why">
+                    {item.outOfPlan ? <span className="auto-card__tag">Outside your plan</span> : null}
+                    {item.reason}
+                  </span>
                 </span>
                 {item.state === 'waiting' ? (
                   <span className="auto-card__item-acts">
@@ -331,6 +371,20 @@ export function BatchCard({ batch: given }: { batch: Batch }) {
                     >
                       Deny
                     </button>
+                    {item.outOfPlan && item.planId && item.resource ? (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--xs"
+                        disabled={!item.approvalId || busy}
+                        aria-label={`Add ${what} to the plan and allow it`}
+                        onClick={() => {
+                          setBusy(true);
+                          void addToPlan(batch.threadId, item).finally(() => setBusy(false));
+                        }}
+                      >
+                        Add to plan
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="btn btn--xs"
@@ -338,7 +392,7 @@ export function BatchCard({ batch: given }: { batch: Batch }) {
                       aria-label={`Allow ${what} once`}
                       onClick={() => void answerItem(item, 'approve')}
                     >
-                      Allow
+                      {item.outOfPlan ? 'Allow once' : 'Allow'}
                     </button>
                   </span>
                 ) : (
@@ -372,12 +426,58 @@ export function BatchCard({ batch: given }: { batch: Batch }) {
   );
 }
 
+/* ---- Reviewer offline ----------------------------------------------------- */
+
+/** Asked only in Auto mode; the global stream keeps it current. */
+export function useReviewerStatus() {
+  const demo = useUi((s) => s.demo);
+  const preset = usePermissionPreset().data;
+  return useQuery({
+    queryKey: REVIEWER_KEY,
+    queryFn: () => api.get<ReviewerStatus>('/auto/reviewer'),
+    enabled: !demo && preset === 'auto',
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** One quiet line while Auto mode decides by its rules alone. Dismissed per outage. */
+export function ReviewerOffline({ status }: { status: ReviewerStatus }) {
+  const [gone, setGone] = useState(() => dismissedOutage());
+  if (status.status !== 'offline' || !status.outage_id || gone === status.outage_id) return null;
+  const { why, fix } = reviewerOfflineCopy(status);
+  const id = status.outage_id;
+  return (
+    <div className="reviewer-off" role="status">
+      <Icon name="shield" size={12} className="reviewer-off__icon" />
+      <span className="reviewer-off__text">
+        <strong>Reviewer offline, asking more often.</strong> {why}.
+      </span>
+      <Link to={fix.to} params={fix.params as never} className="reviewer-off__fix">
+        {fix.label}
+      </Link>
+      <button
+        type="button"
+        className="icon-btn icon-btn--sm"
+        aria-label="Dismiss the reviewer notice"
+        onClick={() => {
+          dismissOutage(id);
+          setGone(id);
+        }}
+      >
+        <Icon name="close" size={12} />
+      </button>
+    </div>
+  );
+}
+
 /* ---- One card at a time -------------------------------------------------- */
 
 export function AutoSlot({ threadId, onChangePlan }: { threadId: string; onChangePlan: () => void }) {
   const batches = useAuto((s) => s.batches);
   const batch = openBatch(batches, threadId);
   const plan = usePlan(threadId).data;
+  const reviewer = useReviewerStatus().data;
   const which = batch
     ? 'batch'
     : plan?.status === 'proposed'
@@ -386,21 +486,24 @@ export function AutoSlot({ threadId, onChangePlan }: { threadId: string; onChang
         ? 'line'
         : null;
   return (
-    <AnimatePresence initial={false} mode="wait">
-      {which === 'batch' && batch ? (
-        <motion.div key={`b-${batch.id}`} {...rise}>
-          <BatchCard batch={batch} />
-        </motion.div>
-      ) : which === 'plan' && plan ? (
-        <motion.div key={`p-${plan.id}`} {...rise}>
-          <PlanCard threadId={threadId} plan={plan} onChange={onChangePlan} />
-        </motion.div>
-      ) : which === 'line' && plan ? (
-        <motion.div key={`l-${plan.id}`} {...rise}>
-          <PlanLine threadId={threadId} plan={plan} />
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+    <>
+      {reviewer ? <ReviewerOffline status={reviewer} /> : null}
+      <AnimatePresence initial={false} mode="wait">
+        {which === 'batch' && batch ? (
+          <motion.div key={`b-${batch.id}`} {...rise}>
+            <BatchCard batch={batch} />
+          </motion.div>
+        ) : which === 'plan' && plan ? (
+          <motion.div key={`p-${plan.id}`} {...rise}>
+            <PlanCard threadId={threadId} plan={plan} onChange={onChangePlan} />
+          </motion.div>
+        ) : which === 'line' && plan ? (
+          <motion.div key={`l-${plan.id}`} {...rise}>
+            <PlanLine threadId={threadId} plan={plan} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 

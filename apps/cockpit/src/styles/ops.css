@@ -1388,6 +1388,51 @@ button.logline__row:hover {
   background: rgb(var(--fail-rgb) / 0.08);
   color: var(--fg);
 }
+/* A server's tools changed since you approved it: a status, so warn tones, never violet. */
+.mcp__note--changed {
+  display: grid;
+  gap: 8px;
+  background: rgb(var(--warn-rgb) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.28);
+  color: var(--fg);
+}
+.mcp__note--changed p {
+  margin: 0;
+}
+.mcp__diff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp__diff li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mcp__diff code {
+  overflow-wrap: anywhere;
+}
+.mcp__diff li[data-kind='removed'] code {
+  text-decoration: line-through;
+  color: var(--fg-3);
+}
+.mcp__diff-acts {
+  display: flex;
+  justify-content: flex-end;
+}
+.mcp__badge--held {
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.5);
+  color: var(--fg-2);
+}
+.mcp-cc {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
 .mcp__foot {
   display: flex;
   flex-wrap: wrap;

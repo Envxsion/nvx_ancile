@@ -297,3 +297,43 @@
     font-size: var(--t-micro);
   }
 }
+
+/* Reviewer offline: one quiet line, status tones only (never violet). */
+.reviewer-off {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  background: rgb(var(--warn-rgb) / 0.06);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.reviewer-off__icon {
+  flex: none;
+  color: var(--warn);
+}
+.reviewer-off__text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.reviewer-off__text strong {
+  font-weight: 500;
+  color: var(--fg);
+}
+.reviewer-off__fix {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.auto-card__tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  font-size: var(--t-micro);
+  color: var(--fg-3);
+}

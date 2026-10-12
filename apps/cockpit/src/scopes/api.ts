@@ -30,6 +30,8 @@ import {
   type ScopeField,
   type ScopeLevel,
   type ScopeValues,
+  type SharedBeforeLocal,
+  type SharedDestination,
   type StoredScope,
   type ToolPreset,
   type ToolPresetList,
@@ -289,3 +291,48 @@ export const FIELD_WORDS: Record<ScopeField, string> = {
   network: 'network',
   tool_preset: 'tool preset',
 };
+
+/* ---- What had already left this machine (track G) ---------------------------- */
+
+export const DESTINATION_WORDS: Record<SharedDestination, string> = {
+  claude_code: 'Claude Code',
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+  openrouter: 'OpenRouter',
+  mistral: 'Mistral',
+  groq: 'Groq',
+  deepseek: 'DeepSeek',
+  xai: 'xAI',
+  other_cloud: 'other cloud providers',
+};
+
+const day = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/**
+ * One record in words, honest that it can't be recalled: "Before this
+ * notebook became private on 12 Oct 2026, 14 answers came from models off
+ * this computer: Anthropic (10), Claude Code (4), from 1 Oct 2026 to 9 Oct
+ * 2026."
+ */
+export function sharedBeforeText(r: SharedBeforeLocal): { lede: string; detail: string | null } {
+  const what = r.level === 'notebook' ? 'this notebook' : 'this thread';
+  const change = r.change === 'private' ? 'became private' : 'was set to keep everything on this computer';
+  const when = day(r.changed_at);
+  if (!r.turns)
+    return { lede: `Nothing had left this computer before ${what} ${change} on ${when}.`, detail: null };
+  const n = `${r.turns} ${r.turns === 1 ? 'answer' : 'answers'}`;
+  const where = r.destinations.map((d) => `${DESTINATION_WORDS[d.destination]} (${d.turns})`).join(', ');
+  const range =
+    r.first_at && r.last_at
+      ? day(r.first_at) === day(r.last_at)
+        ? ` on ${day(r.first_at)}`
+        : `, from ${day(r.first_at)} to ${day(r.last_at)}`
+      : '';
+  return {
+    lede: `Before ${what} ${change} on ${when}, ${n} came from models off this computer: ${where}${range}.`,
+    detail:
+      "What was sent to them then can't be recalled from here. Since the change, nothing from here goes to them.",
+  };
+}

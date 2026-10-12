@@ -17,10 +17,11 @@
 import { GlobalEvent } from '@nvx/contracts';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
+import { onReviewerStatus } from '../auto/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
 import { onMemoryProposal } from '../memory/api';
 import { decisionChime } from '../notify/chime';
-import { onMcpServerChanged } from '../ops/mcp';
+import { onMcpServerChanged, onMcpToolsChanged } from '../ops/mcp';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { useMemoryTray } from '../thread/MemoryTray';
@@ -73,6 +74,12 @@ export function useGlobalEvents(): void {
             break;
           case 'mcp.server_changed':
             onMcpServerChanged(e, queryClient);
+            break;
+          case 'mcp.tools_changed':
+            onMcpToolsChanged(e, queryClient);
+            break;
+          case 'auto.reviewer':
+            onReviewerStatus(e, queryClient);
             break;
           case 'claude_code.changed':
             onClaudeCodeChanged(e, queryClient);
