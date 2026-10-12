@@ -114,3 +114,28 @@ describe('registry chain()', () => {
     ]);
   });
 });
+
+describe('try-out models in a chain', () => {
+  const make = (models: ModelConfig[]) =>
+    new ModelRegistry({
+      models,
+      taskClasses: { 'chat.default': models.map((m) => m.id) },
+      secrets: new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64'))),
+      settings: new MemorySettings(),
+      offline: true,
+    });
+
+  it('stand in while no real model can answer', async () => {
+    const r = make([]);
+    await r.refresh();
+    expect(r.chain('chat.default').map((m) => m.id)).toContain('offline/test');
+  });
+
+  it('are never a silent fallback once a real model is ready, but still answer when chosen', async () => {
+    const local: ModelConfig = { ...fakeModel('x', 'echo'), id: 'ollama/qwen', provider: 'ollama' };
+    const r = make([local]);
+    await r.refresh();
+    expect(r.chain('chat.default', local.id).map((m) => m.id)).toEqual([local.id]);
+    expect(r.chain('chat.default', 'offline/test').map((m) => m.id)).toEqual(['offline/test', local.id]);
+  });
+});
