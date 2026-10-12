@@ -78,7 +78,7 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { historyFor, systemPrompt, withPartial } from './context';
+import { historyFor, systemPrompt, withPartial, withTurnContext } from './context';
 import { explainLinks, searchWithLinks } from './links';
 import {
   capPerSource,
@@ -1109,18 +1109,22 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         );
         // ---- end Engines ----
         const req: ModelRequest = {
+          // What stays the same from turn to turn comes first, so providers' prompt
+          // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
+          // across turns: this turn's passages ride on the question, not the system prompt.
           system: [
             base,
             memory,
             engine?.instructions,
             engine?.history ? engine.note : cp.compaction?.note,
-            sources,
-            summariesBlock(cp.linked?.summaries ?? []),
             cp.input.instructions,
           ]
             .filter(Boolean)
             .join('\n\n'),
-          messages: history,
+          messages: withTurnContext(
+            history,
+            [sources, summariesBlock(cp.linked?.summaries ?? [])].filter(Boolean).join('\n\n'),
+          ),
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
           ...(tools.length && { tools }),
         };

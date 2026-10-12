@@ -42,6 +42,11 @@ The budget is the model's context window, less a reserve for the answer (its max
 
 A thread with no other engine's turns keeps the conductor's own history exactly as before. Only the instructions (below) are added.
 
+### Keeping providers' prompt caches warm
+
+Anthropic, OpenAI, vLLM (prefix caching) and Ollama (its KV cache) bill or compute less for the part of a prompt that starts the same as the previous one. So every gateway prompt puts what stays the same first: the system prompt (with today's date, never the time), memory, instructions and any summary, then the earlier turns. This turn's retrieved passages and linked summaries go last, ahead of the question they were found for, not in the system prompt (`conductor/context.ts`, `withTurnContext`). Measured on a four-turn notebook thread with Ollama, the cached part of each prompt went from about 11% to about 47%; on Claude Code as a model, from nothing to about 60%.
+
+
 The answer records what it was given in `provenance.engine_context` (`EngineContextReport`): the window, the reserve, the tokens sent, the summary used, how many messages went as they are, how many tool steps were digested, which messages were recalled and how many were left out, and (since track E) `full_tokens`, about what the whole path would have been sent as it is. Pro's Engine insights count the difference as tokens saved. TODO(phase-3): plain gateway chats in one engine record no `engine_context`, so their savings are not counted yet.
 
 ### Claude Code

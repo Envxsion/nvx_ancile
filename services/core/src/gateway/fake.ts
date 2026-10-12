@@ -130,7 +130,13 @@ export class FakeProvider implements ModelClient {
     const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
     // `/ttft <ms>` on a line of its own: the provider's own wait before its
     // first word (the load test measures NVX Ancile's overhead above it).
-    const raw = textOf(lastUser);
+    // The turn's passages ride ahead of the question (conductor/context withTurnContext).
+    const whole = textOf(lastUser);
+    const lastQuote = whole.lastIndexOf('\n"""');
+    const sep = lastQuote >= 0 ? whole.indexOf('\n\n---\n\n', lastQuote) : -1;
+    const turnContext = sep >= 0 ? whole.slice(0, sep) : '';
+    const raw = sep >= 0 ? whole.slice(sep + 7) : whole;
+    const grounding = `${req.system ?? ''}\n${turnContext}`;
     const ttftMs =
       b === 'script' ? Math.min(10_000, Number(/(?:^|\n)\/ttft\s+(\d+)\s*(?:\n|$)/.exec(raw)?.[1] ?? 0)) : 0;
     const prompt = raw.replace(/(?:^|\n)\/ttft\s+\d+\s*(?=\n|$)/, '').trim();
@@ -170,10 +176,10 @@ export class FakeProvider implements ModelClient {
         b = kind === 'refusal' ? 'refusal' : `fail:${kind || '500'}`;
       } else if (directive?.[1] === 'say') {
         text = directive[2] ?? '';
-      } else if (/^\[1\] /m.test(req.system ?? '')) {
+      } else if (/^\[1\] /m.test(grounding)) {
         // Grounded: quote the first sentence of the top passages and cite them,
         // so notebooks and citations can be tried without a key.
-        const passages = [...(req.system ?? '').matchAll(/^\[(\d+)\] ([^\n]*)\n"""\n([\s\S]*?)\n"""/gm)];
+        const passages = [...grounding.matchAll(/^\[(\d+)\] ([^\n]*)\n"""\n([\s\S]*?)\n"""/gm)];
         const lines = passages.slice(0, 3).map((p) => {
           // Headings are where a passage sits, not what it says.
           p[3] = (p[3] ?? '').replace(/^#{1,6}[^\n]*$/gm, '');
