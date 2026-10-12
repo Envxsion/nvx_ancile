@@ -16,8 +16,10 @@
           |  and never fetches anything at query time. When nothing can
           |  be loaded it raises embed.unavailable, and callers fall
           |  back to text search.
- Note     |  TODO(phase-4): GatewayEmbedder and the background
-          |  re-embed job when the embedder changes.
+          |  embedder_for_key() loads the model behind a stored
+          |  model_key, so search can keep embedding queries with the
+          |  old model while ingest/reembed.py fills the new one.
+ Note     |  TODO(phase-5): GatewayEmbedder (embeddings through Core).
 ------------------------------------------------------------------
 """
 
@@ -133,6 +135,7 @@ def set_embedder(embedder: Embedder | None) -> None:
         _override = embedder
         _loaded = None
         _failed = None
+        _by_key.clear()
 
 
 def get_embedder(*, download: bool = False) -> Embedder:
@@ -162,6 +165,39 @@ def get_embedder(*, download: bool = False) -> Embedder:
             _failed = f"{settings.embed_model}: {type(exc).__name__}"
             log.warning("embedder unavailable", model=settings.embed_model, error=type(exc).__name__)
             raise unavailable(_failed) from exc
+
+
+_by_key: dict[str, Embedder] = {}
+
+
+def embedder_for_key(model_key: str) -> Embedder | None:
+    """
+    The embedder behind a stored model_key: the configured one when it matches,
+    else the same kind loaded from the local cache (never downloaded). None when
+    it cannot be loaded here, and callers fall back to text search.
+    """
+    current = try_get_embedder(download=False)
+    if current is not None and current.model_key == model_key:
+        return current
+    cached = _by_key.get(model_key)
+    if cached is not None:
+        return cached
+    loaded: Embedder | None = None
+    if model_key.startswith("test/hash-") and model_key[len("test/hash-") :].isdigit():
+        loaded = HashEmbedder(int(model_key[len("test/hash-") :]))
+    elif model_key.startswith("local/") and fastembed_available():
+        from ..settings import get_settings
+
+        try:
+            loaded = LocalEmbedder(
+                model_key[len("local/") :], str(get_settings().model_cache), local_only=True
+            )
+        except Exception as exc:
+            log.warning("embedder for stored vectors unavailable", model=model_key, error=type(exc).__name__)
+    if loaded is not None:
+        with _lock:
+            _by_key[model_key] = loaded
+    return loaded
 
 
 def try_get_embedder(*, download: bool = False) -> Embedder | None:

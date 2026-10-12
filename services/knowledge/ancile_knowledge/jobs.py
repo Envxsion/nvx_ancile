@@ -24,7 +24,9 @@
           |            stage they reached; elsewhere an expired lease
           |            is simply claimable again
           |  The same loop runs maintenance: the stale-URL sweep every
-          |  KNOWLEDGE_STALE_CHECK_HOURS.
+          |  KNOWLEDGE_STALE_CHECK_HOURS, and a background re-embed
+          |  when the embedding model changes (ingest/reembed.py: a
+          |  check every minute, one batch whenever no source waits).
  Note     |  Why not Procrastinate: its worker needs psycopg's async
           |  connection, which cannot run on Windows' default Proactor
           |  event loop (uvicorn's choice there), and this queue needs
@@ -50,7 +52,7 @@ from sqlalchemy import text
 
 from .db import sessions
 from .errors import AncileError
-from .ingest import pipeline
+from .ingest import pipeline, reembed
 from .obs import SERVICE, get_logger, new_span_id, new_trace_id
 from .settings import get_settings
 
@@ -60,6 +62,7 @@ S = "knowledge"
 QUEUES = ("ingest", "embed", "maintenance")  # kept for callers of the old module
 IDLE_POLL_S = 2.0
 RETRY_BACKOFF_S = 15
+REEMBED_CHECK_S = 60
 
 
 def claim(worker_id: str) -> dict[str, Any] | None:
@@ -215,6 +218,8 @@ class Worker:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._next_maintenance = time.monotonic() + 60
+        # At start, then every minute: has the configured embedding model changed?
+        self._next_reembed_check = 0.0
         self.running = False
 
     def start(self) -> None:
@@ -251,6 +256,12 @@ class Worker:
                 claimed = claim(self.id)
                 if claimed is not None:
                     await process(claimed, self.id, self._stop)
+                    continue
+                if time.monotonic() >= self._next_reembed_check:
+                    self._next_reembed_check = time.monotonic() + REEMBED_CHECK_S
+                    await asyncio.to_thread(reembed.check)
+                # Sources first; a re-embed takes one batch at a time between them.
+                if await asyncio.to_thread(reembed.step):
                     continue
                 if time.monotonic() >= self._next_maintenance:
                     await self._maintenance()

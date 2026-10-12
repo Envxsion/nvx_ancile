@@ -171,6 +171,10 @@ def main() -> int:
     from ancile_knowledge.sources import repo
 
     configure_logging("warning")
+    from ancile_knowledge.ingest import reembed
+
+    # A throwaway database: search uses the embedder chosen here, not one a test run left active.
+    reembed.reset_index()
     if args.embedder == "hash":
         embed.set_embedder(embed.HashEmbedder())
     try:

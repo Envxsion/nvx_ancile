@@ -42,9 +42,13 @@ def prepare_test_database(url: str | None) -> str | None:
     admin = urlunsplit((parts.scheme, parts.netloc, "/postgres", parts.query, parts.fragment))
     try:
         with psycopg.connect(admin, connect_timeout=3, autocommit=True) as conn:
-            exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TEST_DB_NAME,)).fetchone()
-            if not exists and parts.path.lstrip("/") == TEST_DB_NAME:
-                conn.execute(f'CREATE DATABASE "{TEST_DB_NAME}"')
+            exists = conn.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (parts.path.lstrip("/"),)
+            ).fetchone()
+            # Only ever a test database: ancile_kn_test, or one named after it (ancile_kn_test_ci).
+            name = parts.path.lstrip("/")
+            if not exists and name.startswith(TEST_DB_NAME) and name.replace("_", "").isalnum():
+                conn.execute(f'CREATE DATABASE "{name}"')
         with psycopg.connect(plain, connect_timeout=3, autocommit=True) as conn:
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
             conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")

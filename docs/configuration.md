@@ -70,6 +70,18 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `KNOWLEDGE_CONTEXTUAL_CHUNKS` | `true` | Add a short LLM-written context blurb to each chunk before indexing. |
 | `SEARXNG_URL` | empty | Web search for evidence. Empty disables it. |
 
+#### Changing the embedding model
+
+Change `KNOWLEDGE_EMBED_MODEL` and restart Knowledge (or `POST /api/v1/knowledge/embeddings/check`). Within a minute Knowledge starts re-embedding every current passage with the new model, in the background, one batch at a time between new sources:
+
+- **Search never goes blind.** It keeps reading the old model's vectors, embedding queries with the old model from the local cache, until every passage has a new vector. Then it swaps to the new model in one step, and the old vectors are deleted.
+- **Sources added meanwhile** are embedded with both models, so they are found before and after the swap.
+- **Resumable.** Progress is counted from the database, so a restart carries on where it stopped.
+- **Progress:** `GET /api/v1/knowledge/embeddings` answers the active model, the configured one and the re-embed's `status`, `done` of `total` and `percent` (`EmbeddingStatus` in `packages/contracts/src/knowledge.ts`). A model that cannot load leaves the re-embed `failed` with its error, and it is tried again a minute later.
+- Setting the model back to the active one before the swap cancels the re-embed.
+
+The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed_index`); the code is `services/knowledge/ancile_knowledge/ingest/reembed.py`.
+
 ### Controller
 
 | Variable | Default | Meaning |

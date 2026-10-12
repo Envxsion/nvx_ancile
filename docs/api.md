@@ -263,6 +263,13 @@ POST /kn/v1/search
 
 `POST /kn/v1/passages/check` takes `{ workspace_id, items: [{ ref, source_id, text_sha256 }] }` (up to 500) and answers each with `state` `current`, `changed` or `removed`, the source's title and `deleted_at`. A passage is current when its chunk is in the source's current version with the same hash, or when the same text moved to another chunk. `GET /kn/v1/notebooks/{id}/languages` answers `NotebookLanguages`. Each `Source` carries `language`.
 
+```http
+GET  /kn/v1/embeddings         → EmbeddingStatus { active_model_key, configured_model_key, reembed: { status, done, total, percent, … } }
+POST /kn/v1/embeddings/check   → EmbeddingStatus (look for a changed embedding model now)
+```
+
+Core serves both to the Cockpit as `GET /api/v1/knowledge/embeddings` and `POST /api/v1/knowledge/embeddings/check`. See docs/configuration.md (Changing the embedding model).
+
 Knowledge calls back to Core's `/internal/v1/openai/chat/completions` and `/internal/v1/openai/embeddings` (OpenAI-compatible) for every model call, so the Gateway traces and routes them.
 
 ## Core ↔ Controller

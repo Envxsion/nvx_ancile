@@ -58,11 +58,12 @@ def kdb(_migrated: None):  # type: ignore[no-untyped-def]
     from sqlalchemy import text
 
     from ancile_knowledge.db import sessions
-    from ancile_knowledge.ingest import embed, fetch
+    from ancile_knowledge.ingest import embed, fetch, reembed
     from ancile_knowledge.search import rerank
 
     with sessions().begin() as db:
         db.execute(text("TRUNCATE knowledge.sources CASCADE"))
+    reembed.reset_index()
     if os.environ.get("ANCILE_TEST_REAL_EMBEDDER") != "1":
         embed.set_embedder(embed.HashEmbedder())
     rerank.set_reranker(rerank.IdentityReranker())
