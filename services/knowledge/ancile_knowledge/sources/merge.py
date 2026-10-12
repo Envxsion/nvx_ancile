@@ -66,7 +66,9 @@ def _plan(into: list[dict[str, Any]], frm: list[dict[str, Any]]) -> dict[str, li
             plan["duplicates"].append({"source": s, "into": same})
             continue
         plan["move"].append({"source": s})
-        other = (by_uri.get(s["uri"]) if s["uri"] else None) or by_title.get((s["title"] or "").strip().lower())
+        other = (by_uri.get(s["uri"]) if s["uri"] else None) or by_title.get(
+            (s["title"] or "").strip().lower()
+        )
         if other is not None:
             plan["versions"].append({"source": s, "into": other})
     return plan
@@ -86,7 +88,8 @@ def merge_preview(
         "move": [ref(e) for e in plan["move"]],
         "already": [ref(e) for e in plan["already"]],
         "duplicates": [
-            {**ref(e), "into_id": e["into"]["id"], "into_title": e["into"]["title"]} for e in plan["duplicates"]
+            {**ref(e), "into_id": e["into"]["id"], "into_title": e["into"]["title"]}
+            for e in plan["duplicates"]
         ],
         "versions": [{**ref(e), "into_id": e["into"]["id"]} for e in plan["versions"]],
     }
@@ -114,7 +117,8 @@ def merge_notebooks(into_id: str, body: MergeBody) -> dict[str, Any]:
             )
             moved.append({"source_id": s["id"], "context_level": s["context_level"]})
         already = [
-            {"source_id": e["source"]["id"], "context_level": e["source"]["context_level"]} for e in plan["already"]
+            {"source_id": e["source"]["id"], "context_level": e["source"]["context_level"]}
+            for e in plan["already"]
         ]
         merged = []
         for e in plan["duplicates"]:

@@ -32,7 +32,9 @@ def test_preview_merge_and_undo(client: TestClient) -> None:
     # A holds the article and a shared source; B holds a copy of the article, the shared source,
     # another version of A's "Pumps" note, and one of its own.
     a_article = add_text(client, notebook_id="nb-a")["id"]
-    shared = add_text(client, body="Shared reading list for both teams.", title="Reading", notebook_id="nb-a")["id"]
+    shared = add_text(
+        client, body="Shared reading list for both teams.", title="Reading", notebook_id="nb-a"
+    )["id"]
     a_pumps = add_text(client, body="Pumps run at 40 bar.", title="Pumps", notebook_id="nb-a")["id"]
     b_copy = add_text(client, notebook_id="nb-b")["id"]
     b_pumps = add_text(client, body="Pumps now run at 45 bar.", title="Pumps", notebook_id="nb-b")["id"]
@@ -46,12 +48,16 @@ def test_preview_merge_and_undo(client: TestClient) -> None:
     p = r.json()
     assert {m["id"] for m in p["move"]} == {b_pumps, b_own}
     assert [m["id"] for m in p["already"]] == [shared]
-    assert p["duplicates"] == [{"id": b_copy, "title": "Tidal energy", "into_id": a_article, "into_title": "Tidal energy"}]
+    assert p["duplicates"] == [
+        {"id": b_copy, "title": "Tidal energy", "into_id": a_article, "into_title": "Tidal energy"}
+    ]
     assert p["versions"] == [{"id": b_pumps, "title": "Pumps", "into_id": a_pumps}]
     # A preview changes nothing.
     assert ids(client, "nb-b") == {b_copy, shared, b_pumps, b_own}
 
-    r = client.post("/kn/v1/notebooks/nb-a/merge", json={"from_id": "nb-b", "workspace_id": "ws"}, headers=AUTH)
+    r = client.post(
+        "/kn/v1/notebooks/nb-a/merge", json={"from_id": "nb-b", "workspace_id": "ws"}, headers=AUTH
+    )
     assert r.status_code == 200, r.text
     rec = r.json()
     assert {m["source_id"] for m in rec["moved"]} == {b_pumps, b_own}
