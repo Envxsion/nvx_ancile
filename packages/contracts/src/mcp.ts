@@ -120,8 +120,60 @@ export const McpToolView = z.object({
   disabled: z.boolean(),
   destructive: z.boolean(),
   read_only: z.boolean(),
+  /** Added or changed since the server was approved: refused until you approve its new list. */
+  held: z.boolean().optional(),
 });
 export type McpToolView = z.infer<typeof McpToolView>;
+
+/**
+ * Who runs the server: NVX Ancile's own MCP host, or Claude Code (its
+ * servers, seen from a live session).
+ */
+export const McpToolOrigin = z.enum(['host', 'claude_code']);
+export type McpToolOrigin = z.infer<typeof McpToolOrigin>;
+
+/** Tool names that came, went or changed since the list was approved. */
+export const McpToolDiff = z.object({
+  added: z.array(z.string()),
+  removed: z.array(z.string()),
+  changed: z.array(z.string()),
+});
+export type McpToolDiff = z.infer<typeof McpToolDiff>;
+
+/**
+ * The tool list a server was approved with, and whether it still offers that
+ * list. A server's list is fingerprinted when it is first added (SHA-256 over
+ * canonical JSON of each tool's name, description and input schema). Any
+ * change after that ("changed") refuses its new and changed tools until you
+ * approve the new list once.
+ */
+export const McpToolApproval = z.object({
+  /** `<origin>:<server name>`. */
+  key: z.string(),
+  origin: McpToolOrigin,
+  server: z.string(),
+  state: z.enum(['approved', 'changed']),
+  approved_fingerprint: z.string(),
+  /** What the server offers now; equal to approved_fingerprint while approved. */
+  current_fingerprint: z.string(),
+  approved_at: z.string(),
+  changed_at: z.string().nullable(),
+  /** Against the approved list; null while approved. */
+  diff: McpToolDiff.nullable(),
+  /**
+   * `full`: names, descriptions and input schemas. `names`: Claude Code
+   * reports its servers' tool names only, so only those are compared.
+   */
+  coverage: z.enum(['full', 'names']),
+});
+export type McpToolApproval = z.infer<typeof McpToolApproval>;
+
+/**
+ * POST /mcp/approvals/:key/approve. The fingerprint you were shown: if the
+ * server changed again since, nothing is approved (mcp.tools_changed_again).
+ */
+export const ApproveMcpToolsRequest = z.object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
+export type ApproveMcpToolsRequest = z.infer<typeof ApproveMcpToolsRequest>;
 
 export const McpServerView = z.object({
   id: z.string(),
@@ -142,5 +194,7 @@ export const McpServerView = z.object({
   connected_at: z.string().nullable(),
   /** Tools the server offers, with the settings that apply. Empty until connected. */
   tools: z.array(McpToolView),
+  /** Its approved tool list, once it has connected. Optional for older Cores. */
+  approval: McpToolApproval.nullable().optional(),
 });
 export type McpServerView = z.infer<typeof McpServerView>;

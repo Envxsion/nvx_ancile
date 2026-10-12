@@ -254,6 +254,13 @@ export const RunEvent = z.discriminatedUnion('type', [
     via: z.enum(['floor', 'reviewer', 'rules']),
     /** Why it asks, in a sentence. */
     reason: z.string(),
+    /**
+     * An approved plan is in force and this call fits none of its steps:
+     * the Cockpit offers "Add to plan" beside Allow once and Deny.
+     */
+    out_of_plan: z.boolean().optional(),
+    /** The plan it is outside of, when out_of_plan. */
+    plan_id: z.string().optional(),
   }),
   /** Auto mode's plan for this thread or run changed (proposed, approved, rejected). */
   z.object({
@@ -353,6 +360,30 @@ export const GlobalEvent = z.discriminatedUnion('type', [
     status: z.enum(['connecting', 'connected', 'error', 'disabled', 'removed']),
     tools: z.number().int(),
     detail: z.string().optional(),
+  }),
+  /**
+   * An MCP server's tool list changed since it was approved (a rug pull), or
+   * the new list was approved. Counts only: the diff is on GET /mcp/approvals.
+   */
+  z.object({
+    ...base,
+    type: z.literal('mcp.tools_changed'),
+    key: z.string(),
+    origin: z.enum(['host', 'claude_code']),
+    server: z.string(),
+    state: z.enum(['approved', 'changed']),
+    added: z.number().int().nonnegative(),
+    removed: z.number().int().nonnegative(),
+    changed: z.number().int().nonnegative(),
+  }),
+  /** Auto mode's reviewer went offline (rules only, asking more often) or came back. Once per change. */
+  z.object({
+    ...base,
+    type: z.literal('auto.reviewer'),
+    status: z.enum(['online', 'offline']),
+    outage_id: z.string().nullable(),
+    reason: z.enum(['no_key', 'key_rejected', 'network', 'model_not_pulled']).nullable(),
+    local_only: z.boolean(),
   }),
   z.object({
     ...base,

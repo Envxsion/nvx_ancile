@@ -297,6 +297,45 @@ export const EffectiveScope = z.object({
 });
 export type EffectiveScope = z.infer<typeof EffectiveScope>;
 
+/**
+ * Where answers came from when they were made off this machine: a closed set
+ * of engines and providers, never a model's full id and never content.
+ */
+export const SharedDestination = z.enum([
+  'claude_code',
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter',
+  'mistral',
+  'groq',
+  'deepseek',
+  'xai',
+  'other_cloud',
+]);
+export type SharedDestination = z.infer<typeof SharedDestination>;
+
+/**
+ * What had already left this machine when a notebook became private, or a
+ * notebook or thread became local only. Recorded once, at the change, from
+ * the answers' own records (model and engine per message). It cannot be
+ * recalled: it is shown so you know.
+ */
+export const SharedBeforeLocal = z.object({
+  id: z.string(),
+  level: z.enum(['notebook', 'thread']),
+  ref_id: z.string(),
+  /** `private`: the notebook was made private. `local_only`: data leaving the machine was switched off. */
+  change: z.enum(['private', 'local_only']),
+  changed_at: z.string(),
+  /** Answers made by engines or models off this machine, before the change. */
+  turns: z.number().int().nonnegative(),
+  first_at: z.string().nullable(),
+  last_at: z.string().nullable(),
+  destinations: z.array(z.object({ destination: SharedDestination, turns: z.number().int().nonnegative() })),
+});
+export type SharedBeforeLocal = z.infer<typeof SharedBeforeLocal>;
+
 /** GET /notebooks/:id/scope and GET /threads/:id/scope: what that level stores. */
 export const StoredScope = z.object({
   level: z.enum(['notebook', 'thread']),
@@ -306,6 +345,11 @@ export const StoredScope = z.object({
   patch: ScopePatch,
   effective: EffectiveScope,
   updated_at: z.string().nullable(),
+  /**
+   * Each time this level (or, for a thread, its notebook) stopped letting data
+   * leave the machine: what had already gone. Newest first.
+   */
+  shared_before_local: z.array(SharedBeforeLocal).optional(),
 });
 export type StoredScope = z.infer<typeof StoredScope>;
 

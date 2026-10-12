@@ -76,6 +76,33 @@ export const PlanDecisionRequest = z.object({ decision: z.enum(['approve', 'reje
 export type PlanDecisionRequest = z.infer<typeof PlanDecisionRequest>;
 
 /**
+ * POST /auto/plans/:id/steps: "Add to plan" on a step outside it. The plan
+ * must be the approved one in force; the step is checked like any other.
+ */
+export const AddPlanStepRequest = AutoPlanStep;
+export type AddPlanStepRequest = z.input<typeof AddPlanStepRequest>;
+
+/** Why no reviewer could answer, so Auto mode fell back to its rules. */
+export const ReviewerOfflineReason = z.enum(['no_key', 'key_rejected', 'network', 'model_not_pulled']);
+export type ReviewerOfflineReason = z.infer<typeof ReviewerOfflineReason>;
+
+/**
+ * GET /auto/reviewer, and the `auto.reviewer` event when it changes. While
+ * offline, Auto mode decides with its rules alone, so it asks more often.
+ * `unknown` until Auto mode has reviewed a call since Core started.
+ */
+export const ReviewerStatus = z.object({
+  status: z.enum(['online', 'offline', 'unknown']),
+  /** One id per outage, so a dismissed notice stays dismissed until the next one. */
+  outage_id: z.string().nullable(),
+  reason: ReviewerOfflineReason.nullable(),
+  /** Only local reviewers were allowed (a private notebook, or nothing may leave the machine). */
+  local_only: z.boolean(),
+  since: z.string().nullable(),
+});
+export type ReviewerStatus = z.infer<typeof ReviewerStatus>;
+
+/**
  * POST /approvals/batch: answer several waiting approvals at once (Auto
  * mode groups its asks). Each is answered "once"; nothing is remembered.
  */
