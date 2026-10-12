@@ -234,6 +234,7 @@ export function assembleForGateway(opts: {
       dropped,
       foreign_turns: 0,
       seeded_from_summary: false,
+      full_tokens: Math.max(tokens, fullTokensOf(opts.path)),
     },
   };
 }
@@ -418,7 +419,7 @@ export function planClaudeTurn(opts: {
       prefix: d.text || null,
       tokens: d.tokens,
       seed: { summaryId: summary.id },
-      report: claudeReport(d.tokens, foreign.length, d.included, true, summary.id),
+      report: claudeReport(d.tokens, foreign.length, d.included, true, summary.id, fullTokensOf(path)),
     };
   }
   // No session place and no summary: a fresh session is given the path itself.
@@ -439,7 +440,7 @@ export function planClaudeTurn(opts: {
     prefix: d.text || null,
     tokens: d.tokens,
     seed: null,
-    report: claudeReport(d.tokens, foreign.length, d.included, false, null),
+    report: claudeReport(d.tokens, foreign.length, d.included, false, null, fullTokensOf(give)),
   };
 }
 
@@ -449,6 +450,7 @@ function claudeReport(
   included: number,
   seeded: boolean,
   summaryId: string | null,
+  full: number,
 ): EngineContextReport {
   return {
     engine: 'claude_code',
@@ -462,5 +464,29 @@ function claudeReport(
     dropped: Math.max(0, foreign - included),
     foreign_turns: foreign,
     seeded_from_summary: seeded,
+    // Nothing to give, nothing saved.
+    full_tokens: foreign || seeded ? Math.max(tokens, full) : tokens,
   };
+}
+
+/**
+ * About how many tokens a path is, sent whole: every message as it is,
+ * tool calls and results in full, no summary. What context assembly sent
+ * instead is the report's `tokens`; the difference is what it saved.
+ * TODO(phase-3): plain gateway chats (one engine, conductor/context.ts)
+ * record no engine_context, so Insights cannot count their savings yet.
+ */
+export function fullTokensOf(path: Pick<MessageRecord, 'role' | 'parts'>[]): number {
+  let n = 0;
+  for (const m of path) {
+    if (!conversational(m as MessageRecord) && m.role !== 'tool') continue;
+    for (const p of m.parts) {
+      if (p.type === 'text') n += approxTokens(p.text);
+      else if (p.type === 'tool_call') n += approxTokens(JSON.stringify(p.args ?? {})) + 8;
+      else if (p.type === 'tool_result')
+        n += approxTokens(typeof p.result === 'string' ? p.result : JSON.stringify(p.result ?? null)) + 4;
+    }
+    n += 4;
+  }
+  return n;
 }

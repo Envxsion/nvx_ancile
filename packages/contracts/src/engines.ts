@@ -141,6 +141,12 @@ export const EngineContextReport = z.object({
   foreign_turns: z.number().int().nonnegative().default(0),
   /** Claude Code: the session was started afresh from NVX Ancile's summary. */
   seeded_from_summary: z.boolean().default(false),
+  /**
+   * About how many tokens the whole path would have been, sent as it is
+   * (every message, tool output in full, no summary): what context assembly
+   * saved is this less `tokens`. Recorded since track E; absent before.
+   */
+  full_tokens: z.number().int().nonnegative().optional(),
 });
 export type EngineContextReport = z.infer<typeof EngineContextReport>;
 

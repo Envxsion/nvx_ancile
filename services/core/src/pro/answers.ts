@@ -15,6 +15,7 @@
 
 import { CLAUDE_CODE_MODEL_PREFIX, type ModelConfig } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { isLocalModel } from '../engines/select';
 import type { FlowStore } from '../flows/store';
 import { runFlowOnce } from '../flows/try';
 import type { FlowsService } from '../flows/turn';
@@ -169,6 +170,7 @@ export function proAnswers(deps: {
               id: m.id,
               name: m.display_name,
               provider: m.provider,
+              local: isLocalModel(m),
               ready: status === 'ready',
               problem: status === 'ready' ? null : status === 'needs_key' ? 'needs its key' : 'switched off',
               price: { input_per_mtok: m.price.input_per_mtok, output_per_mtok: m.price.output_per_mtok },

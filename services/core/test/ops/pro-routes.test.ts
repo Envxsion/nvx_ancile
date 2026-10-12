@@ -160,3 +160,33 @@ describe('GPU nodes on the free edition', () => {
     expect((await add(true, ['runpod', 'local']).res).status).toBe(201);
   });
 });
+
+describe('the Pro seam in a free build', () => {
+  it('answers a Pro-only route with 402 naming its feature, not a 404', async () => {
+    const a = app({ routes: [], licensed: false });
+    for (const path of ['/pro/insights/engines?days=30', '/pro/insights']) {
+      const res = await a.request(`/api/v1${path}`);
+      expect(res.status).toBe(402);
+      const body = (await res.json()) as {
+        error: { code: string; title: string; context: { feature: string } };
+      };
+      expect(body.error).toMatchObject({
+        code: 'pro.feature_required',
+        title: 'Insights is part of NVX Ancile Pro',
+        context: { feature: 'insights' },
+      });
+    }
+  });
+
+  it('steps aside where Pro serves the route itself', async () => {
+    const engines: ProRoute = {
+      method: 'GET',
+      path: '/insights/engines',
+      feature: 'insights',
+      handler: async () => ({ body: { ok: true } }),
+    };
+    const res = await app({ routes: [engines], licensed: true }).request('/api/v1/pro/insights/engines');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+});

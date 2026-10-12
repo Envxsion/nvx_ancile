@@ -47,6 +47,7 @@ import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { PlanLimits } from './claudecode/plan-limits';
+import { PgPlanSampleStore, PlanSamples } from './claudecode/plan-samples';
 import { claudeCodeRoutes } from './claudecode/routes';
 import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
@@ -109,6 +110,8 @@ import { labRoutes } from './lab/routes';
 import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
 import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
+import { localModelRoutes } from './localmodels/routes';
+import { LocalModels } from './localmodels/service';
 import { logIngestRoutes, logRoutes } from './logs/routes';
 import { watchClaudeCodeMcp } from './mcp/claude-code-watch';
 import { mcpClientRoutes } from './mcp/clients';
@@ -124,6 +127,7 @@ import { PgProposalStore } from './memory/proposals';
 import { GitMemoryProvider } from './memory/repo';
 import { memoryRoutes } from './memory/routes';
 import { DEFAULT_MEMORY_CONFIG, MemoryService } from './memory/service';
+import { MemoryTransfer } from './memory/transfer';
 import { PgNotebookRepo } from './notebooks/repo';
 import { notebookRoutes } from './notebooks/routes';
 import { notificationRoutes, PgNotificationStore, startNotificationSink } from './notifications/routes';
@@ -528,10 +532,12 @@ async function main() {
   const ownerName =
     (await sql<{ display_name: string }[]>`select display_name from core.users where id = ${owner.userId}`)[0]
       ?.display_name ?? 'You';
+  const memoryIndex = new MemoryIndex(memoryProvider, new PgMemoryIndexSink(sql));
+  const memoryProposals = new PgProposalStore(sql);
   const memory = new MemoryService({
     provider: memoryProvider,
-    index: new MemoryIndex(memoryProvider, new PgMemoryIndexSink(sql)),
-    proposals: new PgProposalStore(sql),
+    index: memoryIndex,
+    proposals: memoryProposals,
     config: config.memory ?? DEFAULT_MEMORY_CONFIG,
     user: { name: ownerName, email: `${owner.userId}@ancile.local` },
     settings,
@@ -549,6 +555,31 @@ async function main() {
     // Answers still work without memory; Health and the Memory page say why.
     log.error({ err }, 'memory could not start: is git installed?');
   }
+  // One-click local models (docs/models.md): Ollama's pull, or fastembed via Knowledge.
+  const localModels = new LocalModels({
+    catalogue: config.localModels?.models ?? [],
+    ollamaUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434',
+    registry,
+    kn,
+  });
+  // Export and import (docs/memory.md): imports only ever propose.
+  const memoryTransfer = new MemoryTransfer({
+    service: memory,
+    provider: memoryProvider,
+    index: memoryIndex,
+    proposals: memoryProposals,
+    user: { name: ownerName, email: `${owner.userId}@ancile.local` },
+    notebooks: async () =>
+      Promise.all(
+        (await notebooks.list(owner.workspaceId)).map(async (n) => ({
+          id: n.id,
+          slug: n.slug,
+          title: n.title,
+          private: await scopeStore.isPrivate(n.id),
+        })),
+      ),
+    memoryWritable: async (id) => (await scopes.effective({ notebookId: id })).scope.memory_write,
+  });
   // The lab lane: optional, it needs Bun. Core is its only way to a model.
   const engine =
     env.AGENT_ENGINE_URL && env.AGENT_ENGINE_TOKEN
@@ -641,6 +672,7 @@ async function main() {
     cli: () => claudeCode.service.cliPath(),
     env: () => claudeCode.service.cliEnv(),
     openHandle: () => claudeLive.openHandle(),
+    samples: new PlanSamples(new PgPlanSampleStore(sql)),
     bus: events,
   });
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
@@ -1280,7 +1312,8 @@ async function main() {
         events: runEvents,
         reviewer: () => gateAuto.review.reviewerStatus(),
       }),
-      memoryRoutes({ service: memory, threads, registry }),
+      memoryRoutes({ service: memory, threads, registry, transfer: memoryTransfer }),
+      localModelRoutes({ models: localModels }),
       trustRoutes({
         workspaceId: owner.workspaceId,
         repo: threads,
@@ -1478,6 +1511,7 @@ async function main() {
     repos.stop();
     activity.stop();
     claudeLive.stop();
+    localModels.stop();
     claudeCode.stop();
     await mcp.stop();
     server.close();

@@ -131,6 +131,8 @@ export interface ProModelInfo {
   ready: boolean;
   problem: string | null;
   price: { input_per_mtok: number; output_per_mtok: number };
+  /** Runs on this computer or a node you control (Ollama, local, a GPU node). */
+  local?: boolean;
 }
 
 export interface ProCompletion {

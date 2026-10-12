@@ -30,6 +30,7 @@ import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { EmptyState, Kbd, Skeleton, StatusDot, Tip } from '../ui/primitives';
+import { EngineInsightsLocked } from './EngineInsightsLocked';
 
 export type ProFeatureId = proContract.ProFeature;
 
@@ -43,6 +44,8 @@ export interface ProSurface {
   icon: IconName;
   /** Where it sits in Admin's list; absent: decided by feature. */
   group?: 'System' | 'Trust' | 'Models' | 'Extend';
+  /** Its own locked state (public): what it would show, instead of the plain card. */
+  locked?: ComponentType<{ build: 'free' | 'pro' | null }>;
 }
 
 export const PRO_SURFACES: ProSurface[] = [
@@ -58,6 +61,15 @@ export const PRO_SURFACES: ProSurface[] = [
     label: 'Flow lab',
     icon: 'compare',
     group: 'Models',
+  },
+  {
+    id: 'engine-insights',
+    feature: 'insights',
+    place: 'admin',
+    label: 'Engine insights',
+    icon: 'sparkle',
+    group: 'Models',
+    locked: EngineInsightsLocked,
   },
 ];
 
@@ -201,8 +213,14 @@ export function ProSurfaceView({ id }: { id: string }) {
   const unlocked = licence.data?.features.find((f) => f.id === surface.feature)?.unlocked ?? false;
   const Screen = ui?.screens[surface.id];
   if (licence.isLoading || ui === undefined) return <Skeleton lines={4} label={`Loading ${surface.label}`} />;
-  if (!Screen || !unlocked)
-    return <ProUpsell feature={surface.feature} build={licence.data?.build ?? null} />;
+  if (!Screen || !unlocked) {
+    const Locked = surface.locked;
+    return Locked ? (
+      <Locked build={licence.data?.build ?? null} />
+    ) : (
+      <ProUpsell feature={surface.feature} build={licence.data?.build ?? null} />
+    );
+  }
   return (
     <Suspense fallback={<Skeleton lines={4} label={`Loading ${surface.label}`} />}>
       <Screen />

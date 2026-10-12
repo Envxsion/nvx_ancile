@@ -2,7 +2,7 @@
  * Pro features that work on answers (DESIGN.md §9): Beam, Insights and the
  * Flow lab. Only the shapes are public, so the Cockpit and the private
  * implementation agree; what they do lives in pro/. A free build answers
- * every one of these routes with `pro.locked`.
+ * the routes listed in pro.ts PRO_SEAM_ROUTES with 402 `pro.feature_required`.
  */
 import { z } from 'zod';
 
@@ -169,6 +169,120 @@ export const InsightsReport = z.object({
 export type InsightsReport = z.infer<typeof InsightsReport>;
 
 export const INSIGHTS_EXPORTS = ['series', 'by_model', 'by_provider', 'by_notebook', 'by_flow'] as const;
+
+/* ---- Engine insights: usage turned into answers (Insights, track E) ------------- */
+
+/** GET /pro/insights/engines?days=7|30|90[&notebook_id=]. */
+export const EngineInsightsQuery = z.object({
+  days: z.enum(['7', '30', '90']).default('30'),
+  notebook_id: z.string().optional(),
+});
+export type EngineInsightsQuery = z.infer<typeof EngineInsightsQuery>;
+
+/** Where an answer's tokens went: NVX Ancile's gateway, Claude Code, the lab, anything else. */
+export const InsightEngine = z.enum(['gateway', 'claude_code', 'lab', 'other']);
+/** What a question was for, inferred from the question and how it was answered. */
+export const InsightPurpose = z.enum(['coding', 'research', 'writing', 'other']);
+export type InsightPurpose = z.infer<typeof InsightPurpose>;
+
+/** A closed list, so the Cockpit has words for each and nothing free-form is invented. */
+export const InsightSuggestionKind = z.enum([
+  'consider_local_only',
+  'plan_headroom_low',
+  'one_notebook_most_cost',
+  'context_assembly_saving',
+  'model_failing_often',
+]);
+export type InsightSuggestionKind = z.infer<typeof InsightSuggestionKind>;
+
+export const EngineInsightsReport = z.object({
+  range: z.object({ from: z.string(), to: z.string(), days: z.number().int() }),
+  /** Which engines and models you use, and for what. */
+  uses: z.array(
+    z.object({
+      engine: InsightEngine,
+      model_id: z.string().nullable(),
+      name: z.string(),
+      /** Runs on this computer or a node you control. */
+      local: z.boolean(),
+      answers: z.number(),
+      tokens: z.number(),
+      cost_usd: z.number(),
+      purposes: z.record(InsightPurpose, z.number()),
+      top_notebooks: z.array(
+        z.object({ notebook_id: z.string().nullable(), title: z.string(), answers: z.number() }),
+      ),
+    }),
+  ),
+  /** Cost over time, by notebook (the busiest five; the rest as one "other"). */
+  cost: z.object({
+    series: z.array(
+      z.object({ t: z.string(), cost_usd: z.number(), by_notebook: z.record(z.string(), z.number()) }),
+    ),
+    notebooks: z.array(
+      z.object({
+        key: z.string(),
+        notebook_id: z.string().nullable(),
+        title: z.string(),
+        cost_usd: z.number(),
+      }),
+    ),
+    threads: z.array(
+      z.object({
+        thread_id: z.string(),
+        title: z.string(),
+        notebook_id: z.string().nullable(),
+        answers: z.number(),
+        tokens: z.number(),
+        cost_usd: z.number(),
+      }),
+    ),
+  }),
+  /** Claude Code plan-limit headroom over time, from the figures Claude Code reported. */
+  headroom: z.object({
+    /** First time a figure was kept; null: none yet. */
+    since: z.string().nullable(),
+    windows: z.array(
+      z.object({
+        id: z.string(),
+        kind: z.enum(['session', 'week', 'week_model', 'other']),
+        label: z.string().nullable(),
+        /** Highest share used per day (0–100). */
+        points: z.array(z.object({ t: z.string(), peak: z.number() })),
+        latest: z.number().nullable(),
+        /** Mean daily peak over the range. */
+        mean_peak: z.number().nullable(),
+        trend: z.enum(['rising', 'steady', 'falling', 'unknown']),
+      }),
+    ),
+  }),
+  /** Tokens context assembly kept out of model calls (digests, summaries, recall) instead of the full history. */
+  context: z.object({
+    /** Answers that recorded both figures (recorded since track E). */
+    answers: z.number(),
+    since: z.string().nullable(),
+    sent_tokens: z.number(),
+    full_tokens: z.number(),
+    saved_tokens: z.number(),
+    /** saved / full; null with nothing recorded. */
+    saved_share: z.number().nullable(),
+    /** At each answering model's input price. */
+    saved_usd: z.number(),
+    by_engine: z.array(z.object({ engine: InsightEngine, answers: z.number(), saved_tokens: z.number() })),
+  }),
+  suggestions: z.array(
+    z.object({
+      kind: InsightSuggestionKind,
+      title: z.string(),
+      body: z.string(),
+      notebook_id: z.string().nullable(),
+      /** The figures behind it, for the "why" line. */
+      evidence: z.record(z.string(), z.number()),
+    }),
+  ),
+  generated_at: z.string(),
+});
+export type EngineInsightsReport = z.infer<typeof EngineInsightsReport>;
 
 /* ---- Flow lab: test sets, shadow flows, a router that learns ------------------- */
 

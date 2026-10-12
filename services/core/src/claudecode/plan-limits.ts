@@ -27,6 +27,7 @@ import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import type { SettingsStore } from '../settings';
 import type { LiveBridge } from './bridge-protocol';
+import type { PlanSamples } from './plan-samples';
 
 const log = logFor('claude-code-limits');
 
@@ -146,6 +147,8 @@ export interface PlanLimitsDeps {
   openHandle(): string | null;
   bus?: EventBus;
   now?: () => number;
+  /** Keeps the figures over time (plan-samples.ts), for headroom trends. */
+  samples?: Pick<PlanSamples, 'record'>;
 }
 
 export class PlanLimits {
@@ -171,6 +174,7 @@ export class PlanLimits {
     await this.deps.settings
       .set(PLAN_LIMITS_KEY, next)
       .catch((err: unknown) => log.warn({ err: (err as Error).message }, 'plan limits not saved'));
+    if (next.updated_at) await this.deps.samples?.record(next.windows, next.updated_at);
     await this.deps.bus?.publish({ type: 'claude_code.changed', what: 'limits' }).catch(() => undefined);
   }
 

@@ -112,6 +112,8 @@ export function identityMiddleware(current: () => IdentityProvider): MiddlewareH
 export function proRoutes(deps: {
   routes: ProRoute[];
   hasFeature: (feature: proContract.ProFeature) => boolean;
+  /** Paths answered with 402 when no Pro route serves them (default: PRO_SEAM_ROUTES). */
+  seams?: readonly { method: 'GET' | 'POST'; path: string; feature: proContract.ProFeature }[];
 }): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   for (const route of deps.routes) {
@@ -149,6 +151,16 @@ export function proRoutes(deps: {
       for (const [k, v] of Object.entries(res.headers ?? {})) c.header(k, v);
       const status = (res.status ?? 200) as 200;
       return res.body === undefined ? c.body(null, status === 200 ? 204 : status) : c.json(res.body, status);
+    });
+  }
+  // The seam: a Pro route the build does not have still answers, with 402
+  // naming its feature, so the Cockpit can show the locked state.
+  const served = new Set(deps.routes.map((x) => `${x.method} ${x.path}`));
+  for (const seam of deps.seams ?? proContract.PRO_SEAM_ROUTES) {
+    if (served.has(`${seam.method} ${seam.path}`)) continue;
+    const method = seam.method.toLowerCase() as 'get' | 'post';
+    r[method](`/pro${seam.path}`, () => {
+      throw featureRequired(seam.feature);
     });
   }
   return r;

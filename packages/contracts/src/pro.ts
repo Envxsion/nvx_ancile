@@ -12,6 +12,17 @@ export const PRO_FEATURES = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insig
 export const ProFeature = z.enum(PRO_FEATURES);
 export type ProFeature = z.infer<typeof ProFeature>;
 
+/**
+ * Pro routes the free build still answers, under /api/v1/pro: with 402
+ * `pro.feature_required` naming the feature, so a Cockpit (or a script)
+ * asking for one learns it is Pro rather than meeting a 404. In a Pro build
+ * Pro's own route of the same path answers instead.
+ */
+export const PRO_SEAM_ROUTES: readonly { method: 'GET' | 'POST'; path: string; feature: ProFeature }[] = [
+  { method: 'GET', path: '/insights', feature: 'insights' },
+  { method: 'GET', path: '/insights/engines', feature: 'insights' },
+];
+
 /** How each feature is named and described wherever Pro is shown. */
 export const PRO_FEATURE_WORDS: Record<ProFeature, { title: string; body: string }> = {
   beam: {
