@@ -55,6 +55,21 @@ export function CopyCode({ text, label = 'Copy code' }: { text: string; label?: 
 /** Lines shown before "Show all" in a long block. */
 export const CODE_LINES = 24;
 
+function lineCount(text: string): number {
+  let n = 1;
+  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) n++;
+  return n;
+}
+
+function firstLines(text: string, n: number): string {
+  let at = -1;
+  for (let k = 0; k < n; k++) {
+    at = text.indexOf('\n', at + 1);
+    if (at === -1) return text;
+  }
+  return text.slice(0, at);
+}
+
 export function CodeBlock({
   code,
   lang,
@@ -75,10 +90,20 @@ export function CodeBlock({
 }) {
   const [all, setAll] = useState(false);
   const text = code.replace(/\n$/, '');
-  const lines = useMemo(() => highlight(text, lang), [text, lang]);
-  const long = clamp > 0 && lines.length > clamp + 4;
-  const shown = long && !all ? lines.slice(0, clamp) : lines;
-  const nums = numbers === true ? lines.map((_, i) => i + 1) : Array.isArray(numbers) ? numbers : null;
+  const count = useMemo(() => lineCount(text), [text]);
+  const long = clamp > 0 && count > clamp + 4;
+  // Folded: highlight only the lines shown, not a 64 KB tool result's every line.
+  const shown = useMemo(
+    () => highlight(long && !all ? firstLines(text, clamp) : text, lang),
+    [text, lang, long, all, clamp],
+  );
+  const lines = { length: count };
+  const nums =
+    numbers === true
+      ? Array.from({ length: count }, (_, i) => i + 1)
+      : Array.isArray(numbers)
+        ? numbers
+        : null;
   const label = title ?? (lang ? langLabel(lang) : null);
   return (
     <figure className="code" data-variant={variant} data-numbered={nums ? true : undefined}>

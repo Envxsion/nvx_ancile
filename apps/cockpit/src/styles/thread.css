@@ -39,9 +39,38 @@
   display: grid;
   padding-bottom: 24px;
 }
-/* A wide table or log scrolls inside its row, never widens the column. */
+/* A wide table or log scrolls inside its row, never widens the column.
+   A long thread lays out and paints only what is near the screen; the last
+   few messages (where streaming happens) always lay out in full. */
 .thread__messages > li {
   min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
+}
+.thread__messages > li:nth-last-child(-n + 6) {
+  content-visibility: visible;
+}
+/* A message not drawn yet (thread/LazyRow.tsx): its words, quietly, with
+   the row's own spacing so nothing shifts much when it is drawn. */
+.msg-lazy {
+  max-width: var(--measure);
+  padding: 12px 0 8px;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  max-height: 24em;
+  overflow: hidden;
+}
+.msg-lazy[data-role='user'] {
+  padding-top: 48px;
+}
+.thread__earlier {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+  color: var(--mute);
+  font-size: var(--t-small);
 }
 .thread__composer {
   padding: 0 28px 18px;

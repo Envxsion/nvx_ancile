@@ -322,10 +322,17 @@ export class PgThreadRepo implements ThreadRepo {
   }
 
   async skeleton(threadId: string) {
-    const rows = await this.sql<{ id: string; parent_id: string | null; role: Message['role']; created_at: Date }[]>`
+    const rows = await this.sql<
+      { id: string; parent_id: string | null; role: Message['role']; created_at: Date }[]
+    >`
       select id, parent_id, role, created_at from core.messages
       where thread_id = ${threadId} and deleted_at is null order by created_at, id`;
-    return rows.map((r) => ({ id: r.id, parent_id: r.parent_id, role: r.role, created_at: r.created_at.toISOString() }));
+    return rows.map((r) => ({
+      id: r.id,
+      parent_id: r.parent_id,
+      role: r.role,
+      created_at: r.created_at.toISOString(),
+    }));
   }
 
   async messagesByIds(threadId: string, ids: string[]) {

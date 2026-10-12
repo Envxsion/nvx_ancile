@@ -254,12 +254,34 @@ const failed = (id: string, result: unknown): Part => ({
   result,
 });
 
+/**
+ * Folded steps draw their body only once opened (useOpened); open each one
+ * once, as a reader would, then put it back as it was so the folded state
+ * can still be checked.
+ */
+function unfold(container: HTMLElement) {
+  const done = new Set<Element>();
+  for (let round = 0; round < 6; round++) {
+    const fresh = [...container.querySelectorAll('details')].filter((d) => !done.has(d));
+    if (!fresh.length) return;
+    for (const d of fresh) {
+      done.add(d);
+      const was = d.open;
+      d.open = true;
+      fireEvent(d, new Event('toggle'));
+      d.open = was;
+    }
+  }
+}
+
 function parts(ps: Part[], cwd: string | null = '/home/me/proj') {
-  return render(
+  const r = render(
     <ToolCwd.Provider value={cwd}>
       <Parts parts={ps} streaming={false} waiting={false} />
     </ToolCwd.Provider>,
   );
+  unfold(r.container);
+  return r;
 }
 
 const label = (c: HTMLElement) =>

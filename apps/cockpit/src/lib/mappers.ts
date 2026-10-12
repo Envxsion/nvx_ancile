@@ -407,6 +407,10 @@ export function toThreadView(p: ThreadPath): ThreadView {
     messages: toMessageViews(p.messages),
     activeRun: p.active_run ? { id: p.active_run.id, messageId: p.active_run.message_id } : null,
     claudeCode: p.thread.settings.claude_code ?? null,
+    headId: p.head_id,
+    total: p.total ?? p.messages.length,
+    cursor: p.messages[0]?.id ?? null,
+    hasMore: p.has_more ?? false,
   };
 }
 

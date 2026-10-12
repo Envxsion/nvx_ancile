@@ -21,7 +21,8 @@
  * ------------------------------------------------------------------
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useRouterState } from '@tanstack/react-router';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
 import {
   interruptClaudeCode,
@@ -31,12 +32,19 @@ import {
   useClaudeCodeLive,
 } from '../claudecode/live';
 import { patchCc, useCcThread } from '../claudecode/store';
-import { CcEventRow, ClaudeCodeMarker } from '../claudecode/ThreadMarker';
+import { ClaudeCodeMarker } from '../claudecode/ThreadMarker';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
 import { useThread, useThreads } from '../lib/data';
 import { useCurrentModel } from '../lib/models';
 import { attachRun, detachThread, type LiveTurn, resumeThread, useRuns } from '../lib/run';
+import {
+  ensureLoaded,
+  loadEarlier,
+  type ReadingAnchor,
+  readingAnchor,
+  scrollTopFor,
+} from '../lib/threadPages';
 import { sendMessage } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { notify } from '../state/notify';
@@ -49,10 +57,27 @@ import { EmptyState, Skeleton } from '../ui/primitives';
 import { nextAnnouncement } from './announce';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
-import { Message } from './Message';
-import { ToolCwd } from './ToolSteps';
+import { MessageList } from './MessageList';
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
+/** Load the page before when the view is this close to the top of what is loaded (pixels). */
+const EARLIER_AT = 1_200;
+
+/** The message being read in `el`: a binary search over its rows, not a walk over all of them. */
+function anchorIn(el: HTMLElement): ReadingAnchor | null {
+  const rows = el.querySelectorAll<HTMLElement>('[data-mid]');
+  return readingAnchor(
+    rows.length,
+    (i) => {
+      const n = rows[i] as HTMLElement;
+      return { id: n.dataset.mid ?? '', top: n.offsetTop, height: n.offsetHeight };
+    },
+    el.scrollTop,
+  );
+}
+
+const rowOf = (el: HTMLElement, id: string) =>
+  el.querySelector<HTMLElement>(`[data-mid="${typeof CSS !== 'undefined' ? CSS.escape(id) : id}"]`);
 
 function overlay(m: MessageView, live: LiveTurn | undefined): MessageView {
   if (!live) return m;
@@ -88,10 +113,17 @@ export function ThreadView({ threadId }: { threadId: string }) {
   const [announce, setAnnounce] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  // Paging: what you were reading while an earlier page loads, and the message jumped to.
+  const prepend = useRef<ReadingAnchor | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  const scrollFrame = useRef(0);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on thread change only
   useEffect(() => {
     setLocal([]);
+    setJumpTo(null);
+    prepend.current = null;
     following.current = true;
     useUi.getState().resetDrawerTab();
   }, [threadId]);
@@ -137,6 +169,59 @@ export function ThreadView({ threadId }: { threadId: string }) {
     }
   }, [threadId, thread.isSuccess]);
 
+  // Earlier pages: loaded as you near the top, with what you were reading kept in place.
+  const hasMore = !!thread.data?.hasMore;
+  const earlier = useCallback(async () => {
+    const el = scroller.current;
+    if (!el || prepend.current) return;
+    prepend.current = anchorIn(el) ?? { id: '', offset: 0 };
+    setLoadingEarlier(true);
+    const ok = await loadEarlier(threadId).catch(() => false);
+    setLoadingEarlier(false);
+    if (!ok) prepend.current = null;
+  }, [threadId]);
+  const firstId = thread.data?.messages[0]?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when a page lands in front
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const at = prepend.current;
+    if (!el || !at) return;
+    prepend.current = null;
+    const top = scrollTopFor(at, (id) => rowOf(el, id)?.offsetTop ?? null);
+    if (top !== null) el.scrollTop = top;
+  }, [firstId]);
+  // A short last page that does not fill the view: fetch the one before.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: checked as pages land
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && hasMore && el.scrollHeight <= el.clientHeight + EARLIER_AT) void earlier();
+  }, [hasMore, firstId, earlier]);
+
+  // Jump to a message (a search hit opens the thread at #message-id): load its page, then show it.
+  const hash = useRouterState({ select: (s) => s.location.hash });
+  useEffect(() => {
+    const id = (hash ?? '').replace(/^#/, '');
+    if (!id || !thread.isSuccess) return;
+    let gone = false;
+    void ensureLoaded(threadId, id).then((ok) => {
+      if (!gone && ok) setJumpTo(id);
+    });
+    return () => {
+      gone = true;
+    };
+  }, [hash, threadId, thread.isSuccess]);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !jumpTo) return;
+    const raf = requestAnimationFrame(() => {
+      const row = rowOf(el, jumpTo);
+      if (!row) return;
+      following.current = false;
+      row.scrollIntoView({ block: 'center' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [jumpTo]);
+
   // Follow a streaming answer while you are at the bottom.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs as text arrives
   useEffect(() => {
@@ -171,22 +256,25 @@ export function ThreadView({ threadId }: { threadId: string }) {
     setAnnounce(r.say ? `${r.say} ${end}` : end);
   }, [last?.id, last?.status, last?.role, lastText, announceMode, showWhole]);
 
+  // Once a frame at most: where you are, whether to follow, whether to load earlier.
   const onScroll = () => {
-    const el = scroller.current;
-    if (!el) return;
-    following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    const items = Array.from(el.querySelectorAll<HTMLElement>('[data-mid]'));
-    const first = items.find((n) => n.offsetTop + n.offsetHeight > el.scrollTop);
-    if (!first) return;
-    try {
-      localStorage.setItem(
-        anchorKey(threadId),
-        JSON.stringify({ id: first.dataset.mid, offset: first.offsetTop - el.scrollTop }),
-      );
-    } catch {
-      /* ignore */
-    }
+    if (scrollFrame.current) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = 0;
+      const el = scroller.current;
+      if (!el) return;
+      following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (hasMore && el.scrollTop < EARLIER_AT) void earlier();
+      const at = anchorIn(el);
+      if (!at) return;
+      try {
+        localStorage.setItem(anchorKey(threadId), JSON.stringify(at));
+      } catch {
+        /* ignore */
+      }
+    });
   };
+  useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
 
   const busy = last?.status === 'streaming';
 
@@ -380,37 +468,30 @@ export function ThreadView({ threadId }: { threadId: string }) {
               body="Ask a question below. Every reply can be regenerated with another model, edited and explained."
             />
           ) : (
-            <ToolCwd.Provider value={thread.data?.claudeCode?.cwd ?? null}>
-              <ol className="thread__messages" aria-label="Conversation">
-                {messages.map((m) => {
-                  // Tool results already drawn in the answer before them.
-                  if (m.folded) return null;
-                  // Claude Code's commands, notices and compactions: quiet rows, not bubbles.
-                  if (m.cc)
-                    return (
-                      <li key={m.id} data-mid={m.id} data-cc={m.cc.kind}>
-                        <CcEventRow e={m.cc} />
-                      </li>
-                    );
-                  const live = turns[m.id];
-                  return (
-                    <li key={m.id} data-mid={m.id}>
-                      <Message
-                        m={m}
-                        threadId={threadId}
-                        selected={selected === m.id}
-                        onSelect={setSelected}
-                        waiting={
-                          !!live && !live.done && (!!live.approvalId || live.status === 'waiting_approval')
-                        }
-                        liveModelName={live?.modelName ?? null}
-                        approvalId={live?.approvalId ?? null}
-                      />
-                    </li>
-                  );
-                })}
-              </ol>
-            </ToolCwd.Provider>
+            <>
+              {hasMore ? (
+                <div className="thread__earlier">
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => void earlier()}
+                    disabled={loadingEarlier}
+                  >
+                    {loadingEarlier ? 'Loading earlier messages' : 'Show earlier messages'}
+                  </button>
+                </div>
+              ) : null}
+              <MessageList
+                messages={messages}
+                threadId={threadId}
+                turns={turns}
+                selected={selected}
+                onSelect={setSelected}
+                jumpTo={jumpTo}
+                cwd={thread.data?.claudeCode?.cwd ?? null}
+                scroller={scroller}
+              />
+            </>
           )}
         </div>
       </div>

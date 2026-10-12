@@ -21,7 +21,6 @@ import type {
   SetupStatus,
   Source,
   SourceContent,
-  ThreadPath,
   ThreadSummary as WireThreadSummary,
 } from '@nvx/contracts';
 import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -39,8 +38,8 @@ import {
   toPendingApproval,
   toSourceView,
   toThreadSummary,
-  toThreadView,
 } from './mappers';
+import { fetchThreadTail } from './threadPages';
 import type {
   ModelView,
   NotebookView,
@@ -175,7 +174,8 @@ export const threadQuery = (id: string) =>
   queryOptions({
     queryKey: keys.thread(id),
     queryFn: () =>
-      orDemo<ThreadView>(() => api.get<ThreadPath>(`/threads/${id}/path`).then(toThreadView), demoThread(id)),
+      // The last page only; earlier pages load as you scroll up (lib/threadPages.ts).
+      orDemo<ThreadView>(() => fetchThreadTail(id), demoThread(id)),
   });
 
 /** The one fully written demo thread, or an empty one with the right title. */

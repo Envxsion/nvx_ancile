@@ -20,7 +20,7 @@
  */
 
 import type { Part } from '@nvx/contracts';
-import { createContext, type ReactNode, useContext, useMemo, useState } from 'react';
+import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
@@ -419,23 +419,36 @@ function Clamped({ text }: { text: string }) {
   );
 }
 
+/**
+ * A folded section draws its body only once it has been opened: a long
+ * thread holds thousands of folded tool results, and highlighting them all
+ * up front is most of what made it slow. Returns whether to draw the body
+ * and the details' onToggle.
+ */
+export function useOpened(open: boolean): [boolean, (e: SyntheticEvent<HTMLDetailsElement>) => void] {
+  const [seen, setSeen] = useState(open);
+  return [seen || open, (e) => e.currentTarget.open && setSeen(true)];
+}
+
 function Sub({ label, children, open }: { label: string; children: ReactNode; open?: boolean }) {
+  const [shown, onToggle] = useOpened(!!open);
   return (
-    <details className="tstep__sub" open={open || undefined}>
+    <details className="tstep__sub" open={open || undefined} onToggle={onToggle}>
       <summary>
         <Icon name="chevronRight" size={11} />
         {label}
       </summary>
-      <div className="tstep__subbody">{children}</div>
+      <div className="tstep__subbody">{shown ? children : null}</div>
     </details>
   );
 }
 
 /** A Claude Code subagent's own conversation, folded away. */
 export function SubagentConversation({ s: sub }: { s: SubagentView }) {
+  const [shown, onToggle] = useOpened(false);
   if (!sub.turns.length) return null;
   return (
-    <details className="subagent">
+    <details className="subagent" onToggle={onToggle}>
       <summary>
         <Icon name="chevronRight" size={11} />
         Subagent conversation
@@ -445,7 +458,7 @@ export function SubagentConversation({ s: sub }: { s: SubagentView }) {
         </span>
       </summary>
       <ol className="subagent__turns">
-        {sub.turns.map((t, i) => (
+        {(shown ? sub.turns : []).map((t, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: turns are positional
           <li key={i} data-role={t.role}>
             <span className="subagent__who">{t.role === 'user' ? 'Asked' : 'Answered'}</span>
@@ -903,12 +916,14 @@ export function ToolStep({
         : state === 'failed' && kind !== 'shell'
           ? firstLine(resultText(result), 90) || null
           : null;
+  const [shown, onToggle] = useOpened(!folded || state === 'waiting');
   return (
     <details
       className="tool-step"
       data-state={state}
       data-kind={kind}
       open={!folded || state === 'waiting' || undefined}
+      onToggle={onToggle}
     >
       <summary title={line.full ?? undefined}>
         <Icon name={ICONS[kind]} size={13} className="tool-step__icon" />
@@ -938,7 +953,7 @@ export function ToolStep({
         </span>
       </summary>
       <div className="tool-step__body">
-        <Body call={call} result={result} subagent={subagent} cwd={cwd} />
+        {shown ? <Body call={call} result={result} subagent={subagent} cwd={cwd} /> : null}
       </div>
     </details>
   );
@@ -967,8 +982,14 @@ export function ToolGroup({
   const title = agents
     ? `${live ? 'Asking' : 'Asked'} ${n} subagents`
     : `${live ? 'Working through' : 'Worked through'} ${n} steps`;
+  const [shown, onToggle] = useOpened(open);
   return (
-    <details className="tool-group" data-live={live || undefined} open={open || undefined}>
+    <details
+      className="tool-group"
+      data-live={live || undefined}
+      open={open || undefined}
+      onToggle={onToggle}
+    >
       <summary>
         <Icon name="chevronRight" size={12} className="tool-group__chev" />
         <span className="tool-group__title">{title}</span>
@@ -979,7 +1000,7 @@ export function ToolGroup({
         ) : null}
         <span className="tool-group__last">{lastLine}</span>
       </summary>
-      <div className="tool-group__steps">{children}</div>
+      <div className="tool-group__steps">{shown ? children : null}</div>
     </details>
   );
 }
