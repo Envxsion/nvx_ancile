@@ -13,14 +13,19 @@
  *           |  trace (via context). Remote images never load on their
  *           |  own (a prompt-injected answer could use one to leak
  *           |  data): they show as a placeholder you can choose to load.
+ *           |  Each citation is checked against its source now: a
+ *           |  deleted source reads "Source removed" with the quoted
+ *           |  passage still there; a source read again with different
+ *           |  text reads "Source changed since cited" (track G).
  * ------------------------------------------------------------------
  */
 
-import type { Part, RetrievalTrace } from '@nvx/contracts';
+import type { CitationStatus, Part, RetrievalTrace } from '@nvx/contracts';
 import * as HoverCard from '@radix-ui/react-hover-card';
 import { type ComponentProps, createContext, type ReactNode, useContext, useState } from 'react';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
+import { useCitationStatus } from '../lib/factcheck';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -28,25 +33,52 @@ import { LiveClaim } from './Claims';
 import { MdCode } from './Code';
 
 type Ref = Extract<Part, { type: 'citation_ref' }>;
+type Status = CitationStatus['items'][number];
 interface Cites {
   refs: Map<number, Ref>;
   hits: Map<number, RetrievalTrace['hits'][number]>;
+  status: Map<number, Status>;
 }
 
-const CiteContext = createContext<Cites>({ refs: new Map(), hits: new Map() });
+const CiteContext = createContext<Cites>({ refs: new Map(), hits: new Map(), status: new Map() });
 
 export function CiteProvider({
   parts,
   trace,
+  messageId,
   children,
 }: {
   parts: Part[];
   trace: RetrievalTrace | undefined;
+  /** The answer's id: its citations are then checked against their sources now. */
+  messageId?: string;
   children: ReactNode;
 }) {
   const refs = new Map(parts.flatMap((p) => (p.type === 'citation_ref' ? [[p.marker, p] as const] : [])));
   const hits = new Map((trace?.hits ?? []).map((h) => [h.marker, h] as const));
-  return <CiteContext.Provider value={{ refs, hits }}>{children}</CiteContext.Provider>;
+  const checked = useCitationStatus(messageId, refs.size > 0);
+  const status = new Map((checked.data?.items ?? []).map((s) => [s.marker, s] as const));
+  return <CiteContext.Provider value={{ refs, hits, status }}>{children}</CiteContext.Provider>;
+}
+
+const day = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** What the card says about a source that is gone or different now; null when it is as cited. */
+export function sourceNote(s: Status | undefined): { label: string; detail: string } | null {
+  if (s?.state === 'removed')
+    return {
+      label: 'Source removed',
+      detail: s.merged_into
+        ? 'It was merged into another source. The passage above is what this answer was given.'
+        : `It was deleted${s.removed_at ? ` on ${day(s.removed_at)}` : ''}. The passage above is what this answer was given.`,
+    };
+  if (s?.state === 'changed')
+    return {
+      label: 'Source changed since cited',
+      detail: 'The source was read again and no longer has this passage word for word.',
+    };
+  return null;
 }
 
 /** A passage as reading text: markdown headings, emphasis and code marks dropped. */
@@ -86,14 +118,18 @@ export function linkMarkers(text: string): string {
 }
 
 function Chip({ n }: { n: number }) {
-  const { refs, hits } = useContext(CiteContext);
+  const { refs, hits, status } = useContext(CiteContext);
   const openViewer = useUi((s) => s.openViewer);
   const style = usePrefs((s) => s.prefs.reading.citations);
   const ref = refs.get(n);
   const hit = hits.get(n);
+  const now = status.get(n);
+  const note = sourceNote(now);
+  const removed = now?.state === 'removed';
+  const title = hit?.source_title ?? ref?.source_title ?? now?.source_title ?? null;
   const live = !!ref;
   const open = () => {
-    if (!ref) return;
+    if (!ref || removed) return;
     openViewer({ sourceId: ref.source_id, start: ref.char_start, end: ref.char_end, marker: n });
     helpDone('cite');
     tourEvent('citation-opened');
@@ -108,8 +144,11 @@ function Chip({ n }: { n: number }) {
       className="cite-chip"
       data-style={style}
       data-live={live || undefined}
+      data-source={note ? now?.state : undefined}
       aria-disabled={!live || undefined}
-      aria-label={live ? `Source ${n}: ${hit?.source_title ?? 'open the passage'}` : `Citation ${n}`}
+      aria-label={
+        live ? `Source ${n}: ${title ?? 'open the passage'}${note ? `. ${note.label}` : ''}` : `Citation ${n}`
+      }
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -132,15 +171,23 @@ function Chip({ n }: { n: number }) {
             <span className="cite-card__n" data-num>
               {n}
             </span>
-            <span className="cite-card__title">{hit?.source_title ?? 'Source'}</span>
+            <span className="cite-card__title">{title ?? 'Source'}</span>
             {hit?.page != null ? <span className="mute">p. {hit.page}</span> : null}
           </div>
+          {note ? (
+            <span className="cite-card__flag" data-source={now?.state}>
+              {note.label}
+            </span>
+          ) : null}
           <blockquote className="cite-card__quote" dir="auto">
             {plainQuote(ref.quote)}
           </blockquote>
-          <button type="button" className="link-btn" onClick={open}>
-            Open in the source
-          </button>
+          {note ? <p className="cite-card__note">{note.detail}</p> : null}
+          {removed ? null : (
+            <button type="button" className="link-btn" onClick={open}>
+              {note ? 'Open the current version' : 'Open in the source'}
+            </button>
+          )}
           <HoverCard.Arrow className="hint-pop__arrow" width={12} height={6} />
         </HoverCard.Content>
       </HoverCard.Portal>

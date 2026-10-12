@@ -111,6 +111,9 @@ export function useGlobalEvents(): void {
                 });
               void queryClient.invalidateQueries({ queryKey: ['sources'] });
               void queryClient.invalidateQueries({ queryKey: keys.notebooks });
+              // A source read again may have changed under answers that cited it.
+              void queryClient.invalidateQueries({ queryKey: ['citations'] });
+              void queryClient.invalidateQueries({ queryKey: ['notebook-languages'] });
             }
             break;
           }

@@ -13,11 +13,19 @@
  *           |  is a query that polls gently while a check is running,
  *           |  which also catches checks started by grounded mode.
  *           |  A 404 (factcheck.none) is "not checked yet", not an
- *           |  error.
+ *           |  error. An answer's citations are checked against their
+ *           |  sources now (removed, changed since cited), once per
+ *           |  answer and again when sources change.
  * ------------------------------------------------------------------
  */
 
-import { type Explain, type Factcheck, RunEvent, type StartFactcheckResponse } from '@nvx/contracts';
+import {
+  type CitationStatus,
+  type Explain,
+  type Factcheck,
+  RunEvent,
+  type StartFactcheckResponse,
+} from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { notify } from '../state/notify';
@@ -28,6 +36,7 @@ import { openStream } from './sse';
 export const fcKeys = {
   factcheck: (messageId: string) => ['factcheck', messageId] as const,
   explain: (messageId: string) => ['explain', messageId] as const,
+  citations: (messageId: string) => ['citations', messageId] as const,
 };
 
 export interface FactcheckProgress {
@@ -121,6 +130,21 @@ export function useFactcheck(messageId: string | null | undefined, enabled = tru
         throw err;
       }
     },
+  });
+}
+
+/**
+ * What became of an answer's cited sources: removed or changed since. Only
+ * asked for answers that cite something; a failure leaves the chips as they
+ * are, never flagged.
+ */
+export function useCitationStatus(messageId: string | null | undefined, cites: boolean) {
+  return useQuery({
+    queryKey: fcKeys.citations(messageId ?? 'none'),
+    enabled: Boolean(messageId) && cites,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: () => api.get<CitationStatus>(`/messages/${messageId}/citations`),
   });
 }
 

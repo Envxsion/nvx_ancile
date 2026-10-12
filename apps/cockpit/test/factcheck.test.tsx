@@ -63,6 +63,7 @@ const fc = (over: Partial<Factcheck>): Factcheck => ({
   error: null,
   created_at: '2026-10-07T00:00:00.000Z',
   finished_at: '2026-10-07T00:00:01.000Z',
+  previous: null,
   ...over,
 });
 
@@ -90,6 +91,33 @@ describe('FactcheckChip', () => {
     );
     expect(screen.getByRole('button')).toHaveTextContent('1 contradicted');
     expect(screen.getByRole('button')).toHaveAttribute('data-level', 'low');
+  });
+
+  it('keeps the score before a re-run beside the new one, and says when sources changed', () => {
+    wrap(
+      <FactcheckChip
+        messageId="msg_1"
+        factcheck={fc({
+          sealed: false,
+          confidence: 0.42,
+          counts: { verified: 1, unverified: 2, contradicted: 0, not_checkable: 0 },
+          previous: {
+            id: 'fck_0',
+            confidence: 0.84,
+            summary: '3 of 3 claims verified.',
+            finished_at: '2026-10-06T00:00:00.000Z',
+            sources_changed: true,
+            removed: 1,
+            changed: 0,
+            note: 'Sources changed since: 1 removed.',
+          },
+        })}
+        progress={undefined}
+      />,
+    );
+    expect(screen.getByRole('button')).toHaveTextContent('42%');
+    expect(screen.getByText('Was', { exact: false })).toHaveTextContent('Was 84%');
+    expect(screen.getByText('Sources changed since: 1 removed.')).toBeInTheDocument();
   });
 
   it('shows the stage and count while checking', () => {

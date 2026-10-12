@@ -197,6 +197,19 @@ button.fc-chip:active {
   color: var(--mute);
 }
 
+/* The score before a re-run, kept beside the new one (track G). */
+.fc-prev {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.fc-prev[data-changed] > span:last-child {
+  color: var(--warn);
+}
+
 /* ---- The evidence card on a claim -------------------------------------- */
 
 .ev-card {
@@ -390,6 +403,23 @@ button.fc-chip:active {
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--mute-2);
+}
+
+/* ---- Mixed languages (track G) ------------------------------------------ */
+
+.lang-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 10px;
+  font-size: var(--t-small);
+  line-height: 1.45;
+  color: var(--mute);
+}
+.lang-hint > span {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 /* ---- Grounded mode ----------------------------------------------------- */

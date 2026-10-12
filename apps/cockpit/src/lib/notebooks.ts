@@ -252,9 +252,10 @@ export async function renameSource(sourceId: string, title: string): Promise<Sou
 }
 
 /**
- * Delete a source from the workspace: it leaves every notebook, search
- * and answers. Knowledge keeps the file aside, but nothing here brings it
- * back, so the card asks first and offers no Undo.
+ * Delete a source from the workspace: it leaves every notebook and search.
+ * Answers that cited it keep the quoted passage and mark it "Source
+ * removed" (Core keeps a tombstone). Knowledge keeps the file aside, but
+ * nothing here brings it back, so the card asks first and offers no Undo.
  * TODO(phase-5): a restore route over Knowledge's soft delete, then Undo.
  */
 export async function deleteSource(s: SourceView): Promise<void> {
@@ -265,6 +266,8 @@ export async function deleteSource(s: SourceView): Promise<void> {
     queryClient.removeQueries({ queryKey: keys.source(s.id) });
     queryClient.removeQueries({ queryKey: keys.sourceContent(s.id) });
     void queryClient.invalidateQueries({ queryKey: ['sources'] });
+    // Answers that cited it now say so.
+    void queryClient.invalidateQueries({ queryKey: ['citations'] });
     void refreshNotebooks();
     notify({ level: 'success', title: 'Source deleted', body: s.title });
   } catch (error) {
@@ -300,6 +303,7 @@ export async function mergeSources(notebookId: string, keepId: string, dropId: s
   try {
     await api.post('/sources/merge', { keep_id: keepId, drop_id: dropId });
     refreshSources(notebookId);
+    void queryClient.invalidateQueries({ queryKey: ['citations'] });
     notify({
       level: 'success',
       title: 'Merged',

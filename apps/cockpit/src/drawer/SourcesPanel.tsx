@@ -8,13 +8,18 @@
  *           |  viewer when a citation is opened.
  *  How      |  The notebook comes from the route (a notebook page, or
  *           |  a thread inside one). Without a notebook the panel
- *           |  offers to put the thread into one.
+ *           |  offers to put the thread into one. A notebook whose
+ *           |  sources mix languages under an English-only embedder
+ *           |  gets a one-line hint naming the multilingual option.
  * ------------------------------------------------------------------
  */
 
+import type { NotebookLanguages } from '@nvx/contracts';
+import { useQuery } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { Term } from '../help/Term';
+import { api } from '../lib/api';
 import { useNotebooks, useSources, useThread } from '../lib/data';
 import { setGrounded } from '../lib/factcheck';
 import { moveThread } from '../lib/threads';
@@ -141,6 +146,58 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
   );
 }
 
+const languageNames = (() => {
+  try {
+    return new Intl.DisplayNames(['en-GB'], { type: 'language' });
+  } catch {
+    return null;
+  }
+})();
+const languageName = (code: string) => languageNames?.of(code) ?? code;
+
+/** "English and French", "English, French and German". */
+export function listLanguages(codes: string[]): string {
+  const names = codes.map(languageName);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : (names[0] ?? '');
+}
+
+/**
+ * Sources in several languages, searched with an English-only embedder:
+ * say so in one line and name the multilingual model to switch to.
+ * TODO(phase-3): switch in one click once background re-embedding (track F) lands.
+ */
+function LanguageHint({ notebookId }: { notebookId: string }) {
+  const langs = useQuery({
+    queryKey: ['notebook-languages', notebookId],
+    staleTime: 60_000,
+    retry: false,
+    queryFn: () => api.get<NotebookLanguages>(`/notebooks/${notebookId}/languages`),
+  });
+  const [copied, setCopied] = useState(false);
+  const d = langs.data;
+  if (!d?.mixed || d.embedder.multilingual || !d.multilingual_option) return null;
+  const setting = `KNOWLEDGE_EMBED_MODEL=${d.multilingual_option}`;
+  return (
+    <p className="lang-hint" role="note">
+      <Icon name="globe" size={13} />
+      <span>
+        These sources are in {listLanguages(d.languages.map((l) => l.code))}, and search reads English best. A
+        multilingual embedder reads them all.
+      </span>
+      <button
+        type="button"
+        className="link-btn"
+        title={`${setting}, then restart NVX Ancile`}
+        onClick={() => {
+          void navigator.clipboard?.writeText(setting).then(() => setCopied(true));
+        }}
+      >
+        {copied ? 'Copied' : 'Copy the setting'}
+      </button>
+    </p>
+  );
+}
+
 type Filter = 'all' | 'working' | 'problems';
 
 export function SourcesPanel() {
@@ -201,6 +258,7 @@ export function SourcesPanel() {
       </div>
       <UploadQueue notebookId={notebookId} />
       {items.length ? <GroundedRow notebookId={notebookId} /> : null}
+      {items.length > 1 ? <LanguageHint notebookId={notebookId} /> : null}
       {items.length === 0 ? (
         <EmptyState
           icon="upload"

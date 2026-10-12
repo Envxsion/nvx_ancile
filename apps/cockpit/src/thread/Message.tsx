@@ -387,7 +387,7 @@ export const Message = memo(function Message({
         data-clamped={clamped || undefined}
       >
         {shownParts ? (
-          <CiteProvider parts={shownParts} trace={m.provenance?.retrieval}>
+          <CiteProvider parts={shownParts} trace={m.provenance?.retrieval} messageId={m.id}>
             <ClaimsProvider messageId={m.id} claims={claims}>
               <Parts
                 parts={shownParts}
