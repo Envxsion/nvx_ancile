@@ -9,12 +9,7 @@
 import type { ParsedArtifact, ThreadArtifacts } from '@nvx/contracts';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('../src/lib/models', async (orig) => ({
-  ...(await orig<typeof import('../src/lib/models')>()),
-  useThreadIdFromRoute: () => 'thr_1',
-}));
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ProseWithArtifacts } from '../src/artifacts/ArtifactCard';
 import { ARTIFACT_SANDBOX, ArtifactFrame } from '../src/artifacts/ArtifactFrame';
@@ -152,7 +147,7 @@ describe('prose with artifacts', () => {
   it('renders a card for the artifact and opens the panel on click', () => {
     render(
       <QueryClientProvider client={queryClient}>
-        <ProseWithArtifacts messageId="m1" live={false}>
+        <ProseWithArtifacts threadId="thr_1" messageId="m1" live={false}>
           {'Here you go:\n\n```html artifact title="Landing page"\n<h1>Hi</h1>\n```\n\nEnjoy.'}
         </ProseWithArtifacts>
       </QueryClientProvider>,

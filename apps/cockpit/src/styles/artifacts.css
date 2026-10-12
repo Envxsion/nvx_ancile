@@ -76,6 +76,7 @@
   white-space: nowrap;
 }
 .artifact-card__meta {
+  font-variant-numeric: tabular-nums;
   font-size: var(--t-small);
   color: var(--mute);
 }
@@ -169,6 +170,7 @@
 }
 .artifact-panel__title {
   margin: 0;
+  outline: none;
   font-size: var(--t-body);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -178,6 +180,7 @@
 }
 .artifact-panel__sub {
   margin: 0;
+  font-variant-numeric: tabular-nums;
   font-size: var(--t-small);
   color: var(--mute);
 }
@@ -198,6 +201,7 @@
   gap: 2px;
 }
 .artifact-versions__label {
+  font-variant-numeric: tabular-nums;
   min-width: 112px;
   text-align: center;
   font-size: var(--t-small);

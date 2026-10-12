@@ -5,9 +5,11 @@
    ------------------------------------------------------------------ */
 
 .pyrun {
-  display: flex;
-  flex-direction: column;
+  /* One column that may shrink: code scrolls inside, figures scale, nothing widens the answer. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
+  min-width: 0;
 }
 .pyrun .code {
   margin: 0;

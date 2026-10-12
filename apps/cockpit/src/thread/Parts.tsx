@@ -114,7 +114,9 @@ export function Parts({
   holdText = false,
   subagents,
   messageId = null,
+  threadId = null,
 }: {
+  threadId?: string | null;
   /** The answer these parts belong to: artifacts in it are versioned by it. */
   messageId?: string | null;
   /** Claude Code subagent transcripts: under their tool step, or at the end. */
@@ -141,6 +143,7 @@ export function Parts({
           <ProseWithArtifacts
             key={s.key}
             messageId={messageId}
+            threadId={threadId}
             live={streaming}
             className="md"
             mode={streaming && i === lastText ? 'streaming' : 'static'}

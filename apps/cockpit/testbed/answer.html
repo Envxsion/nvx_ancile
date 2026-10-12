@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
+    <title>Answer testbed</title>
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'dark';
+    </script>
+  </head>
+  <body>
+    <!-- Dev server only (never built): screenshots of an answer with an artifact card and Python steps. -->
+    <div id="root"></div>
+    <script type="module" src="./answer.tsx"></script>
+  </body>
+</html>

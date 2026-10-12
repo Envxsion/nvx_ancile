@@ -21,7 +21,6 @@ import { type ParsedArtifact, splitArtifacts } from '@nvx/contracts';
 import { motion, useReducedMotion } from 'motion/react';
 import { type ComponentProps, useEffect, useMemo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
-import { useThreadIdFromRoute } from '../lib/models';
 import { Icon } from '../ui/Icon';
 import { lineCount, TYPE_ICON, TYPE_LABEL } from './meta';
 import { openArtifact, useArtifacts, useThreadArtifacts } from './store';
@@ -29,14 +28,15 @@ import { openArtifact, useArtifacts, useThreadArtifacts } from './store';
 export function ArtifactCard({
   artifact,
   messageId,
+  threadId,
   live,
 }: {
   artifact: ParsedArtifact;
   messageId: string | null;
+  threadId: string | null;
   /** The answer is still streaming. */
   live: boolean;
 }) {
-  const threadId = useThreadIdFromRoute() ?? null;
   const list = useThreadArtifacts(artifact.complete && !live ? threadId : null);
   const open = useArtifacts((s) => s.open);
   const reduce = useReducedMotion();
@@ -77,7 +77,7 @@ export function ArtifactCard({
         <span className="artifact-card__title" dir="auto">
           {artifact.title}
         </span>
-        <span className="artifact-card__meta" data-num>
+        <span className="artifact-card__meta">
           {writing
             ? `Writing · ${lineCount(artifact.content).toLocaleString('en-GB')} lines`
             : `${TYPE_LABEL[artifact.type]}${artifact.language && artifact.type === 'code' ? ` · ${artifact.language}` : ''}${
@@ -103,9 +103,15 @@ type StreamdownProps = ComponentProps<typeof Streamdown>;
 export function ProseWithArtifacts({
   children,
   messageId,
+  threadId = null,
   live,
   ...props
-}: Omit<StreamdownProps, 'children'> & { children: string; messageId: string | null; live: boolean }) {
+}: Omit<StreamdownProps, 'children'> & {
+  children: string;
+  messageId: string | null;
+  threadId?: string | null;
+  live: boolean;
+}) {
   const pieces = useMemo(() => splitArtifacts(children), [children]);
   if (pieces.length === 1 && pieces[0]?.kind === 'text')
     return <Streamdown {...props}>{children}</Streamdown>;
@@ -124,7 +130,13 @@ export function ProseWithArtifacts({
             </Streamdown>
           ) : null
         ) : (
-          <ArtifactCard key={`a${p.artifact.key}`} artifact={p.artifact} messageId={messageId} live={live} />
+          <ArtifactCard
+            key={`a${p.artifact.key}`}
+            artifact={p.artifact}
+            messageId={messageId}
+            threadId={threadId}
+            live={live}
+          />
         ),
       )}
     </>

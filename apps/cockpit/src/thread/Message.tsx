@@ -398,6 +398,7 @@ export const Message = memo(function Message({
                 holdText={streaming && whole}
                 subagents={m.subagents}
                 messageId={m.id}
+                threadId={threadId}
               />
             </ClaimsProvider>
           </CiteProvider>

@@ -948,13 +948,15 @@ export function ToolStep({
         : state === 'failed' && kind !== 'shell'
           ? firstLine(resultText(result), 90) || null
           : null;
-  const [shown, onToggle] = useOpened(!folded || state === 'waiting');
+  // A Python run is read for its output and figures: it stays open whatever the setting.
+  const openByDefault = !folded || state === 'waiting' || kind === 'python';
+  const [shown, onToggle] = useOpened(openByDefault);
   return (
     <details
       className="tool-step"
       data-state={state}
       data-kind={kind}
-      open={!folded || state === 'waiting' || undefined}
+      open={openByDefault || undefined}
       onToggle={onToggle}
     >
       <summary title={line.full ?? undefined}>

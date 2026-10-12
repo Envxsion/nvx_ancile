@@ -174,7 +174,7 @@ export function buildArtifactDocument(i: DocInput): string {
       const run = `(function(){var src=JSON.parse(document.getElementById('ancile-src').textContent);try{mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:${JSON.stringify(
         i.theme.scheme === 'dark' ? 'dark' : 'default',
       )},fontFamily:${JSON.stringify(i.theme.font)}});mermaid.render('ancile-diagram',src).then(function(r){document.getElementById('ancile-root').innerHTML=r.svg;}).catch(function(e){var p=document.createElement('pre');p.id='ancile-error';p.textContent='This diagram could not be drawn: '+(e&&e.message||e);document.body.appendChild(p);});}catch(e){var p=document.createElement('pre');p.id='ancile-error';p.textContent=String(e&&e.message||e);document.body.appendChild(p);}})();`;
-      return `${start(`${baseStyle(i.theme, true)}#ancile-root svg{max-width:100%;height:auto}`)}<script>${scriptText(
+      return `${start(`${baseStyle(i.theme, true)}#ancile-root{width:100%;padding:24px;box-sizing:border-box}#ancile-root svg{display:block;width:100%;max-width:100%!important;height:auto;max-height:calc(100vh - 48px);margin:auto}`)}<script>${scriptText(
         lib,
       )}</script></head><body><div id="ancile-root"></div><script type="application/json" id="ancile-src">${jsonText(
         i.content,

@@ -51,17 +51,23 @@ import { useUi } from './state/ui';
 markRuntime();
 // Dev only: the screenshot scripts (scripts/shoot-*.mjs) seed the stores to draw states demo data cannot reach.
 if (import.meta.env.DEV)
-  void Promise.all([import('./auto/store'), import('./editors/store'), import('./engines/notice')]).then(
-    ([auto, editors, notice]) => {
-      (window as unknown as { __ancile: unknown }).__ancile = {
-        queryClient,
-        useUi,
-        useAuto: auto.useAuto,
-        openEditor: editors.openEditor,
-        showContextNotice: notice.showContextNotice,
-      };
-    },
-  );
+  void Promise.all([
+    import('./auto/store'),
+    import('./editors/store'),
+    import('./engines/notice'),
+    import('./artifacts/store'),
+    import('./code/store'),
+  ]).then(([auto, editors, notice, artifacts, code]) => {
+    (window as unknown as { __ancile: unknown }).__ancile = {
+      queryClient,
+      useUi,
+      useAuto: auto.useAuto,
+      openEditor: editors.openEditor,
+      showContextNotice: notice.showContextNotice,
+      openArtifact: artifacts.openArtifact,
+      openFile: code.openFile,
+    };
+  });
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing #root');
 

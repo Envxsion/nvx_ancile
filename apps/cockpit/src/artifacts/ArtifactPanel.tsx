@@ -207,6 +207,7 @@ export function ArtifactPanel() {
   const [tab, setTab] = useState<Tab>('preview');
   const [offers, setOffers] = useState<ArtifactOffer[]>([]);
   const panelRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const opener = useRef<HTMLElement | null>(null);
 
   const key = open ? `${open.threadId}:${open.artifact.key}` : null;
@@ -222,7 +223,8 @@ export function ArtifactPanel() {
           : 'preview',
     );
     setOffers([]);
-    requestAnimationFrame(() => panelRef.current?.focus());
+    // Focus lands on the title, so a screen reader announces what opened.
+    requestAnimationFrame(() => (titleRef.current ?? panelRef.current)?.focus());
     return () => opener.current?.focus?.();
   }, [key]);
 
@@ -288,10 +290,10 @@ export function ArtifactPanel() {
                 <Icon name={TYPE_ICON[current.type]} size={15} />
               </span>
               <div className="artifact-panel__titles">
-                <h2 className="artifact-panel__title" dir="auto">
+                <h2 className="artifact-panel__title" dir="auto" ref={titleRef} tabIndex={-1}>
                   {current.title}
                 </h2>
-                <p className="artifact-panel__sub" data-num>
+                <p className="artifact-panel__sub">
                   {TYPE_LABEL[current.type]}
                   {current.language && current.type === 'code' ? ` · ${current.language}` : ''}
                   {record.local ? '' : ` · ${relative(current.created_at)}`}
@@ -378,7 +380,7 @@ export function ArtifactPanel() {
                   >
                     <Icon name="chevronLeft" size={13} />
                   </button>
-                  <span className="artifact-versions__label" data-num aria-live="polite">
+                  <span className="artifact-versions__label" aria-live="polite">
                     Version {current.version} of {versions.length}
                   </span>
                   <button
