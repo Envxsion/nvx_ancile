@@ -478,9 +478,14 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             'tool_call',
             { tool: call.tool, args: call.args },
             async () => {
-              const timeout = AbortSignal.timeout(deps.toolTimeoutMs ?? 60_000);
+              const timeout = AbortSignal.timeout(spec.timeoutMs ?? deps.toolTimeoutMs ?? 60_000);
               const signal = AbortSignal.any([ctx.signal, timeout]);
-              return spec.execute(call.args, { idempotencyKey: `${run.id}:${call.seq}`, signal, scope });
+              return spec.execute(call.args, {
+                idempotencyKey: `${run.id}:${call.seq}`,
+                signal,
+                scope,
+                callId: call.callId,
+              });
             },
             // A read can safely run again after a crash; anything else is not
             // repeated without a person (DESIGN.md §5.5).

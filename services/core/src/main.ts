@@ -31,6 +31,8 @@ import { CircuitBreaker } from '@nvx/resilience';
 import { createActivity } from './activity';
 import { activityRoutes } from './activity/routes';
 import { createApp } from './app';
+import { artifactRoutes } from './artifacts/routes';
+import { PgArtifactStore } from './artifacts/store';
 import {
   AutomationRunner,
   builtinOptions,
@@ -91,6 +93,11 @@ import { restartAdapterFor } from './health/restart';
 import { healthRoutes, recordHealth, systemHealthOf } from './health/routes';
 import { DEFAULT_SUPERVISOR, startSupervisor } from './health/supervisor';
 import { cockpitOrigins } from './http/guard';
+import { attachedFiles } from './interpreter/attached';
+import { interpreterRoutes } from './interpreter/routes';
+import { PyodideRuntime } from './interpreter/runtime';
+import { InterpreterService, PgFigureStore } from './interpreter/service';
+import { pythonTool } from './interpreter/tool';
 import { knowledgeClient } from './knowledge/client';
 import { PgTombstoneStore, sourceIntegrity } from './knowledge/integrity';
 import { HttpEngine } from './lab/engine-client';
@@ -491,6 +498,17 @@ async function main() {
   // Claude Code's own MCP servers get the same rug-pull guard as NVX Ancile's (docs/plugins.md).
   watchClaudeCodeMcp(claudeCode.bridge, mcpGuard);
   const kn = knowledgeClient({ baseUrl: env.KNOWLEDGE_URL, serviceToken: env.ANCILE_SERVICE_TOKEN });
+  // The code interpreter (docs/interpreter.md): python_run runs in a Cockpit window's sandbox.
+  const pyodide = new PyodideRuntime({ dataDir: resolve(env.ANCILE_DATA_DIR) });
+  const interpreterFigures = new PgFigureStore(sql);
+  const interpreter = new InterpreterService({
+    figures: interpreterFigures,
+    publish: (e) => events.publish(e),
+  });
+  tools.register(
+    pythonTool(interpreter, attachedFiles({ threads, kn, scopes })),
+    overrideFor(config.tools?.tools, 'code.run'),
+  );
   // Passages per turn and per source (config/retrieval.yaml), and what became of cited sources (track G).
   const retrievalLimits = {
     k: config.retrieval?.k ?? DEFAULT_LIMITS.k,
@@ -1375,6 +1393,8 @@ async function main() {
         workspaceRoot: workspace.root,
         snapshotsDir: labSnapshots,
       }),
+      artifactRoutes({ store: new PgArtifactStore(sql), threads, workspaceId: owner.workspaceId }),
+      interpreterRoutes({ runtime: pyodide, service: interpreter, figures: interpreterFigures }),
     ],
     ...(env.NODE_ENV === 'production' && existsSync(cockpitDist) && { cockpitDist }),
   });

@@ -133,7 +133,10 @@ function antArtifacts(text: string): Raw[] {
       language,
       id: a.identifier ?? a.id,
       title: a.title,
-      content: text.slice(bodyStart, bodyEnd).replace(/^\r?\n/, '').replace(/\r?\n$/, ''),
+      content: text
+        .slice(bodyStart, bodyEnd)
+        .replace(/^\r?\n/, '')
+        .replace(/\r?\n$/, ''),
       complete: Boolean(close),
     });
     open.lastIndex = end;

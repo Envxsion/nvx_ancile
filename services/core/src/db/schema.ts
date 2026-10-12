@@ -838,4 +838,33 @@ export const scopeSharedHistory = core.table(
     changedAt: ts('changed_at').notNull().defaultNow(),
   },
   (t) => [index('scope_shared_history_ref').on(t.level, t.refId, t.changedAt)],
+// ---- Phase 3 (B): artifacts and the code interpreter (0027) ----
+
+/** What the person decided for one artifact: network off unless they allowed it (docs/artifacts.md). */
+export const artifactSettings = core.table(
+  'artifact_settings',
+  {
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    artifactKey: text('artifact_key').notNull(),
+    allowNetwork: boolean('allow_network').notNull().default(false),
+    changedAt: ts('changed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.artifactKey] })],
+);
+
+/** Figures a python_run drew, served to the Cockpit by id (docs/interpreter.md). */
+export const interpreterFigures = core.table(
+  'interpreter_figures',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id').references(() => threads.id, { onDelete: 'cascade' }),
+    callId: text('call_id'),
+    png: bytea('png').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    createdAt: created(),
+  },
+  (t) => [index('interpreter_figures_thread').on(t.threadId)],
 );

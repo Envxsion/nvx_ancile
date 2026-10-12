@@ -32,6 +32,8 @@ export interface ToolSpec {
   destructive: boolean;
   /** No side effects: safe to run again after a crash left it unfinished. */
   readOnly?: boolean;
+  /** How long one call may take, when it needs longer than the conductor's default (python_run). */
+  timeoutMs?: number;
   source: { kind: 'builtin' } | { kind: 'mcp'; server: string } | { kind: 'plugin'; plugin: string };
   /**
    * Arguments → the resource URI the permission check runs on. `scope` is
@@ -41,7 +43,7 @@ export interface ToolSpec {
   resource(args: unknown, scope?: ToolScope): string;
   execute(
     args: unknown,
-    ctx: { idempotencyKey: string; signal: AbortSignal; scope?: ToolScope },
+    ctx: { idempotencyKey: string; signal: AbortSignal; scope?: ToolScope; callId?: string },
   ): Promise<unknown>;
   /**
    * What the approval shows instead of the raw arguments: the resolved

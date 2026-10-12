@@ -131,7 +131,8 @@ export const BUILTIN_TOOL_PRESETS: readonly ToolPreset[] = [
   {
     id: 'research',
     name: 'Research',
-    description: 'Search the web, sources and memory, and read files. Nothing is written or run.',
+    description:
+      'Search the web, sources and memory, read files, and run Python in its sandbox. Nothing is written.',
     builtin: true,
     updated_at: null,
     tools_allow: [
@@ -143,6 +144,7 @@ export const BUILTIN_TOOL_PRESETS: readonly ToolPreset[] = [
       'fs.read',
       'fs.list',
       'flow.ask',
+      'code.run',
       'mcp.**',
       CLAUDE_CODE_BOOKKEEPING,
     ],
@@ -167,6 +169,7 @@ export const BUILTIN_TOOL_PRESETS: readonly ToolPreset[] = [
       'memory.propose',
       'web.search',
       'web.fetch',
+      'code.run',
       'mcp.**',
       CLAUDE_CODE_BOOKKEEPING,
     ],
