@@ -55,14 +55,18 @@ export function ContextPacksLocked({ build }: { build: 'free' | 'pro' | null }) 
   const words = proContract.PRO_FEATURE_WORDS.context_packs;
   return (
     <section className="eil" aria-labelledby="cpl-title">
-      <header className="eil__hero">
-        <span className="eil__pill">Pro</span>
+      <header className="eil__hero gilt-frame">
+        <span className="eil__pill gilt-pill">Pro</span>
         <h2 id="cpl-title" className="eil__title">
           {words.title}
         </h2>
         <p className="eil__lede">{words.body}</p>
         <div className="eil__cta">
-          <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--primary btn--sm">
+          <Link
+            to="/admin/$section"
+            params={{ section: 'license' }}
+            className="btn btn--primary btn--sm gilt-action"
+          >
             {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
           </Link>
           <span className="mute eil__where">
@@ -75,7 +79,7 @@ export function ContextPacksLocked({ build }: { build: 'free' | 'pro' | null }) 
 
       <ul className="eil__grid">
         {POINTS.map((p) => (
-          <li key={p.title} className="eil__card">
+          <li key={p.title} className="eil__card pro-card gilt-frame">
             <div className="eil__card-head">
               <span className="eil__glyph" aria-hidden="true">
                 <Icon name={p.icon} size={14} />
@@ -87,7 +91,7 @@ export function ContextPacksLocked({ build }: { build: 'free' | 'pro' | null }) 
         ))}
       </ul>
 
-      <aside className="eil__suggestion" aria-label="An example pack">
+      <aside className="eil__suggestion gilt-frame gilt-frame--quiet" aria-label="An example pack">
         <Icon name="archive" size={14} />
         <div>
           <p className="eil__suggestion-title">“Pump commissioning”, attached to 3 threads</p>

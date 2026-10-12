@@ -49,6 +49,7 @@ const FEATURES = [
     'Flow lab',
     'Test a flow against your past threads, run a new flow in the shadow of the live one.',
   ],
+  ['context_packs', 'Context packs', 'Save what a notebook knows as a pack, and attach it anywhere.'],
   ['insights', 'Insights', 'Where your time, money and models go, from your own history, on this computer.'],
 ];
 
@@ -203,6 +204,7 @@ async function serve(page, pro) {
   await page.route('**/api/v1/system/update-offer', (r) => r.fulfill({ json: { offer: null } }));
   await page.route('**/api/v1/system/pro-data', (r) => r.fulfill({ json: { tables: [], total_rows: 0 } }));
   await page.route('**/api/v1/pro/insights/engines*', (r) => r.fulfill({ json: ENGINES }));
+  await page.route('**/api/v1/pro/context-packs*', (r) => r.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/pro/fleet/overview', (r) => r.fulfill({ json: FLEET }));
   await page.route('**/api/v1/pro/fleet/catalogue', (r) =>
     r.fulfill({ json: { gpu_types: [], regions: [], templates: [], prices_as_of: day(29) } }),
@@ -214,6 +216,7 @@ const PAGES = {
     ['licence', '/admin/license'],
     ['engine-insights', '/admin/engine-insights'],
     ['fleet', '/admin/fleet'],
+    ['context-packs', '/admin/context-packs'],
     ['home', '/'],
   ],
   phone: [

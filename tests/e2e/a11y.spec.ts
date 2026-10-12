@@ -31,9 +31,9 @@ test.describe('accessibility', () => {
     });
 
   // The Pro edition: the brighter palette and the gilt kit hold AA too.
-  for (const route of ['/admin/license', '/admin/engine-insights', '/admin/fleet'])
+  for (const route of ['/admin/license', '/admin/engine-insights', '/admin/fleet', '/admin/context-packs'])
     test(`${route} in the Pro edition has no serious or critical axe violation`, async ({ page }) => {
-      const features = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights'];
+      const features = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights', 'context_packs'];
       await page.addInitScript(() => localStorage.setItem('nvx.ancile.pro-awakened', '1'));
       await page.route('**/api/v1/license/details', (r) =>
         r.fulfill({
