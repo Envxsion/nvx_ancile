@@ -212,6 +212,12 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     return false;
   }
   patchCc(o.threadId, { notice: null });
+  if (s.branched === 'open_in_terminal')
+    notify({
+      level: 'info',
+      title: 'Sent as a branch',
+      body: "This session is open in a terminal, so it carries on in a branch here. The terminal's session is left as it is.",
+    });
   const answerId = placeTurn(o.threadId, o.parentId, s, o.text, other);
   if (s.context_notice) showContextNotice(o.threadId, s.context_notice, s.assistant_message_id ?? null);
   if (s.assistant_message_id) attachRun({ runId: s.run_id, threadId: o.threadId, messageId: answerId });
@@ -227,6 +233,12 @@ function reportSendFailure(threadId: string, error: unknown, retry: CcRetry): vo
     const { code, title, hint } = error.body.error;
     if (code === 'claude_code.session_busy') {
       patchCc(threadId, { notice: { kind: 'busy', retry } });
+      return;
+    }
+    if (code === 'claude_code.folder_missing') {
+      const cwd = queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode?.cwd ?? null;
+      patchCc(threadId, { notice: { kind: 'folder_missing', cwd, retry } });
+      refreshLive(threadId);
       return;
     }
     const kind = FIXABLE[code as keyof typeof FIXABLE];
@@ -251,6 +263,28 @@ export function continueAsBranch(
   opts: { model?: string | null; effort?: Effort | null; other?: CcSend['other'] } = {},
 ): Promise<boolean> {
   return sendClaudeCode({ threadId, ...retry, ...opts, asBranch: true });
+}
+
+/**
+ * The model changed while a turn works: any approval it is waiting on was
+ * asked under the old choice, so Core withdraws it (never left to answer
+ * later). Quiet when nothing was waiting.
+ */
+export async function withdrawForModelChange(threadId: string): Promise<void> {
+  const live = queryClient.getQueryData<ClaudeCodeLiveState>(CC_LIVE_KEYS.live(threadId));
+  if (live?.state !== 'working') return;
+  try {
+    const r = await api.post<{ withdrawn: number }>(`/claude-code/threads/${threadId}/model-changed`);
+    if (r.withdrawn > 0)
+      notify({
+        level: 'info',
+        title:
+          r.withdrawn === 1 ? 'The waiting request was withdrawn' : 'The waiting requests were withdrawn',
+        body: 'They were asked before you changed the model. Claude Code hears they were withdrawn; it can ask again.',
+      });
+  } catch {
+    // Nothing to withdraw, or Core is away: the turn's end withdraws them anyway.
+  }
 }
 
 /** Stop the running turn: Claude Code's own interrupt. What streamed is kept. */
@@ -437,8 +471,10 @@ export function parseTyped(
 
 /** "Claude Code ready in cyberfolio", "Starting Claude Code…", "Working…". */
 export function liveWords(live: ClaudeCodeLiveState | undefined, folder: string | null): string {
-  const where = folder ? ` in ${folder}` : '';
+  const where = live?.no_files ? ' without files' : folder ? ` in ${folder}` : '';
   if (!live) return `Claude Code${where}`;
+  if (live.folder_missing && !live.no_files) return "This session's folder has moved or been deleted";
+  if (live.open_in_terminal) return 'Open in a terminal: your next message starts a branch';
   if (live.locked_elsewhere) return 'Open in Claude Code somewhere else';
   switch (live.state) {
     case 'starting':

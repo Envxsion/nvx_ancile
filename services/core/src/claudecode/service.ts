@@ -59,6 +59,7 @@ import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
 import type { CcSessionInfo, CcSessionMessage, SessionSource } from './bridge-protocol';
 import { type ClaudeCli, MIN_VERSION } from './cli';
 import { ccErrors } from './errors';
+import type { SessionHolders } from './holders';
 import type { ClaudeInstaller } from './install';
 import {
   addUsage,
@@ -66,11 +67,14 @@ import {
   type CcProvenance,
   digestSubagent,
   MAPPER_VERSION,
+  mergeUnknown,
   type PlanResult,
+  placeOf,
   planSync,
   provenanceOf,
   type SubagentDigest,
   titleOf,
+  type UnknownRaw,
 } from './map';
 import { joinOutput } from './markup';
 import { type ClaudeCodeStore, cwdKey, cwdWithin, FORK_PROBE, type SessionBinding } from './store';
@@ -134,6 +138,8 @@ export interface ClaudeCodeServiceDeps {
   home?: string;
   /** Read full history from transcript files (default on; tests may turn it off). */
   transcripts?: boolean;
+  /** Claude Code processes outside NVX Ancile holding sessions (holders.ts). */
+  holders?: Pick<SessionHolders, 'holder'>;
 }
 
 /** A session's history: its chains (old branches first, the active one last). */
@@ -230,6 +236,8 @@ export class ClaudeCodeService {
   private sdkKicked = false;
   /** Sessions a live turn is writing: left to that turn (claudecode/live.ts). */
   private liveGuard: (sessionId: string) => boolean = () => false;
+  /** Claude Code versions already warned about entries this version cannot show. */
+  private readonly warnedVersions = new Set<string>();
   private readonly now: () => number;
   private readonly platform: NodeJS.Platform;
 
@@ -505,10 +513,21 @@ export class ClaudeCodeService {
     const offset = Math.max(Number.parseInt(f.cursor ?? '0', 10) || 0, 0);
     const page = filtered.slice(offset, offset + limit);
     const missing = new Map<string, boolean>();
+    // One read of the process list (cached) answers for the whole page.
+    const held = new Set<string>();
+    if (this.deps.holders)
+      for (const s of page)
+        if (
+          await this.deps.holders
+            .holder({ sessionId: s.sessionId, cwd: s.cwd ?? null, modifiedMs: s.lastModified })
+            .catch(() => null)
+        )
+          held.add(s.sessionId);
     const items = page.map((s): ClaudeCodeSession => {
       const b = bindings.get(s.sessionId);
       if (s.cwd && !missing.has(s.cwd)) missing.set(s.cwd, !exists(s.cwd));
       return {
+        open_in_terminal: held.has(s.sessionId),
         session_id: s.sessionId,
         title: titleOf(s),
         cwd: s.cwd ?? null,
@@ -847,14 +866,17 @@ export class ClaudeCodeService {
     let added = 0;
     let firstRoot = null as string | null;
     let plan: PlanResult = { planned: [], head: null, lastUuid: null };
+    const raws: UnknownRaw[] = [];
     // Old branches first, the active path last: each branch hangs off what is already there.
     for (const chain of chains) {
       plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
+      for (const p of plan.planned) if (p.raws) raws.push(...p.raws);
       const r = await this.writePlan(thread, sessionId, plan, traceId);
       added += r.added;
       firstRoot ??= r.firstRoot;
       applyToMirror(mirror, plan);
     }
+    await this.keepUnknown(thread.id, sessionId, raws);
     if (history.via === 'transcript' && chains.length > 1)
       log.info(
         { session_id: sessionId, thread_id: thread.id, branches: chains.length - 1 },
@@ -867,6 +889,10 @@ export class ClaudeCodeService {
     const renamedHere = lastTitle !== null && thread.title !== lastTitle;
     const nextTitle = !primary || renamedHere ? undefined : title !== thread.title ? title : undefined;
     const syncedAt = new Date(this.now()).toISOString();
+    const bound = thread.settings.claude_code;
+    // A folder chosen in NVX Ancile (the old one moved), or a thread going on without files,
+    // keeps its folder until its next session says otherwise.
+    const keepCwd = !!bound && (bound.no_files === true || bound.fresh_next === true);
     await threads.patchThread(thread.id, {
       ...(primary && plan.head && { active_head_id: plan.head }),
       ...(firstRoot && !thread.root_message_id ? { root_message_id: firstRoot } : {}),
@@ -874,8 +900,9 @@ export class ClaudeCodeService {
       ...(primary && {
         settings: {
           claude_code: {
+            ...bound,
             session_id: sessionId,
-            cwd,
+            cwd: keepCwd ? (bound?.cwd ?? cwd) : cwd,
             last_uuid: plan.lastUuid ?? thread.settings.claude_code?.last_uuid ?? null,
             synced_at: syncedAt,
           },
@@ -894,6 +921,45 @@ export class ClaudeCodeService {
     await this.deps.store.putSession(ws, binding2);
     if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
     return { thread_id: thread.id, added, notebook_id: thread.notebook_id };
+  }
+
+  /**
+   * Keep the raw lines of entries this version cannot show, and say so in
+   * the log once per Claude Code version (counts and kinds only, never
+   * what they say).
+   */
+  async keepUnknown(threadId: string, sessionId: string, items: UnknownRaw[]): Promise<void> {
+    if (!items.length) return;
+    const version = (await this.deps.cli.status().catch(() => null))?.version ?? null;
+    let fresh = 0;
+    try {
+      fresh = await this.deps.store.keepUnknown(this.deps.workspaceId, {
+        sessionId,
+        threadId,
+        cliVersion: version,
+        items,
+      });
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, session_id: sessionId, entries: items.length },
+        'could not keep Claude Code entries this version cannot show',
+      );
+      return;
+    }
+    if (!fresh) return;
+    const types: Record<string, number> = {};
+    for (const it of items) types[it.type] = (types[it.type] ?? 0) + 1;
+    const key = version ?? 'unknown';
+    const fields = { cli_version: version, session_id: sessionId, entries: fresh, types };
+    if (this.warnedVersions.has(key))
+      log.debug(fields, 'kept Claude Code entries this version cannot show yet');
+    else {
+      this.warnedVersions.add(key);
+      log.warn(
+        fields,
+        'Claude Code wrote entries this version of NVX Ancile cannot show yet; they are kept as written',
+      );
+    }
   }
 
   /**
@@ -968,9 +1034,10 @@ export class ClaudeCodeService {
         provenance: {
           claude_code: {
             ...oc,
-            uuid: uuids.at(-1) ?? oc.uuid,
+            uuid: placeOf(uuids) ?? oc.uuid,
             uuids,
             last_api_id: p.last_api_id ?? oc.last_api_id ?? null,
+            ...(p.unknown && { unknown: mergeUnknown(oc.unknown, p.unknown) }),
             ...(p.output !== undefined &&
               oc.command && { command: { ...oc.command, output: joinOutput(oc.command.output, p.output) } }),
           },

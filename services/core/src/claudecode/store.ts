@@ -2,13 +2,15 @@
  * ------------------------------------------------------------------
  *  Title    |  Claude Code bindings
  *  Ref      |  docs/claude-code.md · migrations/0013_claude_code.sql,
- *           |  0014_claude_code_mapper.sql, 0020_claude_code_fork_lookup.sql
+ *           |  0014_claude_code_mapper.sql, 0020_claude_code_fork_lookup.sql,
+ *           |  0023_claude_code_reliability.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which notebook a folder's sessions go to, which thread
  *           |  each session was brought into (and by which version of
- *           |  the mapping), and which transcript entries a thread
- *           |  already holds.
+ *           |  the mapping), which transcript entries a thread already
+ *           |  holds, and the raw text of entries this version of NVX
+ *           |  Ancile cannot show yet (kept so a later version can).
  *  How      |  ClaudeCodeStore is the interface; PgClaudeCodeStore is
  *           |  real, MemoryClaudeCodeStore backs tests (over the memory
  *           |  thread repo). Folders are compared with cwdKey: on
@@ -18,7 +20,7 @@
 
 import type { Sql } from 'postgres';
 import type { MemoryThreadRepo } from '../threads/repo';
-import type { CcProvenance, MirrorState } from './map';
+import type { CcProvenance, MirrorState, UnknownRaw } from './map';
 
 /** A folder as the OS compares it. */
 export function cwdKey(cwd: string, platform: NodeJS.Platform = process.platform): string {
@@ -83,10 +85,29 @@ export interface ClaudeCodeStore {
    * shares its entries with the session it came from.
    */
   threadHolding(workspaceId: string, uuids: string[]): Promise<string | null>;
+  /**
+   * Keep the raw text of entries this version cannot show (once per
+   * session and entry; a later read of the same entry changes nothing).
+   * Returns how many were new.
+   */
+  keepUnknown(
+    workspaceId: string,
+    a: { sessionId: string; threadId: string; cliVersion: string | null; items: UnknownRaw[] },
+  ): Promise<number>;
+  /** The kept entries of a thread (newest version of NVX Ancile can read them again). */
+  unknownFor(threadId: string): Promise<(UnknownRaw & { session_id: string; truncated: boolean })[]>;
 }
 
 /** How many of a session's first entries are looked up to tell a fork. */
 export const FORK_PROBE = 50;
+
+/** One kept line is at most this many characters (a longer one is cut, and says so). */
+export const UNKNOWN_RAW_CAP = 1_000_000;
+
+const capRaw = (raw: string) =>
+  raw.length > UNKNOWN_RAW_CAP
+    ? { raw: raw.slice(0, UNKNOWN_RAW_CAP), truncated: true }
+    : { raw, truncated: false };
 
 interface MirrorRow {
   id: string;
@@ -191,6 +212,39 @@ export class PgClaudeCodeStore implements ClaudeCodeStore {
       group by m.thread_id order by n desc, m.thread_id limit 1`;
     return rows[0]?.thread_id ?? null;
   }
+
+  async keepUnknown(
+    workspaceId: string,
+    a: { sessionId: string; threadId: string; cliVersion: string | null; items: UnknownRaw[] },
+  ) {
+    let n = 0;
+    for (const it of a.items) {
+      const { raw, truncated } = capRaw(it.raw);
+      const r = await this.sql`
+        insert into core.claude_code_unknown_entries
+          (workspace_id, session_id, uuid, thread_id, entry_type, cli_version, raw, truncated)
+        values (${workspaceId}, ${a.sessionId}, ${it.uuid}, ${a.threadId}, ${it.type}, ${a.cliVersion}, ${raw}, ${truncated})
+        on conflict (workspace_id, session_id, uuid) do nothing
+        returning uuid`;
+      n += r.length;
+    }
+    return n;
+  }
+
+  async unknownFor(threadId: string) {
+    const rows = await this.sql<
+      { session_id: string; uuid: string; entry_type: string; raw: string; truncated: boolean }[]
+    >`
+      select session_id, uuid, entry_type, raw, truncated from core.claude_code_unknown_entries
+      where thread_id = ${threadId} order by first_seen, uuid`;
+    return rows.map((r) => ({
+      session_id: r.session_id,
+      uuid: r.uuid,
+      type: r.entry_type,
+      raw: r.raw,
+      truncated: r.truncated,
+    }));
+  }
 }
 
 export class MemoryClaudeCodeStore implements ClaudeCodeStore {
@@ -269,5 +323,37 @@ export class MemoryClaudeCodeStore implements ClaudeCodeStore {
     let best: string | null = null;
     for (const [id, n] of counts) if (!best || n > (counts.get(best) ?? 0)) best = id;
     return best;
+  }
+
+  /** Kept unknown entries, by `${workspace}|${session}|${uuid}` (tests read it). */
+  readonly unknown = new Map<
+    string,
+    UnknownRaw & { session_id: string; thread_id: string; cli_version: string | null; truncated: boolean }
+  >();
+
+  async keepUnknown(
+    workspaceId: string,
+    a: { sessionId: string; threadId: string; cliVersion: string | null; items: UnknownRaw[] },
+  ) {
+    let n = 0;
+    for (const it of a.items) {
+      const key = `${workspaceId}|${a.sessionId}|${it.uuid}`;
+      if (this.unknown.has(key)) continue;
+      this.unknown.set(key, {
+        ...it,
+        ...capRaw(it.raw),
+        session_id: a.sessionId,
+        thread_id: a.threadId,
+        cli_version: a.cliVersion,
+      });
+      n++;
+    }
+    return n;
+  }
+
+  async unknownFor(threadId: string) {
+    return [...this.unknown.values()]
+      .filter((u) => u.thread_id === threadId)
+      .map(({ session_id, uuid, type, raw, truncated }) => ({ session_id, uuid, type, raw, truncated }));
   }
 }

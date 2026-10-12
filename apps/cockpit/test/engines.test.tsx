@@ -25,7 +25,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
   return { ...real, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() } };
 });
 
-import { sendClaudeCode } from '../src/claudecode/live';
+import { CC_LIVE_KEYS, sendClaudeCode } from '../src/claudecode/live';
 import { NewClaudeCodeThread } from '../src/claudecode/NewThread';
 import { useCcStore } from '../src/claudecode/store';
 import { modelGroups } from '../src/engines/api';
@@ -40,6 +40,7 @@ import { attachRun, useRuns } from '../src/lib/run';
 import { editMessage, sendMessage } from '../src/lib/turns';
 import type { MessageView, ModelView, ThreadView } from '../src/lib/types';
 import { DEFAULT_SCOPE } from '../src/scopes/api';
+import { useNotify } from '../src/state/notify';
 import { flowKeys } from '../src/thread/flowActions';
 
 vi.mock('../src/lib/sse', () => ({ openStream: vi.fn(() => () => {}) }));
@@ -327,6 +328,30 @@ describe('sending a turn', () => {
     const after = useCcStore.getState().byThread.thr_1;
     await sendClaudeCode({ threadId: 'thr_1', parentId: 'm2', text: 'Back to you', model: after?.model });
     expect(posted('/turns')[1]?.[1]).toMatchObject({ model: 'claude-code/sonnet' });
+  });
+
+  it('changing the model while a Claude Code turn works withdraws the approvals it waits on', async () => {
+    seed(true);
+    // Idle: nothing can be waiting, nothing is asked.
+    chooseInClaudeCodeThread('thr_1', { id: 'openai/gpt-5.5', name: 'GPT-5.5' });
+    expect(posted('/model-changed')).toHaveLength(0);
+    queryClient.setQueryData(CC_LIVE_KEYS.live('thr_1'), {
+      state: 'working',
+      locked_elsewhere: false,
+      model: 'opus',
+      effort: null,
+      permission_mode: 'default',
+      cwd: '/home/me/app',
+      context: null,
+    });
+    mocked.post.mockResolvedValueOnce({ withdrawn: 1 });
+    chooseInClaudeCodeThread('thr_1', { id: 'claude-code/sonnet', name: 'sonnet' });
+    await waitFor(() => expect(posted('/claude-code/threads/thr_1/model-changed')).toHaveLength(1));
+    await waitFor(() =>
+      expect(useNotify.getState().toasts.some((t) => t.title === 'The waiting request was withdrawn')).toBe(
+        true,
+      ),
+    );
   });
 
   it('editing the first message of a Claude Code session sends from the start (parent null)', async () => {

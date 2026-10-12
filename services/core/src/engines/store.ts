@@ -5,7 +5,9 @@
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which NVX Ancile compaction each Claude Code session has
- *           |  already been given, and a notebook's instructions and
+ *           |  already been given, which of the notebook's sources a
+ *           |  Claude Code thread last saw (core.engine_source_marks,
+ *           |  migration 0023), and a notebook's instructions and
  *           |  persona for every engine.
  *  How      |  core.engine_sessions holds one row per session (a
  *           |  session is one branch's place in Claude Code). Notebook
@@ -27,6 +29,9 @@ export interface EngineStore {
     notebookId: string,
     patch: Partial<AncileInstructions>,
   ): Promise<AncileInstructions | null>;
+  /** The notebook's sources (id → title) as this thread's Claude Code session last saw them; null: never. */
+  sourceMarks(workspaceId: string, threadId: string): Promise<Record<string, string> | null>;
+  markSources(workspaceId: string, threadId: string, sources: Record<string, string>): Promise<void>;
 }
 
 const parse = (v: unknown): AncileInstructions | null => {
@@ -62,6 +67,16 @@ export class MemoryEngineStore implements EngineStore {
     const next = { ...(this.notebooks.get(notebookId) ?? { instructions: '', persona: '' }), ...patch };
     this.notebooks.set(notebookId, next);
     return next;
+  }
+
+  readonly marks = new Map<string, Record<string, string>>();
+
+  async sourceMarks(workspaceId: string, threadId: string) {
+    return this.marks.get(`${workspaceId}|${threadId}`) ?? null;
+  }
+
+  async markSources(workspaceId: string, threadId: string, sources: Record<string, string>) {
+    this.marks.set(`${workspaceId}|${threadId}`, { ...sources });
   }
 }
 
@@ -101,5 +116,19 @@ export class PgEngineStore implements EngineStore {
             updated_at = now()
       where id = ${notebookId}`;
     return next;
+  }
+
+  async sourceMarks(workspaceId: string, threadId: string) {
+    const rows = await this.sql<{ sources: Record<string, string> }[]>`
+      select sources from core.engine_source_marks
+      where workspace_id = ${workspaceId} and thread_id = ${threadId}`;
+    return rows[0]?.sources ?? null;
+  }
+
+  async markSources(workspaceId: string, threadId: string, sources: Record<string, string>) {
+    await this.sql`
+      insert into core.engine_source_marks (workspace_id, thread_id, sources)
+      values (${workspaceId}, ${threadId}, ${this.sql.json(sources)})
+      on conflict (workspace_id, thread_id) do update set sources = excluded.sources, updated_at = now()`;
   }
 }

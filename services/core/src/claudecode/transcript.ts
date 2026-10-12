@@ -15,8 +15,12 @@
  *           |  here), and read up to the size it had when we looked,
  *           |  so a session being appended to is read as a snapshot; a
  *           |  half-written last line is left for the next read. Each
- *           |  line is one JSON entry; lines that are not JSON or not an
- *           |  entry kind we know are skipped and counted.
+ *           |  line is one JSON entry. A line this reader does not know
+ *           |  (a kind of entry a newer Claude Code writes, or a line
+ *           |  that is not JSON) is never dropped: it is kept with its
+ *           |  raw text as an `unknown` entry where it was written, so
+ *           |  the thread can say "1 entry this version of NVX Ancile
+ *           |  can't show yet" and the line is stored as it was.
  *           |  Entries form a tree by uuid → parentUuid. A compaction
  *           |  writes a `system/compact_boundary` entry with no parent
  *           |  and `logicalParentUuid` pointing at the last entry
@@ -40,15 +44,18 @@
  * ------------------------------------------------------------------
  */
 
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { CcSessionMessage } from './bridge-protocol';
+import { LOOSE_UUID_PREFIX } from './map';
 
-export const TRANSCRIPT_READER_VERSION = 1;
+/** 2: lines it does not know are kept as `unknown` entries, never skipped. */
+export const TRANSCRIPT_READER_VERSION = 2;
 
-/** More unreadable lines than this share, and the reader's answer is not trusted. */
+/** More lines that are not JSON than this share, and the reader's answer is not trusted. */
 export const MAX_UNKNOWN_SHARE = 0.02;
 
 /** Entry kinds the reader knows (others are counted as unknown). */
@@ -95,12 +102,21 @@ export interface RawEntry {
   queued?: { uuid: string; prompt: string; origin: unknown };
   /** Position in the file, for order. */
   seq: number;
+  /** A kind of entry this reader does not know (or "not_json"): kept, with its raw line. */
+  unknownType?: string;
+  raw?: string;
+  /** An unknown line with no uuid of its own: not part of the tree, placed after `anchor`. */
+  pseudo?: boolean;
+  /** The last entry with a uuid written before it. */
+  anchor?: string | null;
 }
 
 export interface ReadStats {
   lines: number;
-  /** Lines that were not JSON, or not a kind of entry the reader knows. */
+  /** Lines that were not JSON, or not a kind of entry the reader knows (kept as unknown entries). */
   unknown: number;
+  /** Of those, lines that were not JSON at all. */
+  unreadable: number;
   entries: number;
   compactions: number;
   /** Branches beyond the active path. */
@@ -138,11 +154,39 @@ export async function readSnapshot(
   return { lines, partialTail, size };
 }
 
-/** Parse lines into entries with a uuid; count what is not understood. */
-export function parseEntries(lines: string[]): { entries: RawEntry[]; unknown: number; lines: number } {
+/** A stable id for a line with no uuid of its own (the same line gets the same id on every read). */
+export function lineId(line: string): string {
+  return `${LOOSE_UUID_PREFIX}${createHash('sha256').update(line).digest('hex').slice(0, 24)}`;
+}
+
+/**
+ * Parse lines into entries with a uuid; count what is not understood.
+ * A line of a kind the reader does not know, or one that is not JSON, is
+ * kept as an entry with `unknownType` and its raw text, never dropped.
+ */
+export function parseEntries(lines: string[]): {
+  entries: RawEntry[];
+  unknown: number;
+  unreadable: number;
+  lines: number;
+} {
   const entries: RawEntry[] = [];
   let unknown = 0;
+  let unreadable = 0;
   let n = 0;
+  let anchor: string | null = null;
+  const keepLoose = (line: string, type: string) => {
+    entries.push({
+      type: 'unknown',
+      uuid: lineId(line),
+      parentUuid: null,
+      unknownType: type,
+      raw: line,
+      pseudo: true,
+      anchor,
+      seq: entries.length,
+    });
+  };
   for (const line of lines) {
     if (!line.trim()) continue;
     n++;
@@ -151,14 +195,22 @@ export function parseEntries(lines: string[]): { entries: RawEntry[]; unknown: n
       j = JSON.parse(line);
     } catch {
       unknown++;
+      unreadable++;
+      keepLoose(line, 'not_json');
       continue;
     }
     if (!isObj(j) || typeof j.type !== 'string') {
       unknown++;
+      unreadable++;
+      keepLoose(line, isObj(j) ? 'no_type' : 'not_an_object');
       continue;
     }
-    if (!KNOWN.has(j.type)) unknown++;
-    if (typeof j.uuid !== 'string' || !j.uuid) continue;
+    const known = KNOWN.has(j.type);
+    if (!known) unknown++;
+    if (typeof j.uuid !== 'string' || !j.uuid) {
+      if (!known) keepLoose(line, j.type);
+      continue;
+    }
     // A prompt typed while Claude Code was working is delivered as an
     // attachment; the SDK shows it as a user message with the source's uuid.
     const queued =
@@ -192,10 +244,12 @@ export function parseEntries(lines: string[]): { entries: RawEntry[]; unknown: n
       ...(typeof j.sourceToolAssistantUUID === 'string' && {
         sourceToolAssistantUUID: j.sourceToolAssistantUUID,
       }),
+      ...(!known && { unknownType: j.type, raw: line }),
       seq: entries.length,
     });
+    anchor = j.uuid;
   }
-  return { entries, unknown, lines: n };
+  return { entries, unknown, unreadable, lines: n };
 }
 
 const blocks = (e: RawEntry): Record<string, unknown>[] => {
@@ -210,6 +264,16 @@ const apiId = (e: RawEntry): string | null =>
 
 /** Turn one raw entry into the shape the SDK returns. */
 export function toSdkShape(e: RawEntry, sessionId: string): CcSessionMessage {
+  if (e.unknownType)
+    return {
+      type: 'unknown',
+      uuid: e.uuid,
+      session_id: e.sessionId ?? sessionId,
+      message: e.message,
+      parent_tool_use_id: null,
+      ...(e.timestamp && { timestamp: e.timestamp }),
+      unknown: { type: e.unknownType, raw: e.raw ?? '' },
+    };
   if (e.queued)
     return {
       type: 'user',
@@ -243,13 +307,14 @@ export function buildChains(
 ): { chains: CcSessionMessage[][]; compactions: number; branches: number; folded: number } {
   // Later writes of the same uuid win, at the place it was first written.
   const byUuid = new Map<string, RawEntry>();
+  const loose = all.filter((e) => e.pseudo);
   for (const e of all) {
-    if (e.isSidechain) continue;
+    if (e.isSidechain || e.pseudo) continue;
     const prev = byUuid.get(e.uuid);
     byUuid.set(e.uuid, prev ? { ...e, seq: prev.seq } : e);
   }
   const entries = [...byUuid.values()].sort((a, b) => a.seq - b.seq);
-  if (!entries.length) return { chains: [], compactions: 0, branches: 0, folded: 0 };
+  if (!entries.length && !loose.length) return { chains: [], compactions: 0, branches: 0, folded: 0 };
   const parentOf = (e: RawEntry): string | null => {
     const p = e.parentUuid ?? e.logicalParentUuid ?? null;
     return p && byUuid.has(p) ? p : null;
@@ -274,7 +339,10 @@ export function buildChains(
     return out.reverse();
   };
 
-  const active = pathTo(entries.at(-1) as RawEntry);
+  // The active path ends at the last entry written, unless that is an unknown entry with no
+  // place in the tree (it is folded in after what it follows instead).
+  const leaf = entries.findLast((e) => !e.unknownType || parentOf(e)) ?? entries.at(-1);
+  const active = leaf ? pathTo(leaf) : [];
   const covered = new Set(active.map((e) => e.uuid));
   const coveredApi = new Set(active.map(apiId).filter((x): x is string => !!x));
   const chosen: RawEntry[][] = [];
@@ -346,8 +414,12 @@ export function buildChains(
   const onChain = new Set<string>();
   for (const c of [...chosen, active]) for (const e of c) onChain.add(e.uuid);
   const orphans = entries.filter(
-    (e) => !onChain.has(e.uuid) && (e.type === 'assistant' || isToolResultEntry(e)),
+    (e) => !onChain.has(e.uuid) && (e.type === 'assistant' || isToolResultEntry(e) || !!e.unknownType),
   );
+  orphans.push(...loose);
+  orphans.sort((a, b) => a.seq - b.seq);
+  // Where an unknown entry goes: after its parent, or (no uuid of its own) after the entry before it.
+  const unknownAnchor = (o: RawEntry): string | null => (o.pseudo ? (o.anchor ?? null) : parentOf(o));
   const withOrphans = (chain: RawEntry[]): RawEntry[] => {
     const out = [...chain];
     const here = new Set(out.map((e) => e.uuid));
@@ -358,7 +430,11 @@ export function buildChains(
         if (here.has(o.uuid)) continue;
         const id = apiId(o);
         let anchor = -1;
-        if (o.type === 'assistant' && id && apis.has(id)) anchor = out.findLastIndex((e) => apiId(e) === id);
+        if (o.unknownType) {
+          const a = unknownAnchor(o);
+          if (a && here.has(a)) anchor = out.findIndex((e) => e.uuid === a);
+        } else if (o.type === 'assistant' && id && apis.has(id))
+          anchor = out.findLastIndex((e) => apiId(e) === id);
         else if (o.sourceToolAssistantUUID && here.has(o.sourceToolAssistantUUID))
           anchor = out.findIndex((e) => e.uuid === o.sourceToolAssistantUUID);
         if (anchor < 0) continue;
@@ -380,12 +456,20 @@ export function buildChains(
     return out;
   };
 
-  const keep = (e: RawEntry) => e.type === 'user' || e.type === 'assistant' || !!e.queued;
-  const chains = [...chosen, active].map((c) =>
-    withOrphans(c)
-      .filter(keep)
-      .map((e) => toSdkShape(e, sessionId)),
-  );
+  const keep = (e: RawEntry) => e.type === 'user' || e.type === 'assistant' || !!e.queued || !!e.unknownType;
+  const built = [...chosen, active].map(withOrphans);
+  // An unknown entry with no place on any chain is never dropped: it goes on the active path,
+  // after what was written before it.
+  const placed = new Set<string>();
+  for (const c of built) for (const e of c) placed.add(e.uuid);
+  const last = built.at(-1) as RawEntry[];
+  for (const o of orphans) {
+    if (!o.unknownType || placed.has(o.uuid)) continue;
+    const at = last.findLastIndex((e) => e.seq < o.seq);
+    last.splice(at + 1, 0, o);
+    placed.add(o.uuid);
+  }
+  const chains = built.map((c) => c.filter(keep).map((e) => toSdkShape(e, sessionId)));
   return { chains, compactions, branches: chosen.length, folded };
 }
 
@@ -422,15 +506,18 @@ export async function readTranscript(path: string, sessionId: string): Promise<R
   const stats: ReadStats = {
     lines: parsed.lines,
     unknown: parsed.unknown,
+    unreadable: parsed.unreadable,
     entries: parsed.entries.length,
     compactions: built.compactions,
     branches: built.branches,
     folded: built.folded,
     partialTail: snap.partialTail,
   };
-  if (parsed.lines > 0 && parsed.unknown / parsed.lines > MAX_UNKNOWN_SHARE)
-    return { ok: false, reason: 'too many lines the reader does not understand', stats, path };
-  const active = built.chains.at(-1) ?? [];
+  // Kinds of entry it does not know are kept (as unknown entries); more than a few lines that
+  // are not JSON at all mean the file is not what the reader expects.
+  if (parsed.lines > 0 && parsed.unreadable / parsed.lines > MAX_UNKNOWN_SHARE)
+    return { ok: false, reason: 'too many lines that are not JSON', stats, path };
+  const active = (built.chains.at(-1) ?? []).filter((e) => e.type !== 'unknown');
   if (parsed.lines > 0 && !active.length) return { ok: false, reason: 'no conversation found', stats, path };
   return { ok: true, chains: built.chains, stats, path };
 }

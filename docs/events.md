@@ -23,7 +23,7 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `tool.call` | `call_id`, `tool`, `args_preview`, `tier` | Tool card |
 | `tool.result` | `call_id`, `ok`, `preview` | Tool card result |
 | `approval.required` | `approval_id`, `tool`, `action`, `resource`, `tier`, `suggestions[]` | Approval dialog; the mark closes |
-| `approval.resolved` | `approval_id`, `decision` | Dialog closes; the run resumes |
+| `approval.resolved` | `approval_id`, `decision` (`approved`, `denied`, `expired`, or `cancelled` when withdrawn because its turn ended or the model changed) | Dialog closes; the run resumes |
 | `fallback` | `from_model`, `to_model`, `reason`, `detail` | Muted footer note: "answered by X · Y was unavailable" |
 | `compute.waiting` | `node_id`, `eta_s`, `can_use_cloud` | "Waking your GPU node · about 80 s", with **Use a cloud model instead** |
 | `usage` | `message_id`, `usage` | Footer tokens and cost |

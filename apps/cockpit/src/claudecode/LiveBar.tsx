@@ -41,7 +41,8 @@ import { Icon } from '../ui/Icon';
 import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
 import { PlanLimits } from '../usage/PlanLimits';
 import { startClaudeCodeSignIn } from './api';
-import { continueAsBranch, liveWords, tokensShort } from './live';
+import { FolderMissingNotice } from './FolderMissing';
+import { continueAsBranch, liveWords, tokensShort, useClaudeCodeLive } from './live';
 import { type CcNotice, EFFORTS, type Effort, isEffort, patchCc, useCcThread } from './store';
 import { folderName } from './ThreadMarker';
 import '../styles/claudecode.css';
@@ -87,7 +88,12 @@ export function CcLiveLine({
   const pct = ctx ? Math.max(0, Math.min(100, ctx.percent)) : null;
   const effort = st.effort ?? (isEffort(live?.effort) ? live.effort : null);
   const model = st.model ?? live?.model ?? null;
-  const state = live?.locked_elsewhere ? 'elsewhere' : (live?.state ?? 'idle');
+  const state =
+    live?.folder_missing && !live.no_files
+      ? 'missing'
+      : live?.locked_elsewhere
+        ? 'elsewhere'
+        : (live?.state ?? 'idle');
   const at = ctx?.compacts_at ?? null;
   const tone = pct === null ? 'calm' : contextTone(pct, at);
 
@@ -280,9 +286,17 @@ const FIX_WORDS: Record<'signed_out' | 'not_installed' | 'unverified', string> =
 
 export function CcNotices({ threadId }: { threadId: string }) {
   const st = useCcThread(threadId);
+  const live = useClaudeCodeLive(threadId).data;
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
-  const n = st.notice;
+  // The folder went away: asked before you even send (from the live state), or after a refused send.
+  const folder: Extract<CcNotice, { kind: 'folder_missing' }> | null =
+    st.notice?.kind === 'folder_missing'
+      ? st.notice
+      : live?.folder_missing && !live.no_files
+        ? { kind: 'folder_missing', cwd: live.cwd, retry: null }
+        : null;
+  const n = folder ? null : st.notice;
   const close = () => patchCc(threadId, { notice: null });
 
   const branch = async (notice: Extract<CcNotice, { kind: 'busy' }>) => {
@@ -311,7 +325,12 @@ export function CcNotices({ threadId }: { threadId: string }) {
             </button>
           </motion.div>
         ) : null}
-        {n ? (
+        {folder ? (
+          <motion.div key="folder_missing" {...rise}>
+            <FolderMissingNotice threadId={threadId} cwd={folder.cwd} retry={folder.retry} />
+          </motion.div>
+        ) : null}
+        {n && n.kind !== 'folder_missing' ? (
           <motion.div
             key={n.kind}
             className="cc-notice"

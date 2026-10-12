@@ -459,6 +459,43 @@ describe('sending a turn', () => {
     expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
   });
 
+  it('goes on in a branch by itself when a terminal has the session open, however long it has been idle', async () => {
+    // Idle for an hour: the 60 s rule would not see it, the process list does.
+    modified = NOW - 3_600_000;
+    const asked: { sessionId: string; cwd: string | null }[] = [];
+    live.stop();
+    live = makeLive({
+      holders: {
+        holder: async (q) => {
+          asked.push({ sessionId: q.sessionId, cwd: q.cwd });
+          return q.sessionId === S ? { pid: 4242, how: 'session' } : null;
+        },
+      },
+    });
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000101' });
+    expect(sent.branched).toBe('open_in_terminal');
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fork: true, resumeAt: 'a1', sessionId: S });
+    expect(asked[0]).toEqual({ sessionId: S, cwd: CWD });
+    const state = await live.state('thr_1');
+    expect(state).toMatchObject({ locked_elsewhere: true, open_in_terminal: true });
+  });
+
+  it('keeps the 60 s rule when no process holds the session, and says it is a guess', async () => {
+    live.stop();
+    live = makeLive({ holders: { holder: async () => null } });
+    modified = NOW - 10_000;
+    expect(await live.state('thr_1')).toMatchObject({ locked_elsewhere: true, open_in_terminal: false });
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000102' }),
+    ).rejects.toMatchObject({
+      code: 'claude_code.session_busy',
+    });
+    modified = null;
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-00000103' });
+    expect(sent.branched).toBeUndefined();
+  });
+
   it('branches from an earlier message by forking the session there, and binds the fork to the thread', async () => {
     bridge.script = textAnswer(S, 'a2', 'First way');
     const first = await live.send('thr_1', { text: 'Do it one way', idempotency_key: 'key-00000004' });
@@ -597,6 +634,54 @@ describe('permissions', () => {
     expect(live.editable(a)).toBe(false);
     end(bridge, 'h1', '', undefined);
     await run;
+  });
+
+  it('withdraws an approval still waiting when its turn ends, so it can never be answered later', async () => {
+    const { sent, run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Bash', { command: 'npm test' }, 'tu1');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    expect(a.run_id).toBe(sent.run_id);
+    // The turn ends (stopped here) with the question unanswered.
+    await live.interrupt('thr_1');
+    await run;
+    expect((await perms.getApproval(a.id))?.status).toBe('cancelled');
+    const evs = await events.since(sent.run_id, 0);
+    expect(evs.find((e) => e.type === 'approval.resolved')).toMatchObject({
+      approval_id: a.id,
+      decision: 'cancelled',
+    });
+    // An answer that arrives now is for nobody: Claude Code hears nothing more.
+    const replies = bridge.replies.length;
+    expect(await live.resolved(a, 'approved')).toBe(false);
+    expect(bridge.replies.length).toBe(replies);
+  });
+
+  it('withdraws a waiting approval when the model changes, and tells the running turn', async () => {
+    const { sent, run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'Write', { file_path: join(CWD, 'a.ts'), content: 'x' }, 'tu1');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 1);
+    const a = (await perms.pendingApprovals())[0] as ApprovalRecord;
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => ({}) as never, live: () => live }));
+    const res = await app.request('/claude-code/threads/thr_1/model-changed', { method: 'POST' });
+    expect(await res.json()).toEqual({ withdrawn: 1 });
+    expect((await perms.getApproval(a.id))?.status).toBe('cancelled');
+    expect(bridge.replies.at(-1)).toMatchObject({
+      request_id: 'r1',
+      r: { behavior: 'deny', message: expect.stringContaining('model for this thread changed') },
+    });
+    expect(live.editable(a)).toBe(false);
+    // Nothing else was waiting.
+    expect(await live.modelChanged('thr_1')).toEqual({ withdrawn: 0 });
+    end(bridge, 'h1', '', undefined);
+    await run;
+    expect(await kinds(sent.run_id)).toContain('approval.resolved');
   });
 
   it('denies with the reason, never asking twice, and makes a write outside the folder critical', async () => {
@@ -1083,6 +1168,153 @@ describe('starting a session in a folder (POST /claude-code/threads)', () => {
     expect(user?.parent_id).toBeNull();
     expect((user?.provenance?.claude_code as { session_id?: string } | undefined)?.session_id).toBe(NEW);
     expect(synced).toContain(NEW); // the usual sync afterwards, on the real session
+  });
+});
+
+describe("a session's folder moved, renamed or deleted", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ancile-cc-moved-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** CWD is gone; anything else is there (the real file system decides for a new folder). */
+  const moved = (extra: Partial<ConstructorParameters<typeof ClaudeCodeLive>[0]> = {}) => {
+    live.stop();
+    live = makeLive({
+      folderExists: async (p) => p !== CWD,
+      noFilesDir: join(dir, 'no-folder'),
+      service: { ...service, folderExcluded: async (cwd) => cwd.includes('excluded') },
+      ...extra,
+    });
+  };
+
+  it('checks the folder before every turn and says so clearly, sending nothing', async () => {
+    moved();
+    await expect(
+      live.send('thr_1', { text: 'Go on', idempotency_key: 'key-moved-001' }),
+    ).rejects.toMatchObject({
+      code: 'claude_code.folder_missing',
+      title: "This session's folder has moved or been deleted",
+      status: 409,
+    });
+    expect((await threads.messages('thr_1')).length).toBe(2);
+    expect(await live.state('thr_1')).toMatchObject({ folder_missing: true, no_files: false });
+  });
+
+  it('points to the new folder (checked), keeps it on the thread, and starts a new session there', async () => {
+    moved();
+    await expect(live.setFolder('thr_1', { cwd: 'app' })).rejects.toMatchObject({
+      code: 'claude_code.folder_invalid',
+    });
+    await expect(live.setFolder('thr_1', { cwd: join(dir, 'nope') })).rejects.toMatchObject({
+      title: 'That folder is not on this computer',
+    });
+    await mkdir(join(dir, 'excluded'));
+    await expect(live.setFolder('thr_1', { cwd: join(dir, 'excluded') })).rejects.toMatchObject({
+      code: 'claude_code.folder_excluded',
+    });
+    const there = join(dir, 'app-renamed');
+    await mkdir(there);
+    // Through the route, as the Cockpit asks.
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route('/', claudeCodeRoutes({ service: () => ({}) as never, live: () => live }));
+    const res = await app.request('/claude-code/threads/thr_1/folder', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cwd: there }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cwd: there, no_files: false });
+    expect((await threads.getThread('thr_1'))?.settings.claude_code).toMatchObject({
+      cwd: there,
+      fresh_next: true,
+    });
+    expect(await live.state('thr_1')).toMatchObject({ folder_missing: false, cwd: there });
+
+    const NEW = 'sess-moved-0004';
+    bridge.script = textAnswer(NEW, 'm1', 'Carrying on in the new folder');
+    const sent = await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-moved-002' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fresh: true, fork: false, cwd: there, rebind: true });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.at(-1)).toMatchObject({ cwd: there });
+    expect(bridge.opened.at(-1)?.resume).toBeUndefined();
+    // The new session is the thread's own now, in the new folder; nothing more to start.
+    const bound = (await threads.getThread('thr_1'))?.settings.claude_code;
+    expect(bound).toMatchObject({ session_id: NEW, cwd: there });
+    expect(bound?.fresh_next).toBeUndefined();
+    // The answer hangs off your message, which follows the old answer: the thread reads on.
+    expect((await threads.getMessage(sent.user_message_id))?.parent_id).toBe('msg_a1');
+  });
+
+  it("refuses a new folder outside the notebook's scope", async () => {
+    const allowed = join(dir, 'allowed');
+    await mkdir(join(allowed, 'app'), { recursive: true });
+    await mkdir(join(dir, 'elsewhere'));
+    moved({
+      engines: claudeHooks({
+        threads,
+        store: {} as never,
+        allow: async () => undefined,
+        scopeOf: async (notebookId) =>
+          resolveScope({
+            notebookId,
+            threadId: null,
+            private: false,
+            notebook: { folders: [allowed.replace(/\\/g, '/')] },
+            thread: null,
+          }),
+      }),
+    });
+    await expect(live.setFolder('thr_1', { cwd: join(dir, 'elsewhere') })).rejects.toMatchObject({
+      code: 'claude_code.folder_out_of_scope',
+    });
+    expect((await live.setFolder('thr_1', { cwd: join(allowed, 'app') })).cwd).toBe(join(allowed, 'app'));
+  });
+
+  it('continues without files: a new session in an empty folder, with Claude Code’s own tools off', async () => {
+    moved();
+    expect(await live.setFolder('thr_1', { without_files: true })).toEqual({ cwd: CWD, no_files: true });
+    expect(await live.state('thr_1')).toMatchObject({ folder_missing: false, no_files: true });
+    bridge.script = textAnswer('sess-nofiles-0005', 'f1', 'From what we said so far');
+    const sent = await live.send('thr_1', { text: 'What did we decide?', idempotency_key: 'key-moved-003' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ fresh: true, noFiles: true, cwd: join(dir, 'no-folder') });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.at(-1)).toMatchObject({
+      cwd: join(dir, 'no-folder'),
+      tools: [],
+      setting_sources: ['user'],
+    });
+    // The thread keeps the folder it came from, still without files, on its new session.
+    expect((await threads.getThread('thr_1'))?.settings.claude_code).toMatchObject({
+      session_id: 'sess-nofiles-0005',
+      cwd: CWD,
+      no_files: true,
+    });
+    // Later turns carry that session on, still without files.
+    await runs.save(
+      { ...((await runs.get(sent.run_id)) as RunRecord), status: 'succeeded' },
+      { status: 'queued' },
+    );
+    bridge.script = textAnswer('sess-nofiles-0005', 'f2', 'Still here');
+    const next = await live.send('thr_1', { text: 'And then?', idempotency_key: 'key-moved-004' });
+    const again = (await runs.get(next.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(again).toMatchObject({ sessionId: 'sess-nofiles-0005', noFiles: true, fork: false });
+    expect(again.fresh).toBeFalsy();
+  });
+
+  it('will not change the folder while a turn is running', async () => {
+    moved({ folderExists: async () => true });
+    bridge.script = () => undefined;
+    await live.send('thr_1', { text: 'Go on', idempotency_key: 'key-moved-005' });
+    await expect(live.setFolder('thr_1', { without_files: true })).rejects.toMatchObject({
+      code: 'run.already_running',
+    });
   });
 });
 

@@ -120,6 +120,7 @@ export class ClaudeCodeEngine implements Engine {
       assistant_message_id: r.assistant_message_id,
       model_id: t.requestedModelId,
       context_notice: r.context_shared ? CLAUDE_CODE_CONTEXT_NOTICE : null,
+      ...(r.branched && { branched: r.branched }),
     };
   }
 }

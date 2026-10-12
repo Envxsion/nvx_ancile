@@ -102,6 +102,11 @@ export const ClaudeCodeSession = z.object({
   behind: z.boolean(),
   /** Written to within the last minute: probably open in a terminal right now. */
   active_elsewhere: z.boolean(),
+  /**
+   * A Claude Code process NVX Ancile did not start (a terminal, an IDE)
+   * has it open right now. A turn from NVX Ancile goes on in a branch.
+   */
+  open_in_terminal: z.boolean().default(false),
 });
 export type ClaudeCodeSession = z.infer<typeof ClaudeCodeSession>;
 
@@ -143,6 +148,17 @@ export const ClaudeCodeBinding = z.object({
   /** The last Claude Code message uuid mirrored into the thread. */
   last_uuid: z.string().nullable(),
   synced_at: z.string(),
+  /**
+   * The session's folder was moved or deleted and the thread goes on
+   * without files: turns run in an empty folder NVX Ancile keeps, with
+   * Claude Code's own tools off. `cwd` stays the folder it came from.
+   */
+  no_files: z.boolean().optional(),
+  /**
+   * The next turn starts a new Claude Code session, given the thread so
+   * far (the folder was pointed somewhere new, or files were turned off).
+   */
+  fresh_next: z.boolean().optional(),
 });
 export type ClaudeCodeBinding = z.infer<typeof ClaudeCodeBinding>;
 
@@ -241,6 +257,26 @@ export const CreateClaudeCodeThreadResult = z.object({
 export type CreateClaudeCodeThreadResult = z.infer<typeof CreateClaudeCodeThreadResult>;
 
 /**
+ * POST /claude-code/threads/:id/folder: the session's folder moved, was
+ * renamed or was deleted. Either point the thread at the folder where it
+ * is now (absolute, existing, allowed by the notebook's scope), or go on
+ * without files. Either way the next turn starts a new Claude Code
+ * session, given the thread so far; the new path is kept on the thread.
+ */
+export const ClaudeCodeFolderRequest = z.union([
+  z.object({ cwd: z.string().min(1).max(1000) }).strict(),
+  z.object({ without_files: z.literal(true) }).strict(),
+]);
+export type ClaudeCodeFolderRequest = z.infer<typeof ClaudeCodeFolderRequest>;
+
+export const ClaudeCodeFolderResult = z.object({
+  /** The folder the thread runs in now (the one it came from, when without files). */
+  cwd: z.string().nullable(),
+  no_files: z.boolean(),
+});
+export type ClaudeCodeFolderResult = z.infer<typeof ClaudeCodeFolderResult>;
+
+/**
  * GET /claude-code/threads/:id/commands. Answers at once: until Claude
  * Code's own list has been read for that folder, `items` holds the
  * built-ins and `partial` is true; ask again shortly for the whole list.
@@ -289,6 +325,12 @@ export const SendClaudeCodeResult = z.object({
   assistant_message_id: z.string(),
   /** The turn sends Claude Code a digest of other models' turns (docs/engines.md). */
   context_shared: z.boolean().optional(),
+  /**
+   * The turn went on in a branch (a fork of the session) by itself:
+   * "open_in_terminal", a Claude Code process outside NVX Ancile has the
+   * session open, so it is never written to.
+   */
+  branched: z.enum(['open_in_terminal']).optional(),
 });
 export type SendClaudeCodeResult = z.infer<typeof SendClaudeCodeResult>;
 
@@ -298,6 +340,15 @@ export const ClaudeCodeLiveState = z.object({
   state: z.enum(['idle', 'starting', 'ready', 'working']),
   /** Another Claude Code process has the session open; Ancile will not write to it. */
   locked_elsewhere: z.boolean(),
+  /**
+   * That process was seen running (a terminal, an IDE), not only guessed
+   * from a recent write: the next message goes on in a branch by itself.
+   */
+  open_in_terminal: z.boolean().optional(),
+  /** The session's folder is not on this computer any more (moved, renamed or deleted). */
+  folder_missing: z.boolean().optional(),
+  /** The thread goes on without files (after its folder went missing). */
+  no_files: z.boolean().optional(),
   model: z.string().nullable(),
   effort: z.string().nullable(),
   permission_mode: z.string().nullable(),

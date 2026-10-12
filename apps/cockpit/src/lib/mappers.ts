@@ -235,7 +235,17 @@ export interface Provenance {
     subagent?: unknown;
     command?: { name?: unknown; args?: unknown; output?: unknown };
     notification?: { source?: unknown; title?: unknown; from?: unknown; status?: unknown };
+    /** Entries in this message this version cannot show yet (kept as written in Core). */
+    unknown?: { count?: unknown; types?: unknown };
+    /** Written by a live turn in NVX Ancile, not brought in from the terminal. */
+    live?: unknown;
   };
+}
+
+/** How many entries of a Claude Code message this version cannot show yet (0 when none). */
+export function unknownCount(p: Provenance | undefined): number {
+  const n = p?.claude_code?.unknown?.count;
+  return typeof n === 'number' && n > 0 ? Math.floor(n) : 0;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
@@ -315,6 +325,8 @@ export function ccEventOf(m: Message): CcEvent | null {
     }
     case 'interrupted':
       return { kind: 'interrupted' };
+    case 'unknown':
+      return { kind: 'unknown', count: Math.max(1, unknownCount(m.provenance as Provenance)) };
   }
   if (m.role !== 'user') return null;
   if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) return { kind: 'interrupted' };

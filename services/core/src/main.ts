@@ -536,6 +536,13 @@ async function main() {
   const claudePasses = new LabPasses();
   const claudeSecret = randomBytes(32).toString('base64url');
   const ccHost = env.ANCILE_HOST === '0.0.0.0' || env.ANCILE_HOST === '::' ? '127.0.0.1' : env.ANCILE_HOST;
+  /** A notebook's sources, id and title (the MCP server's list, and what a live session is told changed). */
+  const notebookSources = async (id: string) =>
+    (
+      await kn.get<{ id: string; title: string }[]>(
+        `/notebooks/${encodeURIComponent(id)}/sources?workspace_id=${encodeURIComponent(owner.workspaceId)}`,
+      )
+    ).map((s) => ({ id: s.id, title: s.title }));
   const claudeMcp = new ClaudeMcpEndpoint({
     secret: claudeSecret,
     registry: tools,
@@ -560,12 +567,7 @@ async function main() {
         mode: 'hybrid',
         rerank: true,
       }),
-    notebookSources: async (id) =>
-      (
-        await kn.get<{ id: string; title: string }[]>(
-          `/notebooks/${encodeURIComponent(id)}/sources?workspace_id=${encodeURIComponent(owner.workspaceId)}`,
-        )
-      ).map((s) => ({ id: s.id, title: s.title })),
+    notebookSources,
     sourceContent: (id) =>
       kn.get<{ markdown: string }>(
         `/sources/${encodeURIComponent(id)}/content?workspace_id=${encodeURIComponent(owner.workspaceId)}`,
@@ -633,6 +635,8 @@ async function main() {
     },
     approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
     folderExists: async (cwd) => existsSync(cwd),
+    holders: claudeCode.holders,
+    noFilesDir: claudeCode.noFilesDir,
     engines: claudeHooks({
       threads,
       branches: branchStore,
@@ -647,6 +651,7 @@ async function main() {
       }),
       allow: (thread, model) => engines.allowClaude(thread, model),
       scopeOf: (notebookId) => scopeFromDb(sql)({ id: '', notebook_id: notebookId }),
+      sources: notebookSources,
     }),
     foreignHandle: (h) => modeAHandles.has(h),
     keepAlive: () => modeAHandles.size > 0,

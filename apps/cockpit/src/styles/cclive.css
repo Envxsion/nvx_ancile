@@ -37,7 +37,8 @@
   box-shadow: 0 0 0 3px rgb(var(--signal-rgb) / 0.18);
   animation: cc-live-pulse 1.6s var(--ease) infinite;
 }
-.cc-live[data-state='elsewhere'] .cc-live__dot {
+.cc-live[data-state='elsewhere'] .cc-live__dot,
+.cc-live[data-state='missing'] .cc-live__dot {
   background: var(--warn);
 }
 .cc-live[data-state='working'] .cc-live__text {
@@ -205,8 +206,25 @@
 }
 .cc-notice[data-kind='signed_out'],
 .cc-notice[data-kind='not_installed'],
-.cc-notice[data-kind='unverified'] {
+.cc-notice[data-kind='unverified'],
+.cc-notice[data-kind='folder_missing'] {
   box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.4);
+}
+/* The folder that went away, and where to point instead. */
+.cc-folder {
+  flex-wrap: wrap;
+}
+.cc-folder__was {
+  margin-top: 4px !important;
+  color: var(--mute);
+  font-size: var(--t-micro);
+  overflow-wrap: anywhere;
+}
+.cc-folder__form {
+  margin-top: 8px;
+}
+.cc-folder__form .field {
+  margin: 0;
 }
 .cc-notice__icon {
   flex: none;

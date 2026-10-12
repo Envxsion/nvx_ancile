@@ -27,6 +27,7 @@ import {
 import { ClaudeVerifier } from '../../src/claudecode/verify';
 import type { EventBus } from '../../src/events/bus';
 import { MemoryNotebookRepo } from '../../src/notebooks/repo';
+import { setLogTap } from '../../src/obs/logger';
 import { MemorySettings } from '../../src/settings';
 import { MemoryThreadRepo, textOf } from '../../src/threads/repo';
 import { type FakeWorld, fakeLauncher, info, world } from './fake-bridge';
@@ -177,14 +178,19 @@ describe('the transcript reader', () => {
     expect(r.ok && r.stats.unknown).toBe(0);
   });
 
-  it('skips lines it does not understand, and gives up when there are too many', async () => {
+  it('keeps a line that is not JSON, and gives up when there are too many', async () => {
     const rows = session();
     const few = await readTranscript(
       await writeSession([...rows, ...Array(200).fill(rows[1])], 'not json\n'),
       SID,
     );
     expect(few.ok).toBe(true);
-    expect(few.ok && few.stats.unknown).toBe(1);
+    expect(few.ok && few.stats).toMatchObject({ unknown: 1, unreadable: 1 });
+    // Kept, raw, after the entry written before it.
+    expect(few.ok && few.chains.at(-1)?.find((e) => e.type === 'unknown')).toMatchObject({
+      type: 'unknown',
+      unknown: { type: 'not_json', raw: 'not json' },
+    });
     const many = await readTranscript(await writeSession(rows, 'not json\n'.repeat(10)), SID);
     expect(many.ok).toBe(false);
     expect(!many.ok && many.reason).toMatch(/too many/);
@@ -197,6 +203,61 @@ describe('the transcript reader', () => {
     ]);
     expect(unknown).toBe(1);
     expect(entries).toHaveLength(1);
+  });
+
+  it('keeps every line it does not know, raw, where it was written', async () => {
+    seq = 0;
+    const tagged = { ...base('n1', 'a1'), type: 'tool-progress', detail: { step: 2 } };
+    const rows = [
+      prompt('u1', null, 'Start'),
+      text('a1', 'u1', 'm1', 'Started.'),
+      // A new kind of entry in the middle of the conversation: the next prompt hangs off it.
+      tagged,
+      prompt('u2', 'n1', 'Go on'),
+      // A new kind with no uuid of its own, after the prompt.
+      { type: 'session-ledger', sessionId: SID, total: 3 },
+      text('a2', 'u2', 'm2', 'Done.'),
+    ];
+    const lines = rows.map((r) => JSON.stringify(r));
+    const r = await readTranscript(await writeSession(rows), SID);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stats).toMatchObject({ unknown: 2, unreadable: 0 });
+    const active = r.chains.at(-1) ?? [];
+    expect(active.map((e) => e.type)).toEqual([
+      'user',
+      'assistant',
+      'unknown',
+      'user',
+      'unknown',
+      'assistant',
+    ]);
+    const kept = active.filter((e) => e.type === 'unknown');
+    expect(kept.map((e) => e.unknown?.type)).toEqual(['tool-progress', 'session-ledger']);
+    // Exactly the line as written, so a later version can read it.
+    expect(kept.map((e) => e.unknown?.raw)).toEqual([lines[2], lines[4]]);
+    // A line with no uuid gets the same id on every read.
+    const again = await readTranscript(r.path, SID);
+    expect(
+      again.ok &&
+        again.chains
+          .at(-1)
+          ?.filter((e) => e.type === 'unknown')
+          .map((e) => e.uuid),
+    ).toEqual(kept.map((e) => e.uuid));
+  });
+
+  it('does not give up on a file full of entry kinds it does not know', async () => {
+    seq = 0;
+    const rows = [
+      prompt('u1', null, 'Start'),
+      ...Array.from({ length: 20 }, (_, i) => ({ type: 'heartbeat', n: i, sessionId: SID })),
+      text('a1', 'u1', 'm1', 'Started.'),
+    ];
+    const r = await readTranscript(await writeSession(rows), SID);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.stats.unknown).toBe(20);
+    expect(r.ok && r.chains.at(-1)?.filter((e) => e.type === 'unknown')).toHaveLength(20);
   });
 
   it('checks it holds what the SDK returns', () => {
@@ -325,6 +386,60 @@ describe('a thread with the full history', () => {
     expect(after.length).toBe(msgs.length);
     expect(after.map((m) => textOf(m.parts))).toContain('The old answer');
     expect((await store.sessions('wsp_1'))[0]?.mapper_version).toBe(MAPPER_VERSION);
+  });
+
+  it('shows a quiet marker for entries it cannot show, keeps them raw, and warns once per version', async () => {
+    seq = 0;
+    const rows = [
+      prompt('u1', null, 'Start'),
+      say('a1', 'u1', 'm1', [
+        { type: 'text', text: 'Started.' },
+        { type: 'hologram', frames: 3 },
+      ]),
+      prompt('u2', 'a1', 'Go on'),
+      { ...base('n1', 'u2'), type: 'tool-progress', detail: 'secret words never logged' },
+      { ...base('n2', 'n1'), type: 'tool-progress', detail: 'more' },
+      text('a2', 'n2', 'm2', 'Done.'),
+    ];
+    const path = await writeSession(rows);
+    const read = await readTranscript(path, SID);
+    const sdk = read.ok ? (read.chains.at(-1) ?? []).filter((e) => e.type !== 'unknown') : [];
+    w.sessions.set(SID, { info: info(SID, { cwd: CWD }), chain: sdk });
+    const logged: Record<string, unknown>[] = [];
+    setLogTap((l) => logged.push(l));
+    try {
+      const r = await svc.importSessions({ session_ids: [SID] });
+      const id = r.imported[0]?.thread_id as string;
+      const msgs = await threads.messages(id);
+      // The answer says it holds one entry it cannot show (the block of a new kind).
+      const answer = msgs.find((m) => textOf(m.parts) === 'Started.');
+      expect(answer?.provenance?.claude_code).toMatchObject({ unknown: { count: 1, types: ['hologram'] } });
+      // The two new entries between the turns are one quiet marker.
+      const marker = msgs.filter((m) => (m.provenance?.claude_code as { kind?: string })?.kind === 'unknown');
+      expect(marker).toHaveLength(1);
+      const goOn = msgs.find((m) => textOf(m.parts) === 'Go on');
+      expect(marker[0]).toMatchObject({ role: 'system', parent_id: goOn?.id });
+      expect(textOf(marker[0]?.parts ?? [])).toBe("2 entries this version of NVX Ancile can't show yet");
+      expect(msgs.find((m) => textOf(m.parts) === 'Done.')?.parent_id).toBe(marker[0]?.id);
+      // Kept raw, with the version that wrote them.
+      const kept = await store.unknownFor(id);
+      expect(kept.map((k) => k.uuid).sort()).toEqual(['a1', 'n1', 'n2']);
+      expect(kept.find((k) => k.uuid === 'n1')?.raw).toBe(JSON.stringify(rows[3]));
+      expect([...store.unknown.values()][0]?.cli_version).toBe('2.1.286');
+      // One warning for this Claude Code version: counts and kinds, never what they say.
+      const warns = logged.filter((l) => String(l.msg).includes('cannot show yet'));
+      expect(warns).toHaveLength(1);
+      expect(warns[0]).toMatchObject({ level: 'warn', cli_version: '2.1.286', entries: 3 });
+      expect(JSON.stringify(warns)).not.toContain('secret words');
+      // Syncing again adds nothing, and does not warn again.
+      expect((await svc.syncThread(id)).added).toBe(0);
+      await svc.keepUnknown(id, 'another-session-0001', [{ uuid: 'z', type: 'tool-progress', raw: '{}' }]);
+      expect(
+        logged.filter((l) => l.level === 'warn' && String(l.msg).includes('cannot show yet')),
+      ).toHaveLength(1);
+    } finally {
+      setLogTap(null);
+    }
   });
 
   it('falls back to the SDK chain when the file is missing', async () => {

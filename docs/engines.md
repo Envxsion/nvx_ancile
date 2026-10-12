@@ -49,7 +49,8 @@ The answer records what it was given in `provenance.engine_context` (`EngineCont
 Claude Code's session holds its own history, so NVX Ancile never sends it again. A turn goes on from Claude Code's latest message on the branch (the session's place) and carries only:
 
 - a short digest of the turns other engines took since then (theirs and your questions to them), marked `<ancile-context>` and introduced as context, not instructions;
-- at most about 2,000 tokens, newest first, each message at most about 1,600 characters, tool steps as one-line digests.
+- at most about 2,000 tokens, newest first, each message at most about 1,600 characters, tool steps as one-line digests;
+- when the notebook's sources changed since the thread's last Claude Code turn, one line saying so, in the same digest: "Notebook: 2 sources added since your last turn: Login runbook, Incident report (1 removed: Auth spec)" (at most eight titles, then "and N more"). NVX Ancile remembers the list each time a turn is sent (`core.engine_source_marks`, one row per thread); the first turn only remembers. A session that is told nothing else gets this line alone, introduced as what changed in the notebook.
 
 The thread shows your words only; the digest goes to Claude Code alone. When a turn sends some of the thread to Claude Code, the run's first event after `model` is one `context.shared` event (`notice`: "This thread's context will be sent to Claude Code"), and the send answers with `context_notice` set, so the composer can show the line once.
 

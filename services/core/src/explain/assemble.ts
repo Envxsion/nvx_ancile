@@ -14,7 +14,9 @@
  *           |  message's provenance (written by the conductor, the
  *           |  memory module and compaction), its parts, the run's
  *           |  permission decisions and the fact-check store. Missing
- *           |  pieces are null, never invented.
+ *           |  pieces are null, never invented. An answer Claude Code
+ *           |  wrote in a terminal and NVX Ancile brought in has no
+ *           |  retrieval or citation record, and says so (`origin`).
  * ------------------------------------------------------------------
  */
 
@@ -119,6 +121,14 @@ export function assembleExplain(input: {
         detail: String(a.detail ?? ''),
       }))
     : [];
+  // Claude Code's answers: written in a live turn from NVX Ancile (it has a run, or says so),
+  // or brought in from the terminal's transcript, where no retrieval or citation was recorded.
+  const cc = p.claude_code as { live?: unknown } | undefined;
+  const origin: Explain['origin'] = !cc
+    ? 'ancile'
+    : cc.live === true || m.run_id || p.model_name === 'Claude Code'
+      ? 'claude_code_live'
+      : 'claude_code_import';
   const re = p.retrieval_error as { code?: unknown; title?: unknown } | undefined;
   const err = p.error as { code?: unknown; title?: unknown; hint?: unknown } | undefined;
   return {
@@ -146,6 +156,7 @@ export function assembleExplain(input: {
       : null,
     flow: flow.success ? flow.data : null,
     scope: input.scope ?? null,
+    origin,
     trace_url: `/admin/traces?trace=${encodeURIComponent(m.trace_id)}`,
   };
 }

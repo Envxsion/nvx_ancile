@@ -158,6 +158,15 @@ export const ccErrors = {
       status: 409,
       errorClass: 'permanent',
     }),
+  folderMissing: (cwd: string) =>
+    new AncileError({
+      code: 'claude_code.folder_missing',
+      title: "This session's folder has moved or been deleted",
+      hint: 'Point NVX Ancile to the folder where it is now, or continue without files. Nothing was sent.',
+      status: 409,
+      errorClass: 'permanent',
+      detail: cwd.slice(0, 500),
+    }),
   liveFailed: (said: string) =>
     new AncileError({
       code: 'claude_code.live_failed',

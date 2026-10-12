@@ -9,7 +9,8 @@
  *           |  sign-in and sign-out (Claude Code's own flow), the
  *           |  session list, import and sync, and folder → notebook
  *           |  bindings, and live sessions: start one in a folder, send
- *           |  a turn, stop it, its live state and the "/" command list.
+ *           |  a turn, stop it, its live state and the "/" command list,
+ *           |  and a new folder (or none) when the session's moved.
  *  How      |  Behind the normal /api/v1 guard. Every button here is
  *           |  the person acting. Only send runs anything: a turn in the
  *           |  person's own Claude Code, as a run (claudecode/live.ts).
@@ -17,6 +18,7 @@
  */
 
 import {
+  ClaudeCodeFolderRequest,
   ClaudeCodeProject,
   CreateClaudeCodeThreadRequest,
   ExcludeClaudeCodeFolderRequest as ExcludeFolderRequest,
@@ -63,6 +65,17 @@ export function claudeCodeRoutes(deps: {
   );
 
   r.get('/claude-code/threads/:id/live', async (c) => c.json(await live().state(c.req.param('id'))));
+
+  // The person chose another model while the turn waits on approvals: they are withdrawn.
+  r.post('/claude-code/threads/:id/model-changed', async (c) =>
+    c.json(await live().modelChanged(c.req.param('id'))),
+  );
+
+  // The session's folder moved or went away: point to where it is now, or go on without files.
+  r.post('/claude-code/threads/:id/folder', async (c) => {
+    const req = await body(c, ClaudeCodeFolderRequest);
+    return c.json(await live().setFolder(c.req.param('id'), req));
+  });
 
   // At once: the built-ins marked partial until Claude Code's own list is read (?wait=1 waits for it).
   r.get('/claude-code/threads/:id/commands', async (c) =>

@@ -38,6 +38,8 @@ export type CcNotice =
   | { kind: 'busy'; retry: CcRetry }
   | { kind: 'signed_out' | 'not_installed' | 'unverified'; title: string; hint: string }
   | { kind: 'recovered' }
+  /** The session's folder moved or was deleted; `retry` is the message that was not sent. */
+  | { kind: 'folder_missing'; cwd: string | null; retry: CcRetry | null }
   | { kind: 'unsupported'; name: string; description: string };
 
 export interface CcThreadState {

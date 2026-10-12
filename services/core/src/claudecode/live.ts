@@ -30,20 +30,26 @@
  *           |  never answers with Claude Code's own "always" choices.
  *           |  The notebook's sources are offered as Ancile's MCP server
  *           |  (mcp-server.ts); passages it returns become citations.
- *  Note     |  A session written to by another process in the last
- *           |  minute is not opened (claude_code.session_busy); a fork
- *           |  is offered instead. Logs carry ids and counts, never
- *           |  prompts, answers or tool input.
+ *  Note     |  A session a Claude Code process outside NVX Ancile holds
+ *           |  (holders.ts: a terminal, an IDE) is never written to: the
+ *           |  turn goes on in a fork by itself. One merely written to by
+ *           |  another process in the last minute is not opened
+ *           |  (claude_code.session_busy); a fork is offered instead.
+ *           |  Logs carry ids and counts, never prompts, answers or
+ *           |  tool input.
  * ------------------------------------------------------------------
  */
 
 import { randomUUID } from 'node:crypto';
-import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { mkdir, realpath, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import {
   AncileError,
   CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
+  type ClaudeCodeFolderRequest,
+  type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
@@ -85,7 +91,8 @@ import type {
 } from './bridge-protocol';
 import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } from './commands';
 import { ccErrors } from './errors';
-import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf } from './map';
+import type { SessionHolders } from './holders';
+import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
 import { type Passage, threadToken } from './mcp-server';
 import {
   ANCILE_MCP_SERVER,
@@ -140,6 +147,10 @@ export interface ClaudeCodeCheckpoint {
   seedSummaryId?: string | null;
   /** Engines: provenance.engine_context for the answer. */
   engineContext?: EngineContextReport | null;
+  /** The new session becomes the thread's own (its folder was changed: fresh_next). */
+  rebind?: boolean;
+  /** Without files: Claude Code's own tools off, in NVX Ancile's empty folder. */
+  noFiles?: boolean;
 }
 
 /**
@@ -161,6 +172,8 @@ export interface LiveTurnPlan {
   fresh: boolean;
   seedSummaryId: string | null;
   report: EngineContextReport | null;
+  /** Remember what the plan told the session (the notebook's sources), once the turn is sent. */
+  commit?: () => Promise<void>;
 }
 
 export interface LiveEngineHooks {
@@ -169,6 +182,8 @@ export interface LiveEngineHooks {
     thread: ThreadRecord;
     messages: MessageRecord[];
     parentId: string | null;
+    /** A new session must start (the folder changed): give it the thread so far. */
+    fresh?: boolean;
   }): Promise<LiveTurnPlan>;
   /** The appended system note: NVX Ancile's base note plus the thread's instructions and persona. */
   systemNote(a: { threadId: string; notebookId: string | null; base: string }): Promise<string>;
@@ -206,6 +221,8 @@ export interface LiveServiceView {
   notebookForFolder?(cwd: string): Promise<string | null>;
   /** The folder is in Settings → Claude Code → Excluded folders. */
   folderExcluded?(cwd: string): Promise<boolean>;
+  /** Keep the raw text of entries this version cannot show (and warn once per Claude Code version). */
+  keepUnknown?(threadId: string, sessionId: string, items: UnknownRaw[]): Promise<void>;
 }
 
 export interface LiveDeps {
@@ -246,6 +263,10 @@ export interface LiveDeps {
   keepAlive?: () => boolean;
   /** Plan limits: sees every pushed message (rate_limit_event) and each turn's end. */
   limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
+  /** A Claude Code process outside NVX Ancile holding a session (holders.ts); absent: the 60 s rule only. */
+  holders?: Pick<SessionHolders, 'holder'>;
+  /** The empty folder a thread that goes on without files runs in (made when first needed). */
+  noFilesDir?: string;
 }
 
 interface Turn {
@@ -297,6 +318,8 @@ interface WaitingAsk {
   ask: LivePermissionAsk;
   mapped: MappedTool;
   askedAt: number;
+  /** The turn (run) it was asked in: it lives and dies with that turn. */
+  runId: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -467,13 +490,77 @@ export class ClaudeCodeLive {
     return t;
   }
 
-  /** Another process wrote the session's transcript within the last minute. */
-  private async lockedElsewhere(sessionId: string): Promise<boolean> {
-    if (isPendingSession(sessionId)) return false;
+  /**
+   * Is the session open somewhere else? 'process': a Claude Code process
+   * outside NVX Ancile holds it (seen running); 'recent': another process
+   * wrote its transcript within the last minute (the fallback guess).
+   */
+  private async heldElsewhere(sessionId: string, cwd: string | null): Promise<'process' | 'recent' | null> {
+    if (isPendingSession(sessionId)) return null;
     const mtime = await this.deps.service.transcriptModified(sessionId).catch(() => null);
-    if (mtime === null) return false;
+    const held = await this.deps.holders?.holder({ sessionId, cwd, modifiedMs: mtime }).catch(() => null);
+    if (held) return 'process';
+    if (mtime === null) return null;
     const own = this.ownWrites.get(sessionId) ?? 0;
-    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000;
+    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000 ? 'recent' : null;
+  }
+
+  /** Is the session's folder still a folder on this computer? */
+  private async folderThere(cwd: string): Promise<boolean> {
+    if (this.deps.folderExists) return this.deps.folderExists(cwd);
+    return (await (this.deps.folderKind ?? folderKind)(cwd)) === 'dir';
+  }
+
+  /** NVX Ancile's own empty folder, for threads that go on without files. */
+  private async noFilesDir(): Promise<string> {
+    const dir = this.deps.noFilesDir ?? join(tmpdir(), 'nvx-ancile-no-folder');
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  /**
+   * The session's folder moved, was renamed or was deleted: point the
+   * thread at the folder where it is now (checked like a new thread's:
+   * a whole path, a folder that exists, not excluded, and inside what the
+   * notebook's scope allows), or go on without files. Either way the next
+   * turn starts a new session, given the thread so far.
+   */
+  async setFolder(threadId: string, req: ClaudeCodeFolderRequest): Promise<ClaudeCodeFolderResult> {
+    const thread = await this.thread(threadId);
+    const cc = thread.settings.claude_code;
+    if (!cc) throw ccErrors.notBound();
+    const active = (await this.deps.runs.activeForThread(thread.id))[0];
+    if (active) throw alreadyRunning(active.id);
+    let next: typeof cc;
+    if ('cwd' in req) {
+      const cwd = req.cwd.trim();
+      if (!isAbsolute(cwd) && !/^[a-zA-Z]:[\\/]/.test(cwd)) throw ccErrors.folderInvalid('relative');
+      const kind = await (this.deps.folderKind ?? folderKind)(cwd);
+      if (kind !== 'dir') throw ccErrors.folderInvalid(kind === 'missing' ? 'missing' : 'not_directory');
+      if (await this.deps.service.folderExcluded?.(cwd)) throw ccErrors.folderExcluded(cwd);
+      await this.deps.engines?.allowNew?.({
+        workspaceId: this.deps.workspaceId,
+        notebookId: thread.notebook_id,
+        cwd,
+      });
+      const { no_files: _off, ...rest } = cc;
+      next = { ...rest, cwd, fresh_next: true };
+    } else {
+      await this.noFilesDir();
+      next = { ...cc, no_files: true, fresh_next: true };
+    }
+    await this.deps.threads.patchThread(thread.id, { settings: { claude_code: next } });
+    // The open session (if any) belongs to the old folder.
+    const l = this.lives.get(thread.id);
+    if (l) {
+      await this.closeHandle(l);
+      l.cwd = next.no_files ? await this.noFilesDir() : (next.cwd ?? '');
+    }
+    log.info(
+      { thread_id: thread.id, no_files: next.no_files === true },
+      "a Claude Code thread's folder was changed",
+    );
+    return { cwd: next.cwd, no_files: next.no_files === true };
   }
 
   /* ---- send -------------------------------------------------------------- */
@@ -529,8 +616,12 @@ export class ClaudeCodeLive {
 
     const thread = await this.thread(threadId);
     const cc = thread.settings.claude_code;
-    if (!cc?.cwd) throw ccErrors.noFolder();
-    if (this.deps.folderExists && !(await this.deps.folderExists(cc.cwd))) throw ccErrors.noFolder();
+    // Before every turn: the session's folder is still there (or the thread goes on without files).
+    const noFiles = cc?.no_files === true;
+    if (!noFiles && !cc?.cwd) throw ccErrors.noFolder();
+    if (!noFiles && cc?.cwd && !(await this.folderThere(cc.cwd))) throw ccErrors.folderMissing(cc.cwd);
+    if (!cc) throw ccErrors.notBound();
+    const cwd = noFiles ? await this.noFilesDir() : (cc.cwd as string);
     await this.deps.service.cliPath(); // installed and verified, or a clear error
     const active = (await this.deps.runs.activeForThread(thread.id))[0];
     if (active) throw alreadyRunning(active.id);
@@ -555,11 +646,18 @@ export class ClaudeCodeLive {
     const pc = parent?.provenance?.claude_code as CcProvenance | undefined;
     // Engines: a parent written by another model goes on from Claude Code's last message on
     // the path, with what the others said as a digest (engines/claude.ts).
+    // The folder was pointed somewhere new (or files turned off): a new session, given the thread so far.
+    const restart = cc.fresh_next === true;
     const plan = this.deps.engines
-      ? await this.deps.engines.plan({ thread, messages: msgs, parentId: parent?.id ?? null })
+      ? await this.deps.engines.plan({
+          thread,
+          messages: msgs,
+          parentId: parent?.id ?? null,
+          ...(restart && { fresh: true }),
+        })
       : null;
-    if (parent && !pc?.uuid && !plan) throw ccErrors.branchUnmapped();
-    const fresh = plan?.fresh === true || pending || fromStart;
+    if (parent && !pc?.uuid && !plan && !restart) throw ccErrors.branchUnmapped();
+    const fresh = plan?.fresh === true || pending || fromStart || restart;
     const sessionId = plan ? (plan.sessionId ?? cc.session_id) : (pc?.session_id ?? cc.session_id);
     const resumeAt = plan ? plan.resumeAt : pc?.uuid ? stripMarker(pc.uuid) : null;
     // Claude Code went on past the parent in the same session: carry on in a fork.
@@ -571,8 +669,17 @@ export class ClaudeCodeLive {
             m.parent_id === parent.id &&
             (m.provenance?.claude_code as CcProvenance | undefined)?.session_id === sessionId,
         );
-    const fork = !fresh && (plan ? !!plan.anchorId : !!parent) && (goneOn || req.as_branch === true);
-    if (!fork && !fresh && (await this.lockedElsewhere(sessionId))) throw ccErrors.sessionBusy(sessionId);
+    const canFork = plan ? !!plan.anchorId : !!parent;
+    let fork = !fresh && canFork && (goneOn || req.as_branch === true);
+    // Open in a terminal (or an IDE) right now: never write to it; go on in a branch by itself.
+    let branched: SendClaudeCodeResult['branched'];
+    if (!fork && !fresh) {
+      const held = await this.heldElsewhere(sessionId, cwd);
+      if (held === 'process' && canFork) {
+        fork = true;
+        branched = 'open_in_terminal';
+      } else if (held) throw ccErrors.sessionBusy(sessionId);
+    }
     for (const other of this.lives.values())
       if (other.threadId !== thread.id && other.handle && other.sessionId === sessionId && !fork && !fresh)
         throw ccErrors.sessionBusy(sessionId);
@@ -617,7 +724,7 @@ export class ClaudeCodeLive {
       sessionId,
       resumeAt: fork ? resumeAt : null,
       fork,
-      cwd: cc.cwd,
+      cwd,
       model: req.model ?? null,
       effort: req.effort ?? null,
       sourceIds: req.source_ids?.length ? req.source_ids : null,
@@ -628,6 +735,8 @@ export class ClaudeCodeLive {
         engineContext: fromStart ? null : plan.report,
       }),
       ...((plan || fresh) && { fresh }),
+      ...(restart && { rebind: true }),
+      ...(noFiles && { noFiles: true }),
     };
     try {
       await this.deps.runs.create({
@@ -643,12 +752,18 @@ export class ClaudeCodeLive {
       throw err;
     }
     await this.deps.threads.patchThread(thread.id, { active_head_id: assistantId });
+    await plan
+      ?.commit?.()
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, "could not remember the notebook's sources for a session"),
+      );
     this.deps.worker.kick();
     const result: SendClaudeCodeResult = {
       run_id: runId,
       user_message_id: userId,
       assistant_message_id: assistantId,
       ...(checkpoint.prefix && { context_shared: true }),
+      ...(branched && { branched }),
     };
     this.sent.set(key, { at: this.now(), result });
     log.info({ thread_id: thread.id, run_id: runId, fork, fresh }, 'a Claude Code turn was sent');
@@ -678,6 +793,7 @@ export class ClaudeCodeLive {
       !(auto && l.effort !== null)
     ) {
       if (cp.model && cp.model !== l.model) {
+        await this.withdrawWaiting(l, 'model_changed');
         await this.deps.bridge.control(l.handle, 'set_model', { model: cp.model });
         l.model = cp.model;
       }
@@ -697,6 +813,8 @@ export class ClaudeCodeLive {
       cwd: cp.cwd,
       ...(cp.model && { model: cp.model }),
       ...(effort && { effort }),
+      // Without files: none of Claude Code's own tools, and only the person's user settings.
+      ...(cp.noFiles && { tools: [], setting_sources: ['user' as const] }),
       permission_mode: 'default',
       append_system_prompt: note,
       ...(this.deps.mcp && {
@@ -767,6 +885,7 @@ export class ClaudeCodeLive {
         },
       };
     const l = this.live(thread);
+    if (!l.turn) l.cwd = cp.cwd; // the folder may have changed since the thread was first opened
     if (l.turn)
       return {
         kind: 'failed',
@@ -884,12 +1003,8 @@ export class ClaudeCodeLive {
       if (l.state === 'working') l.state = l.handle ? 'ready' : 'idle';
       const sid = turn.sessionId ?? cp.sessionId;
       this.ownWrites.set(sid, this.now());
-      for (const [id, w] of this.waiting)
-        if (w.live === l) {
-          this.waiting.delete(id);
-          await this.deps.permissions.resolveApproval(id, { status: 'cancelled' }).catch(() => false);
-          await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
-        }
+      // A question still open when its turn ends is withdrawn, never left for a later turn.
+      await this.withdrawWaiting(l, 'turn_ended');
     }
   }
 
@@ -958,14 +1073,17 @@ export class ClaudeCodeLive {
       await threads.updateMessage(cp.userMessageId, {
         provenance: { claude_code: { session_id: sessionId, uuid: cp.promptUuid, uuids: [cp.promptUuid] } },
       });
-      // A thread started in NVX Ancile: the session Claude Code just started is the thread's own.
-      if (isPendingSession(cp.sessionId) && !isPendingSession(sessionId)) {
+      // A thread started in NVX Ancile, or one whose folder was changed: the session Claude Code
+      // just started is the thread's own.
+      if ((isPendingSession(cp.sessionId) || cp.rebind) && !isPendingSession(sessionId)) {
         const t = await threads.getThread(cp.threadId);
         const bound = t?.settings.claude_code;
-        if (bound && isPendingSession(bound.session_id))
+        if (bound && (isPendingSession(bound.session_id) || (cp.rebind && bound.fresh_next))) {
+          const { fresh_next: _done, ...rest } = bound;
           await threads.patchThread(cp.threadId, {
-            settings: { claude_code: { ...bound, session_id: sessionId } },
+            settings: { claude_code: { ...rest, session_id: sessionId } },
           });
+        }
       }
     }
 
@@ -998,9 +1116,12 @@ export class ClaudeCodeLive {
           : 'complete';
     const newRows: NewMessage[] = [];
     let main: { parts: Part[]; usage: Usage | null } | null = null;
+    const raws = plan.planned.flatMap((p) => p.raws ?? []);
+    if (raws.length) await this.deps.service.keepUnknown?.(cp.threadId, sessionId, raws);
     for (const p of plan.planned) {
       if (p.extends) continue;
-      const ccProv = provenanceOf(sessionId, p);
+      // Written by this turn, not brought in from the transcript (the Why panel tells them apart).
+      const ccProv: CcProvenance = { ...provenanceOf(sessionId, p), live: true };
       if (p.id === cp.assistantMessageId) {
         let parts = p.parts;
         if (turn.passages.length) {
@@ -1429,7 +1550,7 @@ export class ClaudeCodeLive {
       suggestions: decision.tier === 'critical' ? [] : decision.suggestions,
       expiresAt: new Date(this.now() + (this.deps.approvalTtlMs ?? APPROVAL_TTL_MS)).toISOString(),
     });
-    this.waiting.set(approval.id, { live: l, ask, mapped, askedAt: this.now() });
+    this.waiting.set(approval.id, { live: l, ask, mapped, askedAt: this.now(), runId: t.runId });
     const ts = t.toolSpans.get(callId);
     if (ts) ts.asked = this.now();
     else
@@ -1462,6 +1583,44 @@ export class ClaudeCodeLive {
         tier: decision.tier,
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * Withdraw the questions a thread's session is waiting on: its turn
+   * ended, or the model changed while they waited. Each is cancelled (so
+   * it can never be answered later), every window's dialog closes, and a
+   * turn still running hears that it was withdrawn. Returns how many.
+   */
+  private async withdrawWaiting(l: Live, why: 'turn_ended' | 'model_changed'): Promise<number> {
+    let n = 0;
+    for (const [id, w] of [...this.waiting]) {
+      if (w.live !== l) continue;
+      this.waiting.delete(id);
+      n++;
+      await this.deps.permissions.resolveApproval(id, { status: 'cancelled' }).catch(() => false);
+      await this.deps.events
+        .append(w.runId, { type: 'approval.resolved', approval_id: id, decision: 'cancelled' })
+        .catch(() => undefined);
+      await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
+      if (why === 'model_changed' && l.turn?.runId === w.runId)
+        await this.reply(l, w.ask, {
+          behavior: 'deny',
+          message: 'The model for this thread changed while this was waiting, so the request was withdrawn.',
+        });
+    }
+    if (n)
+      log.info(
+        { thread_id: l.threadId, approvals: n, why },
+        'withdrew approvals a Claude Code turn was waiting on',
+      );
+    return n;
+  }
+
+  /** The person chose another model while a turn waits on approvals: they are withdrawn. */
+  async modelChanged(threadId: string): Promise<{ withdrawn: number }> {
+    const thread = await this.thread(threadId);
+    const l = this.lives.get(thread.id);
+    return { withdrawn: l ? await this.withdrawWaiting(l, 'model_changed') : 0 };
   }
 
   /** Is this approval one a live session is waiting on (so its arguments may be edited)? */
@@ -1498,6 +1657,8 @@ export class ClaudeCodeLive {
     if (!w) return false;
     this.waiting.delete(a.id);
     const t = w.live.turn;
+    // Its turn is over (or another one is running): an answer now is for nobody.
+    if (t?.runId !== w.runId) return true;
     const span = t?.toolSpans.get(a.call_id ?? '');
     span?.span.set({
       approval: status,
@@ -1599,9 +1760,14 @@ export class ClaudeCodeLive {
           compacts_at: typeof u.compacts_at === 'number' ? u.compacts_at : null,
         };
     }
+    const held = cc?.session_id ? await this.heldElsewhere(cc.session_id, cc.cwd) : null;
+    const noFiles = cc?.no_files === true;
     return {
       state: l?.turn ? 'working' : (l?.state ?? 'idle'),
-      locked_elsewhere: cc?.session_id ? await this.lockedElsewhere(cc.session_id) : false,
+      locked_elsewhere: held !== null,
+      open_in_terminal: held === 'process',
+      folder_missing: !!cc?.cwd && !noFiles && !(await this.folderThere(cc.cwd)),
+      no_files: noFiles,
       model: l?.model ?? null,
       effort: l?.effort ?? null,
       permission_mode: l?.permissionMode ?? null,
@@ -1620,7 +1786,9 @@ export class ClaudeCodeLive {
    */
   async commands(threadId: string, opts: { wait?: boolean } = {}): Promise<CommandList> {
     const thread = await this.thread(threadId);
-    const cwd = thread.settings.claude_code?.cwd;
+    const cwd = thread.settings.claude_code?.no_files
+      ? await this.noFilesDir()
+      : thread.settings.claude_code?.cwd;
     if (!cwd) throw ccErrors.noFolder();
     const cli = await this.deps.service.cliPath();
     const key = `${cli.version}|${cwd}`;

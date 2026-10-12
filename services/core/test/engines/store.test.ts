@@ -43,4 +43,12 @@ eachBackend('engine store', (backend) => {
     });
     expect(await store.notebookInstructions(uid('nbk'))).toBeNull();
   });
+
+  it("remembers the notebook's sources a thread's session last saw", async () => {
+    const { store, threadId, ws } = await setup();
+    expect(await store.sourceMarks(ws, threadId)).toBeNull();
+    await store.markSources(ws, threadId, { src_1: 'Spec', src_2: 'Notes' });
+    await store.markSources(ws, threadId, { src_1: 'Spec' });
+    expect(await store.sourceMarks(ws, threadId)).toEqual({ src_1: 'Spec' });
+  });
 });

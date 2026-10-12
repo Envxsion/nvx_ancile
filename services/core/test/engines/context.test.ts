@@ -247,6 +247,20 @@ describe('Claude Code turn plan', () => {
     expect(p.seed).toBeNull();
   });
 
+  it('gives a new session (the folder changed) the whole thread so far, its own turns included', () => {
+    const all = mixed();
+    const p = planClaudeTurn({
+      messages: all,
+      parentId: 'm2',
+      threadSessionId: 'S',
+      summary: null,
+      seen: () => false,
+      fresh: true,
+    });
+    expect(p.prefix).toContain('before you joined it');
+    expect(p.prefix).toContain('Fixed the token refresh');
+  });
+
   it('keeps the digest within its budget, newest first', () => {
     const all = mixed();
     all[2] = { ...(all[2] as MessageRecord), parts: [text('long question '.repeat(2_000))] };

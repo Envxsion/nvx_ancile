@@ -43,7 +43,8 @@ export interface CcSessionInfo {
 
 /** One transcript entry (bridge op sessions.messages / subagents.messages). */
 export interface CcSessionMessage {
-  type: 'user' | 'assistant' | 'system';
+  /** 'unknown': an entry this version of NVX Ancile does not know, kept with its raw line. */
+  type: 'user' | 'assistant' | 'system' | 'unknown';
   uuid: string;
   session_id: string;
   /** The API message: { role, content, model?, usage?, id? }. */
@@ -59,6 +60,8 @@ export interface CcSessionMessage {
    * agent's hand-back, { kind: 'task-notification' }. Checked at run time.
    */
   origin?: unknown;
+  /** type 'unknown': the kind Claude Code gave it and the line exactly as written. */
+  unknown?: { type: string; raw: string };
 }
 
 export interface BridgeSdkStatus {

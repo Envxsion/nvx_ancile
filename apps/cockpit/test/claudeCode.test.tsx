@@ -83,6 +83,7 @@ function session(p: Partial<ClaudeCodeSession> = {}): ClaudeCodeSession {
     thread_id: null,
     behind: false,
     active_elsewhere: false,
+    open_in_terminal: false,
     ...p,
   };
 }
@@ -342,6 +343,22 @@ describe('the sessions view when sessions come in by themselves', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
     await waitFor(() => expect(mocked.post).toHaveBeenCalledWith('/claude-code/threads/t-b/sync'));
     await waitFor(() => expect(useNotify.getState().toasts.at(-1)?.title).toBe('Added 2 messages'));
+  });
+
+  it('says when a terminal has a session open, and that NVX Ancile carries it on in a branch', async () => {
+    serveSessions([
+      session({
+        session_id: 'idle',
+        title: 'Idle in a terminal',
+        open_in_terminal: true,
+        active_elsewhere: false,
+      }),
+    ]);
+    browser(true);
+    await screen.findByText('Idle in a terminal');
+    expect(screen.getByText('Open in a terminal')).toBeInTheDocument();
+    expect(screen.queryByText('Open in a terminal right now')).toBeNull();
+    expect(allText()).toContain('goes on in a branch');
   });
 
   it('follows next_cursor with Show more', async () => {

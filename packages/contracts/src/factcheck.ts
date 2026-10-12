@@ -237,6 +237,13 @@ export const Explain = z.object({
   flow: FlowProvenance.nullable().default(null),
   /** The scope in force for the thread now, with the level behind each field (docs/scopes.md). */
   scope: EffectiveScope.nullable().default(null),
+  /**
+   * Where the answer was written: in NVX Ancile (`ancile`), by Claude Code in
+   * a live turn from NVX Ancile (`claude_code_live`), or by Claude Code in
+   * a terminal and brought in from its transcript (`claude_code_import`),
+   * which has no citation record ("Written before import, no citation record").
+   */
+  origin: z.enum(['ancile', 'claude_code_live', 'claude_code_import']).default('ancile'),
   /** Where the full trace lives (Admin → Traces). */
   trace_url: z.string(),
 });

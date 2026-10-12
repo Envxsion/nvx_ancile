@@ -106,6 +106,11 @@ export const SendTurnResult = z.object({
    * Code"); null when nothing of the thread leaves for it.
    */
   context_notice: z.string().nullable(),
+  /**
+   * Claude Code only: the turn went on in a branch by itself, because a
+   * Claude Code process outside NVX Ancile has the session open.
+   */
+  branched: z.enum(['open_in_terminal']).nullable().optional(),
 });
 export type SendTurnResult = z.infer<typeof SendTurnResult>;
 
