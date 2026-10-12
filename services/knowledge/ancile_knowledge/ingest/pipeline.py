@@ -42,7 +42,7 @@ from ..db import hnsw_index_sql, sessions
 from ..errors import AncileError
 from ..obs import get_logger
 from ..settings import get_settings
-from ..sources import dedupe, repo, tags
+from ..sources import dedupe, language, repo, tags
 from . import embed as embed_mod
 from .chunk import ChunkConfig, chunk_markdown
 from .enrich import (
@@ -362,6 +362,7 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
         )
     digest = dedupe.content_hash(markdown)
     sig = dedupe.signature(markdown)
+    lang = language.detect(markdown)
     path = repo.markdown_path(row["id"], version)
     repo.write_atomic(path, markdown)
     pages = [p.as_dict() for p in doc.pages]
@@ -399,8 +400,15 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
             Progress("enriching", f"Extracted {len(markdown):,} characters{page_note}"),
             ", content_hash = :hash, minhash = CAST(:sig AS jsonb), mime = coalesce(mime, :mime)"
             ", title = CASE WHEN title_auto AND :title <> '' THEN :title ELSE title END"
-            + (url_meta if is_url else ""),
-            {"hash": digest, "sig": json.dumps(sig), "mime": doc.mime, "title": title, **url_params},
+            ", language = :lang" + (url_meta if is_url else ""),
+            {
+                "hash": digest,
+                "sig": json.dumps(sig),
+                "mime": doc.mime,
+                "title": title,
+                "lang": lang,
+                **url_params,
+            },
         )
 
 

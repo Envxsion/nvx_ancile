@@ -32,7 +32,7 @@ ARTICLE = (
 
 FIELDS = {
     "id", "kind", "title", "uri", "mime", "bytes", "status", "progress", "error", "tags", "summary", "chunks",
-    "pages", "stale", "fetched_at", "created_at", "updated_at", "duplicate_of",
+    "pages", "stale", "fetched_at", "created_at", "updated_at", "duplicate_of", "language",
 }  # fmt: skip
 
 

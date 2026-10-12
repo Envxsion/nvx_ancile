@@ -22,6 +22,7 @@ dependencies = [
   "python-dotenv>=1.2.2",  # .env support for pydantic-settings
   "pypdfium2>=4.30",       # PDF text, page by page
   "readability-lxml>=0.8", # main content of a web page
+  "py3langid>=0.3",        # language of a source (BSD-3-Clause), track G
 ]
 
 [project.scripts]
@@ -73,7 +74,7 @@ plugins = ["pydantic.mypy"]
 
 # Libraries that ship no type information.
 [[tool.mypy.overrides]]
-module = ["datasketch", "datasketch.*", "pypdfium2", "pypdfium2.*", "readability", "readability.*"]
+module = ["datasketch", "datasketch.*", "pypdfium2", "pypdfium2.*", "readability", "readability.*", "py3langid", "py3langid.*"]
 ignore_missing_imports = true
 
 [tool.uv]

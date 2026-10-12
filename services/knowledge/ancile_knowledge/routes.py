@@ -27,6 +27,7 @@ from .errors import AncileError
 from .search import evidence as evidence_service
 from .search import service as search_service
 from .settings import get_settings
+from .sources.integrity import router as integrity_router
 from .sources.routes import router as sources_router
 
 
@@ -81,6 +82,7 @@ class EvidenceRequest(BaseModel):
 
 
 router.include_router(sources_router)
+router.include_router(integrity_router)
 
 
 @router.post("/search")

@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("./data"), alias="ANCILE_DATA_DIR")
 
     embed_model: str = Field(default="BAAI/bge-small-en-v1.5", alias="KNOWLEDGE_EMBED_MODEL")
+    # The local multilingual model offered when a notebook mixes languages and
+    # embed_model reads English only (fastembed ships it; about 50 languages, 384
+    # dimensions, Apache-2.0). Choosing it means setting KNOWLEDGE_EMBED_MODEL to it.
+    multilingual_embed_model: str = Field(
+        default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        alias="KNOWLEDGE_MULTILINGUAL_EMBED_MODEL",
+    )
     # A cross-encoder fastembed ships (bge-reranker-v2-m3 is not one of them).
     rerank_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2", alias="KNOWLEDGE_RERANK_MODEL")
     # Empty means <data dir>/models.
