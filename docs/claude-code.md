@@ -197,6 +197,8 @@ NVX Ancile never writes to these files.
 
 The SDK is Anthropic's (all rights reserved), so NVX Ancile does not ship it. The first time you use Claude Code from NVX Ancile, the **Claude bridge**, a small separate program that comes with NVX Ancile (MIT licence), downloads the one SDK version NVX Ancile is tested with from npm (`registry.npmjs.org`), checks its checksum before unpacking it, and keeps it in NVX Ancile's data folder (`claude-bridge/claude-sdk`). You get the SDK from Anthropic, under Anthropic's terms (code.claude.com/docs/en/legal-and-compliance). Core talks to the bridge over a private connection on this computer only.
 
+Security software sometimes quarantines files it has not seen before. When the SDK, the bridge or Claude Code itself disappears or cannot be opened after it was checked, NVX Ancile says which folder to allow in your antivirus (`claude_code.file_blocked`, docs/errors.md) instead of a general failure. After the computer sleeps, Core checks the bridge still answers and reconnects it if not.
+
 Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Claude Code that NVX Ancile runs.
 
 ## Limits in this release

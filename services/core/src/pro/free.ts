@@ -25,7 +25,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { AncileError, type license, pro } from '@nvx/contracts';
-import { FREE } from '../license/verify';
+import { FREE, SKEW_S } from '../license/verify';
 import type { SecretStore } from '../secrets';
 import type { SettingsStore } from '../settings';
 import type { ProLicense } from './types';
@@ -54,6 +54,10 @@ export interface FreeHost {
   licenseUrl?: string;
   deviceLabel?: string;
   fetch?: typeof fetch;
+  /** The licence clock (license/clock.ts): skew-tolerant, trusts nvx.sh's time. */
+  now?: () => number;
+  /** nvx.sh's Date header from each reply, for the licence clock. */
+  observeDate?: (date: string | null) => void;
 }
 
 /** The licence server's refusal, in its v2 ({error:{code,...}}) or v1 ({error:"code"}) shape. */
@@ -181,6 +185,7 @@ export function freeModule(host: FreeHost): { build: 'free'; license: ProLicense
     }
     // A captive portal or a proxy's error page is not an answer from nvx.sh.
     if (!(res.headers.get('content-type') ?? '').includes('application/json')) return { kind: 'offline' };
+    host.observeDate?.(res.headers.get('date'));
     const b = (await res.json().catch(() => null)) as (ServerError & { token?: string }) | null;
     if (!b || typeof b !== 'object') return { kind: 'offline' };
     if (res.ok && typeof b.token === 'string') return { kind: 'ok', token: b.token };
@@ -195,8 +200,13 @@ export function freeModule(host: FreeHost): { build: 'free'; license: ProLicense
     // This build cannot verify a Pro token, but it can tell the screen that the
     // one held has run out (Pro ended, so no Pro update is coming).
     const exp = token ? expiryOf(token) : null;
+    const now = (host.now ?? Date.now)();
     const lapse: license.LicenseLapse | null =
-      suspended === 'paused' ? 'paused' : suspended || (exp !== null && exp < Date.now()) ? 'expired' : null;
+      suspended === 'paused'
+        ? 'paused'
+        : suspended || (exp !== null && exp + SKEW_S * 1000 < now)
+          ? 'expired'
+          : null;
     return {
       status: { ...FREE, lapse },
       build: 'free',

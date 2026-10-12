@@ -147,3 +147,38 @@ describe('free build licence', () => {
     expect((await m.license.details()).status.lapse).toBe('paused');
   });
 });
+
+describe('the free build and a wrong clock (ROADMAP.md track G)', () => {
+  const tokenExpiring = (expMs: number) =>
+    `h.${Buffer.from(JSON.stringify({ exp: Math.floor(expMs / 1000) })).toString('base64url')}.s`;
+
+  it('reads expiry against the licence clock, with ten minutes of skew', async () => {
+    const T = Date.parse('2026-10-12T09:00:00Z');
+    const settings = new MemorySettings();
+    let now = T;
+    const m = freeModule({ settings, licenseUrl: 'https://licence.test', now: () => now });
+    await m.license.start();
+    await settings.set('license.token', tokenExpiring(T - 5 * 60_000));
+    expect((await m.license.details()).status.lapse).toBeNull();
+    now = T + 20 * 60_000;
+    expect((await m.license.details()).status.lapse).toBe('expired');
+  });
+
+  it("feeds nvx.sh's time to the licence clock from its replies", async () => {
+    const seen: (string | null)[] = [];
+    const reply = () =>
+      new Response(JSON.stringify({ token: 'h.p.s' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', date: 'Mon, 12 Oct 2026 09:00:00 GMT' },
+      });
+    const m = freeModule({
+      settings: new MemorySettings(),
+      licenseUrl: 'https://licence.test',
+      fetch: (async () => reply()) as typeof fetch,
+      observeDate: (d) => seen.push(d),
+    });
+    await m.license.start();
+    await m.license.activate(KEY);
+    expect(seen).toEqual(['Mon, 12 Oct 2026 09:00:00 GMT']);
+  });
+});

@@ -23,7 +23,7 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -126,9 +126,20 @@ export interface ProcessLauncherOptions {
 
 /** Start the bridge as a child process of Core. */
 export function processLauncher(opts: ProcessLauncherOptions): BridgeLauncher {
+  let lastEntry: string | null = null;
   return async () => {
-    const entry = opts.entry ?? findBridgeEntry();
+    const entry = opts.entry ?? findBridgeEntry() ?? lastEntry;
     if (!entry) throw new BridgeError('missing', 'The Claude bridge program is not installed next to Core');
+    // Found before but gone or locked now: name the file, so the error can name the folder to allow.
+    try {
+      accessSync(entry, constants.R_OK);
+    } catch (err) {
+      throw new BridgeError(
+        'missing',
+        `${(err as NodeJS.ErrnoException).code ?? 'ENOENT'}: cannot open '${entry}'`,
+      );
+    }
+    lastEntry = entry;
     const token = randomBytes(32).toString('base64url');
     const env: Record<string, string> = {};
     for (const k of BRIDGE_ENV) {
@@ -395,6 +406,29 @@ export class BridgeClient implements SessionSource, LiveBridge {
       this.opts.idleMs ?? 5 * 60_000,
     );
     this.idleTimer.unref();
+  }
+
+  /**
+   * The computer woke from sleep (system/wake.ts): check the socket still
+   * answers; if not, drop it (live sessions hear bridge.closed) and, while
+   * live sessions are open, connect again now. A backoff from before the
+   * sleep no longer applies.
+   */
+  async wake(timeoutMs = 5_000): Promise<'ok' | 'reconnected' | 'idle'> {
+    this.failures = 0;
+    this.retryAt = 0;
+    if (this.ws) {
+      try {
+        await withTimeout(() => this.call('status.sdk', { load: false }), { ms: timeoutMs });
+        return 'ok';
+      } catch {
+        log.info({}, 'Claude bridge did not answer after sleep: reconnecting');
+        this.stop();
+      }
+    }
+    if (!this.keepAlive()) return 'idle';
+    await this.connect();
+    return 'reconnected';
   }
 
   stop(): void {

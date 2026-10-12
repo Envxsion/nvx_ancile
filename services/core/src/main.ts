@@ -5,10 +5,15 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Boot in an order that fails early and clearly:
  *           |  environment → tracing → database (with retry) →
- *           |  migrations → owner → configuration → secrets and
+ *           |  backup and migrations (db/prepare.ts; a database it
+ *           |  cannot safely open shows the start-up screen instead,
+ *           |  system/startup.ts) → owner → configuration → secrets and
  *           |  models → permissions → run worker → supervisor → HTTP.
  *           |  Boot tests have already run (scripts/boot.mjs) before
  *           |  this process is started in strict mode.
+ *           |  `--preflight` (the desktop app, before Knowledge
+ *           |  migrates): check and back up only, then exit 0, or 3
+ *           |  for a newer database, 4 for anything else that stops.
  *  Note     |  A stray rejected promise is logged, not fatal: one bad
  *           |  background write must not take every open answer down.
  *           |  An uncaught exception is logged and exits (state may be
@@ -21,7 +26,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
-import { CLAUDE_CODE_PROVIDER, isClaudeCodeModel, type SearchResponse } from '@nvx/contracts';
+import { AncileError, CLAUDE_CODE_PROVIDER, isClaudeCodeModel, type SearchResponse } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
 import { createApp } from './app';
 import {
@@ -50,7 +55,8 @@ import { newTraceId, setFetchSpanHook } from './context';
 import { credentialRoutes, ENV_FOR_SECRET, MEMORY_REMOTE_SECRET } from './credentials/routes';
 import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
-import { migrate } from './db/migrate';
+import { type Prepared, prepareDatabase } from './db/prepare';
+import { controllerMigrationsDir, knowledgeVersionsDir, schemaState } from './db/version';
 import { buildChecks } from './diagnostics/checks';
 import { diagnosticRoutes, PgDiagnosticStore } from './diagnostics/routes';
 import { DiagnosticRunner } from './diagnostics/runner';
@@ -122,6 +128,7 @@ import { permissionRoutes } from './permissions/routes';
 import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
 import { proAnswers } from './pro/answers';
+import { proDataRoutes } from './pro/data';
 import { ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
 import { sqlSyncSource } from './pro/sync-source';
@@ -139,7 +146,10 @@ import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
+import { sourceDiskGuard } from './system/disk';
+import { startupInternalRoutes, startupRoutes, stoppedApp } from './system/startup';
 import { UpdateOfferBox, updateInternalRoutes, updateRoutes } from './system/updates';
+import { WakeWatch } from './system/wake';
 import { flowShape, observeApi, observeRunEvents, serverEnv, usageOf } from './telemetry/collect';
 import { telemetryRoutes } from './telemetry/routes';
 import { Telemetry } from './telemetry/service';
@@ -156,7 +166,19 @@ import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
 
-const VERSION = process.env.npm_package_version ?? '0.1.0';
+// The desktop app says which NVX Ancile this is; a checkout reads its package.json.
+const VERSION = process.env.ANCILE_APP_VERSION ?? process.env.npm_package_version ?? '0.1.0';
+
+/** Reasons Core stops before opening the database, and shows its start-up screen instead. */
+const STOPS = new Set([
+  'system.database_newer',
+  'system.backup_failed',
+  'system.disk_full',
+  'system.migration_failed',
+]);
+/** `--preflight` (the desktop app, before Knowledge migrates): exit codes. */
+const PREFLIGHT_NEWER = 3;
+const PREFLIGHT_FAILED = 4;
 
 process.on('unhandledRejection', (reason) => {
   log.error({ err: reason }, 'a background task failed and nobody handled it');
@@ -196,8 +218,58 @@ async function main() {
   await mkdir(resolve(env.ANCILE_DATA_DIR), { recursive: true });
 
   const database = await connect(env.DATABASE_URL, { poolMax: env.DATABASE_POOL_MAX });
-  const applied = await migrate(database.sql);
-  if (applied.length) log.info({ applied }, 'database migrated');
+  // Never backwards, never without a backup, never onto a full disk (db/prepare.ts).
+  const preflight = process.argv.includes('--preflight');
+  const dataDir = resolve(env.ANCILE_DATA_DIR);
+  const knowledgeDir = knowledgeVersionsDir(env.ANCILE_KNOWLEDGE_MIGRATIONS_DIR);
+  const controllerDir = controllerMigrationsDir(env.ANCILE_CONTROLLER_MIGRATIONS_DIR);
+  let prepared: Prepared;
+  try {
+    prepared = await prepareDatabase({
+      sql: database.sql,
+      url: env.DATABASE_URL,
+      dataDir,
+      appVersion: VERSION,
+      knowledgeDir,
+      controllerDir,
+      preflight,
+      allowNewer: !RELEASE_BUILD && env.ANCILE_ALLOW_NEWER_DATABASE,
+    });
+  } catch (err) {
+    if (!(err instanceof AncileError) || !STOPS.has(err.code)) throw err;
+    log.error({ code: err.code, detail: err.detail }, err.title);
+    if (preflight) {
+      await database.close();
+      process.exit(err.code === 'system.database_newer' ? PREFLIGHT_NEWER : PREFLIGHT_FAILED);
+    }
+    const cockpit = resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist');
+    const seen = await schemaState(database.sql, { knowledgeDir }).catch(() => null);
+    const stopped = stoppedApp({
+      error: err,
+      sql: database.sql,
+      url: env.DATABASE_URL,
+      dataDir,
+      version: VERSION,
+      schema: () => ({ expected: seen?.expected ?? '', current: seen?.current ?? null }),
+      allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
+      managed: env.ANCILE_RUNTIME === 'desktop',
+      ...(env.NODE_ENV === 'production' && existsSync(cockpit) && { cockpitDist: cockpit }),
+    });
+    serve({ fetch: stopped.fetch, hostname: env.ANCILE_HOST, port: env.ANCILE_PORT }, () =>
+      log.warn({ code: err.code }, 'Core stopped before opening the database: showing the start-up screen'),
+    );
+    return;
+  }
+  if (preflight) {
+    log.info(
+      { backup: prepared.backup?.name ?? null, skipped: prepared.skipped },
+      'preflight: the database is ready to update',
+    );
+    await database.close();
+    process.exit(0);
+  }
+  if (prepared.applied.length) log.info({ applied: prepared.applied }, 'database migrated');
+  const schemaNow = () => ({ expected: prepared.state.expected, current: prepared.state.expected });
 
   let config: AncileConfig;
   try {
@@ -1005,6 +1077,13 @@ async function main() {
   // ---- end Phase 5 services ----
 
   const cockpitDist = resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist');
+  const startupDeps = {
+    sql,
+    url: env.DATABASE_URL,
+    dataDir,
+    version: VERSION,
+    schema: schemaNow,
+  };
   const app = createApp({
     version: VERSION,
     serviceToken: env.ANCILE_SERVICE_TOKEN,
@@ -1036,6 +1115,8 @@ async function main() {
       logIngestRoutes({ pipeline: obs }),
       // The desktop host asks here before checking nvx.sh for updates.
       updateInternalRoutes({ settings, offer: updateOffer }),
+      // …and for a backup before it installs an older build.
+      startupInternalRoutes(startupDeps),
     ],
     ready: async () => {
       const db = await database.sql`select 1`.then(() => true).catch(() => false);
@@ -1046,6 +1127,8 @@ async function main() {
     allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     routes: [
       updateRoutes({ settings, offer: updateOffer }),
+      // Start-up status and database backups (docs/desktop.md, Updates and your data).
+      startupRoutes(startupDeps),
       // Phase 5: operations
       logRoutes({ pipeline: obs }),
       traceRoutes({
@@ -1069,6 +1152,8 @@ async function main() {
         publicUrl: env.ANCILE_PUBLIC_URL,
       }),
       licenseRoutes({ license: licence }),
+      // Pro's data stays readable and exportable when the licence lapses or the build goes free.
+      proDataRoutes({ sql, edition: () => pro.build }),
       telemetryRoutes({ telemetry }),
       flowRoutes({
         workspaceId: owner.workspaceId,
@@ -1105,6 +1190,8 @@ async function main() {
         registry,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
       }),
+      // Room on the disk before a source is added (system/disk.ts).
+      sourceDiskGuard({ dataDir }),
       notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore, tombstones }),
       scopeRoutes({ store: scopeStore }),
       autoRoutes({ plans: autoPlans, events: runEvents }),
@@ -1249,8 +1336,22 @@ async function main() {
   }, 45_000);
   warmCommands.unref();
 
+  // Laptop sleep (system/wake.ts): on wake, runs, the Claude bridge and the health view pick up again.
+  const wake = new WakeWatch();
+  wake.onWake(async () => {
+    await worker.wake();
+    await claudeCode.bridge
+      .wake()
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, 'the Claude bridge did not come back after sleep'),
+      );
+    await supervisor.checkNow();
+  });
+  wake.start();
+
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');
+    wake.stop();
     supervisor.stop();
     automations.stop();
     licence.stop();

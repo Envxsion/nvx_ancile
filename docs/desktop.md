@@ -26,6 +26,31 @@ The secrets are made the first time NVX Ancile starts and never written to a fil
 
 The tray icon shows whether NVX Ancile is ready, opens the logs folder, and quits. Closing the window quits too: every service stops, the database last and cleanly.
 
+## Updates and your data
+
+**A backup before every update.** Before anything changes the shape of the database, NVX Ancile backs it up: on start, Core's preflight (`node dist/main.js --preflight`) looks for migrations this build would apply, to Core's schema, Knowledge's or the Controller's, and takes a backup with `pg_dump` from the Postgres pg0 installed, before Knowledge migrates and before Core starts. A brand-new, empty database needs none. The newest five are kept in the `backups` folder inside your data folder (`ancile-<date>-<time>-before-migration.dump`, with a `.json` beside it saying which NVX Ancile took it and at which schema), with up to two safety copies taken before a restore or before an older version is installed. Each migration then runs in one transaction: one that fails half way is undone, and the start-up screen says so.
+
+**When something stops the update,** NVX Ancile starts only Core, which shows a start-up screen in the window instead of the app, and nothing touches the database:
+
+| What happened | What you can do |
+|---|---|
+| The backup failed | Try again, or update without a backup if you keep your own copy (once). |
+| The disk is too full (`Not enough free disk space: needs ~X, Y free on drive Z`) | Free space, then Try again. |
+| An update failed and was undone | Try again, or restore the last backup. |
+| Your data was updated by a newer NVX Ancile | Restore the backup taken before that update, or install the newer version again. |
+
+The last one happens when an older version starts on data a newer one updated: an update was rolled back, or an older installer was run. NVX Ancile never runs a migration backwards. It knows which schema it expects (the newest migration it carries, Knowledge's newest revision, and the Controller's migrations) and refuses one it has never heard of. Restoring replaces your data with the backup, after taking a safety backup of what is there now; then every service starts again. Disk space is checked the same way before a source is added.
+
+**Installing an older version.** When nvx.sh offers a build older than the one installed (a release was pulled), the tray says so first ("NVX Ancile x.y.z is older than this version: read before installing"). The second click backs up your data, then installs; if the backup fails, nothing is installed. That older version then offers the backup from before your last update.
+
+**Restoring by hand:** see [the restore runbook](runbooks/restore-backup.md).
+
+**When Pro ends,** what Pro made (context packs, insights, fleet settings, sync state) stays in its own tables, readable and never deleted: Admin → Licence offers **Export Pro data** (`GET /api/v1/system/pro-data/export`, one JSON file) in the free edition and with a lapsed licence, and turning Pro on again brings it all back.
+
+**A wrong clock.** Licence checks allow ten minutes of clock skew either way. When this computer's clock is further out than that, from a clock set ahead (which would otherwise end a licence early) or one clearly behind, the time nvx.sh gave at the last check, moved on by the time since, is used instead.
+
+**Sleep.** When the computer wakes, Core notices the gap in its heartbeat: runs it was working on keep their place (their leases are renewed before anything else looks at them), runs left by a worker that is gone resume, the Claude bridge is checked and reconnected if it stopped answering, and the services are checked at once.
+
 ## Licence links
 
 An `ancile://activate?key=NVX-XXXX-XXXX-XXXX` link (from your nvx.sh account) opens Admin → Licence with the key filled in. It never activates by itself: you press the button.
@@ -112,10 +137,10 @@ Pro arrives and leaves only by update; there is no separate Pro download to inst
 
 - **Pro arrives.** The free edition takes a key in Admin → Licence: it claims a seat with nvx.sh and keeps the token (nothing is unlocked in the free build). The next check is answered with the Pro build of the same version or newer (`"edition": "pro"`); the tray line reads "Pro is ready. Install", and one click installs it and restarts.
 - **Pro lapses.** For under 90 days after a licence ends or is paused, or when the seat moved, nvx.sh answers 204: Pro stays installed, and its features stop when the held token expires. Admin → Licence offers renewal ("Pro licence lapsed: renew to keep updates").
-- **Pro leaves.** After 90 days, on revocation, or with an unreadable token, nvx.sh answers with the newest free build and `"downgrade": true`. The tray line reads "Pro ended: switching to the free edition (your data stays)" and one click installs it. Nothing is lost: Pro's tables stay on disk (migrations only add), Pro's screens give way to their upsell cards, and turning Pro on again brings everything back as it was.
+- **Pro leaves.** After 90 days, on revocation, or with an unreadable token, nvx.sh answers with the newest free build and `"downgrade": true`. The tray line reads "Pro ended: switching to the free edition (your data stays)" and one click installs it. Nothing is lost: Pro's tables stay on disk (migrations only add), readable and exportable from Admin → Licence (Export Pro data), Pro's screens give way to their upsell cards, and turning Pro on again brings everything back as it was.
 - **A 503, or no answer:** the app tries again at the next check.
 
-What the tray is offering is reported to Core (`POST /internal/v1/desktop/update-offer`, service token; `DELETE` when there is nothing), and Admin → Licence reads it from `GET /api/v1/system/update-offer` to say Pro is ready, or that Pro ended. Nothing installs on its own: every install is a click in the tray menu. A plain update reads "Install NVX Ancile x.y.z and restart".
+Any 200 from nvx.sh is an offer (204 means nothing to install), so the other edition of the same version, or an older build after a release was pulled, is offered too; an older one is warned about and backed up first (see Updates and your data). What the tray is offering is reported to Core (`POST /internal/v1/desktop/update-offer` with `older` for a rollback, service token; `DELETE` when there is nothing), and Admin → Licence reads it from `GET /api/v1/system/update-offer` to say Pro is ready, or that Pro ended. Nothing installs on its own: every install is a click in the tray menu. A plain update reads "Install NVX Ancile x.y.z and restart".
 
 To reinstall Pro on a new computer, the Pro installer is at https://ancile.nvx.sh/pro/download (linked at the foot of Admin → Licence).
 

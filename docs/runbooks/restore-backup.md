@@ -6,8 +6,33 @@ Ancile keeps three kinds of data, and each one is backed up differently:
 |---|---|---|
 | Memory | `data/memory` (git) | Every change is a commit. A remote, if configured, is pushed hourly. |
 | Files (uploads, extracted markdown) | `data/files` | Copy the folder |
-| Database (threads, runs, grants, indexes) | Postgres volume `nvx-ancile_pgdata` | `pg_dump` (below) |
+| Database (threads, runs, grants, indexes) | Postgres (pg0 in `.ancile/` or the data folder; the compose volume `nvx-ancile_pgdata`) | Automatic before every update, in `<data>/backups` (below); `pg_dump` by hand |
 | Secrets key | `ANCILE_SECRET_KEY` in `.env` | Keep a copy somewhere else, such as a password manager |
+
+## Backups before every update
+
+NVX Ancile backs the whole database up before it applies any migration (Core's or Knowledge's), and keeps the newest five in `<data>/backups` (the desktop app: the `backups` folder inside its data folder). An empty database is not backed up. No migration runs without a backup; if the backup fails, nothing is changed and the start-up screen offers Try again, or updating once without a backup.
+
+From a checkout (the stack stopped with `pnpm stop`; Postgres stays up):
+
+```bash
+pnpm db:backups                       # list them, newest first, with the version and schema each was taken at
+pnpm db:backup                        # take one now
+pnpm db:restore ancile-20261012-093005-before-migration.dump
+```
+
+`db:restore` first takes a safety backup of what is there now (`…-before-restore.dump`), then drops NVX Ancile's schemas and restores the chosen backup in one transaction. Start again with `pnpm start`: migrations bring an older backup forward, backing it up first.
+
+In the desktop app, restore from the start-up screen it shows when it cannot open your data (for example after an older version was installed over newer data): pick the backup, confirm, and every service starts again.
+
+By hand, with the Postgres tools pg0 installed (`~/.pg0/installation/<version>/bin`) and the app quit:
+
+```bash
+pg_restore --list backups/ancile-….dump | head      # check it reads
+# Start only the database, then, connected as the ancile user:
+psql -c "drop schema if exists core, knowledge, controller, pro cascade"
+pg_restore --single-transaction --exit-on-error -d ancile backups/ancile-….dump
+```
 
 ## Take a backup
 

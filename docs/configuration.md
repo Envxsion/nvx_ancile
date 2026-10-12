@@ -31,6 +31,12 @@ Both are validated by schemas in `packages/contracts/src/config.ts`, and by each
 | `POSTGRES_PORT` | `5433` | Host port. 5433 avoids clashing with a local Postgres. |
 | `DATABASE_URL` | none (required) | Connection string used by every service. |
 | `DATABASE_POOL_MAX` | `40` (Core) | Pool size per service. Core's is larger: a burst of answers reads and writes in parallel. |
+| `ANCILE_PG_BIN` | (found) | The folder holding `pg_dump` and `pg_restore`, for the backup Core takes before every update. Without it Core uses the Postgres that pg0 installed (`~/.pg0/installation/<version>/bin`, the server's major version), then `PATH`. |
+| `ANCILE_KNOWLEDGE_MIGRATIONS_DIR` | (found) | Knowledge's Alembic `versions` folder, so Core can tell a Knowledge schema newer than this build. The desktop app sets it; a checkout finds `services/knowledge/alembic/versions`. |
+| `ANCILE_CONTROLLER_MIGRATIONS_DIR` | (found) | The Controller's `migrations` folder, likewise: when the Controller keeps its schema in this database, its pending migrations are backed up first too, and a newer Controller schema stops Core. |
+| `ANCILE_APP_VERSION` | the package version | Which NVX Ancile this is. Recorded beside each migration and backup; the desktop app sets it. |
+| `ANCILE_ALLOW_NEWER_DATABASE` | `false` | Development only, ignored in a release build: start on a database another branch migrated further, with a warning, instead of stopping with `system.database_newer`. Nothing runs backwards either way. |
+| `ANCILE_RUNTIME` | unset | `desktop` when the desktop app runs Core: after a restore from the start-up screen it starts every service again. |
 
 ### Agent engine and integrations
 

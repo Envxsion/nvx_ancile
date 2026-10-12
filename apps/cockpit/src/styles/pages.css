@@ -724,3 +724,103 @@
 .provider__looking {
   font-size: 11px;
 }
+
+/* --- Start-up screen (Core stopped before opening the database) ---------- */
+
+.startup {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 32px 20px;
+  background: var(--chrome);
+}
+.startup__card {
+  display: grid;
+  gap: 14px;
+  width: min(640px, 100%);
+  padding: 28px;
+  border-radius: var(--r-lg);
+  background: var(--lift);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.startup__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  color: var(--fg-2);
+}
+.startup__title {
+  font-size: var(--t-h2);
+  line-height: 1.2;
+}
+.startup__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-2);
+}
+.startup__backups {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.startup__backups legend {
+  margin-bottom: 6px;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.startup__backups ul {
+  display: grid;
+  gap: 6px;
+}
+.startup__backups label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  cursor: pointer;
+}
+.startup__backups label > .mute {
+  grid-column: 2;
+  font-size: var(--t-small);
+}
+.startup__backups label[data-chosen] {
+  box-shadow: inset 0 0 0 1.5px var(--signal);
+}
+.startup__backup-name em {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.startup__folder,
+.startup__note {
+  font-size: var(--t-small);
+}
+.startup__folder code {
+  overflow-wrap: anywhere;
+}
+.startup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- Licence: Pro's data, kept when Pro ends ------------------------------ */
+
+.licence__prodata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+}

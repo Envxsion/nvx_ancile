@@ -71,6 +71,10 @@ export async function loadPro(opts: {
       licenseUrl: opts.host.licenseUrl,
       deviceLabel: opts.host.deviceLabel ?? deviceLabel(),
       ...(opts.host.fetch && { fetch: opts.host.fetch }),
+      ...(opts.clock && {
+        now: () => (opts.clock as LicenceClock).now(),
+        observeDate: (d: string | null) => (opts.clock as LicenceClock).observeHeader(d),
+      }),
     });
   if (opts.tier === 'free' || !proPresent(entry)) {
     if (opts.tier === 'pro') log.warn({ entry }, 'NVX_TIER=pro but pro/ is empty: running the free build');

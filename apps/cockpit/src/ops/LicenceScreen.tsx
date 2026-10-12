@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { license } from '@nvx/contracts';
+import type { license, system } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { ApiCallError, api } from '../lib/api';
@@ -34,6 +34,9 @@ type Offer = license.UpdateOffer['offer'];
 
 const KEY = ['ops', 'licence'] as const;
 export const UPDATE_OFFER_KEY = ['system', 'update-offer'] as const;
+const PRO_DATA_KEY = ['system', 'pro-data'] as const;
+/** Every row Pro keeps, as one JSON file (works in every edition). */
+export const PRO_DATA_EXPORT = '/api/v1/system/pro-data/export';
 
 /** NVX-XXXX-XXXX-XXXX as you type; anything longer is a token and left alone. */
 export function formatKey(raw: string): string {
@@ -94,6 +97,12 @@ export function LicenceScreen() {
   });
   const offer = offerQ.data?.offer ?? null;
   useEffect(() => toastOnce(offer), [offer]);
+  // What Pro made here: kept, readable and exportable whatever the licence says.
+  const proData = useQuery({
+    queryKey: PRO_DATA_KEY,
+    queryFn: () => api.get<system.ProDataSummary>('/system/pro-data'),
+    retry: false,
+  });
   /** The key is in use elsewhere: offer to move the seat here. */
   const [seatTaken, setSeatTaken] = useState<string[] | null>(null);
   const activate = useMutation({
@@ -204,6 +213,13 @@ export function LicenceScreen() {
               Pro is ready. Install it from the tray menu (NVX Ancile Pro {offer.version}).
             </p>
           ) : null}
+          {offer?.older ? (
+            <p className="edition__lapse" data-lapse="older" role="status">
+              NVX Ancile {offer.version} on offer is older than this version. Installing it from the tray
+              backs up your data first; the older version then offers to restore the backup from before your
+              last update.
+            </p>
+          ) : null}
           {onItsWay ? (
             <p className="edition__lapse" data-lapse="on-its-way" role="status">
               Pro is on its way. It arrives as an update: choose Check for updates in the NVX Ancile tray
@@ -232,6 +248,22 @@ export function LicenceScreen() {
       </section>
 
       {d.problem ? <p className="licence__problem">{d.problem}</p> : null}
+
+      {(proData.data?.total_rows ?? 0) > 0 && (!pro || ended) ? (
+        <section className="licence__prodata m-glass" aria-label="Your Pro data">
+          <p>
+            <strong>Your Pro data is kept.</strong>{' '}
+            <span className="mute">
+              {proData.data?.total_rows} {proData.data?.total_rows === 1 ? 'item' : 'items'} that Pro made are
+              still on this computer. Nothing is deleted when Pro ends, and turning Pro on again brings them
+              back.
+            </span>
+          </p>
+          <a className="btn btn--ghost btn--sm" href={PRO_DATA_EXPORT} download>
+            <Icon name="download" size={14} /> Export Pro data
+          </a>
+        </section>
+      ) : null}
 
       <ul className="feature-grid">
         {d.features.map((f, i) => (

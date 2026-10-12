@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -33,6 +33,22 @@ const PG_INSTANCE_PREFIX: &str = "ancile-desktop";
 const READY_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_EXITS: usize = 5;
 const EXIT_WINDOW: Duration = Duration::from_secs(120);
+/// Core's preflight may back up a large database first.
+const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(35 * 60);
+/// Core exits with this to ask for every service to start again (EX_TEMPFAIL,
+/// services/core/src/system/startup.ts RESTART_ALL_EXIT).
+pub const RESTART_ALL_EXIT: i32 = 75;
+
+/// Is every service up, counting the ones left stopped on purpose (only Core
+/// runs while its start-up screen is shown)?
+pub fn all_ready(services: &[ServiceStatus]) -> bool {
+    services
+        .iter()
+        .any(|s| s.name == "core" && s.state == State::Ready)
+        && services
+            .iter()
+            .all(|s| matches!(s.state, State::Ready | State::Stopped))
+}
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -111,6 +127,8 @@ pub struct Supervisor {
     children: Mutex<BTreeMap<&'static str, Child>>,
     status: Mutex<Status>,
     shutting: AtomicBool,
+    /// Bumped when every service starts again, so old watchers stand down.
+    generation: AtomicUsize,
     #[cfg(windows)]
     job: Option<win32job::Job>,
 }
@@ -158,6 +176,17 @@ impl Supervisor {
             layout.sidecar("cockpit").display().to_string(),
         );
         set("ANCILE_OFFLINE_MODELS", "1".into());
+        // Which NVX Ancile this is: Core records it beside each migration it
+        // applies, so an older version started later can say who updated the data.
+        set("ANCILE_APP_VERSION", env!("CARGO_PKG_VERSION").into());
+        // Knowledge's migrations, so Core can tell a Knowledge schema newer than this build.
+        set(
+            "ANCILE_KNOWLEDGE_MIGRATIONS_DIR",
+            layout
+                .sidecar("knowledge/app/alembic/versions")
+                .display()
+                .to_string(),
+        );
         set("POSTGRES_USER", "ancile".into());
         set("POSTGRES_DB", "ancile".into());
         set("POSTGRES_PORT", p.postgres.to_string());
@@ -188,6 +217,14 @@ impl Supervisor {
             .to_string(),
         );
         if layout.has("controller/dist/main.js") {
+            // Its migrations too, so Core's preflight backs up before the Controller migrates.
+            set(
+                "ANCILE_CONTROLLER_MIGRATIONS_DIR",
+                layout
+                    .sidecar("controller/migrations")
+                    .display()
+                    .to_string(),
+            );
             set("CONTROLLER_PORT", p.controller.to_string());
             set(
                 "CONTROLLER_URL",
@@ -228,6 +265,7 @@ impl Supervisor {
                 ready: false,
             }),
             shutting: AtomicBool::new(false),
+            generation: AtomicUsize::new(0),
             #[cfg(windows)]
             job: kill_on_close_job(),
         })
@@ -267,7 +305,7 @@ impl Supervisor {
             if let Some(h) = hint {
                 s.hint = h;
             }
-            s.ready = s.services.iter().all(|x| x.state == State::Ready);
+            s.ready = all_ready(&s.services);
             s.clone()
         };
         log::info!("status: {} {:?}", snapshot.message, name.zip(state));
@@ -589,6 +627,7 @@ impl Supervisor {
     /// Restart a service that exits, with backoff, until the app quits.
     fn watch(self: &Arc<Self>, spec: Spec) {
         let me = Arc::clone(self);
+        let generation = self.generation.load(Ordering::SeqCst);
         thread::spawn(move || {
             let mut exits: Vec<Instant> = Vec::new();
             loop {
@@ -596,15 +635,26 @@ impl Supervisor {
                 if me.shutting.load(Ordering::SeqCst) {
                     return;
                 }
+                // Every service is being started again: a new watcher takes over.
+                if me.generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
                 let exited = {
                     let mut kids = me.children.lock().unwrap();
                     match kids.get_mut(spec.name) {
-                        Some(c) => matches!(c.try_wait(), Ok(Some(_))),
-                        None => true,
+                        Some(c) => match c.try_wait() {
+                            Ok(Some(status)) => Some(status.code()),
+                            _ => None,
+                        },
+                        None => Some(None),
                     }
                 };
-                if !exited {
+                let Some(code) = exited else {
                     continue;
+                };
+                if spec.name == "core" && code == Some(RESTART_ALL_EXIT) {
+                    me.restart_services();
+                    return;
                 }
                 let now = Instant::now();
                 exits.retain(|t| now.duration_since(*t) < EXIT_WINDOW);
@@ -679,6 +729,51 @@ impl Supervisor {
             e
         };
         self.start_database().map_err(|e| fail(self, e))?;
+        self.start_services().map_err(|e| fail(self, e))?;
+        self.update(None, None, Some("Ready"), Some(None));
+        Ok(())
+    }
+
+    /// Core's preflight: refuse a database a newer NVX Ancile wrote, check
+    /// the disk, and back up before anything migrates (Knowledge's
+    /// migrations run next). False when Core must show its start-up screen.
+    fn preflight(&self) -> bool {
+        self.update(None, None, Some("Checking your data"), None);
+        let ok = self.run_once(
+            &self.node(),
+            &[
+                "--enable-source-maps".into(),
+                "dist/main.js".into(),
+                "--preflight".into(),
+            ],
+            &self.layout.sidecar("core"),
+            "core",
+            PREFLIGHT_TIMEOUT,
+        );
+        if let Err(e) = &ok {
+            log::warn!("preflight stopped ({e}): starting Core alone to show why");
+        }
+        ok.is_ok()
+    }
+
+    /// Everything after the database: the preflight, Knowledge's migrations,
+    /// then each service. When the preflight stops (a newer database, a
+    /// failed backup, a full disk) only Core starts, to show why and offer
+    /// what can be done; nothing else touches the database.
+    fn start_services(self: &Arc<Self>) -> Result<(), String> {
+        let safe = self.preflight();
+        if !safe {
+            for name in ["knowledge", "controller", "lab"] {
+                self.update(Some(name), Some(State::Stopped), None, None);
+            }
+            let core = self
+                .specs()
+                .into_iter()
+                .find(|s| s.name == "core")
+                .ok_or_else(|| "Core is missing from this copy of NVX Ancile.".to_string())?;
+            self.update(None, None, Some("Starting Core"), None);
+            return self.start_service(core);
+        }
 
         self.update(None, None, Some("Preparing sources and search"), None);
         let migrate = self.run_once(
@@ -693,12 +788,7 @@ impl Supervisor {
             "knowledge",
             Duration::from_secs(180),
         );
-        migrate.map_err(|e| {
-            fail(
-                self,
-                format!("The sources database could not be prepared: {e}."),
-            )
-        })?;
+        migrate.map_err(|e| format!("The sources database could not be prepared: {e}."))?;
 
         for spec in self.specs() {
             let name = spec.name;
@@ -715,11 +805,50 @@ impl Supervisor {
                     log::warn!("{e}");
                     continue;
                 }
-                return Err(fail(self, e));
+                return Err(e);
             }
         }
-        self.update(None, None, Some("Ready"), Some(None));
         Ok(())
+    }
+
+    /// Core asked for every service to start again (RESTART_ALL_EXIT: after
+    /// a backup was restored, or "Try again" on its start-up screen). The
+    /// database stays up; everything else stops, then starts in order.
+    fn restart_services(self: &Arc<Self>) {
+        log::info!("Core asked for every service to start again");
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut kids = self.children.lock().unwrap();
+            let names: Vec<&'static str> =
+                kids.keys().copied().filter(|n| *n != "pg0-start").collect();
+            for n in names {
+                if let Some(mut child) = kids.remove(n) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+        for name in ["knowledge", "controller", "lab", "core"] {
+            self.update(
+                Some(name),
+                Some(State::Waiting),
+                Some("Starting again"),
+                None,
+            );
+        }
+        let me = Arc::clone(self);
+        thread::spawn(move || match me.start_services() {
+            Ok(()) => {
+                me.update(None, None, Some("Ready"), Some(None));
+                crate::reload_main(&me.app);
+            }
+            Err(e) => me.update(
+                None,
+                None,
+                Some("NVX Ancile could not start"),
+                Some(Some(format!("{e} Logs: {}", me.layout.logs.display()))),
+            ),
+        });
     }
 
     /// Stop everything: services first, then Postgres, cleanly.
@@ -839,6 +968,42 @@ fn lab_env_for(
         e.insert(flag.into(), "1".into());
     }
     e
+}
+
+#[cfg(test)]
+mod ready_tests {
+    use super::*;
+
+    fn svc(name: &'static str, state: State) -> ServiceStatus {
+        ServiceStatus { name, state }
+    }
+
+    #[test]
+    fn core_alone_on_its_start_up_screen_counts_as_ready() {
+        // The preflight stopped (a newer database): only Core runs, to say why.
+        assert!(all_ready(&[
+            svc("database", State::Ready),
+            svc("knowledge", State::Stopped),
+            svc("core", State::Ready),
+        ]));
+        assert!(!all_ready(&[
+            svc("database", State::Ready),
+            svc("knowledge", State::Ready),
+            svc("core", State::Starting),
+        ]));
+        assert!(!all_ready(&[
+            svc("database", State::Ready),
+            svc("knowledge", State::Failed),
+            svc("core", State::Ready),
+        ]));
+        assert!(!all_ready(&[svc("database", State::Stopped)]));
+    }
+
+    #[test]
+    fn the_restart_code_matches_core() {
+        // services/core/src/system/startup.ts RESTART_ALL_EXIT
+        assert_eq!(RESTART_ALL_EXIT, 75);
+    }
 }
 
 #[cfg(test)]

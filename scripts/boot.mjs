@@ -132,7 +132,9 @@ for (const m of migrations) {
   if (!r.ok)
     die(
       `Migrations failed for ${m.name}`,
-      `Read the error above. If the schema was edited by hand, see docs/runbooks/restore-backup.md.`,
+      m.name === 'core'
+        ? 'Read the error above. A backup is taken before every update: list them with `pnpm db:backups` and put one back with `pnpm db:restore <name>` (docs/runbooks/restore-backup.md).'
+        : 'Read the error above. If the schema was edited by hand, see docs/runbooks/restore-backup.md.',
       r.out,
     );
   console.log(`  ${mark.ok} ${m.name}`);

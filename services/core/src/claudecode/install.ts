@@ -16,6 +16,8 @@
  * ------------------------------------------------------------------
  */
 
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { ClaudeCodeInstallState } from '@nvx/contracts';
 import { logFor } from '../obs/logger';
 import { type Spawner, spawnProcess } from './cli';
@@ -23,6 +25,11 @@ import { type Spawner, spawnProcess } from './cli';
 const log = logFor('claude-code');
 
 export const INSTALL_TIMEOUT_MS = 10 * 60_000;
+
+/** Where Anthropic's installer puts Claude Code: ~/.local/bin on every platform. */
+export function installFolder(home: string = homedir()): string {
+  return join(home, '.local', 'bin');
+}
 
 /** The official installer command for this platform. */
 export function installerCommand(platform: NodeJS.Platform = process.platform): {
@@ -108,9 +115,10 @@ export class ClaudeInstaller {
         return;
       }
       if (!this.opts.found()) {
+        // A successful install that is gone at once is usually security software quarantining it.
         this.set(
           'failed',
-          'The installer finished, but Claude Code was not found in ~/.local/bin or on PATH. Restart NVX Ancile and press Check again.',
+          `The installer finished, but Claude Code was not found in ${installFolder()} or on PATH. If security software removed it, allow that folder in your antivirus; then restart NVX Ancile and press Check again.`,
         );
         return;
       }

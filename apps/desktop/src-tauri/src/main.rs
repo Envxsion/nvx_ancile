@@ -83,6 +83,11 @@ pub(crate) fn open_route(app: &AppHandle, route: String) {
     navigate(app, &route);
 }
 
+/// Every service started again (after a restore from Core's start-up screen): open the Cockpit afresh.
+pub(crate) fn reload_main(app: &AppHandle) {
+    navigate(app, "/");
+}
+
 fn navigate(app: &AppHandle, route: &str) {
     let (Some(sup), Some(w)) = (supervisor_of(app), app.get_webview_window("main")) else {
         return;

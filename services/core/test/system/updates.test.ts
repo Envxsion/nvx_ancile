@@ -91,7 +91,7 @@ describe('desktop updates', () => {
       (await internal.request('/desktop/update-offer', post({ version: '0.4.0', edition: 'pro' }))).status,
     ).toBe(200);
     expect(await read()).toEqual({
-      offer: { version: '0.4.0', edition: 'pro', kind: 'pro', found_at: at.toISOString() },
+      offer: { version: '0.4.0', edition: 'pro', kind: 'pro', older: false, found_at: at.toISOString() },
     });
     // The same edition: a plain update.
     await internal.request(
@@ -116,6 +116,12 @@ describe('desktop updates', () => {
     expect(proBuild.get().offer?.kind).toBe('downgrade');
     await proInternal.request('/desktop/update-offer', post({ version: '0.5.1', edition: 'pro' }));
     expect(proBuild.get().offer?.kind).toBe('update');
+    // An older build (a rollback): the Cockpit warns as the tray does.
+    await proInternal.request(
+      '/desktop/update-offer',
+      post({ version: '0.3.9', edition: 'pro', older: true }),
+    );
+    expect(proBuild.get().offer).toMatchObject({ kind: 'update', older: true });
   });
 
   it('refuses an offer that does not match the contract', async () => {

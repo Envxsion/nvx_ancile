@@ -9,7 +9,47 @@
  * ------------------------------------------------------------------
  */
 
+import { dirname } from 'node:path';
 import { AncileError } from '@nvx/contracts';
+
+/** Words Node and the OS use when a file vanished or cannot be opened (a quarantine, a lock). */
+const GONE =
+  /ENOENT|EPERM|EACCES|EBUSY|ERR_MODULE_NOT_FOUND|Cannot find module|operation not permitted|permission denied|no such file|resource busy/i;
+
+/**
+ * The file a "vanished or blocked" message names, when it is one NVX
+ * Ancile downloaded or ships (the Agent SDK, the Claude bridge).
+ */
+export function blockedPath(message: string): string | null {
+  if (!GONE.test(message)) return null;
+  const quoted = /['"`]((?:[A-Za-z]:[\\/]|\/)[^'"`]+)['"`]/.exec(message)?.[1];
+  const bare = /((?:[A-Za-z]:[\\/]|\/)\S+)/.exec(message)?.[1];
+  const path = (quoted ?? bare ?? '').replace(/^file:\/\/\/?/, '');
+  return /claude-sdk|claude-bridge/.test(path) ? path : null;
+}
+
+/** The folder to allow in an antivirus: the whole SDK or bridge folder, not one file. */
+export function folderToAllow(path: string): string {
+  for (const top of ['claude-sdk', 'claude-bridge']) {
+    const i = path.lastIndexOf(top);
+    if (i >= 0) return path.slice(0, i + top.length);
+  }
+  return dirname(path);
+}
+
+/** A file NVX Ancile downloaded or ships vanished, or cannot be opened, after it was checked. */
+function fileBlocked(path: string, what: string): AncileError {
+  const folder = folderToAllow(path);
+  return new AncileError({
+    code: 'claude_code.file_blocked',
+    title: `${what} was removed or blocked after it was checked`,
+    hint: `Security software may have quarantined it. Allow the folder ${folder} in your antivirus, then press Check again.`,
+    status: 503,
+    errorClass: 'permanent',
+    detail: path.slice(0, 500),
+    context: { folder },
+  });
+}
 
 export const ccErrors = {
   notInstalled: () =>
@@ -36,15 +76,20 @@ export const ccErrors = {
       status: 409,
       errorClass: 'permanent',
     }),
-  sdkUnavailable: (why: string) =>
-    new AncileError({
+  fileBlocked,
+  sdkUnavailable: (why: string): AncileError => {
+    const gone = blockedPath(why);
+    if (gone)
+      return fileBlocked(gone, gone.includes('claude-sdk') ? "Anthropic's Agent SDK" : 'The Claude bridge');
+    return new AncileError({
       code: 'claude_code.sdk_unavailable',
       title: 'NVX Ancile cannot read Claude Code sessions yet',
       hint: "It needs Anthropic's Agent SDK, fetched from npm the first time. Check this computer can reach registry.npmjs.org, then press Check again.",
       status: 503,
       errorClass: 'transient',
       detail: why.slice(0, 500),
-    }),
+    });
+  },
   installFailed: (why: string) =>
     new AncileError({
       code: 'claude_code.install_failed',

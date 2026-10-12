@@ -51,6 +51,8 @@ const NOT_PERSISTED = new Set([
   'source-content',
   'claude-code',
   'system-health',
+  // Whether Core started: asked fresh on every load.
+  'startup',
 ]);
 /** Threads kept for an instant first paint: the most recent few, their last messages only. */
 export const PERSIST_THREADS = 8;
