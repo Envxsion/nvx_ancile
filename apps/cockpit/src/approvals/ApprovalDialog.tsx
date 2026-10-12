@@ -52,10 +52,26 @@ const EXPIRY = [
   { id: '604800', label: '1 week' },
 ];
 
-function describePattern(p: string, i: number, total: number): string {
-  if (i === 0) return 'This file only';
-  if (i === total - 1) return 'Anything in the workspace';
-  return p.endsWith('/**') ? `Anything under ${p.replace(/^fs:/, '').replace(/\/\*\*$/, '/')}` : p;
+/** A grant pattern in words, by what it covers: a file or folder, a command, an address, an MCP server. */
+export function describePattern(p: string, i: number, total: number): string {
+  const kind = /^([a-z]+):/.exec(p)?.[1] ?? '';
+  const rest = p.slice(kind ? kind.length + 1 : 0);
+  if (kind === 'shell') {
+    const pattern = /^(\S+) \*$/.exec(rest);
+    return pattern ? `Any ${pattern[1]} command` : 'This exact command only';
+  }
+  if (kind === 'http') {
+    if (!rest.endsWith('**')) return 'This address only';
+    return `Anything under ${rest.replace(/\*\*$/, '')}`;
+  }
+  if (kind === 'mcp') {
+    const server = /^([^/]+)\/\*$/.exec(rest)?.[1];
+    return server ? `Any tool on the ${server} server` : 'This tool call only';
+  }
+  if (kind !== 'fs') return i === 0 ? 'This only' : p;
+  if (i === 0 && !rest.endsWith('/**')) return 'This file only';
+  if (i === total - 1 && total > 1) return 'Anything in the workspace';
+  return rest.endsWith('/**') ? `Anything under ${rest.replace(/\/\*\*$/, '/')}` : p;
 }
 
 export function ApprovalDialog({ approval }: { approval: PendingApproval }) {

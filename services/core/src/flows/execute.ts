@@ -37,6 +37,7 @@ import {
   type FlowStepRecord,
   FULL_CONTEXT,
   type ModelConfig,
+  type ModelInfo,
   type ModelParams,
   type RuleCondition,
 } from '@nvx/contracts';
@@ -107,7 +108,7 @@ export interface FlowRuntime {
   };
   model(id: string): ModelConfig | undefined;
   /** Whether a model can be called now (absent: assume it can). */
-  status?(m: ModelConfig): 'ready' | 'needs_key' | 'disabled';
+  status?(m: ModelConfig): ModelInfo['status'];
   /** Context for one node: conversation, passages, memory (per model for memory). */
   contextFor(model: ModelConfig | undefined): ContextSources;
   call(

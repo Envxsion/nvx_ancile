@@ -40,6 +40,7 @@ import {
   type MemoryProposal,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { injectionHit } from '../permissions/auto/floors';
 import {
   type ArchiveFile,
   isBundle,
@@ -91,6 +92,9 @@ export interface ExportFile {
   contentType: string;
   body: Buffer;
 }
+
+/** Why an import entry is not ticked although it is new. */
+export const INSTRUCTION_FLAG = 'Reads like instructions to an AI, so it is not ticked';
 
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString('en-GB')} ${n === 1 ? one : many}`;
@@ -317,9 +321,15 @@ export class MemoryTransfer {
         text: c.text,
         status,
         clipped: c.clipped,
+        flag: injectionHit(c.text) ? INSTRUCTION_FLAG : null,
       };
     });
     const dup = items.filter((i) => i.status !== 'new').length;
+    const flagged = items.filter((i) => i.status === 'new' && i.flag).length;
+    if (flagged)
+      notes.push(
+        `${plural(flagged, 'entry reads', 'entries read')} like instructions to an AI and ${flagged === 1 ? 'is' : 'are'} not ticked. Tick ${flagged === 1 ? 'it' : 'them'} only if you wrote ${flagged === 1 ? 'it' : 'them'}.`,
+      );
     const clipped = items.filter((i) => i.clipped).length;
     if (dup)
       notes.push(
@@ -365,7 +375,7 @@ export class MemoryTransfer {
             });
           return item;
         })
-      : preview.items.filter((i) => i.status === 'new');
+      : preview.items.filter((i) => i.status === 'new' && !i.flag);
     if (!chosen.length)
       throw new AncileError({
         code: 'memory.import_empty',

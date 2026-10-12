@@ -59,6 +59,7 @@ import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
 import { type ReplayInput, replayedResult } from '../obs/replay';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
 import type { ApprovalRecord, PermissionStore } from '../permissions/store';
@@ -611,10 +612,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           return 'done';
         }
         if (decision.outcome === 'deny') {
-          const why =
-            decision.via === 'policy'
-              ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
-              : decision.reason;
+          const why = refusalForModel(decision);
           await settle(call, {
             type: 'tool_result',
             call_id: call.callId,

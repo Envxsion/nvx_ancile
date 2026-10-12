@@ -114,6 +114,8 @@ export interface ProviderEndpoints {
   controllerUrl?: string | undefined;
   controllerToken?: string | undefined;
   ollamaUrl?: string | undefined;
+  /** The fetch OpenAI-compatible providers use (tests). */
+  fetch?: typeof fetch;
 }
 
 export const DEFAULT_SECRET: Record<string, string> = {
@@ -151,6 +153,7 @@ export async function languageModelFor(
       name: 'controller',
       baseURL: `${ep.controllerUrl.replace(/\/$/, '')}/v1`,
       ...(!!ep.controllerToken && { apiKey: ep.controllerToken }),
+      ...(ep.fetch && { fetch: ep.fetch }),
     })(m.provider_model);
   }
 
@@ -182,6 +185,7 @@ export async function languageModelFor(
         includeUsage: true,
         name: 'ollama',
         baseURL: m.base_url ?? `${(ep.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
+        ...(ep.fetch && { fetch: ep.fetch }),
       })(m.provider_model);
     default:
       if (!m.base_url)

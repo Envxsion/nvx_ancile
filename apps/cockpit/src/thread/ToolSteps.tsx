@@ -19,9 +19,10 @@
  * ------------------------------------------------------------------
  */
 
-import type { Part } from '@nvx/contracts';
+import type { ActivityState, Part } from '@nvx/contracts';
 import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
+import { useBackgroundShell } from '../activity/api';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
 import { ImageGenBody, imageMeta } from '../images/ImageGenBody';
@@ -394,6 +395,17 @@ export function stepState(result: ToolResult | undefined, waiting: boolean): Ste
   if (result.declined_reason !== undefined) return 'declined';
   return result.ok ? 'ok' : 'failed';
 }
+
+/** A shell started in the background: its launch is not its end. Activity says how it is doing. */
+export function backgroundShellState(base: StepState, shell: ActivityState | 'gone' | null): StepState {
+  if (base !== 'ok') return base;
+  if (shell === 'finished' || shell === 'stopped' || shell === 'gone') return 'ok';
+  if (shell === 'failed') return 'failed';
+  return 'running';
+}
+
+const isBackgroundShell = (call: ToolCall) =>
+  kindOf(call.tool) === 'shell' && (call.args as { run_in_background?: unknown })?.run_in_background === true;
 
 /* ---- Pieces ---------------------------------------------------------------- */
 
@@ -938,32 +950,54 @@ const STATUS_WORD: Record<StepState, string> = {
   declined: 'Declined',
 };
 
-export function ToolStep({
-  call,
-  result,
-  waiting,
-  folded,
-  subagent,
-}: {
+interface ToolStepProps {
   call: ToolCall;
   result: ToolResult | undefined;
   waiting: boolean;
   subagent?: SubagentView | undefined;
   /** Settings → Reading: tool steps start as one line. */
   folded: boolean;
-}) {
+}
+
+export function ToolStep(props: ToolStepProps) {
+  return isBackgroundShell(props.call) && props.result?.ok ? (
+    <BackgroundShellStep {...props} />
+  ) : (
+    <ToolStepView {...props} shell={undefined} />
+  );
+}
+
+/** A background shell's step, with its state from Activity. */
+function BackgroundShellStep(props: ToolStepProps) {
+  const shell = useBackgroundShell(props.call.call_id, true);
+  return <ToolStepView {...props} shell={shell} />;
+}
+
+function ToolStepView({
+  call,
+  result,
+  waiting,
+  folded,
+  subagent,
+  shell,
+}: ToolStepProps & { shell: ActivityState | 'gone' | null | undefined }) {
   const cwd = useContext(ToolCwd);
-  const state = stepState(result, waiting);
+  const background = shell !== undefined;
+  const state = background
+    ? backgroundShellState(stepState(result, waiting), shell)
+    : stepState(result, waiting);
   const line = describe(call, result, state, cwd);
   const kind = kindOf(call.tool);
   const detail =
-    state === 'waiting'
-      ? 'Waiting for your decision'
-      : state === 'declined'
-        ? result?.declined_reason || null
-        : state === 'failed' && kind !== 'shell'
-          ? firstLine(resultText(result), 90) || null
-          : null;
+    background && state === 'running'
+      ? 'Running in the background'
+      : state === 'waiting'
+        ? 'Waiting for your decision'
+        : state === 'declined'
+          ? result?.declined_reason || null
+          : state === 'failed' && kind !== 'shell'
+            ? firstLine(resultText(result), 90) || null
+            : null;
   // A Python run is read for its output and figures: it stays open whatever the setting.
   const openByDefault = !folded || state === 'waiting' || kind === 'python' || kind === 'image';
   const [shown, onToggle] = useOpened(openByDefault);

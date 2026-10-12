@@ -44,6 +44,35 @@ describe('onboarding', () => {
     expect(models.find((m) => m.id === 'anthropic/claude-test')?.status).toBe('ready');
   });
 
+  it('switches on only the Ollama models Ollama has, and never offers one it has not pulled', async () => {
+    const ollama = (name: string, enabled: boolean) => ({
+      ...fakeModel(name, 'echo'),
+      id: `ollama/${name}`,
+      provider: 'ollama',
+      provider_model: name,
+      display_name: name,
+      enabled,
+    });
+    h = await harness({
+      models: [ollama('qwen3:14b', true), ollama('llama3.2:3b', false), ollama('gemma3:4b', false)],
+      taskClasses: { 'chat.default': ['ollama/qwen3:14b', 'ollama/llama3.2:3b'] },
+      offline: false,
+      ollamaTags: async () => ['llama3.2:3b', 'nomic-embed-text:latest'],
+      tester: async () => ({ model: 'llama3.2:3b', available: ['llama3.2:3b', 'nomic-embed-text:latest'] }),
+    });
+    const r = await h.call<{ enabled: string[] }>('POST', '/setup/providers/test', { provider: 'ollama' });
+    expect(r.body.enabled).toEqual(['ollama/llama3.2:3b']);
+    const items = (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items;
+    const status = Object.fromEntries(items.map((m) => [m.id, m.status]));
+    expect(status).toEqual({
+      'ollama/qwen3:14b': 'not_pulled',
+      'ollama/llama3.2:3b': 'ready',
+      'ollama/gemma3:4b': 'disabled',
+    });
+    // A chain never starts with a model Ollama does not have.
+    expect(h.registry.chain('chat.default').map((m) => m.id)).toEqual(['ollama/llama3.2:3b']);
+  });
+
   it('explains a rejected key and stores nothing', async () => {
     h = await harness({
       models: [claude],

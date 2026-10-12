@@ -1464,3 +1464,73 @@ describe('the command list after a turn', () => {
     expect(dedupeCommands([plain, ours])).toEqual([ours]);
   });
 });
+
+describe('idle sessions', () => {
+  const settled = async (id: string) =>
+    runs.save({ ...((await runs.get(id)) as RunRecord), status: 'succeeded' }, { status: 'queued' });
+
+  it('closes an idle session so its folder is let go, and resumes it on the next turn', async () => {
+    live.stop();
+    live = makeLive({ idleCloseMs: 40 });
+    bridge.script = textAnswer(S, 'a2', 'One');
+    const first = await live.send('thr_1', { text: 'One', idempotency_key: 'key-idle-0001' });
+    expect(await execute(first.run_id)).toEqual({ kind: 'done' });
+    await settled(first.run_id);
+    expect(bridge.closed).toEqual([]);
+    await until(() => bridge.closed.length === 1);
+    expect(bridge.closed).toEqual(['h1']);
+    expect((await live.state('thr_1')).state).toBe('idle');
+
+    bridge.script = textAnswer(S, 'a3', 'Two');
+    const second = await live.send('thr_1', { text: 'Two', idempotency_key: 'key-idle-0002' });
+    expect(await execute(second.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.map((o) => o.resume)).toEqual([S, S]);
+  });
+
+  it('keeps a session open while a turn is running', async () => {
+    live.stop();
+    live = makeLive({ idleCloseMs: 60 });
+    bridge.script = textAnswer(S, 'a2', 'One');
+    const a = await live.send('thr_1', { text: 'One', idempotency_key: 'key-idle-0003' });
+    expect(await execute(a.run_id)).toEqual({ kind: 'done' });
+    await settled(a.run_id);
+    // A new turn starts before the idle close: the timer is cleared.
+    bridge.script = (b, h, text, uuid) => {
+      setTimeout(() => void textAnswer(S, 'a3', 'Two')(b, h, text, uuid), 150);
+    };
+    const b = await live.send('thr_1', { text: 'Two', idempotency_key: 'key-idle-0004' });
+    expect(await execute(b.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened).toHaveLength(1);
+  });
+});
+
+describe('a resumed session that writes the prompt under its own uuid', () => {
+  it("takes the echoed prompt as the person's message, never a second one, and never shows the context block", async () => {
+    const answer = textAnswer(S, 'a2', 'Hello world');
+    bridge.script = (b, h, text, uuid) => {
+      // Claude Code ignores the uuid it was given and echoes the prompt (context block and all).
+      b.msg(h, {
+        type: 'user',
+        uuid: 'own-prompt-uuid',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: `<ancile-context>\nWhat other models said.\n</ancile-context>\n\n${text}`,
+        },
+      });
+      return answer(b, h, text, uuid);
+    };
+    const sent = await live.send('thr_1', {
+      text: 'Thanks, now add a test',
+      idempotency_key: 'key-echo-0001',
+    });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const msgs = await threads.messages('thr_1');
+    expect(msgs.filter((m) => m.role === 'user')).toHaveLength(2);
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parts).toEqual([{ type: 'text', text: 'Thanks, now add a test' }]);
+    expect(user?.provenance?.claude_code).toMatchObject({ uuid: 'own-prompt-uuid' });
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+  });
+});

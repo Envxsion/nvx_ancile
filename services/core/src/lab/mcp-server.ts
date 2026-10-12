@@ -39,6 +39,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { currentContext, newTraceId } from '../context';
 import { logFor } from '../obs/logger';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { LAB_PRINCIPAL } from './event-mirror';
@@ -244,13 +245,7 @@ export class LabMcpEndpoint {
         runId: null,
         traceId: currentContext()?.traceId ?? newTraceId(),
       });
-      if (decision.outcome === 'deny')
-        return text(
-          decision.via === 'policy'
-            ? `Not allowed: a policy blocks this (${decision.policyId ?? 'policy'}).`
-            : `Not allowed: ${decision.reason}`,
-          true,
-        );
+      if (decision.outcome === 'deny') return text(`Not allowed: ${refusalForModel(decision)}`, true);
       if (decision.outcome === 'ask') {
         if (!deps.passes.take(spec.name))
           return text(

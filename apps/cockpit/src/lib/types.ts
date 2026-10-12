@@ -27,7 +27,7 @@ export interface ModelView {
   contextWindow: number;
   note?: string;
   /** From Core: whether it can answer now. Fixtures are always ready. */
-  status?: 'ready' | 'needs_key' | 'disabled';
+  status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled';
   offline?: boolean;
   /** False for embedding and rerank models: listed in settings, never chosen for chat. */
   chat?: boolean;

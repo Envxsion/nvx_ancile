@@ -119,6 +119,7 @@ import { linkRoutes } from './links/routes';
 import { LinkService, type LinkServiceDeps } from './links/service';
 import { PgLinkStore } from './links/store';
 import { threadSummary } from './links/summary';
+import { OllamaClient } from './localmodels/ollama';
 import { localModelRoutes } from './localmodels/routes';
 import { LocalModels } from './localmodels/service';
 import { logIngestRoutes, logRoutes } from './logs/routes';
@@ -364,6 +365,15 @@ async function main() {
     secrets,
     settings,
     offline: env.ANCILE_OFFLINE_MODELS,
+    // An Ollama model Ollama has not pulled is never offered or chosen (it could not answer).
+    ollamaTags: async () => {
+      const ollama = new OllamaClient({ baseUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434' });
+      const tags = await Promise.race([
+        ollama.tags(),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error('slow')), 1_500).unref()),
+      ]);
+      return tags.map((t) => t.name).filter(Boolean);
+    },
   });
   await registry.refresh();
   const endpoints = {
@@ -808,6 +818,7 @@ async function main() {
     events: runEvents,
     worker: { kick: () => worker.kick() },
     bus: events,
+    idleCloseMs: env.ANCILE_CC_LIVE_IDLE_MS,
     permissions,
     gateFor: (root) =>
       createGate({

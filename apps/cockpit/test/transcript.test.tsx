@@ -345,6 +345,38 @@ describe('Claude Code tool steps', () => {
     expect(container.querySelector('.tok-kw')?.textContent).toBe('import');
   });
 
+  it('a background shell is running until Activity says it ended, never done at launch', async () => {
+    let shellState = 'running';
+    mocked.get.mockImplementation(async (path: string) =>
+      path === '/activity'
+        ? {
+            running: 1,
+            import: null,
+            items: [{ id: 'shell:s1:b1', kind: 'shell', state: shellState }],
+          }
+        : [],
+    );
+    const { container } = wrap(
+      <ToolCwd.Provider value="/home/me/proj">
+        <Parts
+          parts={[
+            call('b1', 'Bash', { command: 'pnpm dev', run_in_background: true }),
+            ok('b1', 'Command running in background with ID: abc123'),
+          ]}
+          streaming={false}
+          waiting={false}
+        />
+      </ToolCwd.Provider>,
+    );
+    const step = () => container.querySelector('.tool-step');
+    await waitFor(() => expect(mocked.get).toHaveBeenCalledWith('/activity'));
+    expect(step()).toHaveAttribute('data-state', 'running');
+    expect(container.textContent).toContain('Running in the background');
+    shellState = 'finished';
+    await queryClient.invalidateQueries({ queryKey: ['activity'] });
+    await waitFor(() => expect(step()).toHaveAttribute('data-state', 'ok'));
+  });
+
   it('strips both gutter styles, and leaves text without one alone', () => {
     expect(stripGutter('    10\tfoo\n    11\tbar')).toEqual({ code: 'foo\nbar', numbers: [10, 11] });
     expect(stripGutter('just text\nmore').numbers).toBeNull();

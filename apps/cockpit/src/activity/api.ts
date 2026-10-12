@@ -48,11 +48,12 @@ export const useActivityPanel = create<ActivityPanelState>((set) => ({
 
 export const openActivity = () => useActivityPanel.getState().setOpen(true);
 
-export function useActivity() {
+export function useActivity(opts: { enabled?: boolean } = {}) {
   const demo = useUi((s) => s.demo);
   const open = useActivityPanel((s) => s.open);
   return useQuery({
     queryKey: [...ACTIVITY_KEY, demo ? 'demo' : 'live'],
+    enabled: opts.enabled ?? true,
     queryFn: async () => {
       const r = demo ? demoActivity() : await api.get<ActivityResponse>('/activity');
       useActivityPanel.getState().setRunning(r.running);
@@ -62,6 +63,19 @@ export function useActivity() {
     staleTime: 5_000,
     refetchInterval: (q) => (open && (q.state.data?.running ?? 0) > 0 ? LIVE_POLL_MS : false),
   });
+}
+
+/**
+ * A shell Claude Code started in the background: its launch answers at
+ * once, so the call's own result says nothing about the shell. Its state
+ * is Activity's: null until Activity has loaded, 'gone' when it no
+ * longer lists it (it ended a while ago).
+ */
+export function useBackgroundShell(callId: string, enabled: boolean): ActivityItem['state'] | 'gone' | null {
+  const q = useActivity({ enabled });
+  if (!enabled || !q.data) return null;
+  const item = q.data.items.find((i) => i.kind === 'shell' && i.id.endsWith(`:${callId}`));
+  return item?.state ?? 'gone';
 }
 
 type ActivityChanged = Extract<GlobalEvent, { type: 'activity.changed' }>;

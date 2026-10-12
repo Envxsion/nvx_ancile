@@ -18,7 +18,7 @@
  */
 
 import type { ClaudeCodeFolderRequest, ClaudeCodeFolderResult } from '@nvx/contracts';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
@@ -53,6 +53,13 @@ export function FolderMissingNotice({
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState<{ title: string; hint: string } | null>(null);
   const pathId = useId();
+  const input = useRef<HTMLInputElement>(null);
+  // The button that opened the field goes away under the pointer; the field takes focus after it.
+  useEffect(() => {
+    if (!pointing) return;
+    const raf = requestAnimationFrame(() => input.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [pointing]);
 
   const choose = async (req: ClaudeCodeFolderRequest) => {
     setBusy(true);
@@ -106,13 +113,12 @@ export function FolderMissingNotice({
               <span>New folder</span>
               <input
                 id={pathId}
+                ref={input}
                 className="input input--mono"
                 value={path}
                 placeholder="/home/you/projects/app"
                 spellCheck={false}
                 autoComplete="off"
-                // biome-ignore lint/a11y/noAutofocus: the person just asked to type a path
-                autoFocus
                 aria-invalid={fail ? true : undefined}
                 onChange={(e) => setPath(e.target.value)}
               />

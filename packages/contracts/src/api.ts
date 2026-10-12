@@ -236,7 +236,8 @@ export const EditMessageRequest = z
 
 /* ---- Models (Phase 2) ---------------------------------------------------- */
 
-export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled']);
+/** not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models). */
+export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled']);
 
 export const ModelInfo = z.object({
   id: z.string(),

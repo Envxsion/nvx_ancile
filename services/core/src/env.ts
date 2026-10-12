@@ -58,6 +58,9 @@ export const EnvSchema = z
     ANCILE_KNOWLEDGE_MIGRATIONS_DIR: z.string().optional(),
     // The Controller's migrations folder, likewise (the desktop app sets it when the Controller is bundled).
     ANCILE_CONTROLLER_MIGRATIONS_DIR: z.string().optional(),
+    // How long an idle live Claude Code session stays open before it is closed (it reopens on the next
+    // turn). Closing lets go of its folder, which Windows keeps locked while a process works in it.
+    ANCILE_CC_LIVE_IDLE_MS: z.coerce.number().int().min(10_000).max(3_600_000).default(180_000),
     // Development only: start on a database another branch migrated further (ignored in a release build).
     ANCILE_ALLOW_NEWER_DATABASE: bool,
 

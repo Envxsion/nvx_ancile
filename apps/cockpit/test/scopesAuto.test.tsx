@@ -476,6 +476,9 @@ describe('Auto mode in a thread', () => {
 
   it('an approved plan is a slim line with progress from calls that ran under it', () => {
     note({ type: 'auto.ran', call_id: 'c9', action: 'shell.exec', via: 'plan', reviewer: null });
+    // The step it fits, once, however often it ran.
+    note({ type: 'plan.step_ran', plan_id: PLAN.id, step: 0, action: 'shell.exec', call_id: 'c9' });
+    note({ type: 'plan.step_ran', plan_id: PLAN.id, step: 0, action: 'shell.exec', call_id: 'c10' });
     wrap(<PlanLine threadId="thr_1" plan={{ ...PLAN, status: 'approved' }} />);
     const line = screen.getByRole('button', { name: /Working to your plan/ });
     expect(line).toHaveTextContent('1 of 2');

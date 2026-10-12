@@ -68,6 +68,7 @@ import {
   type CcProvenance,
   digestSubagent,
   MAPPER_VERSION,
+  type MirrorState,
   mergeUnknown,
   type PlanResult,
   placeOf,
@@ -972,6 +973,7 @@ export class ClaudeCodeService {
     // Old branches first, the active path last: each branch hangs off what is already there.
     for (const chain of chains) {
       plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
+      await this.adoptPrompts(thread.id, sessionId, chain, plan, mirror);
       for (const p of plan.planned) if (p.raws) raws.push(...p.raws);
       const r = await this.writePlan(thread, sessionId, plan, traceId);
       added += r.added;
@@ -1092,6 +1094,58 @@ export class ClaudeCodeService {
     return t;
   }
 
+  /**
+   * A prompt sent from NVX Ancile into a resumed session: Claude Code may
+   * write it under a uuid of its own (the SDK does not keep the one Ancile
+   * gave it), with NVX Ancile's context block in front. The message the
+   * person sent is that entry, so it takes the entry's uuid instead of a
+   * second copy being added beside it. Matched on the answer that follows
+   * (already written under the person's message) and on the text with the
+   * context block left out.
+   */
+  private async adoptPrompts(
+    threadId: string,
+    sessionId: string,
+    chain: CcSessionMessage[],
+    plan: PlanResult,
+    mirror: MirrorState,
+  ): Promise<void> {
+    const prompts = plan.planned.filter((p) => !p.extends && p.role === 'user' && p.kind === null);
+    if (!prompts.length) return;
+    const msgs = await this.deps.threads.messages(threadId);
+    const byId = new Map(msgs.map((m) => [m.id, m]));
+    const inChain = new Set(chain.map((e) => e?.uuid));
+    const text = (parts: Part[]) =>
+      parts
+        .flatMap((p) => (p.type === 'text' ? [p.text] : []))
+        .join('')
+        .trim();
+    for (const p of prompts) {
+      const uuid = p.uuids[0];
+      const at = chain.findIndex((e) => e?.uuid === uuid);
+      if (!uuid || at < 0) continue;
+      // The first entry after the prompt that is already in the thread: the answer a live turn wrote.
+      let answer: string | undefined;
+      for (const e of chain.slice(at + 1)) {
+        answer = e?.uuid ? mirror.byUuid.get(e.uuid) : undefined;
+        if (answer) break;
+      }
+      const sent = answer ? byId.get(byId.get(answer)?.parent_id ?? '') : undefined;
+      if (sent?.role !== 'user' || text(sent.parts) !== text(p.parts)) continue;
+      const oc = sent.provenance?.claude_code as CcProvenance | undefined;
+      // Already holds an entry of this session: a prompt of its own, not this one.
+      if (oc?.uuids?.some((u) => inChain.has(u))) continue;
+      const uuids = [...(oc?.uuids ?? []), uuid];
+      await this.deps.threads.updateMessage(sent.id, {
+        provenance: { claude_code: { ...oc, session_id: sessionId, uuid, uuids } satisfies CcProvenance },
+      });
+      mirror.byUuid.set(uuid, sent.id);
+      plan.planned = plan.planned.filter((x) => x !== p);
+      for (const x of plan.planned) if (x.parent_id === p.id) x.parent_id = sent.id;
+      if (plan.head === p.id) plan.head = sent.id;
+    }
+  }
+
   /** Write one plan: new messages in chunks, then the messages it extends. */
   private async writePlan(
     thread: ThreadRecord,
@@ -1174,6 +1228,10 @@ export class ClaudeCodeService {
     if (!agents.length) return;
     const msgs = await this.deps.threads.messages(threadId);
     const byCall = new Map<string, { id: string; description: string | null }>();
+    // Without its .meta.json a subagent's entries do not name the call that started it:
+    // the call's result names the agent ("agentId: …"), and its prompt is the subagent's first.
+    const results: { callId: string; text: string }[] = [];
+    const byPrompt = new Map<string, string>();
     const seen = new Map<string, number>();
     for (const m of msgs) {
       for (const p of m.parts as Part[])
@@ -1186,7 +1244,9 @@ export class ClaudeCodeService {
                 ? a.prompt.slice(0, 120)
                 : null;
           byCall.set(p.call_id, { id: m.id, description: d });
-        }
+          if (typeof a.prompt === 'string' && a.prompt.trim()) byPrompt.set(a.prompt.trim(), p.call_id);
+        } else if (p.type === 'tool_result' && typeof p.result === 'string')
+          results.push({ callId: p.call_id, text: p.result });
       const cc = (m.provenance?.claude_code ?? {}) as { subagent?: SubagentDigest[] };
       for (const d of cc.subagent ?? []) seen.set(d.agent_id, d.count);
     }
@@ -1195,6 +1255,18 @@ export class ClaudeCodeService {
       const sub = await this.deps.source.subagentMessages(sessionId, agentId).catch(() => []);
       if (!sub.length || seen.get(agentId) === sub.length) continue;
       const digest = digestSubagent(agentId, sub);
+      if (!digest.call_id || !byCall.has(digest.call_id)) {
+        const named = new RegExp(`\\bagentId:\\s*${agentId.replace(/[^\w-]/g, '')}\\b`);
+        const first = digest.messages.find((x) => x.role === 'user');
+        const prompt = first?.parts
+          .flatMap((x) => (x.type === 'text' ? [x.text] : []))
+          .join('\n')
+          .trim();
+        digest.call_id =
+          results.find((r) => named.test(r.text))?.callId ??
+          (prompt ? byPrompt.get(prompt) : undefined) ??
+          digest.call_id;
+      }
       const host = digest.call_id ? byCall.get(digest.call_id) : undefined;
       if (!host) {
         log.debug(
