@@ -64,6 +64,7 @@ import { BusyNotice } from './BusyNotice';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { MessageList } from './MessageList';
+import { stayAtBottomOnShrink } from './stayAtBottom';
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 /** Load the page before when the view is this close to the top of what is loaded (pixels). */
@@ -234,6 +235,16 @@ export function ThreadView({ threadId }: { threadId: string }) {
     const el = scroller.current;
     if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [streamedLength, messages.length]);
+
+  // A notice above the composer (a moved folder, a limit) makes the list shorter: while you
+  // were at the bottom, stay there, so it never covers the last lines of the answer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list mounts once the thread has loaded
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    return stayAtBottomOnShrink(el, () => following.current);
+    // The list mounts once the thread has loaded.
+  }, [threadId, thread.isPending]);
 
   // For screen readers: the answer as it arrives, by sentence or paragraph
   // (Settings → Accessibility), and always a word when it finishes. Only an

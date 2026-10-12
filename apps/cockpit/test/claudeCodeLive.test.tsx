@@ -323,6 +323,8 @@ describe('when Claude Code refuses', () => {
     wrap(<CcNotices threadId="thr_1" />);
     // Asked before you send: the live state already knows.
     fireEvent.click(await screen.findByRole('button', { name: 'Point to new folder' }));
+    // The field takes focus, so you can type the path at once.
+    await waitFor(() => expect(screen.getByLabelText(/^New folder/)).toHaveFocus());
     fireEvent.change(screen.getByLabelText(/^New folder/), { target: { value: '/elsewhere' } });
     mocked.post.mockRejectedValueOnce(
       apiErr(
