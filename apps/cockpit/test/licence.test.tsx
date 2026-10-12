@@ -4,7 +4,7 @@
  * offers says when Pro is ready, or that Pro ended; a lapsed licence is
  * offered renewal; the Pro installer link is there for a reinstall.
  */
-import type { license } from '@nvx/contracts';
+import type { license, system } from '@nvx/contracts';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -39,18 +39,28 @@ function details(
   };
 }
 
-function serve(d: license.LicenseDetails, offer: license.UpdateOffer['offer'] = null) {
+function serve(
+  d: license.LicenseDetails,
+  offer: license.UpdateOffer['offer'] = null,
+  proData: system.ProDataSummary = { tables: [], total_rows: 0 },
+) {
   mocked.get.mockImplementation(async (path: string) => {
     if (path === '/license/details') return d;
     if (path === '/system/update-offer') return { offer };
+    if (path === '/system/pro-data') return proData;
     throw new Error(`unexpected ${path}`);
   });
 }
 
-const offerOf = (kind: license.UpdateOfferKind, version = '0.4.0'): license.UpdateOffer['offer'] => ({
+const offerOf = (
+  kind: license.UpdateOfferKind,
+  version = '0.4.0',
+  older = false,
+): license.UpdateOffer['offer'] => ({
   version,
   edition: kind === 'downgrade' ? 'free' : 'pro',
   kind,
+  older,
   found_at: '2026-10-11T09:00:00Z',
 });
 
@@ -109,6 +119,40 @@ describe('licence screen', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/anyway/)).toBeNull();
     expect(screen.queryByText(/renew to keep updates/)).toBeNull();
+  });
+
+  it("keeps Pro's data after Pro ends, and offers it as an export", async () => {
+    serve(details({ build: 'free', key_held: true }, 'expired'), null, {
+      tables: [
+        { name: 'context_packs', rows: 2 },
+        { name: 'insights', rows: 1 },
+      ],
+      total_rows: 3,
+    });
+    wrap(<LicenceScreen />);
+    expect(await screen.findByText('Your Pro data is kept.')).toBeInTheDocument();
+    expect(screen.getByText(/3 items that Pro made are still on this computer/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Export Pro data' })).toHaveAttribute(
+      'href',
+      '/api/v1/system/pro-data/export',
+    );
+  });
+
+  it('says nothing about Pro data while Pro is on, or when there is none', async () => {
+    serve(details(), null, { tables: [], total_rows: 0 });
+    wrap(<LicenceScreen />);
+    await screen.findByLabelText(/Licence key/);
+    expect(screen.queryByText('Your Pro data is kept.')).toBeNull();
+  });
+
+  it('warns about an older version on offer', async () => {
+    serve(details({ build: 'pro', key_held: true }), offerOf('update', '0.3.9', true));
+    wrap(<LicenceScreen />);
+    expect(
+      await screen.findByText(
+        /NVX Ancile 0\.3\.9 on offer is older than this version\. Installing it from the tray backs up your data first/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('links to the Pro installer for a reinstall, in both builds', async () => {
