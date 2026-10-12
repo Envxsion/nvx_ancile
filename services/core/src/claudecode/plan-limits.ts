@@ -201,6 +201,21 @@ export class PlanLimits {
     });
   }
 
+  /**
+   * When the window that is used up resets (a rejected window, or one at
+   * 100%), the soonest still ahead; null when none is, or none is known.
+   */
+  async blockedUntil(): Promise<string | null> {
+    const cur = await this.load();
+    const now = this.now();
+    const ahead = cur.windows
+      .filter((w) => w.status === 'rejected' || (w.percent ?? 0) >= 100)
+      .map((w) => (w.resets_at ? Date.parse(w.resets_at) : Number.NaN))
+      .filter((t) => Number.isFinite(t) && t > now)
+      .sort((a, b) => a - b);
+    return ahead.length ? new Date(ahead[0] as number).toISOString() : null;
+  }
+
   /** A turn ended on this handle: ask for the usage report if the last one is old. */
   afterTurn(handle: string): void {
     if (this.now() - this.lastAsk < USAGE_MIN_INTERVAL_MS) return;

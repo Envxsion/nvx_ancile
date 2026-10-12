@@ -90,7 +90,7 @@ import type {
   LivePermissionReply,
 } from './bridge-protocol';
 import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } from './commands';
-import { ccErrors } from './errors';
+import { ccErrors, limitFromResult } from './errors';
 import type { SessionHolders } from './holders';
 import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
 import { type Passage, threadToken } from './mcp-server';
@@ -262,7 +262,12 @@ export interface LiveDeps {
   /** Keep the bridge running for those handles too. */
   keepAlive?: () => boolean;
   /** Plan limits: sees every pushed message (rate_limit_event) and each turn's end. */
-  limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
+  limits?: {
+    observe(m: Record<string, unknown>): Promise<void>;
+    afterTurn(handle: string): void;
+    /** When the window that is used up resets, if one is (plan-limits.ts). */
+    blockedUntil?(): Promise<string | null>;
+  };
   /** A Claude Code process outside NVX Ancile holding a session (holders.ts); absent: the 60 s rule only. */
   holders?: Pick<SessionHolders, 'holder'>;
   /** The empty folder a thread that goes on without files runs in (made when first needed). */
@@ -288,6 +293,8 @@ interface Turn {
   passages: Passage[];
   result: Record<string, unknown> | null;
   error: string | null;
+  /** Claude Code's plan limit stopped this turn (a rejected rate_limit_event), and when it resets. */
+  limit: { resetsAt: string | null } | null;
   stopped: boolean;
   sessionId: string | null;
   seq: number;
@@ -940,6 +947,7 @@ export class ClaudeCodeLive {
       passages: [],
       result: null,
       error: null,
+      limit: null,
       stopped: false,
       sessionId: null,
       seq: 1_000,
@@ -1119,6 +1127,20 @@ export class ClaudeCodeLive {
         : result?.is_error === true && !stopped
           ? 'error'
           : 'complete';
+    // Stopped by the plan's limit: a clear error that says when it resets, not "stopped before it answered".
+    let limit = status === 'error' ? (turn.limit ?? limitFromResult(result)) : null;
+    if (limit && !limit.resetsAt) {
+      const until = await this.deps.limits?.blockedUntil?.().catch(() => null);
+      if (until) limit = { resetsAt: until };
+    }
+    const failure = (() => {
+      const e = limit
+        ? ccErrors.planLimit(limit.resetsAt, this.now())
+        : ccErrors.liveFailed(turn.error ?? String(result?.subtype ?? 'error'));
+      return { code: e.code, title: e.title, hint: e.hint, ...(limit?.resetsAt && { resets_at: limit.resetsAt }) };
+    })();
+    if (limit)
+      log.info({ thread_id: cp.threadId, resets_at: limit.resetsAt }, "a Claude Code turn stopped at the plan's limit");
     const newRows: NewMessage[] = [];
     let main: { parts: Part[]; usage: Usage | null } | null = null;
     const raws = plan.planned.flatMap((p) => p.raws ?? []);
@@ -1188,14 +1210,7 @@ export class ClaudeCodeLive {
             },
             ...retrieval,
             ...(cp.engineContext && { engine_context: cp.engineContext }),
-            ...(turn.error &&
-              status === 'error' && {
-                error: {
-                  code: 'claude_code.live_failed',
-                  title: ccErrors.liveFailed(turn.error).title,
-                  hint: ccErrors.liveFailed(turn.error).hint,
-                },
-              }),
+            ...(status === 'error' && (turn.error || limit) && { error: failure }),
           },
         });
         continue;
@@ -1237,9 +1252,8 @@ export class ClaudeCodeLive {
 
     if (status === 'stopped') return { kind: 'cancelled' };
     if (status === 'error') {
-      const e = ccErrors.liveFailed(turn.error ?? String(result?.subtype ?? 'error'));
-      const error = { code: e.code, title: e.title, hint: e.hint };
-      await emit({ type: 'error', ...error, attempts: [] });
+      await emit({ type: 'error', ...failure, attempts: [] });
+      const { resets_at: _r, ...error } = failure;
       return { kind: 'failed', error };
     }
     if (first && cp.notebookId && this.deps.afterAnswer) {
@@ -1315,6 +1329,13 @@ export class ClaudeCodeLive {
       this.ownWrites.set(sid, this.now());
     }
     if (m.type === 'rate_limit_event') {
+      // The plan's limit was reached mid-turn: Claude Code ends the turn with an error; say why.
+      // Noted before anything is awaited, so the turn's end (handled alongside) sees it.
+      const info = isObj(m.rate_limit_info) ? m.rate_limit_info : null;
+      if (l.turn && info?.status === 'rejected') {
+        const r = typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt) ? info.resetsAt : null;
+        l.turn.limit = { resetsAt: r === null ? null : new Date(r < 1e12 ? r * 1000 : r).toISOString() };
+      }
       await this.deps.limits?.observe(m).catch(() => undefined);
       return;
     }
