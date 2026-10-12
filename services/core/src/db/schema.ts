@@ -734,3 +734,41 @@ export const engineSessions = core.table(
     index('engine_sessions_thread').on(t.threadId),
   ],
 );
+
+/** Transcript lines this version cannot show yet, kept as read (migration 0023, docs/claude-code.md). */
+export const claudeCodeUnknownEntries = core.table(
+  'claude_code_unknown_entries',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    sessionId: text('session_id').notNull(),
+    uuid: text('uuid').notNull(),
+    threadId: text('thread_id').references(() => threads.id, { onDelete: 'cascade' }),
+    entryType: text('entry_type').notNull(),
+    cliVersion: text('cli_version'),
+    raw: text('raw').notNull(),
+    truncated: boolean('truncated').notNull().default(false),
+    firstSeen: ts('first_seen').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.sessionId, t.uuid] }),
+    index('claude_code_unknown_entries_thread').on(t.threadId),
+  ],
+);
+
+/** The notebook's sources as a Claude Code thread last saw them (migration 0023, docs/engines.md). */
+export const engineSourceMarks = core.table(
+  'engine_source_marks',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    sources: jsonb('sources').notNull().default({}),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.threadId] })],
+);

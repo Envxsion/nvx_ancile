@@ -56,6 +56,7 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 - Very large tool results are shortened, with a note saying how much was left out. Images up to 512 KB come in; larger ones are noted.
 - If you rewound a session in Claude Code (Esc Esc) and went another way, the thread has a branch there, and the newest path is the one shown. Every path comes in, including ones rewound before NVX Ancile ever saw the session.
 - A prompt you typed while Claude Code was still working comes in as your message, where Claude Code took it in.
+- Something a newer Claude Code wrote that this version of NVX Ancile does not know how to show is never dropped. A quiet line reads "1 entry this version of NVX Ancile can't show yet": under the message that holds it, or on its own between turns (one line for a run of them). The entry is kept exactly as Claude Code wrote it, so a later version can show it (see Nothing lost).
 
 ### For developers: what the Cockpit receives
 
@@ -68,6 +69,9 @@ Every message from Claude Code has `provenance.claude_code = { session_id, uuid,
 | `compact_boundary` | system | one empty text part | none; the divider |
 | `compact_summary` | system | one text part: Claude Code's summary | none; it hangs off the divider |
 | `interrupted` | system | one text part, "Stopped by you" | none |
+| `unknown` | system | one text part, "N entries this version of NVX Ancile can't show yet" | `unknown: { count, types }` |
+
+Any message may also carry `unknown: { count, types }`: entries (or content blocks) in it this version cannot show, by the kind Claude Code gave them, never their content. The Cockpit draws one quiet line under it. An answer written by a live turn in NVX Ancile has `live: true`.
 
 Titles are "Background task finished: <summary>" (or "failed", "stopped"), "Message from <session>", "Report from an agent" (with `from` naming it) and "Note from Claude Code" for a wrapper NVX Ancile does not know yet. Tool results stay strings, line-number gutters included.
 
@@ -189,7 +193,9 @@ The SDK gives a session's current conversation only, from its last compaction on
 - Each line is one entry. Entries link by `uuid` and `parentUuid`. A compaction writes a boundary entry with no parent and a `logicalParentUuid` pointing at the last entry before it, so the conversation is joined back across it. The latest entry ends the active path.
 - Parallel tool calls look like branches in the file (each call is its own entry, and each result hangs off its own call); they are folded back into the answer they belong to. Any other fork (a new prompt or answer after a rewind) is a branch.
 - A prompt typed while Claude Code was working is kept as your message. Subagent entries are left to the SDK's subagent reading.
-- Lines it does not understand are skipped and counted. If more than 2% are not understood, or the file is missing, or (when a thread is first built or rebuilt) the reader does not hold everything the SDK returns, NVX Ancile falls back to the SDK's chain for that session and says so in its log.
+- A line it does not know (a kind of entry a newer Claude Code writes, a content block it has no part for, or a line that is not JSON) is never skipped. It stays where it was written: an entry with a uuid keeps its place in the conversation, and a line without one goes after the entry written before it, under a stable id made from its text. The thread shows "1 entry this version of NVX Ancile can't show yet" (see How sessions look in a thread), and the line itself is kept in NVX Ancile's database exactly as read (`core.claude_code_unknown_entries`, up to 1 MB a line), with the Claude Code version that wrote it, so a later version of NVX Ancile can show it. The log says so once per Claude Code version, with counts and kinds only, never what the entries say.
+- If more than 2% of the lines are not JSON at all, or the file is missing, or (when a thread is first built or rebuilt) the reader does not hold everything the SDK returns, NVX Ancile falls back to the SDK's chain for that session and says so in its log. Kinds of entry it does not know do not count towards the 2%: they are kept, as above.
+- Threads brought in before this version are not rebuilt for it: an entry an older version skipped shows as a note on the message before it the next time the session syncs, never as a new branch.
 
 NVX Ancile never writes to these files.
 

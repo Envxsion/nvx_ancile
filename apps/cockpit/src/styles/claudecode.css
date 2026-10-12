@@ -577,3 +577,17 @@ li[data-cc='command'] > .cc-row {
 .cc-stopped > .icon {
   margin: 0 3px;
 }
+/* What this version cannot show yet: quieter still, never alarming. */
+.cc-unknown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 8px;
+  font-size: var(--t-small);
+  color: var(--mute-2);
+  font-style: italic;
+}
+.cc-unknown > .icon {
+  margin: 0 3px;
+}

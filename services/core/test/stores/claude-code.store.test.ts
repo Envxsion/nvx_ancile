@@ -165,4 +165,28 @@ eachBackend('Claude Code store', (backend) => {
     await threads.deleteThread(t1.id);
     expect(await store.threadHolding(ws, [u1, a1, a2])).toBe(t2.id);
   });
+
+  it('keeps entries it cannot show once, raw, with the version that wrote them', async () => {
+    const t = await threads.createThread({ id: uid('thr'), workspace_id: ws, title: 'Unknown entries' });
+    const session = uid('sess');
+    const raw = JSON.stringify({ type: 'tool-progress', uuid: 'k1', detail: { step: 1 } });
+    const items = [
+      { uuid: 'k1', type: 'tool-progress', raw },
+      { uuid: 'k2', type: 'not_json', raw: 'x'.repeat(1_000_050) },
+    ];
+    expect(
+      await store.keepUnknown(ws, { sessionId: session, threadId: t.id, cliVersion: '2.2.0', items }),
+    ).toBe(2);
+    // Read again: nothing new.
+    expect(
+      await store.keepUnknown(ws, { sessionId: session, threadId: t.id, cliVersion: '2.2.0', items }),
+    ).toBe(0);
+    const kept = await store.unknownFor(t.id);
+    expect(kept.map((k) => [k.uuid, k.type, k.truncated])).toEqual([
+      ['k1', 'tool-progress', false],
+      ['k2', 'not_json', true],
+    ]);
+    expect(kept[0]?.raw).toBe(raw);
+    expect(kept[1]?.raw.length).toBe(1_000_000);
+  });
 });

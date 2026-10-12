@@ -143,6 +143,17 @@ export const ClaudeCodeBinding = z.object({
   /** The last Claude Code message uuid mirrored into the thread. */
   last_uuid: z.string().nullable(),
   synced_at: z.string(),
+  /**
+   * The session's folder was moved or deleted and the thread goes on
+   * without files: turns run in an empty folder NVX Ancile keeps, with
+   * Claude Code's own tools off. `cwd` stays the folder it came from.
+   */
+  no_files: z.boolean().optional(),
+  /**
+   * The next turn starts a new Claude Code session, given the thread so
+   * far (the folder was pointed somewhere new, or files were turned off).
+   */
+  fresh_next: z.boolean().optional(),
 });
 export type ClaudeCodeBinding = z.infer<typeof ClaudeCodeBinding>;
 

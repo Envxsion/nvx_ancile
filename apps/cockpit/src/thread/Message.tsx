@@ -19,11 +19,12 @@
 import type { RetrievalTrace } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { type CSSProperties, memo, type ReactNode, useMemo, useState } from 'react';
+import { UnknownMark } from '../claudecode/ThreadMarker';
 import { WakingNotice } from '../compute/WakingNotice';
 import { useBinding } from '../keys/dispatch';
 import { useFactcheck, useProgress } from '../lib/factcheck';
 import { hueVar, modelById, modelName, percent, stamp, usd } from '../lib/format';
-import { partsText, reasonWords } from '../lib/mappers';
+import { partsText, reasonWords, unknownCount } from '../lib/mappers';
 import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { usePrefs } from '../state/prefs';
@@ -434,6 +435,8 @@ export const Message = memo(function Message({
               : 'Show all'}
         </button>
       ) : null}
+
+      {unknownCount(m.provenance) > 0 ? <UnknownMark count={unknownCount(m.provenance)} /> : null}
 
       {streaming ? <WakingNotice messageId={m.id} /> : null}
 

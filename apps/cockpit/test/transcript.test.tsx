@@ -206,6 +206,31 @@ describe("Claude Code's events are quiet rows, not bubbles", () => {
     expect(screen.getByText('Stopped by you')).toBeInTheDocument();
   });
 
+  it('entries this version cannot show are a quiet marker, and an answer holding one says so under it', () => {
+    const [marker, answer] = toMessageViews([
+      message({
+        id: 'k1',
+        role: 'system',
+        parts: [{ type: 'text', text: "2 entries this version of NVX Ancile can't show yet" }],
+        provenance: cc({ kind: 'unknown', unknown: { count: 2, types: ['tool-progress'] } }),
+      }),
+      message({
+        id: 'a1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Done.' }],
+        provenance: cc({ unknown: { count: 1, types: ['hologram'] } }),
+      }),
+    ]);
+    expect(marker?.cc).toEqual({ kind: 'unknown', count: 2 });
+    const { container } = render(<CcEventRow e={marker?.cc as CcEvent} />);
+    expect(container.querySelector('.cc-unknown')?.textContent).toBe(
+      "2 entries this version of NVX Ancile can't show yet",
+    );
+    expect(answer?.cc).toBeUndefined();
+    wrap(<MessageRow m={answer as MessageView} threadId="t1" selected={false} onSelect={() => {}} />);
+    expect(screen.getByText("1 entry this version of NVX Ancile can't show yet")).toBeInTheDocument();
+  });
+
   it('older imports without kinds still read: commands and interruptions from their text', () => {
     const old = toMessageViews([
       message({

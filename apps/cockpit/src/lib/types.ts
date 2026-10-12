@@ -144,7 +144,9 @@ export type CcEvent =
       status: string | null;
       body: string;
     }
-  | { kind: 'interrupted' };
+  | { kind: 'interrupted' }
+  /** Entries this version of NVX Ancile cannot show yet (kept as written). */
+  | { kind: 'unknown'; count: number };
 
 export interface SubagentView {
   /** The tool call that started it, when Claude Code said. */

@@ -172,6 +172,27 @@ export function InterruptedMark() {
   );
 }
 
+/** "1 entry this version of NVX Ancile can't show yet". */
+export const unknownLine = (n: number) =>
+  `${n} ${n === 1 ? 'entry' : 'entries'} this version of NVX Ancile can't show yet`;
+
+/**
+ * Something Claude Code wrote that this version does not know how to
+ * show: a quiet mark, never dropped. The entry is kept as written, so a
+ * later version shows it.
+ */
+export function UnknownMark({ count }: { count: number }) {
+  return (
+    <p
+      className="cc-unknown"
+      title="Kept as Claude Code wrote it. A later version of NVX Ancile will show it."
+    >
+      <Icon name="question" size={10} />
+      {unknownLine(count)}
+    </p>
+  );
+}
+
 /** Any of the above for one turn. */
 export function CcEventRow({ e }: { e: CcEvent }) {
   switch (e.kind) {
@@ -185,5 +206,7 @@ export function CcEventRow({ e }: { e: CcEvent }) {
       return <NoticeRow e={e} />;
     case 'interrupted':
       return <InterruptedMark />;
+    case 'unknown':
+      return <UnknownMark count={e.count} />;
   }
 }

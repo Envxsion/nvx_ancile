@@ -24,6 +24,13 @@
  *           |  what is already mirrored. An entry whose predecessor is
  *           |  mirrored hangs off that message, so rewinding in Claude
  *           |  Code becomes a branch in Ancile.
+ *           |  What this version does not know (an entry of a new kind,
+ *           |  or a content block it has no part for) is never dropped
+ *           |  silently: the message that holds it says how many entries
+ *           |  it cannot show yet (provenance.claude_code.unknown), a run
+ *           |  of unknown entries between turns is one quiet 'unknown'
+ *           |  system message, and each entry's raw text rides along in
+ *           |  `raws` for the store (claude_code_unknown_entries).
  *  Note     |  Very large tool results are cut to RESULT_CAP characters
  *           |  with a note. Images up to IMAGE_CAP bytes are kept as
  *           |  data URLs; larger ones become a short text note.
@@ -58,13 +65,40 @@ const SUB_TURNS_CAP = 300;
  * instead of shown as the person's prompts. 3: full history from the
  * transcript file (transcript.ts): every branch and everything before
  * each compaction, queued prompts included.
+ * Entries and blocks this version does not know are kept and counted (an
+ * 'unknown' marker) from 3 on without a rebuild: a rebuild would map the
+ * live turns of a thread again and lose their citations, so what came in
+ * before shows its unknown entries as new ones arrive.
  */
 export const MAPPER_VERSION = 3;
 
 export const INTERRUPTED_TEXT = 'Stopped by you';
 
+/** The quiet marker for entries this version cannot show. */
+export const unknownText = (n: number) =>
+  `${n} ${n === 1 ? 'entry' : 'entries'} this version of NVX Ancile can't show yet`;
+
 /** provenance.claude_code.kind; prompts and answers have none. */
-export type CcKind = 'command' | 'notification' | 'compact_boundary' | 'compact_summary' | 'interrupted';
+export type CcKind =
+  | 'command'
+  | 'notification'
+  | 'compact_boundary'
+  | 'compact_summary'
+  | 'interrupted'
+  | 'unknown';
+
+/** How many entries a message holds that this version cannot show, and their kinds (never content). */
+export interface UnknownNote {
+  count: number;
+  types: string[];
+}
+
+/** One unknown entry's raw text, for the store. */
+export interface UnknownRaw {
+  uuid: string;
+  type: string;
+  raw: string;
+}
 
 type Block = Record<string, unknown>;
 
@@ -72,6 +106,7 @@ export type EntryClass =
   | { kind: 'assistant' }
   | { kind: 'tool_result'; interrupted: boolean }
   | { kind: 'skip' }
+  | { kind: 'unknown'; type: string }
   | UserClass;
 
 const isObj = (v: unknown): v is Block => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -85,11 +120,18 @@ function contentOf(e: CcSessionMessage): string | Block[] | null {
   return null;
 }
 
+/** A message whose content is there but in a shape this version does not read. */
+const oddContent = (e: CcSessionMessage) =>
+  isObj(e.message) && e.message.content !== undefined && e.message.content !== null && contentOf(e) === null;
+
 const isToolResult = (b: Block) => b.type === 'tool_result' || String(b.type).endsWith('_tool_result');
 const blockText = (b: Block) => (typeof b.text === 'string' ? b.text : '');
 
 /** What one transcript entry is. */
 export function classify(e: CcSessionMessage): EntryClass {
+  const type = e.type as string;
+  if (e.unknown) return { kind: 'unknown', type: e.unknown.type };
+  if (type !== 'user' && type !== 'assistant' && type !== 'system') return { kind: 'unknown', type };
   if (e.type === 'system') return { kind: 'skip' };
   if (e.type === 'assistant') return { kind: 'assistant' };
   const c = contentOf(e);
@@ -97,7 +139,7 @@ export function classify(e: CcSessionMessage): EntryClass {
     const text = typeof c === 'string' ? c : (c ?? []).map(blockText).join('');
     return { kind: 'compact', text: stripReminders(text).trim() };
   }
-  if (c === null) return { kind: 'skip' };
+  if (c === null) return oddContent(e) ? { kind: 'unknown', type: 'user_content' } : { kind: 'skip' };
   if (Array.isArray(c)) {
     if (c.some(isToolResult))
       return {
@@ -152,11 +194,15 @@ function resultText(content: unknown, cap: number): string {
 
 /**
  * One entry's content blocks as Ancile parts. On the user side,
- * <system-reminder> blocks and interruption notes are left out.
+ * <system-reminder> blocks and interruption notes are left out. A block
+ * of a kind this version has no part for is named in `unknown`.
  */
-export function partsOf(e: CcSessionMessage, cap = RESULT_CAP): Part[] {
+export function partsOf(e: CcSessionMessage, cap = RESULT_CAP, unknown?: string[]): Part[] {
   const c = contentOf(e);
-  if (c === null) return [];
+  if (c === null) {
+    if (oddContent(e)) unknown?.push(`${e.type}_content`);
+    return [];
+  }
   const userSide = e.type === 'user';
   const clean = (t: string) => (userSide ? stripReminders(t) : t);
   if (typeof c === 'string') {
@@ -198,6 +244,8 @@ export function partsOf(e: CcSessionMessage, cap = RESULT_CAP): Part[] {
       out.push(imagePart(b));
     } else if (t === 'document') {
       out.push({ type: 'text', text: '[A document attached in Claude Code]' });
+    } else {
+      unknown?.push(t);
     }
   }
   return out;
@@ -264,6 +312,10 @@ export interface CcProvenance {
   notification?: CcNotification;
   /** The API message id of the last assistant entry, so usage is counted once. */
   last_api_id?: string | null;
+  /** Entries in this message this version cannot show yet (kept raw in the store). */
+  unknown?: UnknownNote;
+  /** Written by a live turn in NVX Ancile (not brought in from the transcript). */
+  live?: boolean;
 }
 
 /** A message a sync will write: new, or more entries for an existing one. */
@@ -284,16 +336,26 @@ export interface PlannedMessage {
   /** Extending a mirrored command: output to add to it. */
   output?: string | null;
   last_api_id: string | null;
+  /** Entries it holds that this version cannot show yet. */
+  unknown?: UnknownNote;
+  /** Their raw text, for the store (never put in the message). */
+  raws?: UnknownRaw[];
+}
+
+/** One mirrored message: its role, last entry, whether anything hangs off it, last api id, kind. */
+export interface MirroredMessage {
+  role: string;
+  lastUuid: string;
+  hasChildren: boolean;
+  lastApiId: string | null;
+  kind?: string | null;
 }
 
 /** What is already mirrored: entry uuid → message, and each message's last entry. */
 export interface MirrorState {
   byUuid: Map<string, string>;
-  /** message id → { role, last uuid, has children, last api id, kind } */
-  messages: Map<
-    string,
-    { role: string; lastUuid: string; hasChildren: boolean; lastApiId: string | null; kind?: string | null }
-  >;
+  /** message id → what is known about it */
+  messages: Map<string, MirroredMessage>;
 }
 
 export interface PlanResult {
@@ -304,17 +366,56 @@ export interface PlanResult {
   lastUuid: string | null;
 }
 
+/**
+ * The id a transcript line with no uuid of its own is kept under
+ * (transcript.ts lineId). It is never a place Claude Code can go on from.
+ */
+export const LOOSE_UUID_PREFIX = 'unknown-';
+export const isLoose = (uuid: string) => uuid.startsWith(LOOSE_UUID_PREFIX);
+
+/** A message's place in the session: its last entry that Claude Code can go on from. */
+export const placeOf = (uuids: string[]): string | undefined =>
+  uuids.findLast((u) => !isLoose(u)) ?? uuids.at(-1);
+
 /** The provenance a planned (new) message is written with. */
 export function provenanceOf(sessionId: string, p: PlannedMessage): CcProvenance {
   return {
     session_id: sessionId,
-    uuid: p.uuids.at(-1) ?? '',
+    uuid: placeOf(p.uuids) ?? '',
     uuids: p.uuids,
     ...(p.kind && { kind: p.kind }),
     ...(p.command && { command: p.command }),
     ...(p.notification && { notification: p.notification }),
     ...(p.last_api_id && { last_api_id: p.last_api_id }),
+    ...(p.unknown && { unknown: p.unknown }),
   };
+}
+
+/** Add one entry this version cannot show to a planned message. */
+function noteUnknown(p: PlannedMessage, e: CcSessionMessage, types: string[]): void {
+  if (!types.length) return;
+  const u = p.unknown ?? { count: 0, types: [] };
+  u.count += 1;
+  for (const t of types) if (!u.types.includes(t) && u.types.length < 10) u.types.push(t.slice(0, 80));
+  p.unknown = u;
+  let raw = e.unknown?.raw;
+  if (raw === undefined)
+    try {
+      raw = JSON.stringify(e);
+    } catch {
+      raw = '';
+    }
+  p.raws = [...(p.raws ?? []), { uuid: e.uuid, type: (types[0] as string).slice(0, 80), raw }];
+}
+
+/** Merge two notes (a message extended by a later sync). */
+export function mergeUnknown(
+  a: UnknownNote | undefined,
+  b: UnknownNote | undefined,
+): UnknownNote | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return { count: a.count + b.count, types: [...new Set([...a.types, ...b.types])].slice(0, 10) };
 }
 
 /** The marker key for something Ancile adds after entry `uuid`. */
@@ -367,6 +468,8 @@ export function planSync(
     lastUuid = e.uuid;
     const known = mirror.byUuid.get(e.uuid);
     if (known) {
+      // A line with no uuid of its own rides on the message before it: it changes nothing here.
+      if (isLoose(e.uuid)) continue;
       open = null;
       prevMsg = mirror.byUuid.get(after(e.uuid)) ?? known;
       prevUuid = e.uuid;
@@ -374,6 +477,49 @@ export function planSync(
     }
     const cls = classify(e);
     if (cls.kind === 'skip') continue;
+
+    if (cls.kind === 'unknown') {
+      // A line with no uuid of its own is never a place to go on from: it rides on the message
+      // before it. Inside an answer, the answer holds it. Between turns, one quiet marker per run;
+      // but where the message before already has something after it (an entry an older version
+      // skipped), the note goes on that message instead of starting a branch.
+      const loose = isLoose(e.uuid);
+      const last = planned.at(-1);
+      let into: PlannedMessage | null =
+        open ??
+        (last && !last.extends && last.id === prevMsg && (loose || last.kind === 'unknown') ? last : null);
+      const before: string | null = prevMsg;
+      const mirrored: MirroredMessage | undefined = !into && before ? mirror.messages.get(before) : undefined;
+      if (!into && before && mirrored && (loose || mirrored.hasChildren)) {
+        const id: string = before;
+        into = planned.find((p) => p.extends && p.id === id) ?? null;
+        if (!into) {
+          into = {
+            ...blank(id, mirrored.role as PlannedMessage['role'], (mirrored.kind as CcKind) ?? null),
+            extends: true,
+            last_api_id: mirrored.lastApiId,
+          };
+          planned.push(into);
+        }
+      }
+      if (into) {
+        noteUnknown(into, e, [cls.type]);
+        into.uuids.push(e.uuid);
+        if (into.kind === 'unknown' && !into.extends)
+          into.parts = [{ type: 'text', text: unknownText(into.unknown?.count ?? 1) }];
+        if (!loose) {
+          prevMsg = into.id;
+          prevUuid = e.uuid;
+        }
+        continue;
+      }
+      const s = start('system', e, 'unknown');
+      noteUnknown(s, e, [cls.type]);
+      s.parts = [{ type: 'text', text: unknownText(1) }];
+      s.uuids.push(e.uuid);
+      if (!loose) prevUuid = e.uuid;
+      continue;
+    }
 
     if (cls.kind === 'assistant' || cls.kind === 'tool_result') {
       if (!open && prevMsg && prevUuid) {
@@ -385,7 +531,9 @@ export function planSync(
         }
       }
       if (open?.role !== 'assistant') open = start('assistant', e, null);
-      open.parts.push(...partsOf(e));
+      const odd: string[] = [];
+      open.parts.push(...partsOf(e, RESULT_CAP, odd));
+      noteUnknown(open, e, odd);
       open.uuids.push(e.uuid);
       if (cls.kind === 'assistant') {
         open.model_id = modelOf(e) ?? open.model_id;
@@ -462,7 +610,9 @@ export function planSync(
       s.uuids.push(e.uuid);
     } else {
       const s = start('user', e, null);
-      s.parts = partsOf(e);
+      const odd: string[] = [];
+      s.parts = partsOf(e, RESULT_CAP, odd);
+      noteUnknown(s, e, odd);
       s.uuids.push(e.uuid);
     }
     prevUuid = e.uuid;
@@ -533,13 +683,13 @@ export function applyToMirror(mirror: MirrorState, plan: PlanResult): void {
     const cur = mirror.messages.get(p.id);
     for (const u of p.uuids) mirror.byUuid.set(u, p.id);
     if (p.extends && cur) {
-      cur.lastUuid = p.uuids.at(-1) ?? cur.lastUuid;
+      cur.lastUuid = p.uuids.some((u) => !isLoose(u)) ? (placeOf(p.uuids) ?? cur.lastUuid) : cur.lastUuid;
       cur.lastApiId = p.last_api_id ?? cur.lastApiId;
       continue;
     }
     mirror.messages.set(p.id, {
       role: p.role,
-      lastUuid: p.uuids.at(-1) ?? '',
+      lastUuid: placeOf(p.uuids) ?? '',
       hasChildren: false,
       lastApiId: p.last_api_id,
       kind: p.kind,

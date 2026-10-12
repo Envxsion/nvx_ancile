@@ -85,7 +85,7 @@ import type {
 } from './bridge-protocol';
 import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } from './commands';
 import { ccErrors } from './errors';
-import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf } from './map';
+import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
 import { type Passage, threadToken } from './mcp-server';
 import {
   ANCILE_MCP_SERVER,
@@ -206,6 +206,8 @@ export interface LiveServiceView {
   notebookForFolder?(cwd: string): Promise<string | null>;
   /** The folder is in Settings → Claude Code → Excluded folders. */
   folderExcluded?(cwd: string): Promise<boolean>;
+  /** Keep the raw text of entries this version cannot show (and warn once per Claude Code version). */
+  keepUnknown?(threadId: string, sessionId: string, items: UnknownRaw[]): Promise<void>;
 }
 
 export interface LiveDeps {
@@ -997,9 +999,12 @@ export class ClaudeCodeLive {
           : 'complete';
     const newRows: NewMessage[] = [];
     let main: { parts: Part[]; usage: Usage | null } | null = null;
+    const raws = plan.planned.flatMap((p) => p.raws ?? []);
+    if (raws.length) await this.deps.service.keepUnknown?.(cp.threadId, sessionId, raws);
     for (const p of plan.planned) {
       if (p.extends) continue;
-      const ccProv = provenanceOf(sessionId, p);
+      // Written by this turn, not brought in from the transcript (the Why panel tells them apart).
+      const ccProv: CcProvenance = { ...provenanceOf(sessionId, p), live: true };
       if (p.id === cp.assistantMessageId) {
         let parts = p.parts;
         if (turn.passages.length) {
