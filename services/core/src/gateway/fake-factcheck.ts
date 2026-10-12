@@ -14,7 +14,10 @@
  *           |  verify    a passage sharing at least 60% of the claim's
  *           |            content words bears on it. It supports the
  *           |            claim, unless their numbers or their negation
- *           |            disagree, in which case it contradicts it.
+ *           |            disagree (the claim states a number that the
+ *           |            passage, stating numbers of its own, does not),
+ *           |            in which case it contradicts it.
+ *           |            tests/eval/factcheck measures both.
  *  Note     |  Word overlap, not understanding: good enough to show the
  *           |  three verdicts end to end, and says so in its rationale.
  * ------------------------------------------------------------------
@@ -137,7 +140,9 @@ export function fakeVerdict(claim: string, evidence: { ref: string; text: string
     const words = terms.filter((t) => !/^\d/.test(t));
     if (overlap(words.length ? words : terms, quote) < 0.6) continue;
     const theirs = numbers(quote);
-    const numberClash = nums.size > 0 && theirs.size > 0 && ![...nums].some((n) => theirs.has(n));
+    // A number the claim states that the passage, stating numbers of its own,
+    // does not: "1933" against "14 June 1932" clashes though "14" is shared.
+    const numberClash = nums.size > 0 && theirs.size > 0 && [...nums].some((n) => !theirs.has(n));
     const negationClash = negated !== NEGATION.test(quote);
     judged.push({ ref: e.ref, quote, stance: numberClash || negationClash ? 'contradicts' : 'supports' });
   }

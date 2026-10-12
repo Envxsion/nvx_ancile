@@ -1,0 +1,19 @@
+{
+  "about": "Floors for tests/eval/retrieval/run.py, per embedder. test/hash-256 is the offline embedder CI uses (blocking): measured 12 Oct 2026 over three runs at hybrid recall@10 0.986, recall@5 0.959 to 0.968, MRR 0.903 to 0.913, nDCG@10 0.921 to 0.927, vector recall@10 0.697, citations 1.000; the floors leave room for the small run-to-run drift from ties in approximate vector search. The local model's floor is the documented one (tests/eval/README.md), checked nightly. Raise a floor when the numbers rise; never lower one without saying why in the commit.",
+  "embedders": {
+    "test/hash-256": {
+      "modes": {
+        "hybrid": { "recall@10": 0.97, "recall@5": 0.94, "mrr": 0.88, "ndcg@10": 0.9 },
+        "vector": { "recall@10": 0.67 },
+        "text": { "recall@10": 0.97 }
+      },
+      "citations": { "source@4": 1.0, "source@1": 0.97, "quote": 0.97 }
+    },
+    "local/BAAI/bge-small-en-v1.5": {
+      "modes": {
+        "hybrid": { "recall@10": 0.85 }
+      },
+      "citations": { "source@4": 0.97 }
+    }
+  }
+}

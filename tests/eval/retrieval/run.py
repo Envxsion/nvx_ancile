@@ -22,8 +22,14 @@
           |  weights are cached; --download fetches them once into the
           |  model cache; --embedder hash uses the offline hash
           |  embedder (a smoke test, not a quality measurement).
- Note     |  Exit code 1 when hybrid fails the roadmap gate: recall@10
-          |  at least 10% better than vector-only, relative or absolute.
+          |  The same run asks /evidence for the fact-check claims in
+          |  ../factcheck against those sources in a second workspace
+          |  (citations: right source, ranked first, right sentence).
+          |  --prepare creates and migrates the test database first.
+ Note     |  Exit code 1 when hybrid fails the roadmap gate (recall@10
+          |  at least 10% better than vector-only, relative or
+          |  absolute) or any floor thresholds.json sets for this
+          |  embedder is missed. CI runs it with --embedder hash.
           |  Relevance is per document, not per span; TODO(phase-4):
           |  span-level judgements as tests/eval/README.md describes.
 ------------------------------------------------------------------
@@ -41,24 +47,24 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
 HERE = Path(__file__).resolve().parent
+KNOWLEDGE = HERE.parents[2] / "services" / "knowledge"
+FACTCHECK = HERE.parent / "factcheck"
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(KNOWLEDGE))
 
 
 def _db_url() -> str:
-    explicit = os.environ.get("ANCILE_TEST_DATABASE_URL")
-    if explicit:
-        return explicit
-    base = os.environ.get("DATABASE_URL")
-    if not base:
+    from tests.testdb import db_url_for_tests
+
+    url = db_url_for_tests(os.environ.get("ANCILE_TEST_DATABASE_URL"), os.environ.get("DATABASE_URL"))
+    if not url:
         sys.exit(
             "Set ANCILE_TEST_DATABASE_URL (or DATABASE_URL) to a Postgres with pgvector "
             "and the knowledge schema."
         )
-    p = urlsplit(base)
-    return urlunsplit((p.scheme, p.netloc, "/ancile_kn_test", p.query, p.fragment))
+    return url
 
 
 def parse() -> argparse.Namespace:
@@ -67,7 +73,62 @@ def parse() -> argparse.Namespace:
     ap.add_argument("--download", action="store_true", help="allow downloading the embedder weights once")
     ap.add_argument("--json", action="store_true", help="print the metrics as JSON")
     ap.add_argument("--show-misses", action="store_true", help="list cases whose documents miss the top 10")
+    ap.add_argument(
+        "--prepare", action="store_true", help="create and migrate the test database first (CI)"
+    )
+    ap.add_argument(
+        "--thresholds",
+        type=Path,
+        default=HERE / "thresholds.json",
+        help="floors per embedder; exit 1 when one is missed",
+    )
+    ap.add_argument("--report", type=Path, help="write the full results as JSON here")
     return ap.parse_args()
+
+
+def _norm(s: str) -> str:
+    return " ".join(s.split())
+
+
+def citations(ws: str, cases: list[dict[str, object]], id_of: dict[str, str]) -> dict[str, float]:
+    """
+    Knowledge's own half of a fact-check: for each claim that cites a source,
+    does /evidence find that source, rank it first, and quote the labelled
+    sentence? The verdict half is services/core eval:factcheck.
+    """
+    from ancile_knowledge.search.evidence import EvidenceQuery, evidence
+
+    cited = [c for c in cases if c.get("source")]
+    res = evidence(EvidenceQuery(workspace_id=ws, claims=[str(c["claim"]) for c in cited], k_per_claim=4))
+    found = first = quoted = 0
+    for case, r in zip(cited, res["results"], strict=True):
+        hits = [h for h in r["hits"] if id_of.get(h["source_id"]) == case["source"]]
+        found += 1 if hits else 0
+        first += 1 if r["hits"] and id_of.get(r["hits"][0]["source_id"]) == case["source"] else 0
+        want = _norm(str(case["quote"]))
+        quoted += 1 if any(_norm(h["quote"]) == want for h in hits) else 0
+    n = len(cited) or 1
+    return {"source@4": found / n, "source@1": first / n, "quote": quoted / n, "claims": float(len(cited))}
+
+
+def check(summary: dict[str, object], floors: dict[str, object]) -> list[str]:
+    """Every floor the run misses, in words; empty when it passes."""
+    out: list[str] = []
+    results = summary["results"]
+    assert isinstance(results, dict)
+    for mode, metrics in floors.get("modes", {}).items():  # type: ignore[union-attr]
+        got = results.get(mode, {}).get("all")
+        if got is None:
+            out.append(f"mode {mode} did not run")
+            continue
+        for metric, floor in metrics.items():
+            if got[metric] < floor:
+                out.append(f"{mode} {metric} {got[metric]:.3f} is under {floor:.3f}")
+    cit = summary.get("citations")
+    for metric, floor in floors.get("citations", {}).items():  # type: ignore[union-attr]
+        if isinstance(cit, dict) and cit[metric] < floor:
+            out.append(f"citations {metric} {cit[metric]:.3f} is under {floor:.3f}")
+    return out
 
 
 def metrics(ranked: list[str], relevant: set[str]) -> dict[str, float]:
@@ -85,6 +146,13 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     os.environ["DATABASE_URL"] = _db_url()
+    if args.prepare:
+        from tests.testdb import prepare_test_database
+
+        reason = prepare_test_database(os.environ["DATABASE_URL"])
+        if reason:
+            print(reason, file=sys.stderr)
+            return 2
     os.environ["KNOWLEDGE_WORKER"] = "false"
     os.environ["KNOWLEDGE_MODEL_DOWNLOAD"] = "true" if args.download else "false"
     os.environ.setdefault("ANCILE_LOG_LEVEL", "warning")
@@ -119,11 +187,16 @@ def main() -> int:
 
     lines = (HERE / "cases.jsonl").read_text(encoding="utf-8").splitlines()
     cases = [json.loads(line) for line in lines if line] + family_cases()
+    fc_sources = json.loads((FACTCHECK / "sources.json").read_text(encoding="utf-8"))["sources"]
+    fc_lines = (FACTCHECK / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+    fc_cases = [json.loads(line) for line in fc_lines if line]
     ws = f"eval-{uuid.uuid4().hex[:8]}"
+    fws = f"eval-fc-{uuid.uuid4().hex[:8]}"
     id_of: dict[str, str] = {}
-    try:
+
+    def ingest(workspace: str, docs: list[dict[str, str]]) -> None:
         with sessions().begin() as db:
-            for d in DOCS:
+            for d in docs:
                 sid = repo.new_id()
                 id_of[sid] = d["id"]
                 repo.write_atomic(repo.input_path(sid), d["text"].strip() + "\n")
@@ -133,13 +206,18 @@ def main() -> int:
                         "(id, workspace_id, kind, title, status, progress, tags, "
                         "topics) VALUES (:id, :ws, 'text', :t, 'queued', '{}', '{}', '{}')"
                     ),
-                    {"id": sid, "ws": ws, "t": d["title"]},
+                    {"id": sid, "ws": workspace, "t": d["title"]},
                 )
+
+    try:
+        ingest(ws, DOCS)
+        # The fact-check sources get their own workspace, so they never move the retrieval numbers.
+        ingest(fws, [{"id": s["id"], "title": s["title"], "text": "\n\n".join(s["passages"])} for s in fc_sources])
         asyncio.run(jobs.drain())
         with sessions().begin() as db:
             not_ready = db.execute(
-                text("SELECT count(*) FROM knowledge.sources WHERE workspace_id = :ws AND status <> 'ready'"),
-                {"ws": ws},
+                text("SELECT count(*) FROM knowledge.sources WHERE workspace_id IN (:ws, :fws) AND status <> 'ready'"),
+                {"ws": ws, "fws": fws},
             ).scalar_one()
         if not_ready:
             print(
@@ -166,9 +244,12 @@ def main() -> int:
             results[label] = {
                 t: {k: sum(m[k] for m in ms) / len(ms) for k in ms[0]} for t, ms in per_type.items()
             }
+        cites = citations(fws, fc_cases, id_of)
     finally:
         with sessions().begin() as db:
-            db.execute(text("DELETE FROM knowledge.sources WHERE workspace_id = :ws"), {"ws": ws})
+            db.execute(
+                text("DELETE FROM knowledge.sources WHERE workspace_id IN (:ws, :fws)"), {"ws": ws, "fws": fws}
+            )
         shutil.rmtree(data_dir, ignore_errors=True)
 
     vec = results["vector"]["all"]["recall@10"]
@@ -176,14 +257,25 @@ def main() -> int:
     absolute = hyb - vec
     relative = (hyb / vec - 1) if vec else math.inf
     passed = absolute >= 0.10 or relative >= 0.10
-    summary = {
+    summary: dict[str, object] = {
         "embedder": embedder.model_key,
         "reranker": reranker.model_key,
         "documents": len(DOCS),
         "cases": len(cases),
         "results": results,
+        "citations": cites,
         "gate": {"absolute": round(absolute, 4), "relative": round(relative, 4), "passed": passed},
     }
+    # Floors are per embedder: the offline one in CI, the real one nightly.
+    floors_all = json.loads(args.thresholds.read_text(encoding="utf-8")) if args.thresholds.exists() else {}
+    floors = floors_all.get("embedders", {}).get(embedder.model_key)
+    missed = ["hybrid recall@10 is not 10% above vector-only"] if not passed else []
+    if floors:
+        missed += check(summary, floors)
+    summary["floors"] = floors
+    summary["missed"] = missed
+    if args.report:
+        args.report.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     if args.json:
         print(json.dumps(summary, indent=2))
     else:
@@ -198,11 +290,17 @@ def main() -> int:
                     print(f"{label:<15}{t:<10}{m['recall@5']:>10.3f}{m['recall@10']:>11.3f}{m['mrr']:>8.3f}"
                           f"{m['ndcg@10']:>9.3f}")  # fmt: skip
         print(
-            f"Hybrid vs vector recall@10: {hyb:.3f} vs {vec:.3f} "
-            f"(+{absolute:.3f} absolute, {relative * 100:+.1f}% relative) · "
-            f"gate {'passed' if passed else 'FAILED'}"
+            f"Citations on {int(cites['claims'])} fact-check claims: source in top 4 {cites['source@4']:.3f}, "
+            f"ranked first {cites['source@1']:.3f}, labelled sentence quoted {cites['quote']:.3f}"
         )
-    return 0 if passed else 1
+        print(
+            f"Hybrid vs vector recall@10: {hyb:.3f} vs {vec:.3f} "
+            f"(+{absolute:.3f} absolute, {relative * 100:+.1f}% relative)"
+        )
+        if floors is None:
+            print(f"No floors for {embedder.model_key} in {args.thresholds.name}: only the hybrid gate applies.")
+        print(f"Gate FAILED: {'; '.join(missed)}" if missed else "Gate passed")
+    return 1 if missed else 0
 
 
 if __name__ == "__main__":

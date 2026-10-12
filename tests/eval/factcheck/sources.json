@@ -1,0 +1,65 @@
+{
+  "about": "Fact-check eval sources: short original documents written for this suite. Each paragraph is one passage. Nothing here is a real place, product or organisation.",
+  "sources": [
+    {
+      "id": "kestrel-bridge",
+      "title": "The Kestrel Bridge: a short history",
+      "passages": [
+        "The Kestrel Bridge opened on 14 June 1932 after four years of construction. It spans the river Wend for 412 metres.",
+        "The bridge was designed by the engineer Mara Ellison, who also designed the Wend lock gates. Her design used riveted steel arches.",
+        "The bridge closed to motor traffic in 1998. Since then only pedestrians and cyclists may cross it.",
+        "The bridge is repainted every seven years. Since 2004 the paint has been a lead-free grey."
+      ]
+    },
+    {
+      "id": "si200-inverter",
+      "title": "SI-200 solar inverter manual",
+      "passages": [
+        "The SI-200 accepts a maximum input voltage of 600 V from the panels. It operates between minus 20 and 55 degrees Celsius.",
+        "Fault code F-07 means the grid voltage is out of range. The inverter reconnects by itself when the grid recovers.",
+        "Do not install the SI-200 in direct sunlight. Mount it on a shaded wall with 30 centimetres of clearance on every side.",
+        "The SI-200 carries a warranty of 10 years from the date of installation."
+      ]
+    },
+    {
+      "id": "sourdough-guide",
+      "title": "Keeping a sourdough starter",
+      "passages": [
+        "Feed the starter with equal weights of starter, flour and water. At 24 degrees the starter peaks about 6 hours after a feed.",
+        "Rye flour ferments faster than white flour, so a rye starter needs feeding more often.",
+        "A starter kept in the fridge needs feeding once a week. Bring it back to room temperature before baking.",
+        "A grey liquid on top of the starter is harmless. Pour it off or stir it back in."
+      ]
+    },
+    {
+      "id": "brightwater-report",
+      "title": "Brightwater Library annual report 2025",
+      "passages": [
+        "Brightwater Library welcomed 48,200 visitors in 2025, 12 percent more than in 2024.",
+        "Opening hours on Thursdays were extended to 8 pm in March 2025.",
+        "Digital lending grew to 31 percent of all loans in 2025.",
+        "The library did not raise its membership fees in 2025. Membership remains free for under-18s."
+      ]
+    },
+    {
+      "id": "remote-policy",
+      "title": "Remote work policy",
+      "passages": [
+        "Staff may work remotely for up to three days each week. Core hours are 10:00 to 15:00.",
+        "Every member of staff receives an equipment allowance of 400 pounds every two years.",
+        "Requests to work fully remotely must be approved by a director, not a line manager.",
+        "Remote workers must not use public wifi for client work without the company VPN."
+      ]
+    },
+    {
+      "id": "northline-timetable",
+      "title": "Northline rail timetable",
+      "passages": [
+        "The first Northline train leaves Harrow Cross at 05:40 and the last leaves at 23:15.",
+        "The journey from Harrow Cross to Fellmouth takes 47 minutes with six stops.",
+        "Bicycles are not allowed on Northline trains between 07:00 and 09:30 on weekdays.",
+        "Season tickets are sold at every staffed station and online."
+      ]
+    }
+  ]
+}

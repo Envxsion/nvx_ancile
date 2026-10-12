@@ -16,7 +16,8 @@
     "test": "vitest run --project \"unit*\"",
     "test:boot": "vitest run --project boot",
     "db:migrate": "tsx src/db/migrate.ts",
-    "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts"
+    "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts",
+    "eval:factcheck": "tsx scripts/eval-factcheck.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
