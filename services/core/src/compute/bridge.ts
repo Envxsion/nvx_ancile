@@ -56,6 +56,8 @@ export function nodeModels(nodes: WireNode[]): ModelConfig[] {
         capabilities: [],
         price: { input_per_mtok: 0, output_per_mtok: 0 },
         enabled: true,
+        // A pod rented from a provider is someone else's machine: prompts leave this one.
+        runs_on: n.provider === 'local' ? 'your_network' : 'rented',
       });
     }
   }

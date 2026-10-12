@@ -10,7 +10,7 @@ Scopes are floors. Permission presets, remembered grants and Auto mode's reviewe
 |---|---|---|
 | `engines` | Engines that may answer: `gateway_cloud`, `gateway_local`, `claude_code`, or another engine's id. `null` is any. | any |
 | `models_allow` / `models_deny` | Model ids (globs, `/` separated, `**` for any depth). | any / none |
-| `data_leaves_machine` | False: only local models, local reviewers and local tools. No cloud model, no Claude Code, no web. | true |
+| `data_leaves_machine` | False: only local models, local reviewers and local tools. No cloud model, no Claude Code, no web, and no GPU node rented from a provider (a RunPod pod is someone else's machine; a node on your own network counts as local, `ModelConfig.runs_on`). | true |
 | `sources` | Source ids retrieval may read. `null` is every source in the notebook. | all |
 | `context_links` | May context links (and context packs) from other threads and notebooks be read here (docs/notebooks.md). | true |
 | `memory_read` / `memory_write` | May memory be read into a turn, and learned from after it. | true / true |
@@ -60,7 +60,7 @@ A notebook marked private (`PATCH /notebooks/:id/scope { "private": true }`, sto
 
 Making a notebook private, or switching off data leaving the machine for a notebook or a thread, keeps everything here from then on. What went to cloud models before can't be called back, so NVX Ancile says plainly what it was.
 
-- At the moment of the change, every answer in the notebook (all its threads) or the thread is grouped by its model and engine, from the answers' own records (`core.messages.model_id`, and Claude Code's provenance). Deleted answers count: they were sent all the same. Local models (Ollama, local, a node you control) are left out.
+- At the moment of the change, every answer in the notebook (all its threads) or the thread is grouped by its model and engine, from the answers' own records (`core.messages.model_id`, and Claude Code's provenance). Deleted answers count: they were sent all the same. Local models (Ollama, local, a node on your own network) are left out. TODO(phase-6): answers from a rented node (RunPod) are left out too, because a stored answer records only `node/<model>`, not where the node ran.
 - The summary is kept in `core.scope_shared_history` and returned with the scope as `shared_before_local`: which engines and providers (a closed set: Claude Code, Anthropic, OpenAI, Google, OpenRouter, Mistral, Groq, DeepSeek, xAI, other cloud providers), how many answers, and the first and last date. No content, no titles and no model ids.
 - The scope editor shows it as "Sent before it became private": "Before this notebook became private on 12 Oct 2026, 14 answers came from models off this computer: Anthropic (10), Claude Code (4), from 1 Oct 2026 to 9 Oct 2026. What was sent to them then can't be recalled from here." A thread shows its own records and its notebook's.
 - Only a change that stops data leaving is recorded; narrowing anything else is not.

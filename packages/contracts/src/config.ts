@@ -35,6 +35,12 @@ export const ModelConfig = z.object({
   secret: z.string().optional(),
   /** The chip's hue; unset follows the family. */
   hue: ModelHue.optional(),
+  /**
+   * Where a GPU node's model runs: a machine on your own network, or one
+   * rented from a provider (RunPod). A rented node is not local for scopes:
+   * prompts leave this machine. Unset for every other model.
+   */
+  runs_on: z.enum(['your_network', 'rented']).optional(),
 });
 export type ModelConfig = z.infer<typeof ModelConfig>;
 

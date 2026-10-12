@@ -31,6 +31,8 @@ describe('node models', () => {
       via: 'controller',
       provider_model: 'node/llama-3.3-70b-instruct',
       display_name: 'llama-3.3-70b-instruct on Studio A100',
+      // A RunPod pod is rented: prompts leave this machine (scopes treat it as cloud).
+      runs_on: 'rented',
     });
     expect(nodeModelId('a/b c')).toBe('node/a-b-c');
   });

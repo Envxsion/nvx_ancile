@@ -48,8 +48,13 @@ export interface Selection {
 const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'fake', 'node']);
 const LOOPBACK = /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/i;
 
-/** Does this model run on this machine (or a GPU node you control)? */
-export function isLocalModel(m: Pick<ModelConfig, 'provider' | 'via' | 'base_url'>): boolean {
+/**
+ * Does this model run on this machine, or a GPU node on your own network?
+ * A node rented from a provider (a RunPod pod) does not: prompts leave this
+ * machine for it, so a private or local-only scope never uses it.
+ */
+export function isLocalModel(m: Pick<ModelConfig, 'provider' | 'via' | 'base_url' | 'runs_on'>): boolean {
+  if (m.runs_on === 'rented') return false;
   if (LOCAL_PROVIDERS.has(m.provider) || m.via === 'controller') return true;
   if (m.base_url) {
     try {

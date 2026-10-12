@@ -69,6 +69,16 @@ describe('choosing an engine', () => {
       true,
     );
   });
+
+  it('counts a GPU node on your network as local, and a rented pod as not', () => {
+    expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'your_network' })).toBe(true);
+    expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'rented' })).toBe(false);
+    for (const runs_on of ['rented', 'your_network'] as const) {
+      const m = { id: 'node/qwen', provider: 'node', via: 'controller', runs_on } as ModelConfig;
+      const r = { get: () => m, chain: () => [m] } as never;
+      expect(selectEngine(thread(), 'node/qwen', { registry: r }).local).toBe(runs_on === 'your_network');
+    }
+  });
 });
 
 const fakeEngine = (id: string): Engine & { started: number } => ({
