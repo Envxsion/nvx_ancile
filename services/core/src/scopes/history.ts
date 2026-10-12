@@ -24,7 +24,10 @@
 
 import type { SharedBeforeLocal, SharedDestination } from '@nvx/contracts';
 import type { Sql } from 'postgres';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
+
+// Ids made in the same millisecond still sort in the order they were made.
+const ulid = monotonicFactory();
 
 export type HistoryLevel = SharedBeforeLocal['level'];
 
