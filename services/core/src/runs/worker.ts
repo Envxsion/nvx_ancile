@@ -19,6 +19,10 @@
  *           |  while the run is still saving its pause is remembered
  *           |  and applied as soon as the pause is saved; the
  *           |  reconcile hook is the backstop for anything missed.
+ *           |  After the computer sleeps every lease looks lapsed:
+ *           |  wake() (system/wake.ts), or a sweeper beat that comes
+ *           |  far too late, renews this worker's own runs first, then
+ *           |  sweeps, so runs carry on rather than starting again.
  * ------------------------------------------------------------------
  */
 
@@ -71,6 +75,8 @@ export interface WorkerOptions {
   reconcileMs?: number;
   /** Called once a run reaches a terminal state, whoever moved it there. */
   onSettled?: (run: RunRecord) => Promise<void>;
+  /** The clock the sweeper uses to notice it slept (tests pass a fake one). */
+  now?: () => number;
 }
 
 export class RunWorker {
@@ -86,14 +92,16 @@ export class RunWorker {
   private again = false;
   private reconciling = false;
   private stopped = false;
+  private lastSweep = 0;
 
   constructor(private readonly opts: WorkerOptions) {}
 
   async start(): Promise<void> {
     await this.sweepNow('resumed runs left running by a previous Core');
     this.poll = setInterval(() => this.kick(), this.opts.pollMs ?? 1_000);
+    this.lastSweep = this.now();
     this.sweeper = setInterval(
-      () => void this.sweepNow('reclaimed runs whose lease lapsed'),
+      () => void this.sweepTick(),
       // Every 10 s, so a run cut off by a restart resumes within a lease plus 10 s.
       this.opts.sweepMs ?? 10_000,
     );
@@ -154,9 +162,49 @@ export class RunWorker {
     }
   }
 
+  private now(): number {
+    return (this.opts.now ?? Date.now)();
+  }
+
+  /**
+   * The sweeper's beat. After the computer slept, every lease here looks
+   * lapsed; the runs this worker holds are renewed first, so the sweeper
+   * does not take them from a worker that is still alive.
+   */
+  async sweepTick(): Promise<void> {
+    const t = this.now();
+    const slept = this.lastSweep > 0 && t - this.lastSweep > 3 * (this.opts.sweepMs ?? 10_000);
+    this.lastSweep = t;
+    if (slept) await this.renewActive();
+    await this.sweepNow('reclaimed runs whose lease lapsed');
+  }
+
+  /**
+   * The computer woke from sleep (system/wake.ts): keep this worker's runs,
+   * put back any whose worker is gone, look for answers that arrived, and
+   * claim what is queued.
+   */
+  async wake(): Promise<void> {
+    if (this.stopped) return;
+    this.lastSweep = this.now();
+    await this.renewActive();
+    await this.sweepNow('picked up runs again after the computer slept');
+    await this.reconcileNow();
+    this.kick();
+  }
+
+  /** Renew the lease of every run executing here; one that was taken meanwhile is stopped. */
+  private async renewActive(): Promise<void> {
+    const leaseMs = this.opts.leaseMs ?? LEASE_MS;
+    for (const [id, controller] of [...this.active]) {
+      const ok = await this.opts.store.renew(id, this.owner, leaseMs).catch(() => true);
+      if (!ok && !controller.signal.aborted) controller.abort(new RunOwnershipLost(id));
+    }
+  }
+
   private async sweepNow(message: string): Promise<void> {
     try {
-      const { requeued, failed } = await sweep(this.opts.store);
+      const { requeued, failed } = await sweep(this.opts.store, new Date(this.now()));
       if (requeued.length) log.warn({ runs: requeued }, message);
       for (const run of failed) {
         log.error({ run_id: run.id, attempt: run.attempt }, 'gave up on a run that kept stopping its worker');
