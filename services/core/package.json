@@ -15,7 +15,10 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run --project \"unit*\"",
     "test:boot": "vitest run --project boot",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "tsx src/db/cli.ts migrate",
+    "db:backups": "tsx src/db/cli.ts backups",
+    "db:backup": "tsx src/db/cli.ts backup",
+    "db:restore": "tsx src/db/cli.ts restore",
     "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts"
   },
   "dependencies": {

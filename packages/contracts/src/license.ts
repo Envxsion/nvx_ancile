@@ -106,6 +106,8 @@ export const UpdateOfferReport = z
     version: z.string().min(1).max(64),
     edition: z.enum(['free', 'pro']),
     downgrade: z.boolean().default(false),
+    /** Older than the running build: installing it would leave a newer database behind. */
+    older: z.boolean().default(false),
   })
   .strict();
 export type UpdateOfferReport = z.infer<typeof UpdateOfferReport>;
@@ -117,6 +119,8 @@ export const UpdateOffer = z.object({
       version: z.string(),
       edition: z.enum(['free', 'pro']),
       kind: UpdateOfferKind,
+      /** An older build (a rollback): the tray warns before installing it. */
+      older: z.boolean().default(false),
       found_at: z.string(),
     })
     .nullable(),

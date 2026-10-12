@@ -52,6 +52,14 @@ export const EnvSchema = z
     // The built Cockpit Core serves in production. The desktop app points it at
     // its bundled copy; a checkout defaults to apps/cockpit/dist.
     ANCILE_COCKPIT_DIST: z.string().optional(),
+    // "desktop" when the desktop app runs Core (it restarts every service on request).
+    ANCILE_RUNTIME: z.string().optional(),
+    // Knowledge's Alembic folder, so Core can tell a newer Knowledge schema (the desktop app sets it).
+    ANCILE_KNOWLEDGE_MIGRATIONS_DIR: z.string().optional(),
+    // The Controller's migrations folder, likewise (the desktop app sets it when the Controller is bundled).
+    ANCILE_CONTROLLER_MIGRATIONS_DIR: z.string().optional(),
+    // Development only: start on a database another branch migrated further (ignored in a release build).
+    ANCILE_ALLOW_NEWER_DATABASE: bool,
 
     DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL'),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(40),

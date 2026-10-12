@@ -16,8 +16,9 @@
  *           |  that ended from a fresh reinstall). It is given in every edition:
  *           |  a free install that turned a key on asks for Pro with
  *           |  it. POST /internal/v1/desktop/update-offer {version,
- *           |  edition, downgrade}: the update now waiting in the tray
- *           |  menu; DELETE clears it. GET /api/v1/system/update-offer
+ *           |  edition, downgrade, older}: the update now waiting in the
+ *           |  tray menu (older: a rollback the tray warns about);
+ *           |  DELETE clears it. GET /api/v1/system/update-offer
  *           |  reads it back as update, pro (crossing to Pro) or
  *           |  downgrade (Pro ended: back to the free edition).
  *  Note     |  The token never appears in a log line or an /api reply.
@@ -67,7 +68,13 @@ export class UpdateOfferBox {
       : r.edition === 'pro' && !this.proBuild()
         ? 'pro'
         : 'update';
-    this.current = { version: r.version, edition: r.edition, kind, found_at: this.now().toISOString() };
+    this.current = {
+      version: r.version,
+      edition: r.edition,
+      kind,
+      older: r.older ?? false,
+      found_at: this.now().toISOString(),
+    };
   }
 
   clear(): void {
