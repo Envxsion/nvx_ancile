@@ -991,6 +991,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             .join('\n\n'),
           ...(cp.input.sourceIds?.length && { mentionedSources: cp.input.sourceIds }),
           memory: injectMemory,
+          // Scopes and context links hold inside a flow too, read again before every step.
+          ...(deps.scopes && {
+            scope: () =>
+              (deps.scopes as ScopeResolver).effective({
+                notebookId: cp.input.notebookId,
+                threadId: cp.input.threadId,
+              }),
+          }),
+          ...(deps.links && {
+            linked: async () =>
+              (await (deps.links as NonNullable<typeof deps.links>).forTurn(cp.input.threadId)).notebooks,
+          }),
           emit: (e) => emit(e),
           call: flowCall,
           tool: flowTool,

@@ -78,13 +78,12 @@ Always at execution time, from the scope as it is now:
 
 What the Why view shows: the thread's effective scope, and for each tool decision refused by a scope, the field and the level that set it.
 
+- **Flows** (`flows/turn.ts`, `makeTurnRuntime`): read again before every step, so a scope narrowed while a flow runs applies to its next step. Each model in a step's chain passes `checkEngineAllowed`; a refused one is skipped for the next (a `fallback` event gives the reason), and a step with none left stops with the scope's own error, before anything is sent. Retrieve steps and "named sources" edges search only the sources the scope allows, plus linked notebooks as the links service allows them now; "retrieved passages" edges get the turn's own retrieval, already scoped.
 - **Context links and context packs** (`scopes/combine.ts`, `checkLinkRead`): every read across a link passes the reading side's scope and the linked side's. The reader must allow `context_links`; a private or local-only place is read only where nothing leaves this machine (never by Claude Code, never where a cloud model may answer); the linked side may not allow fewer engines or models than the reader; only the sources its scope lets retrieval read are searched. Checked when a link is made (403 with the scope's code) and again on every read.
 
 ## Where two scopes meet: a notebook merge
 
 The merged notebook takes the narrower value of every field and private wins: switches only if both are on, deny lists combined, allow lists only what both allow, and each notebook keeps its own limit on its own sources. A second, different tool preset is folded into the notebook's own tool fields. See docs/notebooks.md.
-
-TODO(phase-3): Flows retrieval (`flows/turn.ts`) does not read the scope yet.
 
 ## For code
 

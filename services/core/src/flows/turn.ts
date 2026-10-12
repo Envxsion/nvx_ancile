@@ -15,25 +15,31 @@
  * ------------------------------------------------------------------
  */
 
-import type {
-  ContextPolicy,
-  Flow,
-  FlowDecision,
-  FlowProvenance,
-  ModelConfig,
-  Part,
-  ResolvedFlow,
+import {
+  type ContextPolicy,
+  type EffectiveScope,
+  type Flow,
+  type FlowDecision,
+  type FlowProvenance,
+  isClaudeCodeModel,
+  type ModelConfig,
+  type Part,
+  type ResolvedFlow,
 } from '@nvx/contracts';
 import type { z } from 'zod';
+import { searchWithLinks } from '../conductor/links';
 import type { Retriever } from '../conductor/retrieval';
-import { groundingFrom } from '../conductor/retrieval';
+import { DEFAULT_LIMITS, groundingFrom } from '../conductor/retrieval';
+import { engineRefused, isLocalModel } from '../engines/select';
 import { messageScore, scoreOutcome } from '../factcheck/pipeline';
 import { extractClaims, gatherEvidence, verifyClaim } from '../factcheck/steps';
 import type { Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import type { ModelMessage, ModelRequest } from '../gateway/types';
 import type { KnowledgeClient } from '../knowledge/client';
+import type { LinkedNotebook } from '../links/service';
 import { logFor } from '../obs/logger';
+import { allowedSources, checkEngineAllowed } from '../scopes';
 import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type ThreadRecord, type ThreadRepo, textOf } from '../threads/repo';
 import type { ContextSources } from './context';
@@ -255,12 +261,27 @@ export class FlowsService {
     query: string;
     k: number;
     sourceIds?: string[];
+    /** Linked notebooks to search too, already checked against both scopes (links/service forTurn). */
+    linked?: LinkedNotebook[];
   }): Promise<string> {
-    if (!this.deps.retriever || !q.notebookId) return '';
+    const linked = q.linked ?? [];
+    if (!this.deps.retriever || (!q.notebookId && !linked.length)) return '';
     try {
+      if (linked.length) {
+        const { response, via } = await searchWithLinks({
+          retriever: this.deps.retriever,
+          workspaceId: q.workspaceId,
+          query: q.query,
+          limits: { ...DEFAULT_LIMITS, k: q.k },
+          own: q.notebookId ? { notebookId: q.notebookId, sourceIds: q.sourceIds } : null,
+          linked,
+        });
+        return groundingFrom(response, { query: q.query, notebookId: q.notebookId, notebookTitle: null, via })
+          .block;
+      }
       const res = await this.deps.retriever.search({
         workspaceId: q.workspaceId,
-        notebookId: q.notebookId,
+        notebookId: q.notebookId as string,
         query: q.query,
         k: q.k,
         ...(q.sourceIds?.length && { sourceIds: q.sourceIds }),
@@ -376,6 +397,14 @@ export interface TurnHooks {
   mentionedSources?: string[];
   /** The conductor's memory pack for a model ('' when none). */
   memory: (model: ModelConfig | undefined) => Promise<string>;
+  /**
+   * The thread's effective scope as it is now (docs/scopes.md), read before
+   * every model call and every search, so a scope narrowed mid-flow applies
+   * to the next step. Absent: no scopes here (tests, Try a message).
+   */
+  scope?: () => Promise<EffectiveScope | null | undefined>;
+  /** Linked notebooks a search may read now, checked against both scopes (links/service forTurn). */
+  linked?: () => Promise<LinkedNotebook[]>;
   emit: FlowRuntime['emit'];
   call: (
     chain: ModelConfig[],
@@ -396,6 +425,65 @@ export interface TurnHooks {
 export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
   const { flows } = h;
   const reg = flows.deps.registry;
+  const scopeNow = async () => (h.scope ? ((await h.scope()) ?? null) : null);
+  /** The sources a search may read now; null when the scope leaves none of the notebook's. */
+  const sourcesNow = async (asked: string[] | undefined): Promise<{ ids: string[] | undefined } | null> => {
+    const scope = await scopeNow();
+    if (!scope) return { ids: asked };
+    const ids = allowedSources(scope, asked?.length ? asked : undefined);
+    if (scope.scope.sources && !ids?.length) return null;
+    return { ids };
+  };
+  const linkedNow = async () => (h.linked ? await h.linked().catch(() => [] as LinkedNotebook[]) : []);
+  /** A search through the scope as it is now: the notebook's allowed sources, then linked notebooks. */
+  const search = async (query: string, k: number, asked: string[] | undefined) => {
+    const [own, linked] = await Promise.all([sourcesNow(asked), linkedNow()]);
+    if (!own && !linked.length) return '';
+    return flows.retrievePassages({
+      workspaceId: h.input.workspaceId,
+      notebookId: own ? h.input.notebookId : null,
+      query,
+      k,
+      ...(own?.ids?.length && { sourceIds: own.ids }),
+      ...(linked.length && { linked }),
+    });
+  };
+  /**
+   * Every model in a step's chain is checked against the scope now, as a
+   * thread's own model is (engines/select): a model the scope refuses is
+   * skipped for the next, with a fallback event saying why, and a step left
+   * with none stops with the scope's own error. Nothing reaches a refused model.
+   */
+  const allowedChain = async (chain: ModelConfig[]): Promise<ModelConfig[]> => {
+    const scope = await scopeNow();
+    if (!scope) return chain;
+    const ok: ModelConfig[] = [];
+    const refused: { model: string; code: string; reason: string }[] = [];
+    for (const m of chain) {
+      const check = checkEngineAllowed(scope, {
+        engine: isClaudeCodeModel(m.id) ? 'claude_code' : 'gateway',
+        modelId: m.id,
+        local: isLocalModel(m),
+      });
+      if (check.ok) ok.push(m);
+      else refused.push({ model: m.id, code: check.code, reason: check.reason });
+    }
+    const first = refused[0];
+    if (!first) return chain;
+    if (!ok.length) throw engineRefused(first);
+    const to = ok[0] as ModelConfig;
+    for (const r of refused)
+      await h
+        .emit({
+          type: 'fallback',
+          from_model: r.model,
+          to_model: to.id,
+          reason: 'permanent',
+          detail: r.reason,
+        })
+        .catch(() => undefined);
+    return ok;
+  };
   return {
     signal: h.signal,
     input: h.input,
@@ -409,14 +497,9 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
         }),
       sources: async (p) => {
         if (p.mode === 'none') return '';
+        // The conductor searched this turn's passages through the scope and links already.
         if (p.mode === 'retrieved') return h.groundingBlock;
-        return flows.retrievePassages({
-          workspaceId: h.input.workspaceId,
-          notebookId: h.input.notebookId,
-          query: h.input.text,
-          k: 8,
-          sourceIds: p.source_ids?.length ? p.source_ids : (h.mentionedSources ?? []),
-        });
+        return search(h.input.text, 8, p.source_ids?.length ? p.source_ids : h.mentionedSources);
       },
       memory: async (mode) => {
         if (mode === 'none') return '';
@@ -428,9 +511,9 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
         return keep.length ? keep.join('\n') : '';
       },
     }),
-    call: (chain, req, onDelta, opts) =>
+    call: async (chain, req, onDelta, opts) =>
       h.call(
-        chain,
+        await allowedChain(chain),
         req,
         onDelta,
         opts.waitForWakeS !== undefined ? { computeWaitMs: opts.waitForWakeS * 1000 } : {},
@@ -438,16 +521,7 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
     ...(h.tool && { tool: h.tool }),
     ...(h.toolDefs && { toolDefs: h.toolDefs }),
     ...(h.ask && { ask: h.ask }),
-    retrieve: (q) =>
-      flows.retrievePassages({
-        workspaceId: h.input.workspaceId,
-        notebookId: h.input.notebookId,
-        query: q.query,
-        k: q.k,
-        ...((q.sourceIds?.length || h.mentionedSources?.length) && {
-          sourceIds: q.sourceIds?.length ? q.sourceIds : h.mentionedSources,
-        }),
-      }),
+    retrieve: (q) => search(q.query, q.k, q.sourceIds?.length ? q.sourceIds : h.mentionedSources),
     factcheck: (answer) =>
       flows.factcheck(answer, {
         question: h.input.text,
