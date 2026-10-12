@@ -23,7 +23,7 @@
 import type { ClaudeCodeBinding, ClaudeCodeCommand, ClaudeCodeLiveState } from '@nvx/contracts';
 import * as DM from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useState } from 'react';
 import { branchHere } from '../lib/branching';
@@ -35,6 +35,8 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { useBranchLayer } from '../tree/store';
 import { Icon } from '../ui/Icon';
+import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
+import { PlanLimits } from '../usage/PlanLimits';
 import { startClaudeCodeSignIn } from './api';
 import { continueAsBranch, liveWords, modelOptions, tokensShort } from './live';
 import { type CcNotice, EFFORTS, type Effort, isEffort, patchCc, useCcThread } from './store';
@@ -83,7 +85,8 @@ export function CcLiveLine({
   const effort = st.effort ?? (isEffort(live?.effort) ? live.effort : null);
   const model = st.model ?? live?.model ?? null;
   const state = live?.locked_elsewhere ? 'elsewhere' : (live?.state ?? 'idle');
-  const tone = pct === null ? 'calm' : pct >= 90 ? 'over' : pct >= 75 ? 'high' : 'calm';
+  const at = ctx?.compacts_at ?? null;
+  const tone = pct === null ? 'calm' : contextTone(pct, at);
 
   return (
     <div className="cc-live" data-state={state}>
@@ -105,26 +108,10 @@ export function CcLiveLine({
             aria-label={
               pct === null
                 ? 'Claude Code usage'
-                : `Claude Code's context: ${Math.round(pct)}% used. Show usage`
+                : `Claude Code's context: ${contextWords(pct, at)}. Show usage`
             }
           >
-            {pct === null ? (
-              <Icon name="pulse" size={12} />
-            ) : (
-              <>
-                <span
-                  className="cc-live__meter"
-                  role="meter"
-                  aria-label="Claude Code's context used"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(pct)}
-                >
-                  <span style={{ transform: `scaleX(${pct / 100})` }} />
-                </span>
-                <span data-num>{Math.round(pct)}%</span>
-              </>
-            )}
+            {pct === null ? <Icon name="pulse" size={12} /> : <ContextGauge percent={pct} compactsAt={at} />}
           </button>
         </Popover.Trigger>
         <Popover.Portal>
@@ -158,9 +145,14 @@ export function UsageBody({
       <dl className="cc-usage__facts">
         <dt>Context</dt>
         <dd data-num>
-          {ctx
-            ? `${tokensShort(ctx.used_tokens)} of ${tokensShort(ctx.max_tokens)} tokens (${Math.round(ctx.percent)}%)`
-            : 'Shown once the session is open'}
+          {ctx ? (
+            <>
+              <span>{`${tokensShort(ctx.used_tokens)} of ${tokensShort(ctx.max_tokens)} tokens`}</span>
+              <span className="cc-usage__note">{contextWords(ctx.percent, ctx.compacts_at ?? null)}</span>
+            </>
+          ) : (
+            'Shown once the session is open'
+          )}
         </dd>
         <dt>Last turn</dt>
         <dd data-num>
@@ -176,8 +168,14 @@ export function UsageBody({
           </>
         ) : null}
       </dl>
+      <div className="cc-usage__plan">
+        <PlanLimits compact />
+      </div>
       <p className="cc-usage__foot">
-        Claude Code counts its own context and compacts it by itself. Type <code>/compact</code> to do it now.
+        Claude Code counts its own context and compacts it by itself. Type <code>/compact</code> to do it now.{' '}
+        <Link to="/settings/$group" params={{ group: 'usage' }} className="link-btn link-btn--quiet">
+          All usage
+        </Link>
       </p>
     </div>
   );

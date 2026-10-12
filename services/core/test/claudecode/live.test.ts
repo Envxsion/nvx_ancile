@@ -777,6 +777,45 @@ describe('state and commands', () => {
     });
   });
 
+  it('hands rate_limit_event to the plan limits, asks for usage after the turn, and passes the compaction point', async () => {
+    const seen: unknown[] = [];
+    const after: string[] = [];
+    live = makeLive({
+      limits: {
+        observe: async (m) => {
+          seen.push(m);
+        },
+        afterTurn: (h) => after.push(h),
+      },
+    });
+    const answer = textAnswer(S, 'a8', 'ok');
+    bridge.script = (b, h, ...rest) => {
+      b.msg(h, {
+        type: 'rate_limit_event',
+        session_id: S,
+        rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.4 },
+      });
+      return answer(b, h, ...rest);
+    };
+    const sent = await live.send('thr_1', { text: 'x', idempotency_key: 'key-00000012' });
+    await execute(sent.run_id);
+    expect(seen).toEqual([expect.objectContaining({ type: 'rate_limit_event' })]);
+    expect(after).toHaveLength(1);
+    expect(live.openHandle()).toBe(after[0]);
+    bridge.controlAnswers.context_usage = {
+      total_tokens: 50_000,
+      max_tokens: 200_000,
+      percentage: 25,
+      compacts_at: 83.5,
+    };
+    expect((await live.state('thr_1')).context).toEqual({
+      used_tokens: 50_000,
+      max_tokens: 200_000,
+      percent: 25,
+      compacts_at: 83.5,
+    });
+  });
+
   it("merges Claude Code's own list with what NVX Ancile does itself, from a session that writes nothing", async () => {
     bridge.controlAnswers.supported_commands = [
       { name: 'mcp', description: 'Manage MCP servers', argumentHint: '', builtin: true },

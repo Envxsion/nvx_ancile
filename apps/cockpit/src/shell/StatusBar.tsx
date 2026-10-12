@@ -29,6 +29,7 @@ import { useUi } from '../state/ui';
 import { Ticker } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { HueChip, StatusDot, Tip } from '../ui/primitives';
+import { UsageSegment } from '../usage/UsageSegment';
 import { ContextMeter } from './ContextMeter';
 
 /** The node to show: one that is running (or waking), the dearest first; else none. */
@@ -117,6 +118,8 @@ export function StatusBar() {
       ) : null}
 
       {show.context ? <ContextMeter /> : null}
+
+      {show.usage && !demo ? <UsageSegment /> : null}
 
       {demo ? null : <RepoSegment />}
 

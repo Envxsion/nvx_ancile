@@ -52,9 +52,10 @@ export const useNodes = (enabled = true) =>
     refetchInterval: 10_000,
   });
 
-export const useCosts = () =>
+export const useCosts = (enabled = true) =>
   useQuery({
     queryKey: computeKeys.costs,
+    enabled,
     queryFn: () => api.get<CostSummary>('/compute/costs'),
     refetchInterval: 30_000,
   });

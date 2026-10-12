@@ -34,6 +34,7 @@ import type {
   SdkUserMessage,
 } from './sdk-types';
 import { hasLiveSessions } from './sdk-types';
+import { compactsAt, planUsage } from './usage';
 import { log } from './util';
 
 export const PERMISSION_TIMEOUT_MS = 30 * 60_000;
@@ -146,6 +147,7 @@ const CONTROL_OPS = [
   'mcp_status',
   'mcp_reconnect',
   'mcp_toggle',
+  'usage',
 ] as const;
 export type ControlOp = (typeof CONTROL_OPS)[number];
 
@@ -476,8 +478,16 @@ export class SessionManager {
           max_tokens: u.maxTokens,
           percentage: u.percentage,
           model: u.model ?? null,
+          compacts_at: compactsAt(u as unknown as Record<string, unknown>),
         };
       }
+      case 'usage':
+        // Experimental in the SDK: feature-detected and read loosely (usage.ts).
+        try {
+          return await planUsage(l.q);
+        } catch (err) {
+          throw new SessionError('failed', (err as Error).message || 'Claude Code did not report usage');
+        }
       case 'rewind_files':
         return l.q.rewindFiles(s('user_message_id'), { dryRun: args.dry_run === true });
       case 'mcp_status':

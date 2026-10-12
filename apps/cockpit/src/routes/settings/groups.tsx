@@ -314,6 +314,7 @@ export function LayoutGroup() {
   const STATUS: { k: keyof typeof status; label: string }[] = [
     { k: 'model', label: 'Model' },
     { k: 'context', label: 'Context used' },
+    { k: 'usage', label: 'Usage and plan limits' },
     { k: 'node', label: 'Compute node' },
     { k: 'approvals', label: 'Decisions waiting' },
     { k: 'health', label: 'Health' },

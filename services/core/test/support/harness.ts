@@ -64,6 +64,8 @@ import { threadRoutes } from '../../src/threads/routes';
 import { branchSuggester } from '../../src/threads/suggest';
 import { fsTools, Workspace } from '../../src/tools/builtin/fs';
 import { ToolRegistry } from '../../src/tools/registry';
+import { MemoryUsageSource } from '../../src/usage/report';
+import { usageRoutes } from '../../src/usage/routes';
 
 export const WORKSPACE_ID = 'wsp_01TESTWORKSPACE000000000000';
 export const USER_ID = 'usr_01TESTUSER00000000000000000';
@@ -82,6 +84,8 @@ export interface HarnessOptions {
   memory?: boolean;
   /** Model catalogues for Settings → Models (recorded fixtures). */
   catalogue?: import('../../src/gateway/catalogue').CatalogueSource;
+  /** The clock the usage report cuts its range with. */
+  now?: () => number;
   /** Knowledge's /evidence for fact-checks; without it, every claim lacks evidence. */
   kn?: Pick<KnowledgeClient, 'post'>;
   /** Notebooks in grounded mode: their answers are fact-checked when they finish. */
@@ -414,6 +418,15 @@ export async function harness(opts: HarnessOptions = {}) {
         runpod: opts.credentials?.runpod,
       }),
       stateRoutes(new MemoryStateStore()),
+      usageRoutes({
+        workspaceId: WORKSPACE_ID,
+        source: new MemoryUsageSource({
+          messages: () => repo.msgs.values(),
+          workspaceOf: (id) => repo.threads.get(id)?.workspace_id ?? null,
+          runKind: (id) => runs.runs.get(id)?.kind ?? null,
+        }),
+        ...(opts.now && { now: opts.now }),
+      }),
       ...(memory ? [memoryRoutes({ service: memory, threads: repo, registry })] : []),
       trustRoutes({
         workspaceId: WORKSPACE_ID,

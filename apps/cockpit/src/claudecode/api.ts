@@ -119,6 +119,11 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
     case 'thread':
       if (e.thread_id) void qc.invalidateQueries({ queryKey: keys.thread(e.thread_id) });
       void qc.invalidateQueries({ queryKey: CC_KEYS.sessions });
+      // A turn ended or a session synced: the totals in Settings → Usage moved.
+      void qc.invalidateQueries({ queryKey: ['usage', 'report'] });
+      break;
+    case 'limits':
+      void qc.invalidateQueries({ queryKey: ['usage', 'plan-limits'] });
       break;
     default:
       break;

@@ -36,6 +36,7 @@ import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './bui
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
+import { PlanLimits } from './claudecode/plan-limits';
 import { claudeCodeRoutes } from './claudecode/routes';
 import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
@@ -136,6 +137,8 @@ import { threadRoutes } from './threads/routes';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
+import { PgUsageSource } from './usage/report';
+import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
 
@@ -458,7 +461,16 @@ async function main() {
     traceOf: (threadId) => claudeLive.traceOf(threadId),
     sourceIdsOf: (threadId) => claudeLive.sourceIdsOf(threadId),
   });
+  const planLimits = new PlanLimits({
+    settings,
+    bridge: claudeCode.bridge,
+    cli: () => claudeCode.service.cliPath(),
+    env: () => claudeCode.service.cliEnv(),
+    openHandle: () => claudeLive.openHandle(),
+    bus: events,
+  });
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
+    limits: planLimits,
     workspaceId: owner.workspaceId,
     userId: owner.userId,
     bridge: claudeCode.bridge,
@@ -1062,6 +1074,11 @@ async function main() {
       toolRoutes({ tools, servers: mcpServers }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
+      usageRoutes({
+        workspaceId: owner.workspaceId,
+        source: new PgUsageSource(sql),
+        limits: () => planLimits,
+      }),
       labRoutes({
         engine,
         repo: threads,

@@ -117,6 +117,8 @@ export function pathBudget(opts: {
         }
       : null,
     compactable: cut >= 0 ? cut + 1 : 0,
+    warn_at: WARN_RATIO,
+    compacts_at: CRITICAL_RATIO,
   };
 }
 

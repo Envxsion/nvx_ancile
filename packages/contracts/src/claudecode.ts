@@ -244,7 +244,13 @@ export const ClaudeCodeLiveState = z.object({
   cwd: z.string().nullable(),
   /** Claude Code's own count of its context, not Ancile's estimate. */
   context: z
-    .object({ used_tokens: z.number().int(), max_tokens: z.number().int(), percent: z.number() })
+    .object({
+      used_tokens: z.number().int(),
+      max_tokens: z.number().int(),
+      percent: z.number(),
+      /** Where Claude Code compacts by itself, as a percent of the window; null when it will not. */
+      compacts_at: z.number().nullable().optional(),
+    })
     .nullable(),
 });
 export type ClaudeCodeLiveState = z.infer<typeof ClaudeCodeLiveState>;
