@@ -16,6 +16,9 @@
  *           |  keeps your own; a level chooses one with `tool_preset`,
  *           |  which must exist when chosen (tool_preset.not_found). A
  *           |  preset in use cannot be deleted (tool_preset.in_use).
+ *           |  When a change stops data leaving the machine (private,
+ *           |  or data_leaves_machine off), what had already left is
+ *           |  recorded (history.ts) and shown with the scope.
  * ------------------------------------------------------------------
  */
 
@@ -36,6 +39,7 @@ import { ulid } from 'ulid';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
+import type { SharedHistory } from './history';
 import { allPresets, getEffectiveScope, listPresets } from './index';
 import { privateConflicts, widenedFields } from './resolve';
 import type { ScopeStore } from './store';
@@ -44,7 +48,13 @@ export interface ScopeRouteDeps {
   store: ScopeStore;
   /** A scope changed: drop anything cached from the old one. */
   onChange?: (ref: { notebookId?: string; threadId?: string }) => void;
+  /** What had left the machine before a level became private or local only. */
+  history?: SharedHistory;
 }
+
+/** May data leave the machine under this effective scope? */
+const leaves = (e: { private: boolean; scope: { data_leaves_machine: boolean } }) =>
+  e.scope.data_leaves_machine && !e.private;
 
 const FIELD_NAMES: Record<ScopeField, string> = {
   engines: 'engines',
@@ -127,10 +137,11 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
   const { store } = deps;
 
   const notebookOut = async (id: string): Promise<StoredScope> => {
-    const [stored, priv, effective] = await Promise.all([
+    const [stored, priv, effective, shared] = await Promise.all([
       store.getPatch('notebook', id),
       store.isPrivate(id),
       getEffectiveScope(store, { notebookId: id }),
+      deps.history?.list([{ level: 'notebook', refId: id }]),
     ]);
     return {
       level: 'notebook',
@@ -139,6 +150,7 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
       patch: stored.patch,
       effective,
       updated_at: stored.updated_at,
+      ...(shared && { shared_before_local: shared }),
     };
   };
 
@@ -147,6 +159,10 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
       store.getPatch('thread', id),
       getEffectiveScope(store, { threadId: id }),
     ]);
+    const shared = await deps.history?.list([
+      { level: 'thread', refId: id },
+      ...(effective.notebook_id ? [{ level: 'notebook' as const, refId: effective.notebook_id }] : []),
+    ]);
     return {
       level: 'thread',
       id,
@@ -154,6 +170,7 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
       patch: stored.patch,
       effective,
       updated_at: stored.updated_at,
+      ...(shared && { shared_before_local: shared }),
     };
   };
 
@@ -224,13 +241,17 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     await needNotebook(id);
     const { private: priv, ...patch } = await body(c, PatchNotebookScopeRequest);
     await needPreset(patch.tool_preset);
-    const willBePrivate = priv ?? (await store.isPrivate(id));
+    const wasPrivate = await store.isPrivate(id);
+    const willBePrivate = priv ?? wasPrivate;
     if (willBePrivate) {
       const conflicts = privateConflicts(patch);
       if (conflicts.length) throw privateError(conflicts);
     }
+    const before = deps.history ? await getEffectiveScope(store, { notebookId: id }) : null;
     if (priv !== undefined) await store.setPrivate(id, priv);
     if (Object.keys(patch).length) await store.mergePatch('notebook', id, patch);
+    if (before && leaves(before) && !leaves(await getEffectiveScope(store, { notebookId: id })))
+      await deps.history?.record('notebook', id, willBePrivate && !wasPrivate ? 'private' : 'local_only');
     deps.onChange?.({ notebookId: id });
     return c.json(await notebookOut(id));
   });
@@ -258,7 +279,10 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     const parent = await getEffectiveScope(store, { notebookId });
     const wider = widenedFields(parent.scope, patch);
     if (wider.length) throw widenError(wider);
+    const before = deps.history ? await getEffectiveScope(store, { threadId: id }) : null;
     await store.mergePatch('thread', id, patch);
+    if (before && leaves(before) && !leaves(await getEffectiveScope(store, { threadId: id })))
+      await deps.history?.record('thread', id, 'local_only');
     deps.onChange?.({ threadId: id });
     return c.json(await threadOut(id));
   });
