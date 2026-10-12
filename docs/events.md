@@ -46,7 +46,8 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `mcp.server_changed` | `server_id`, `name`, `status` (connecting, connected, error, disabled, removed), `tools`, `detail?` | Admin → Plugins server list; also sent when a server's tools change |
 | `suggestion` | `kind` (branch, compact, model, duplicate_source, stale_source), `ref`, `message` | A quiet chip in context |
 | `repo.changed` | `repo_id`, `branch`, `previous_branch?`, `ahead`, `behind`, `changed` | Status bar branch, Repo panel; a branch switch also sends a notification |
-| `claude_code.changed` | `what` (install, auth, sessions, thread, limits), `thread_id?`, `detail?` | Settings → Claude Code, the session list and Settings → Usage. `limits`: Claude Code's plan limits moved (`GET /claude-code/plan-limits`). `sessions` with `detail` `importing:<done>/<total>` while Auto-import runs, then `imported:<n>` once (only when n > 0); no detail means the list changed. `thread` names a thread that was brought in or synced. `install` carries the install state, `sdk` or `verification` in `detail` |
+| `claude_code.changed` | `what` (install, auth, sessions, thread, limits), `thread_id?`, `detail?`, `progress?` | Settings → Claude Code, the session list and Settings → Usage. `limits`: Claude Code's plan limits moved (`GET /claude-code/plan-limits`). `sessions` with `detail` `importing:<done>/<total>` and `progress` `{ done, total, project, paused }` while Auto-import runs (`paused` while you type), then `imported:<n>` with `progress: null` once at the end of every pass; no detail means the list changed. `thread` names a thread that was brought in or synced. `install` carries the install state, `sdk` or `verification` in `detail` |
+| `activity.changed` | `running` | The status bar's count and the Activity panel (docs/activity.md): sent when the number of things running moves |
 
 ## Client example
 

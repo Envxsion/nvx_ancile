@@ -187,6 +187,43 @@ export class SessionHolders {
     return byFolder;
   }
 
+  /**
+   * Every session a Claude Code process outside NVX Ancile holds, among
+   * `sessions` (newest first is best): one read of the process list. A
+   * process naming a session holds it; one in a session's folder that names
+   * none holds the newest session there written since it started.
+   */
+  async heldSessions(sessions: HolderQuery[]): Promise<Map<string, SessionHolder>> {
+    const out = new Map<string, SessionHolder>();
+    if (!sessions.length) return out;
+    const procs = await this.claudeProcesses();
+    if (!procs.length) return out;
+    const known = new Set(sessions.map((s) => s.sessionId));
+    const byFolder = new Map<string, HolderQuery[]>();
+    for (const s of sessions) {
+      if (!s.cwd) continue;
+      const k = cwdKey(s.cwd, this.platform);
+      byFolder.set(k, [...(byFolder.get(k) ?? []), s]);
+    }
+    for (const p of procs) {
+      const cmd = p.cmdline ?? '';
+      const named = namedSessions(cmd);
+      const hit = [...named, ...words(cmd)].find((w) => known.has(w));
+      if (hit) {
+        out.set(hit, { pid: p.pid, how: 'session' });
+        continue;
+      }
+      if (named.length || !p.cwd) continue;
+      const here = byFolder.get(cwdKey(p.cwd, this.platform)) ?? [];
+      const newest = here
+        .filter((s) => !out.has(s.sessionId))
+        .filter((s) => !(p.startedAt && s.modifiedMs && s.modifiedMs < p.startedAt - 1_000))
+        .sort((a, b) => (b.modifiedMs ?? 0) - (a.modifiedMs ?? 0))[0];
+      if (newest) out.set(newest.sessionId, { pid: p.pid, how: 'folder' });
+    }
+    return out;
+  }
+
   /** Forget the cached list (tests, and after a turn). */
   invalidate(): void {
     this.cache = null;

@@ -189,3 +189,36 @@ describe("the system's process list", () => {
     expect(etimeSeconds('1-02:03:04')).toBe(93_784);
   });
 });
+
+describe('every session held, in one look', () => {
+  it('names held sessions, and a folder-only process holds the newest session written since it started', async () => {
+    const S2 = '7b0c4b2e-1111-4a6e-9f00-000000000002';
+    const S3 = '7b0c4b2e-1111-4a6e-9f00-000000000003';
+    const S4 = '7b0c4b2e-1111-4a6e-9f00-000000000004';
+    const h = new SessionHolders({
+      lister: {
+        list: async () => [
+          proc(1, 9, `claude --resume ${S}`),
+          // A terminal with no session id, in /code/app (macOS and Linux tell its folder).
+          proc(2, 9, 'claude', { cwd: '/code/app', startedAt: T0 - 60_000 }),
+          proc(3, 9, `claude -r ${S4}`, { cwd: '/code/other' }),
+          // NVX Ancile's own, never counted.
+          proc(4, SELF, `claude --resume ${S3}`),
+        ],
+      },
+      selfPid: SELF,
+      platform: 'linux',
+      now: () => T0,
+    });
+    const held = await h.heldSessions([
+      { sessionId: S, cwd: '/code/app', modifiedMs: T0 - 1_000 },
+      { sessionId: S2, cwd: '/code/app', modifiedMs: T0 - 5_000 },
+      { sessionId: S3, cwd: '/code/app', modifiedMs: T0 - 500_000 },
+    ]);
+    expect(Object.fromEntries([...held].map(([k, v]) => [k, v.how]))).toEqual({
+      [S]: 'session',
+      [S2]: 'folder',
+    });
+    expect(await h.heldSessions([])).toEqual(new Map());
+  });
+});

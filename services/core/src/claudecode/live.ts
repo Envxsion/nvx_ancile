@@ -448,6 +448,11 @@ export class ClaudeCodeLive {
     this.byHandle.clear();
   }
 
+  /** When a turn from NVX Ancile last wrote this session (ms), or null: its writes are not someone else's. */
+  ownWriteAt(sessionId: string): number | null {
+    return this.ownWrites.get(sessionId) ?? null;
+  }
+
   /** Is a live turn writing this session now? */
   writing(sessionId: string): boolean {
     for (const l of this.lives.values())

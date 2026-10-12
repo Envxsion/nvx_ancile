@@ -28,6 +28,8 @@ import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { AncileError, CLAUDE_CODE_PROVIDER, isClaudeCodeModel, type SearchResponse } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
+import { createActivity } from './activity';
+import { activityRoutes } from './activity/routes';
 import { createApp } from './app';
 import {
   AutomationRunner,
@@ -1119,6 +1121,20 @@ async function main() {
     version: VERSION,
     schema: schemaNow,
   };
+  // What is running (docs/activity.md): runs, Claude Code sessions elsewhere, subagents, shells.
+  const activity = createActivity({
+    sql,
+    workspaceId: owner.workspaceId,
+    runs: runStore,
+    threads,
+    bus: events,
+    claude: {
+      service: claudeCode.service,
+      store: claudeCodeStore,
+      holders: claudeCode.holders,
+      ownWriteAt: (id) => claudeLive.ownWriteAt(id),
+    },
+  });
   const app = createApp({
     version: VERSION,
     serviceToken: env.ANCILE_SERVICE_TOKEN,
@@ -1315,6 +1331,7 @@ async function main() {
       toolRoutes({ tools, servers: mcpServers, guard: mcpGuard }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
+      activityRoutes({ activity }),
       engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),
       usageRoutes({
         workspaceId: owner.workspaceId,
@@ -1344,6 +1361,7 @@ async function main() {
   // Claude Code sessions come in by themselves (Auto-import, on by default),
   // shortly after start and only when Claude Code is installed here.
   claudeCode.service.startAuto();
+  activity.start();
   // ---- Engines (docs/engines.md): the front door, and Claude Code as a model ----
   routingClient.register(
     CLAUDE_CODE_PROVIDER,
@@ -1411,6 +1429,7 @@ async function main() {
     mirror?.stop();
     await labMcp?.close();
     repos.stop();
+    activity.stop();
     claudeLive.stop();
     claudeCode.stop();
     await mcp.stop();

@@ -267,6 +267,15 @@ Kinds: `ask_model` (`prompt`, `notebook_id?`, `model?`), `run_flow` (`flow_id`, 
 
 A schedule that can't be read is `automation.bad_schedule`; one more often than every 5 minutes is `automation.too_often`. Changes are kept in Core's database, never written to the YAML file.
 
+### Activity
+
+Read-only (docs/activity.md). Nothing here starts, stops or signals anything.
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| GET | `/activity` | | `ActivityResponse`: `items[]` (closed shape: `id`, `kind` run, claude_session, subagent or shell, `title`, `detail`, `state` running, waiting, finished, failed or stopped, times, `thread_id`, `thread_title`, `message_id`, run `run_kind`, `run_status`, `progress {done,total}`, Claude Code `session_id`, `project`, `held` terminal or recent), `running`, `import` (the background import's progress or null), `at` |
+| POST | `/activity/typing` | `{ ms? }` (0 to 10,000) | 204. The person is typing: a background import of Claude Code sessions waits. The Cockpit sends it only while an import runs, at most every 1.5 s, and never what was typed |
+
 ## Core ↔ Knowledge (`/kn/v1`)
 
 Internal, bearer `ANCILE_SERVICE_TOKEN`.
