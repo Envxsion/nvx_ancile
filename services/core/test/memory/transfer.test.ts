@@ -235,7 +235,7 @@ describe('memory import', () => {
     const r = await h.call<MemoryImportPreview>('POST', '/memory/imports/preview', {
       origin: 'claude_code',
       filename: 'CLAUDE.md',
-      text: fixture('CLAUDE.md'),
+      text: fixture('claude-code-memory.md'), // CLAUDE.md is gitignored repo-wide
       target: { kind: 'notebook', notebook_id: 'nbk_grant' },
     });
     expect(r.status).toBe(200);
