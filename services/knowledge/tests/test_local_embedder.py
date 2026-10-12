@@ -7,7 +7,7 @@ nothing is downloaded.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,8 +20,8 @@ AUTH = {"authorization": "Bearer test-service-token"}
 
 
 class FakeLocal:
-    cached: set[str] = set()
-    calls: list[tuple[str, bool]] = []
+    cached: ClassVar[set[str]] = set()
+    calls: ClassVar[list[tuple[str, bool]]] = []
 
     def __init__(self, model_name: str, cache_dir: str, *, local_only: bool = False) -> None:
         FakeLocal.calls.append((model_name, local_only))
