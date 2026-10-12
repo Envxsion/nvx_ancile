@@ -23,3 +23,7 @@ A node is **ephemeral and stateless**. It serves models over an OpenAI-compatibl
 - Heartbeats (`POST /control/v1/nodes/heartbeat`, authenticated with `CONTROLLER_NODE_TOKEN`, never the Controller's own token) put the node's progress on the confirmation chain ("fetching weights", "loading into GPU memory") and register the served model as soon as it is up. Without them the Controller still polls the provider API every 30 s.
 - The watchdog treats a missing heartbeat as "Controller unreachable" by design. If you run nodes without a Controller, it becomes the only auto-stop.
 - The pinned vLLM version (`0.11.0`) is a default. Check the current release and model support before production use.
+
+## vLLM defaults
+
+`vllm-defaults.sh` adds, unless `ANCILE_VLLM_ARGS` already sets them: `--enable-prompt-tokens-details` (cached prompt tokens are reported in usage), and on a GPU with 12 GB or less `--gpu-memory-utilization 0.85` (0.80 at 10 GB or less) and `--enforce-eager`. After a failed start the status page shows vLLM's first error lines and its last 80 lines.
