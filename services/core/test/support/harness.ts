@@ -42,6 +42,7 @@ import { MemoryProposalStore } from '../../src/memory/proposals';
 import { GitMemoryProvider } from '../../src/memory/repo';
 import { memoryRoutes } from '../../src/memory/routes';
 import { DEFAULT_MEMORY_CONFIG, MemoryService } from '../../src/memory/service';
+import { MemoryTransfer } from '../../src/memory/transfer';
 import { traceRoutes } from '../../src/obs/routes';
 import { MemoryObsStore, ObsPipeline } from '../../src/obs/store';
 import { BuiltinPolicy, loadCedarEvaluator } from '../../src/permissions/cedar';
@@ -82,6 +83,9 @@ export interface HarnessOptions {
   tester?: ProviderTester;
   /** A real git memory repository (seeded from memory-template/) and its routes. */
   memory?: boolean;
+  /** Memory export and import: the notebooks there are, and those whose scope keeps memory out. */
+  memoryNotebooks?: import('../../src/memory/transfer').TransferNotebook[];
+  memoryReadOnly?: string[];
   /** Model catalogues for Settings → Models (recorded fixtures). */
   catalogue?: import('../../src/gateway/catalogue').CatalogueSource;
   /** The clock the usage report cuts its range with. */
@@ -166,16 +170,19 @@ export async function harness(opts: HarnessOptions = {}) {
   const gate = createGate({ policy, store: perms, workspaceRoot: workspace.root, fs: workspace.probe() });
 
   let memory: MemoryService | undefined;
+  let memoryTransfer: MemoryTransfer | undefined;
   if (opts.memory) {
     const memoryProvider = new GitMemoryProvider({
       root: join(dir, 'memory'),
       author: { name: 'NVX Ancile', email: 'memory@ancile.local' },
       template: MEMORY_TEMPLATE,
     });
+    const memoryIndex = new MemoryIndex(memoryProvider);
+    const memoryProposals = new MemoryProposalStore();
     memory = new MemoryService({
       provider: memoryProvider,
-      index: new MemoryIndex(memoryProvider),
-      proposals: new MemoryProposalStore(),
+      index: memoryIndex,
+      proposals: memoryProposals,
       config: DEFAULT_MEMORY_CONFIG,
       user: { name: 'You', email: 'you@ancile.local' },
       settings,
@@ -185,6 +192,15 @@ export async function harness(opts: HarnessOptions = {}) {
       notebook: async (id) => ({ id, slug: 'test-notebook', title: 'Test notebook' }),
     });
     await memory.start();
+    memoryTransfer = new MemoryTransfer({
+      service: memory,
+      provider: memoryProvider,
+      index: memoryIndex,
+      proposals: memoryProposals,
+      user: { name: 'You', email: 'you@ancile.local' },
+      notebooks: async () => opts.memoryNotebooks ?? [],
+      memoryWritable: async (id) => !opts.memoryReadOnly?.includes(id),
+    });
   }
 
   // Routes and the reconciler reach whichever worker is current (restart() swaps it).
@@ -429,7 +445,16 @@ export async function harness(opts: HarnessOptions = {}) {
         }),
         ...(opts.now && { now: opts.now }),
       }),
-      ...(memory ? [memoryRoutes({ service: memory, threads: repo, registry })] : []),
+      ...(memory
+        ? [
+            memoryRoutes({
+              service: memory,
+              threads: repo,
+              registry,
+              ...(memoryTransfer && { transfer: memoryTransfer }),
+            }),
+          ]
+        : []),
       trustRoutes({
         workspaceId: WORKSPACE_ID,
         repo,

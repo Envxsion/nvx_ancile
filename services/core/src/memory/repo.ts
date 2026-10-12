@@ -465,6 +465,67 @@ export class GitMemoryProvider implements MemoryProvider {
     });
   }
 
+  /**
+   * Several files in one commit (an import accepted all at once). `change`
+   * runs inside the write queue with each file's text now (null: not there
+   * yet), so nothing written meanwhile is lost; it answers the new text by
+   * path. Files whose text did not change are left out of the commit.
+   */
+  async writeMany(
+    paths: string[],
+    change: (current: Map<string, string | null>) => Promise<Map<string, string>> | Map<string, string>,
+    message: string,
+    author: { name: string; email: string },
+  ): Promise<{ version: string; changed: string[] }> {
+    await this.ensure();
+    const safe = [...new Set(paths.map((p) => safeMemoryPath(p)))];
+    return this.serial(async () => {
+      const current = new Map<string, string | null>();
+      for (const p of safe) current.set(p, await readFile(this.abs(p), 'utf8').catch(() => null));
+      const next = await change(current);
+      const changed: string[] = [];
+      for (const [p, content] of next) {
+        if (!current.has(p)) throw badPath(p);
+        if (current.get(p) === content) continue;
+        const file = this.abs(p);
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, content, 'utf8');
+        changed.push(p);
+      }
+      if (changed.length) {
+        await this.git.add(changed);
+        await this.git.commit(message, changed, { '--author': `${author.name} <${author.email}>` });
+      }
+      return { version: (await this.git.revparse(['HEAD'])).trim(), changed };
+    });
+  }
+
+  /** The files as committed now, as a zip (git archive); only `paths` when given. */
+  async archiveZip(paths?: string[]): Promise<Buffer> {
+    await this.ensure();
+    const args = ['archive', '--format=zip', 'HEAD'];
+    if (paths) args.push('--', ...paths.map((p) => safeMemoryPath(p)));
+    const { stdout } = await run('git', args, {
+      cwd: this.root,
+      encoding: 'buffer',
+      maxBuffer: 512 * 1024 * 1024,
+    });
+    return stdout;
+  }
+
+  /** The whole repository, history included, as one file (git bundle). */
+  async bundle(): Promise<Buffer> {
+    await this.ensure();
+    const dir = await mkdtemp(join(tmpdir(), 'ancile-bundle-'));
+    try {
+      const file = join(dir, 'memory.bundle');
+      await run('git', ['bundle', 'create', file, '--all'], { cwd: this.root });
+      return await readFile(file);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
   /** Integrity for diagnostics: git's own check, and every file's front matter parses. */
   async check(): Promise<{ ok: boolean; problems: string[] }> {
     const problems: string[] = [];

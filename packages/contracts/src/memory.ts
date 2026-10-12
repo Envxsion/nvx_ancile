@@ -6,7 +6,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  The shapes the Cockpit and Core agree on for memory:
  *           |  files and their entries, history and diffs, the inbox
- *           |  of proposals, and the pack injected into a model call.
+ *           |  of proposals, the pack injected into a model call, and
+ *           |  moving memory in and out (export; import for review).
  *  Note     |  `MemoryProvenance` is what an assistant message carries
  *           |  in provenance.memory; /explain and the "why" panel read
  *           |  exactly this shape.
@@ -123,10 +124,19 @@ export const ProposalKind = z.enum([
   'project_finding',
   'model_quirk',
   'manual',
+  /** Brought in from an export (NVX Ancile, Claude Code, ChatGPT, notes): always waits for a yes. */
+  'imported',
 ]);
 export const ProposalOp = z.enum(['add', 'update', 'supersede']);
 export const ProposalStatus = z.enum(['proposed', 'applied', 'rejected', 'auto_applied', 'undone']);
-export const ProposalProvenance = z.enum(['user_message', 'run_outcome', 'tool_output', 'source_content']);
+export const ProposalProvenance = z.enum([
+  'user_message',
+  'run_outcome',
+  'tool_output',
+  'source_content',
+  /** A file or a paste the person chose to import: outside content, so only ever proposed. */
+  'import',
+]);
 
 export const MemoryProposal = z.object({
   id: z.string(),
@@ -154,6 +164,8 @@ export const MemoryProposal = z.object({
   commit_sha: z.string().nullable(),
   created_at: z.string(),
   decided_at: z.string().nullable(),
+  /** The import it came from (kind imported); absent otherwise. */
+  import_id: z.string().nullable().optional(),
 });
 export type MemoryProposal = z.infer<typeof MemoryProposal>;
 
@@ -205,3 +217,130 @@ export const MemorySettings = z
   .object({ capture: z.enum(['auto_confident', 'propose_all', 'off']) })
   .strict();
 export type MemorySettings = z.infer<typeof MemorySettings>;
+
+/* ---- Export and import (ROADMAP final run, track E) ------------------------------ */
+
+/**
+ * zip: the files as they are now (git archive). bundle: the whole repository,
+ * history included (git bundle). markdown: one readable file. Exports are made
+ * on this computer and handed to the browser to save; nothing is uploaded.
+ */
+export const MemoryExportFormat = z.enum(['zip', 'bundle', 'markdown']);
+export type MemoryExportFormat = z.infer<typeof MemoryExportFormat>;
+
+/** What an export would hold, so the Cockpit can say before you save it. */
+export const MemoryExportPlan = z.object({
+  head: z.string(),
+  files: z.number().int().nonnegative(),
+  entries: z.number().int().nonnegative(),
+  notebooks: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      path: z.string(),
+      /** PROJECTS/<slug>.md exists. */
+      exists: z.boolean(),
+      private: z.boolean(),
+    }),
+  ),
+});
+export type MemoryExportPlan = z.infer<typeof MemoryExportPlan>;
+
+/** Where an import comes from. Only open, documented or plain-text formats. */
+export const MemoryImportOrigin = z.enum(['ancile', 'claude_code', 'chatgpt', 'markdown']);
+export type MemoryImportOrigin = z.infer<typeof MemoryImportOrigin>;
+
+/** Which memory file the entries go to (an NVX Ancile export keeps its own paths). */
+export const MemoryImportTarget = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user') }).strict(),
+  z.object({ kind: z.literal('agents') }).strict(),
+  z.object({ kind: z.literal('notebook'), notebook_id: z.string().min(1) }).strict(),
+]);
+export type MemoryImportTarget = z.infer<typeof MemoryImportTarget>;
+
+export const MemoryImportRequest = z
+  .object({
+    origin: MemoryImportOrigin,
+    /** The file's name as picked, for the commit message. Never a path on this computer. */
+    filename: z.string().max(255).optional(),
+    /** A text file or a paste (Markdown, CLAUDE.md, a ChatGPT list or JSON). */
+    text: z.string().max(5_000_000).optional(),
+    /** A zip or a git bundle made by NVX Ancile's export, base64. */
+    data_base64: z.string().max(28_000_000).optional(),
+    target: MemoryImportTarget.default({ kind: 'user' }),
+    /** On create: the preview items to propose, by index. Absent: every new one. */
+    include: z.array(z.number().int().nonnegative()).max(5_000).optional(),
+  })
+  .strict()
+  .refine((r) => !!r.text?.trim() || !!r.data_base64, { message: 'send text or data_base64' });
+export type MemoryImportRequest = z.infer<typeof MemoryImportRequest>;
+
+export const MemoryImportItem = z.object({
+  index: z.number().int().nonnegative(),
+  target_path: z.string(),
+  section: z.string(),
+  text: z.string(),
+  /** new: not remembered yet. duplicate: already in memory. repeated: earlier in this import. */
+  status: z.enum(['new', 'duplicate', 'repeated']),
+  /** The entry was longer than an entry may be, and was cut. */
+  clipped: z.boolean(),
+});
+export type MemoryImportItem = z.infer<typeof MemoryImportItem>;
+
+export const MemoryImportPreview = z.object({
+  origin: MemoryImportOrigin,
+  /** "ChatGPT memory", "CLAUDE.md", "NVX Ancile export". */
+  label: z.string(),
+  filename: z.string().nullable(),
+  items: z.array(MemoryImportItem),
+  /** Lines left out because they are not entries (code, tables, Claude Code @imports). */
+  skipped: z.number().int().nonnegative(),
+  /** Plain sentences about what was left out or changed. */
+  notes: z.array(z.string()),
+  files: z.array(z.object({ path: z.string(), exists: z.boolean() })),
+});
+export type MemoryImportPreview = z.infer<typeof MemoryImportPreview>;
+
+export const MemoryImportSummary = z.object({
+  id: z.string(),
+  origin: MemoryImportOrigin,
+  label: z.string(),
+  filename: z.string().nullable(),
+  created_at: z.string(),
+  /** reviewing: suggestions still wait for a yes or a no. */
+  status: z.enum(['reviewing', 'done']),
+  counts: z.object({
+    proposed: z.number().int().nonnegative(),
+    applied: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    undone: z.number().int().nonnegative(),
+  }),
+});
+export type MemoryImportSummary = z.infer<typeof MemoryImportSummary>;
+
+export const MemoryImportView = MemoryImportSummary.extend({ proposals: z.array(MemoryProposal) });
+export type MemoryImportView = z.infer<typeof MemoryImportView>;
+
+export const MemoryImportList = z.object({ items: z.array(MemoryImportSummary) });
+export type MemoryImportList = z.infer<typeof MemoryImportList>;
+
+/** Accept some or all of an import's suggestions: they are committed together, once. */
+export const MemoryImportDecision = z
+  .object({
+    accept: z.union([z.literal('all'), z.array(z.string()).max(5_000)]).default([]),
+    /** rest: everything still waiting that was not accepted. */
+    reject: z.union([z.literal('rest'), z.array(z.string()).max(5_000)]).default([]),
+    /** Accept with the text edited first, by proposal id. */
+    edits: z.record(z.string(), z.string().min(1).max(2_000)).optional(),
+  })
+  .strict();
+export type MemoryImportDecision = z.infer<typeof MemoryImportDecision>;
+
+export const MemoryImportDecisionResult = z.object({
+  import: MemoryImportView,
+  /** The one commit the accepted entries went into; null when nothing was accepted. */
+  commit_sha: z.string().nullable(),
+  applied: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+});
+export type MemoryImportDecisionResult = z.infer<typeof MemoryImportDecisionResult>;

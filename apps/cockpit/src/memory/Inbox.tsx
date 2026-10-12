@@ -29,6 +29,7 @@ const KIND: Record<MemoryProposal['kind'], string> = {
   project_finding: 'A finding',
   model_quirk: 'A model quirk',
   manual: 'An entry',
+  imported: 'An imported entry',
 };
 
 const OP: Record<MemoryProposal['op'], string> = {

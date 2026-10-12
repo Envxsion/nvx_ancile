@@ -11,11 +11,15 @@
  *           |  exactly what the next model call would be given.
  *  How      |  File paths ride in the URL after /memory/files/ and
  *           |  /memory/history/, checked by the repository before they
- *           |  touch the disk.
+ *           |  touch the disk. Export (GET /memory/export) and import
+ *           |  (/memory/imports…) are transfer.ts.
  * ------------------------------------------------------------------
  */
 
 import {
+  MemoryExportFormat,
+  MemoryImportDecision,
+  MemoryImportRequest,
   MemoryRevertRequest,
   MemorySettings,
   ProposalDecisionRequest,
@@ -31,9 +35,12 @@ import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { ThreadRepo } from '../threads/repo';
 import type { MemoryService } from './service';
+import type { MemoryTransfer } from './transfer';
 
 export interface MemoryRouteDeps {
   service: MemoryService;
+  /** Export and import (track E); the routes are absent without it. */
+  transfer?: MemoryTransfer;
   threads?: Pick<ThreadRepo, 'getThread' | 'messages'>;
   registry?: Pick<ModelRegistry, 'chain' | 'get'>;
 }
@@ -156,6 +163,42 @@ export function memoryRoutes(deps: MemoryRouteDeps) {
       }),
     );
   });
+
+  const transfer = deps.transfer;
+  if (!transfer) return r;
+
+  /** What an export would hold: files, entries, and which notebooks are private. */
+  r.get('/memory/export/plan', async (c) => c.json(await transfer.plan()));
+
+  /** The export itself, as a download. Made here; nothing is uploaded anywhere. */
+  r.get('/memory/export', async (c) => {
+    const format = MemoryExportFormat.safeParse(c.req.query('format') ?? 'zip');
+    if (!format.success) throw badRequest('format: zip, bundle or markdown');
+    const priv = c.req.query('private') ?? 'include';
+    if (priv !== 'include' && priv !== 'leave_out') throw badRequest('private: include or leave_out');
+    const f = await transfer.export({
+      format: format.data,
+      notebookId: c.req.query('notebook') || null,
+      leaveOutPrivate: priv === 'leave_out',
+    });
+    return c.body(new Uint8Array(f.body), 200, {
+      'content-type': f.contentType,
+      'content-disposition': `attachment; filename="${f.filename}"`,
+      'cache-control': 'no-store',
+    });
+  });
+
+  r.post('/memory/imports/preview', async (c) =>
+    c.json(await transfer.preview(await body(c, MemoryImportRequest))),
+  );
+  r.post('/memory/imports', async (c) =>
+    c.json(await transfer.create(await body(c, MemoryImportRequest)), 201),
+  );
+  r.get('/memory/imports', async (c) => c.json(await transfer.list()));
+  r.get('/memory/imports/:id', async (c) => c.json(await transfer.view(c.req.param('id'))));
+  r.post('/memory/imports/:id/decide', async (c) =>
+    c.json(await transfer.decide(c.req.param('id'), await body(c, MemoryImportDecision))),
+  );
 
   return r;
 }

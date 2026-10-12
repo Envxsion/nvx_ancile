@@ -45,7 +45,7 @@ export const memoryKeys = {
 const enc = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 export const refreshMemory = () => queryClient.invalidateQueries({ queryKey: memoryKeys.all });
 
-export type MemoryTab = 'files' | 'inbox' | 'history';
+export type MemoryTab = 'files' | 'inbox' | 'history' | 'move';
 
 interface MemoryUi {
   tab: MemoryTab;

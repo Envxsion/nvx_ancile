@@ -8,7 +8,7 @@
  *           |  files, what waits for your yes, and the history of every
  *           |  change. And the one choice that governs it: how freely
  *           |  it learns.
- *  How      |  Admin → Memory. Three tabs (1, 2, 3 switch them when the
+ *  How      |  Admin → Memory. Four tabs (1 to 4 switch them when the
  *           |  page has focus). The inbox tab carries its count.
  * ------------------------------------------------------------------
  */
@@ -21,6 +21,7 @@ import { type MemoryTab, useMemorySettings, useMemoryUi, usePendingProposals, us
 import { Timeline } from './History';
 import { Inbox } from './Inbox';
 import { MemoryBrowser } from './MemoryBrowser';
+import { MemoryTransfer } from './Transfer';
 
 export const CAPTURE_OPTIONS: { value: MemorySettings['capture']; label: string; desc: string }[] = [
   {
@@ -51,6 +52,7 @@ const TABS: { id: MemoryTab; label: string; icon: IconName }[] = [
   { id: 'files', label: 'Files', icon: 'memory' },
   { id: 'inbox', label: 'Inbox', icon: 'inbox' },
   { id: 'history', label: 'History', icon: 'clock' },
+  { id: 'move', label: 'Import and export', icon: 'download' },
 ];
 
 export function MemoryScreen() {
@@ -83,7 +85,7 @@ export function MemoryScreen() {
       t.isContentEditable
     )
       return;
-    const i = ['1', '2', '3'].indexOf(e.key);
+    const i = ['1', '2', '3', '4'].indexOf(e.key);
     if (i < 0) return;
     e.preventDefault();
     setTab((TABS[i] as (typeof TABS)[number]).id);
@@ -92,7 +94,7 @@ export function MemoryScreen() {
   const capture = CAPTURE_OPTIONS.find((o) => o.value === (settings.data?.capture ?? 'auto_confident'));
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 1, 2, 3 switch tabs while the page has focus
+    // biome-ignore lint/a11y/noStaticElementInteractions: 1 to 4 switch tabs while the page has focus
     <div className="mem" onKeyDown={onKey}>
       <div className="mem__intro">
         <p className="mute admin__lede">
@@ -129,7 +131,15 @@ export function MemoryScreen() {
       </div>
 
       <div className="mem__body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label}>
-        {tab === 'files' ? <MemoryBrowser /> : tab === 'inbox' ? <Inbox /> : <Timeline path={null} />}
+        {tab === 'files' ? (
+          <MemoryBrowser />
+        ) : tab === 'inbox' ? (
+          <Inbox />
+        ) : tab === 'move' ? (
+          <MemoryTransfer />
+        ) : (
+          <Timeline path={null} />
+        )}
       </div>
     </div>
   );

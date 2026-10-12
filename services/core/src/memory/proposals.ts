@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { MemoryProposal } from '@nvx/contracts';
+import type { MemoryImportOrigin, MemoryProposal } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { ulid } from 'ulid';
 
@@ -24,18 +24,66 @@ export type ProposalPatch = Partial<Pick<MemoryProposal, 'status' | 'commit_sha'
   decided?: boolean;
 };
 
+/** One import: where its suggestions came from (core.memory_imports). */
+export interface ImportRecord {
+  id: string;
+  origin: MemoryImportOrigin;
+  label: string;
+  filename: string | null;
+  created_at: string;
+}
+
 export interface ProposalStore {
   create(p: NewProposal): Promise<MemoryProposal>;
   get(id: string): Promise<MemoryProposal | undefined>;
   list(opts?: { status?: MemoryProposal['status'][]; limit?: number }): Promise<MemoryProposal[]>;
   pending(): Promise<number>;
   update(id: string, patch: ProposalPatch): Promise<MemoryProposal | undefined>;
+  createImport(r: Omit<ImportRecord, 'id' | 'created_at'>): Promise<ImportRecord>;
+  getImport(id: string): Promise<ImportRecord | undefined>;
+  /** Newest first. */
+  listImports(limit?: number): Promise<ImportRecord[]>;
+  /** An import's proposals, oldest first (the order they were in the file). */
+  byImport(importId: string): Promise<MemoryProposal[]>;
+  /** Applied proposals a commit wrote (an import's accepted entries share one). */
+  withCommit(sha: string): Promise<MemoryProposal[]>;
 }
 
 export const newProposalId = () => `mpr_${ulid()}`;
+export const newImportId = () => `mim_${ulid()}`;
 
 export class MemoryProposalStore implements ProposalStore {
   private rows = new Map<string, MemoryProposal>();
+  private imports = new Map<string, ImportRecord>();
+
+  async createImport(r: Omit<ImportRecord, 'id' | 'created_at'>): Promise<ImportRecord> {
+    const row: ImportRecord = { ...r, id: newImportId(), created_at: new Date().toISOString() };
+    this.imports.set(row.id, row);
+    return { ...row };
+  }
+
+  async getImport(id: string) {
+    const r = this.imports.get(id);
+    return r && { ...r };
+  }
+
+  async listImports(limit = 50) {
+    return [...this.imports.values()]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+      .slice(0, limit)
+      .map((r) => ({ ...r }));
+  }
+
+  async byImport(importId: string) {
+    // Insertion order is the order they were in the file.
+    return [...this.rows.values()].filter((r) => r.import_id === importId).map((r) => structuredClone(r));
+  }
+
+  async withCommit(sha: string) {
+    return [...this.rows.values()]
+      .filter((r) => r.commit_sha === sha && (r.status === 'applied' || r.status === 'auto_applied'))
+      .map((r) => structuredClone(r));
+  }
 
   async create(p: NewProposal): Promise<MemoryProposal> {
     const row: MemoryProposal = {
@@ -56,14 +104,14 @@ export class MemoryProposalStore implements ProposalStore {
 
   async list(opts: { status?: MemoryProposal['status'][]; limit?: number } = {}) {
     return [...this.rows.values()]
-      .filter((r) => !opts.status || opts.status.includes(r.status))
+      .filter((r) => !r.import_id && (!opts.status || opts.status.includes(r.status)))
       .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
       .slice(0, opts.limit ?? 100)
       .map((r) => structuredClone(r));
   }
 
   async pending() {
-    return [...this.rows.values()].filter((r) => r.status === 'proposed').length;
+    return [...this.rows.values()].filter((r) => r.status === 'proposed' && !r.import_id).length;
   }
 
   async update(id: string, patch: ProposalPatch) {
@@ -92,9 +140,27 @@ interface Row {
   commit_sha: string | null;
   created_at: Date;
   decided_at: Date | null;
+  import_id?: string | null;
 }
 
+interface ImportRow {
+  id: string;
+  origin: MemoryImportOrigin;
+  label: string;
+  filename: string | null;
+  created_at: Date;
+}
+
+const fromImportRow = (r: ImportRow): ImportRecord => ({
+  id: r.id,
+  origin: r.origin,
+  label: r.label,
+  filename: r.filename,
+  created_at: new Date(r.created_at).toISOString(),
+});
+
 const fromRow = (r: Row): MemoryProposal => ({
+  ...(r.import_id && { import_id: r.import_id }),
   id: r.id,
   kind: r.kind,
   target_path: r.target_path,
@@ -120,13 +186,45 @@ export class PgProposalStore implements ProposalStore {
     const rows = await this.sql<Row[]>`
       insert into core.memory_proposals
         (id, kind, target_path, op, patch, section, text, target_key, target_text, rationale,
-         evidence, confidence, provenance, status, commit_sha, decided_at)
+         evidence, confidence, provenance, status, commit_sha, decided_at, import_id)
       values (${newProposalId()}, ${p.kind}, ${p.target_path}, ${p.op}, ${p.text}, ${p.section}, ${p.text},
               ${p.target_key}, ${p.target_text}, ${p.rationale}, ${this.sql.json(p.evidence as never)},
               ${p.confidence}, ${p.provenance}, ${p.status}, ${p.commit_sha ?? null},
-              ${p.status === 'proposed' ? null : new Date()})
+              ${p.status === 'proposed' ? null : new Date()}, ${p.import_id ?? null})
       returning *`;
     return fromRow(rows[0] as Row);
+  }
+
+  async createImport(r: Omit<ImportRecord, 'id' | 'created_at'>): Promise<ImportRecord> {
+    const rows = await this.sql<ImportRow[]>`
+      insert into core.memory_imports (id, origin, label, filename)
+      values (${newImportId()}, ${r.origin}, ${r.label}, ${r.filename})
+      returning *`;
+    return fromImportRow(rows[0] as ImportRow);
+  }
+
+  async getImport(id: string) {
+    const rows = await this.sql<ImportRow[]>`select * from core.memory_imports where id = ${id}`;
+    return rows[0] ? fromImportRow(rows[0]) : undefined;
+  }
+
+  async listImports(limit = 50) {
+    const rows = await this.sql<ImportRow[]>`
+      select * from core.memory_imports order by created_at desc, id desc limit ${Math.min(limit, 200)}`;
+    return rows.map(fromImportRow);
+  }
+
+  async byImport(importId: string) {
+    const rows = await this.sql<Row[]>`
+      select * from core.memory_proposals where import_id = ${importId} order by created_at, id`;
+    return rows.map(fromRow);
+  }
+
+  async withCommit(sha: string) {
+    const rows = await this.sql<Row[]>`
+      select * from core.memory_proposals
+      where commit_sha = ${sha} and status in ('applied', 'auto_applied')`;
+    return rows.map(fromRow);
   }
 
   async get(id: string) {
@@ -138,16 +236,16 @@ export class PgProposalStore implements ProposalStore {
     const limit = Math.min(opts.limit ?? 100, 500);
     const rows = opts.status?.length
       ? await this.sql<Row[]>`
-          select * from core.memory_proposals where status = any(${opts.status})
+          select * from core.memory_proposals where status = any(${opts.status}) and import_id is null
           order by created_at desc, id desc limit ${limit}`
       : await this.sql<Row[]>`
-          select * from core.memory_proposals order by created_at desc, id desc limit ${limit}`;
+          select * from core.memory_proposals where import_id is null order by created_at desc, id desc limit ${limit}`;
     return rows.map(fromRow);
   }
 
   async pending() {
     const rows = await this.sql<{ n: number }[]>`
-      select count(*)::int as n from core.memory_proposals where status = 'proposed'`;
+      select count(*)::int as n from core.memory_proposals where status = 'proposed' and import_id is null`;
     return rows[0]?.n ?? 0;
   }
 

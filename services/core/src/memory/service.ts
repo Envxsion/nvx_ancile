@@ -171,6 +171,7 @@ const KIND_LABEL: Record<MemoryProposal['kind'], string> = {
   project_finding: 'project finding',
   model_quirk: 'model quirk',
   manual: 'added by hand',
+  imported: 'imported',
 };
 
 function globToRegExp(pattern: string): RegExp {
@@ -392,7 +393,7 @@ export class MemoryService {
     const r = await this.deps.provider.revert(sha, this.deps.user);
     for (const f of files) if (f.endsWith('.md')) await this.deps.index.refresh(f);
     // A proposal whose change was just reverted is no longer in effect.
-    for (const p of await this.deps.proposals.list({ status: ['applied', 'auto_applied'], limit: 500 }))
+    for (const p of await this.deps.proposals.withCommit(sha))
       if (p.commit_sha === sha) await this.deps.proposals.update(p.id, { status: 'undone', decided: true });
     return r;
   }
@@ -455,7 +456,8 @@ export class MemoryService {
     return (await this.deps.proposals.get(id)) as MemoryProposal;
   }
 
-  private async newFileFor(path: string, notebook?: NotebookInfo | null): Promise<string> {
+  /** What a memory file starts as, before its first entry. */
+  async newFileFor(path: string, notebook?: NotebookInfo | null): Promise<string> {
     const date = today();
     if (path.startsWith('PROJECTS/')) {
       const tpl = await this.deps.provider.read('PROJECTS/_template.md').catch(() => null);
