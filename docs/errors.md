@@ -87,6 +87,7 @@ What a notebook or thread may use (docs/scopes.md). The `scope.*` refusals marke
 | `scope.network_off` | – | "The network is off here." / Turn the network on in the scope. |
 | `scope.memory_read_off` / `scope.memory_write_off` | – | "Memory is off here" / "Nothing may be written to memory here." / Change the scope's memory switches. |
 | `scope.source_not_allowed` | – | Reserved: retrieval skips sources outside the scope rather than failing. |
+| `scope.context_links_off` | 403 / – | "Context links are switched off here." / Turn context links on in this notebook's or thread's scope. Also the code on a link the Why view lists as not read. |
 | `tool_preset.not_found` | 422 | "That tool preset does not exist." / Choose another preset, or none. A preset deleted after it was chosen fails closed: `scope.tool_not_allowed` with the field `tool_preset`. |
 | `tool_preset.builtin` | 409 | "Built-in tool presets cannot be changed." / Make your own preset instead. |
 | `tool_preset.in_use` | 409 | "This tool preset is still in use." / Says how many notebooks and threads use it; choose another preset there first. |
@@ -151,6 +152,34 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `memory.import_empty` | 422 | "Nothing to import." / Every entry is already in memory, or none was ticked (or no entries were found: imports read bullets and paragraphs). |
 | `memory.import_not_allowed` | 409 | "“<Notebook>” does not let memory learn." / Its scope has memory writing switched off. Turn it on in the notebook's scope, or import into About you instead. `error.context.notebook_id` names it. |
 | `memory.import_not_found` | 404 | "That import does not exist." / Open Memory → Import and export to see your imports. |
+
+### Notebooks and context links {#notebooks-and-context-links}
+
+Merging notebooks and context links (docs/notebooks.md). A link refused by a scope answers 403 with the scope's own code (Scopes above).
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `notebook.merge_self` | 422 | "A notebook cannot be merged into itself." / Choose another notebook to merge. |
+| `notebook.merge_conflict` | 409 | "One of the notebooks changed while merging." / Nothing was merged. Look at both notebooks again and try once more. On undo: "This merge cannot be undone now" / The notebook it was merged into has been deleted. Restore it first. |
+| `notebook.merge_undone` | 409 | "This merge was already undone." / Nothing to do. |
+| `notebook.merge_expired` | 409 | "This merge can no longer be undone." / A merge can be undone for 7 days. Move threads and sources back by hand instead. |
+| `link.self` | 422 | "A thread or notebook cannot link to itself." / Choose another notebook or thread to draw on. |
+| `link.own_notebook` | 422 | "This thread already reads its own notebook's sources." / Link it to another notebook instead. |
+| `link.exists` | 409 | "<The notebook or thread> is already linked here." / It is in the list of links already. |
+
+Context packs (Pro):
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `pack.empty` | 422 | "A context pack needs at least one item." / Choose sources, notes, a summary, memory or instructions. |
+| `pack.no_notebook` | 422 | "This thread is not in a notebook, so it has no sources or notes." / Make the pack from a notebook instead. |
+| `pack.source_not_here` | 422 | "One of the sources is not in that notebook." / Pick sources from the notebook the pack is made from. `error.context.source_id` names it. |
+| `pack.no_summary` | 422 | "That thread has no summary yet." / Ask something in it first, or leave the summary out. |
+| `pack.bad_file` | 422 | "That is not a context pack file" (or from a version this one cannot read, or incomplete). / Choose a file exported from NVX Ancile. |
+| `pack.unverified` | 422 | "This file does not verify, so nothing was added." / The first problem found (changed after it was signed, an item not what the manifest lists). |
+| `pack.needs_notebook` | 422 | "This pack holds sources." / Choose a notebook to add its sources to. |
+
+Attaching a pack where a scope says no answers 403 with the scope's own code (`scope.data_stays_local`, `scope.private_notebook`, …). In the free build every pack route answers 402 `pro.feature_required` with `error.context.feature` `context_packs`.
 
 ### Knowledge
 

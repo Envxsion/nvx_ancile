@@ -154,6 +154,43 @@ A built-in preset cannot be changed or deleted (409 `tool_preset.builtin`); a pr
 
 A field sent as `null` goes back to inheriting. A thread PATCH that would widen its notebook is 422 `scope.widen`; a private notebook refuses cloud engines and data leaving the machine (422 `scope.private_conflict`). `provenance` names the level behind each field (`default`, `private`, `notebook`, `thread`). The Why view (`GET /messages/:id/explain`) carries the thread's `scope`, and each tool decision its `rule` and, for a scope rule, the level that set it. See docs/scopes.md.
 
+### Notebook merge and context links
+
+See docs/notebooks.md.
+
+```http
+GET  /api/v1/notebooks/nbk_A/merge-preview?from=nbk_B  → NotebookMergePreview (changes nothing)
+POST /api/v1/notebooks/nbk_A/merge   { "from_id": "nbk_B", "instructions": { "choice": "into" | "from" } }
+POST /api/v1/notebooks/nbk_A/merge   { "from_id": "nbk_B", "instructions": { "choice": "combined", "instructions": "…", "persona": "…" } }
+                                     → 201 NotebookMerge { id, from_title, merged_at, undo_until, can_undo, counts, scope_narrowed }
+GET  /api/v1/notebooks/nbk_A/merges  → { items: NotebookMerge[] }  (into or out of this notebook, newest first)
+POST /api/v1/notebook-merges/nbm_…/undo → NotebookMerge (undone_at set)
+
+GET    /api/v1/threads/thr_…/links     → ContextLinkList { outgoing, incoming }
+POST   /api/v1/threads/thr_…/links     { "to_kind": "notebook", "to_id": "nbk_…" } → 201 ContextLink
+GET    /api/v1/notebooks/nbk_…/links   → ContextLinkList
+POST   /api/v1/notebooks/nbk_…/links   { "to_kind": "thread", "to_id": "thr_…" } → 201 ContextLink
+DELETE /api/v1/context-links/lnk_…     → 204
+```
+
+A link to a notebook reads its sources (`kind: sources`); a link to a thread sees its summary (`kind: summary`). Each `ContextLink` carries `status`: `{ ok: true }`, or `{ ok: false, code, reason }` when a scope refuses a read now. Making a link the scopes refuse is 403 with the scope's own code (`scope.private_notebook`, `scope.data_stays_local`, `scope.context_links_off`, `scope.engine_not_allowed`, `scope.model_not_allowed`).
+
+An answer's provenance and the Why view (`GET /messages/:id/explain`) carry `links: ExplainLink[]` (`link_id, kind: sources | summary | pack, via: thread | notebook, to_kind, to_id, title, state: used | empty | refused, passages, cited, code, reason`). A passage read through a link carries `retrieval.hits[].via { link_id, notebook_id, notebook_title }`, and its `citation_ref` part `notebook_id` and `notebook_title`. `retrieval.notebook_id` is null for a thread outside any notebook that read through links.
+
+Context packs (Pro, feature `context_packs`; 402 `pro.feature_required` in the free build):
+
+```http
+GET    /api/v1/pro/context-packs                    → { items: ContextPack[] }
+POST   /api/v1/pro/context-packs                    { from: { kind, id }, name, source_ids?, note_ids?, summary_thread_id?, memory_entry_ids?, instructions_from? } → 201 ContextPack
+GET    /api/v1/pro/context-packs/cpk_…              → ContextPack
+DELETE /api/v1/pro/context-packs/cpk_…              → 204
+POST   /api/v1/pro/context-packs/cpk_…/attach       { target: { kind: thread | notebook, id } } → ContextPack (403 with a scope code when refused)
+POST   /api/v1/pro/context-packs/cpk_…/detach       { target } → ContextPack
+GET    /api/v1/pro/context-packs/cpk_…/export       → PackFile { manifest, items, signature }
+POST   /api/v1/pro/context-packs/import/preview     { file } → PackImportPreview { manifest, verified, own_key, fingerprint, problems }
+POST   /api/v1/pro/context-packs/import             { file, notebook_id? } → 201 ContextPack
+```
+
 ### Edit and revoke grants
 
 ```http
@@ -339,6 +376,14 @@ POST /kn/v1/search
 ```http
 GET  /kn/v1/embeddings         → EmbeddingStatus { active_model_key, configured_model_key, reembed: { status, done, total, percent, … } }
 POST /kn/v1/embeddings/check   → EmbeddingStatus (look for a changed embedding model now)
+```
+
+Notebook merge (docs/notebooks.md), Core only:
+
+```http
+GET  /kn/v1/notebooks/{into}/merge-preview?from={from}&workspace_id=  → KnMergePreview { move, already, duplicates, versions }
+POST /kn/v1/notebooks/{into}/merge       { from_id, workspace_id } → KnMergeRecord { moved, already, merged }
+POST /kn/v1/notebooks/{into}/merge/undo  { from_id, workspace_id, record } → { restored }
 ```
 
 Core serves both to the Cockpit as `GET /api/v1/knowledge/embeddings` and `POST /api/v1/knowledge/embeddings/check`. See docs/configuration.md (Changing the embedding model).

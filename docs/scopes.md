@@ -12,7 +12,7 @@ Scopes are floors. Permission presets, remembered grants and Auto mode's reviewe
 | `models_allow` / `models_deny` | Model ids (globs, `/` separated, `**` for any depth). | any / none |
 | `data_leaves_machine` | False: only local models, local reviewers and local tools. No cloud model, no Claude Code, no web. | true |
 | `sources` | Source ids retrieval may read. `null` is every source in the notebook. | all |
-| `context_links` | May context links from other threads and notebooks be pulled in. | true |
+| `context_links` | May context links (and context packs) from other threads and notebooks be read here (docs/notebooks.md). | true |
 | `memory_read` / `memory_write` | May memory be read into a turn, and learned from after it. | true / true |
 | `tools_allow` / `tools_deny` | Tool actions (globs, `.` separated, e.g. `fs.*`, `git.push*`). | any / none |
 | `mcp_servers_allow` / `mcp_servers_deny` | MCP server names. | any / none |
@@ -77,7 +77,13 @@ Always at execution time, from the scope as it is now:
 
 What the Why view shows: the thread's effective scope, and for each tool decision refused by a scope, the field and the level that set it.
 
-TODO(phase-3): Flows retrieval (`flows/turn.ts`) and context links do not read the scope yet.
+- **Context links and context packs** (`scopes/combine.ts`, `checkLinkRead`): every read across a link passes the reading side's scope and the linked side's. The reader must allow `context_links`; a private or local-only place is read only where nothing leaves this machine (never by Claude Code, never where a cloud model may answer); the linked side may not allow fewer engines or models than the reader; only the sources its scope lets retrieval read are searched. Checked when a link is made (403 with the scope's code) and again on every read.
+
+## Where two scopes meet: a notebook merge
+
+The merged notebook takes the narrower value of every field and private wins: switches only if both are on, deny lists combined, allow lists only what both allow, and each notebook keeps its own limit on its own sources. A second, different tool preset is folded into the notebook's own tool fields. See docs/notebooks.md.
+
+TODO(phase-3): Flows retrieval (`flows/turn.ts`) does not read the scope yet.
 
 ## For code
 
