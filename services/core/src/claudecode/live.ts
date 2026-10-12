@@ -71,6 +71,7 @@ import { hostedTool } from '../lab/hosted';
 import { notFound } from '../obs/errors';
 import { logFor } from '../obs/logger';
 import { type SpanHandle, startSpan } from '../obs/spans';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import type { FsProbe } from '../permissions/normalize';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
@@ -1665,10 +1666,7 @@ export class ClaudeCodeLive {
       return;
     }
     if (decision.outcome === 'deny') {
-      const why =
-        decision.via === 'policy'
-          ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
-          : decision.reason;
+      const why = refusalForModel(decision);
       await this.reply(l, ask, { behavior: 'deny', message: why });
       return;
     }

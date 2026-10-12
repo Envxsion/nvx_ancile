@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decide } from '../../src/permissions/decide';
+import { decide, refusalForModel } from '../../src/permissions/decide';
 import { depsWith, GOLDEN } from './golden';
 
 describe('decide(): golden table (DESIGN.md §5.3)', () => {
@@ -44,5 +44,32 @@ describe('decide(): golden table (DESIGN.md §5.3)', () => {
       depsWith([]),
     );
     expect(out.outcome === 'ask' && out.suggestions).toEqual([]);
+  });
+});
+
+describe('what a model is told when a call is refused', () => {
+  it("says a tool preset's refusal is a setting the person changes in the scope editor, not something to approve", () => {
+    const msg = refusalForModel({
+      outcome: 'deny',
+      via: 'scope',
+      tier: 'gated',
+      resource: 'fs:/workspace/a.md',
+      reason: 'fs.write is not in the Read only tool preset',
+      policyId: 'scope.tool_preset',
+    });
+    expect(msg).toContain('fs.write is not in the Read only tool preset');
+    expect(msg).toContain("this thread's tool preset");
+    expect(msg).toContain('cannot be approved here');
+    expect(msg).toContain('scope editor');
+    expect(
+      refusalForModel({
+        outcome: 'deny',
+        via: 'policy',
+        tier: 'gated',
+        resource: 'x',
+        reason: 'r',
+        policyId: 'p1',
+      }),
+    ).toBe('A policy blocks this (p1).');
   });
 });

@@ -35,6 +35,7 @@
 import { AncileError, type Part } from '@nvx/contracts';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
 import type { ApprovalRecord, PermissionStore } from '../permissions/store';
@@ -554,10 +555,7 @@ export class LabMirror {
       return;
     }
     if (decision.outcome === 'deny') {
-      const why =
-        decision.via === 'policy'
-          ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
-          : decision.reason;
+      const why = refusalForModel(decision);
       await this.deps.engine.reply(ask.id, turn.place.realDir, 'reject', why);
       return;
     }

@@ -119,6 +119,19 @@ export type DecisionResult =
       batchId?: string;
     };
 
+/**
+ * What a model or agent is told when a call is refused. A refusal by the
+ * thread's tool preset or scope is a setting, not something to approve:
+ * it says so plainly, and where the person changes it, so the model does
+ * not ask them to "approve write access".
+ */
+export function refusalForModel(d: Extract<DecisionResult, { outcome: 'deny' }>): string {
+  if (d.via === 'policy') return `A policy blocks this (${d.policyId ?? 'policy'}).`;
+  if (d.via !== 'scope') return d.reason;
+  const what = d.policyId === 'scope.tool_preset' ? "this thread's tool preset" : "this thread's scope";
+  return `${d.reason}. This is set by ${what}, so it cannot be approved here and asking for permission will not help. The person can change it in the scope editor (What this thread may use); otherwise carry on without it.`;
+}
+
 export interface DecideDeps {
   policy: PolicyEvaluator;
   grants: GrantSource;
