@@ -66,6 +66,7 @@ import { gatewayContextHook } from './engines/gateway';
 import { ClaudeMemoryMirror } from './engines/memory';
 import { ClaudeCodeModelClient, syncClaudeCodeModels } from './engines/mode-a';
 import { engineRoutes } from './engines/routes';
+import { isLocalModel } from './engines/select';
 import { PgEngineStore } from './engines/store';
 import { loadEnv } from './env';
 import { PgEventBus } from './events/bus';
@@ -97,7 +98,9 @@ import { LicenceClock } from './license/clock';
 import { licenseRoutes } from './license/routes';
 import { hasFeature, OFFICIAL_LICENSE_KEYS, parseKeyMap } from './license/verify';
 import { logIngestRoutes, logRoutes } from './logs/routes';
+import { watchClaudeCodeMcp } from './mcp/claude-code-watch';
 import { mcpClientRoutes } from './mcp/clients';
+import { McpToolGuard, PgMcpApprovalStore } from './mcp/guard';
 import { McpManager } from './mcp/manager';
 import { toolRoutes } from './mcp/routes';
 import { mcpEndpoint, PgMcpClientStore } from './mcp/server';
@@ -141,6 +144,7 @@ import { PgRunEventLog } from './runs/events';
 import { PgRunStore } from './runs/store';
 import { RunWorker } from './runs/worker';
 import { PgScopeStore, scopeResolver } from './scopes';
+import { classifier, PgSharedHistoryStore, SharedHistory } from './scopes/history';
 import { scopeRoutes } from './scopes/routes';
 import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './secrets';
 import { PgSettings, SETTING } from './settings';
@@ -371,7 +375,17 @@ async function main() {
   await workspace.ensure();
   const tools = new ToolRegistry();
   for (const t of fsTools(workspace)) tools.register(t, overrideFor(config.tools?.tools, t.action));
-  const mcp = new McpManager(tools, { secrets, version: VERSION, events });
+  const permissions = new PgPermissionStore(sql);
+  // The rug-pull guard (docs/plugins.md): each MCP server's approved tool list.
+  // Auto mode's verdict cache is filled in below, once it exists.
+  let forgetVerdicts: (prefix: string) => void = () => undefined;
+  const mcpGuard = new McpToolGuard({
+    store: new PgMcpApprovalStore(sql),
+    grants: permissions,
+    forgetVerdicts: (prefix) => forgetVerdicts(prefix),
+    bus: events,
+  });
+  const mcp = new McpManager(tools, { secrets, version: VERSION, events, guard: mcpGuard });
   // Servers from config/mcp.yaml (read-only in the app) and ones added in
   // Admin → Plugins (core.mcp_servers); a name in the file wins.
   const mcpServers = new McpService({
@@ -380,6 +394,7 @@ async function main() {
     settings,
     manager: mcp,
     files: config.mcp?.servers ?? [],
+    guard: mcpGuard,
   });
   // In the background: a slow or broken MCP server never delays boot.
   void mcpServers.start().catch((err) => log.error({ err }, 'MCP start failed'));
@@ -389,7 +404,6 @@ async function main() {
   repos.start();
   const github = new GitHubAccessor(new GhCliClient(), new GitHubRestClient(savedToken(secrets)));
   for (const t of repoTools(repos, github)) tools.register(t, overrideFor(config.tools?.tools, t.action));
-  const permissions = new PgPermissionStore(sql);
   let policy = await loadCedarEvaluator({
     files: config.policies,
     preset: (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced',
@@ -404,9 +418,21 @@ async function main() {
       reviewers: coreReviewers({ secrets, gateway, registry }),
       plans: autoPlans,
       emit: (runId, event) => runEvents.append(runId, event),
+      // Reviewer offline: once per outage, quietly (no toast); the Cockpit shows one line.
+      onReviewerStatus: (st) =>
+        void events
+          .publish({
+            type: 'auto.reviewer',
+            status: st.status === 'offline' ? 'offline' : 'online',
+            outage_id: st.outage_id,
+            reason: st.reason,
+            local_only: st.local_only,
+          })
+          .catch(() => undefined),
     }),
     enabled: () => presetNow === 'auto',
   };
+  forgetVerdicts = (prefix) => void gateAuto.review.forget(prefix);
   const applyPreset = async (preset: string) => {
     presetNow = preset;
     policy = await loadCedarEvaluator({ files: config.policies, preset });
@@ -424,6 +450,7 @@ async function main() {
     fs: workspace.probe(),
     scopes,
     auto: gateAuto,
+    mcpTools: mcpGuard,
   });
 
   // Durable runs.
@@ -456,6 +483,8 @@ async function main() {
     notebooks,
     store: claudeCodeStore,
   });
+  // Claude Code's own MCP servers get the same rug-pull guard as NVX Ancile's (docs/plugins.md).
+  watchClaudeCodeMcp(claudeCode.bridge, mcpGuard);
   const kn = knowledgeClient({ baseUrl: env.KNOWLEDGE_URL, serviceToken: env.ANCILE_SERVICE_TOKEN });
   // Passages per turn and per source (config/retrieval.yaml), and what became of cited sources (track G).
   const retrievalLimits = {
@@ -613,6 +642,7 @@ async function main() {
         fs: nativeProbe(),
         scopes,
         auto: gateAuto,
+        mcpTools: mcpGuard,
       }),
     tools,
     passes: claudePasses,
@@ -1198,8 +1228,21 @@ async function main() {
       // Room on the disk before a source is added (system/disk.ts).
       sourceDiskGuard({ dataDir }),
       notebookRoutes({ workspaceId: owner.workspaceId, notebooks, threads, kn, flowStore, tombstones }),
-      scopeRoutes({ store: scopeStore }),
-      autoRoutes({ plans: autoPlans, events: runEvents }),
+      scopeRoutes({
+        store: scopeStore,
+        history: new SharedHistory({
+          store: new PgSharedHistoryStore(sql),
+          classify: classifier((id) => {
+            const m = registry.get(id);
+            return m ? { provider: m.provider, local: isLocalModel(m) } : undefined;
+          }),
+        }),
+      }),
+      autoRoutes({
+        plans: autoPlans,
+        events: runEvents,
+        reviewer: () => gateAuto.review.reviewerStatus(),
+      }),
       memoryRoutes({ service: memory, threads, registry }),
       trustRoutes({
         workspaceId: owner.workspaceId,
@@ -1269,7 +1312,7 @@ async function main() {
         },
       }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
-      toolRoutes({ tools, servers: mcpServers }),
+      toolRoutes({ tools, servers: mcpServers, guard: mcpGuard }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
       engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),
