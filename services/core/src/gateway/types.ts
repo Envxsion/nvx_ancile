@@ -33,6 +33,11 @@ export interface ModelRequest {
   maxOutputTokens?: number;
   temperature?: number;
   tools?: ToolDef[];
+  /**
+   * Where the call is made from, for clients that act on it (Claude Code as
+   * a model gives that thread's notebook tools). Providers never see it.
+   */
+  meta?: { threadId?: string; notebookId?: string | null };
 }
 
 export type StreamChunk =

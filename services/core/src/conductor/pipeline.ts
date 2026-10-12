@@ -34,6 +34,7 @@ import {
   type AnswerRoute,
   type Attempt,
   type CompactionProvenance,
+  type EngineContextReport,
   type ModelConfig,
   type Part,
   type RunEvent,
@@ -51,9 +52,8 @@ import {
 import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
-import type { ModelRequest, ToolDef } from '../gateway/types';
+import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
 import { approxTokens } from '../memory/inject';
-import { allowedSources, type ScopeResolver } from '../scopes';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
 import { type ReplayInput, replayedResult } from '../obs/replay';
@@ -69,6 +69,7 @@ import {
   StepUncertain,
 } from '../runs/engine';
 import type { RunEventInput } from '../runs/events';
+import { allowedSources, type ScopeResolver } from '../scopes';
 import type { BranchStore } from '../threads/branches';
 import { prepareTurnContext } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
@@ -159,7 +160,30 @@ export interface TurnCheckpoint {
   flowToolNodes?: Record<string, string>;
   /** Recorded calls a re-run has already answered from (indexes into input.replay.calls). */
   replayUsed?: number[];
+  /** Engines (docs/engines.md): how a mixed thread's context was fitted (provenance.engine_context). */
+  engineContext?: EngineContextReport | null;
 }
+
+/** Engines (docs/engines.md): what a model round is given beyond the conductor's own parts. */
+export type EngineContextHook = (a: {
+  threadId: string;
+  notebookId: string | null;
+  messages: import('../threads/repo').MessageRecord[];
+  userMessageId: string;
+  model: ModelConfig | undefined;
+  /** The compaction summary this turn already chose, if any. */
+  compaction: { summaryId: string; skipThrough: string; note: string } | null;
+  /** Tokens of the system prompt, memory, sources and instructions. */
+  fixedTokens: number;
+}) => Promise<{
+  /** The fitted history for a mixed thread; null: the conductor's own (historyFor). */
+  history: ModelMessage[] | null;
+  /** With history: the summary and recalled turns, in place of the compaction note. */
+  note: string;
+  /** The thread's and notebook's instructions and persona, every turn. */
+  instructions: string;
+  report: EngineContextReport | null;
+}>;
 
 /** What an answer records about the memory it was given (contracts MemoryProvenance). */
 export interface MemoryProvenance {
@@ -221,6 +245,8 @@ export interface ConductorDeps {
   flows?: FlowsService;
   /** Scopes (docs/scopes.md): which sources retrieval reads, and whether memory is read or written. */
   scopes?: ScopeResolver;
+  /** Engines (docs/engines.md): fitted context for mixed threads, and NVX Ancile's instructions. */
+  engineContext?: EngineContextHook;
 }
 
 export interface AnsweredTurn {
@@ -368,6 +394,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           rerun_of: { run_id: cp.input.replay.fromRunId, from_step: cp.input.replay.fromStep },
         }),
         ...(cp.compaction && { compaction: compactionOut(cp.compaction) }),
+        ...(cp.engineContext && { engine_context: cp.engineContext }),
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
         route: routeOf(cp),
         ...(error && { error }),
@@ -966,10 +993,6 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         // A later round follows tool calls: read again so nothing is stale.
         if (cp.rounds > 0) historyRead = null;
         const all = await messages();
-        const history = withPartial(
-          historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough),
-          cp.parts,
-        );
         const chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
         cp.chain = chain.map((m) => m.id);
         const tools: ToolDef[] = deps.tools.list().map((t) => ({
@@ -992,11 +1015,48 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           (cp.grounding && cp.input.notebookId
             ? emptyNote((await deps.notebookTitle?.(cp.input.notebookId).catch(() => null)) ?? null)
             : '');
+        // ---- Engines: a mixed thread's context fitted for this model, and the thread's instructions ----
+        const engine = deps.engineContext
+          ? await deps
+              .engineContext({
+                threadId: cp.input.threadId,
+                notebookId: cp.input.notebookId,
+                messages: all,
+                userMessageId: cp.input.userMessageId,
+                model: chain[0],
+                compaction: cp.compaction
+                  ? {
+                      summaryId: cp.compaction.summary_id,
+                      skipThrough: cp.compaction.skipThrough,
+                      note: cp.compaction.note,
+                    }
+                  : null,
+                fixedTokens: approxTokens([base, memory, sources, cp.input.instructions ?? ''].join('\n')),
+              })
+              .catch((err: unknown) => {
+                log.warn({ err }, 'engine context could not be assembled; using the plain path');
+                return null;
+              })
+          : null;
+        if (engine?.report) cp.engineContext = engine.report;
+        const history = withPartial(
+          engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough),
+          cp.parts,
+        );
+        // ---- end Engines ----
         const req: ModelRequest = {
-          system: [base, memory, cp.compaction?.note, sources, cp.input.instructions]
+          system: [
+            base,
+            memory,
+            engine?.instructions,
+            engine?.history ? engine.note : cp.compaction?.note,
+            sources,
+            cp.input.instructions,
+          ]
             .filter(Boolean)
             .join('\n\n'),
           messages: history,
+          meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
           ...(tools.length && { tools }),
         };
         let current: ModelConfig | undefined;
@@ -1200,14 +1260,15 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           ?.effective({ notebookId: cp.input.notebookId, threadId: cp.input.threadId })
           .catch(() => null);
         // Memory is only learned from where the scope allows writing it (a failed read writes nothing).
-        if (!deps.scopes || memoryScope?.scope.memory_write) void deps.memory?.afterTurn({
-          threadId: cp.input.threadId,
-          notebookId: cp.input.notebookId,
-          userMessageId: cp.input.userMessageId,
-          assistantMessageId: cp.input.assistantMessageId,
-          runId: run.id,
-          parts: cp.parts,
-        });
+        if (!deps.scopes || memoryScope?.scope.memory_write)
+          void deps.memory?.afterTurn({
+            threadId: cp.input.threadId,
+            notebookId: cp.input.notebookId,
+            userMessageId: cp.input.userMessageId,
+            assistantMessageId: cp.input.assistantMessageId,
+            runId: run.id,
+            parts: cp.parts,
+          });
         // ---- Phase 4: after-answer hook (grounded mode fact-check) ----
         if (deps.afterAnswer && cp.answeredBy) {
           await deps

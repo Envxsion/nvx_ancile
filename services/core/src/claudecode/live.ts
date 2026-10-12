@@ -41,8 +41,10 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import {
   AncileError,
+  CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
   type ClaudeCodeLiveState,
+  type EngineContextReport,
   type Part,
   type RetrievalTrace,
   type SearchHit,
@@ -67,7 +69,7 @@ import { RunOwnershipLost, StepUncertain } from '../runs/engine';
 import type { RunEventInput, RunEventLog } from '../runs/events';
 import { alreadyRunning } from '../runs/store';
 import type { RunWorker } from '../runs/worker';
-import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
+import type { MessageRecord, NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
 import type { ToolRegistry } from '../tools/registry';
 import type {
   CcSessionInfo,
@@ -125,6 +127,59 @@ export interface ClaudeCodeCheckpoint {
   sourceIds: string[] | null;
   /** The session the turn ended up in (a fork's new id). */
   finalSessionId: string | null;
+  /** Engines: what goes before the person's words (other engines' turns, or a seed summary). */
+  prefix?: string | null;
+  /** Engines: start a new session instead of resuming (seeded from NVX Ancile's summary). */
+  fresh?: boolean;
+  /** Engines: the summary the fresh session is seeded with, marked seen once it exists. */
+  seedSummaryId?: string | null;
+  /** Engines: provenance.engine_context for the answer. */
+  engineContext?: EngineContextReport | null;
+}
+
+/**
+ * Engines (docs/engines.md): what a Claude Code turn sends when its thread
+ * holds turns by other engines, and the note appended to its system prompt.
+ * Built in services/core/src/engines/claude.ts; absent, turns behave as
+ * before (a parent must be a Claude Code message).
+ */
+export interface LiveTurnPlan {
+  /** The session to go on from (null: the thread's own). */
+  sessionId: string | null;
+  /** The latest Claude Code message on the path; null when there is none. */
+  anchorId: string | null;
+  /** Its transcript entry, for a fork. */
+  resumeAt: string | null;
+  /** Claude Code went on past the anchor elsewhere: a fork. */
+  goneOn: boolean;
+  prefix: string | null;
+  fresh: boolean;
+  seedSummaryId: string | null;
+  report: EngineContextReport | null;
+}
+
+export interface LiveEngineHooks {
+  /** Plan a turn from this parent; throws (an AncileError) when the thread's scope refuses Claude Code. */
+  plan(a: {
+    thread: ThreadRecord;
+    messages: MessageRecord[];
+    parentId: string | null;
+  }): Promise<LiveTurnPlan>;
+  /** The appended system note: NVX Ancile's base note plus the thread's instructions and persona. */
+  systemNote(a: { threadId: string; notebookId: string | null; base: string }): Promise<string>;
+  /** A session now holds this summary (it was seeded with it). */
+  seen(a: { workspaceId: string; threadId: string; sessionId: string; summaryId: string }): Promise<void>;
+  /** A tool step finished in a live turn (memory writes become proposals). */
+  toolDone?(e: {
+    threadId: string;
+    notebookId: string | null;
+    runId: string;
+    messageId: string;
+    cwd: string;
+    tool: string;
+    input: unknown;
+    ok: boolean;
+  }): Promise<unknown>;
 }
 
 export interface LiveServiceView {
@@ -167,6 +222,12 @@ export interface LiveDeps {
   stopGraceMs?: number;
   /** Does a folder exist (tests)? */
   folderExists?: (cwd: string) => Promise<boolean>;
+  /** Engines (docs/engines.md): one thread, any model. */
+  engines?: LiveEngineHooks;
+  /** Bridge handles another part of Core drives (Claude Code as a model): their events are not ours. */
+  foreignHandle?: (handle: string) => boolean;
+  /** Keep the bridge running for those handles too. */
+  keepAlive?: () => boolean;
 }
 
 interface Turn {
@@ -183,6 +244,8 @@ interface Turn {
   modelSpan: { api: string; span: SpanHandle } | null;
   toolSpans: Map<string, { span: SpanHandle; asked?: number }>;
   calls: Set<string>;
+  /** Each tool call's name and the arguments it ran with (edited ones, when the person changed them). */
+  toolInputs: Map<string, { name: string; input: unknown }>;
   passages: Passage[];
   result: Record<string, unknown> | null;
   error: string | null;
@@ -204,6 +267,8 @@ interface Live {
   model: string | null;
   effort: string | null;
   permissionMode: string | null;
+  /** The appended system note the open handle was started with. */
+  note: string | null;
   /** Claude Code's running cost total for the open handle (to tell one turn's share). */
   costSoFar: number;
   turn: Turn | null;
@@ -250,7 +315,7 @@ export class ClaudeCodeLive {
   private readonly waiting = new Map<string, WaitingAsk>(); // approval id → ask
   private readonly sent = new Map<
     string,
-    { at: number; result: { run_id: string; user_message_id: string } }
+    { at: number; result: { run_id: string; user_message_id: string; context_shared?: boolean } }
   >();
   private readonly commandCache = new Map<string, { at: number; items: ClaudeCodeCommand[] }>();
   /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
@@ -265,7 +330,7 @@ export class ClaudeCodeLive {
         log.error({ err: (err as Error).message, event: e.event }, 'a live Claude Code event failed'),
       );
     });
-    deps.bridge.setKeepAlive(() => this.byHandle.size > 0);
+    deps.bridge.setKeepAlive(() => this.byHandle.size > 0 || (deps.keepAlive?.() ?? false));
     deps.service.setLiveGuard((id) => this.writing(id));
   }
 
@@ -301,6 +366,7 @@ export class ClaudeCodeLive {
         model: null,
         effort: null,
         permissionMode: null,
+        note: null,
         costSoFar: 0,
         turn: null,
       };
@@ -330,7 +396,7 @@ export class ClaudeCodeLive {
   async send(
     threadId: string,
     req: SendClaudeCodeRequest,
-  ): Promise<{ run_id: string; user_message_id: string }> {
+  ): Promise<{ run_id: string; user_message_id: string; context_shared?: boolean }> {
     for (const [k, v] of this.sent) if (this.now() - v.at > IDEMPOTENCY_MS) this.sent.delete(k);
     const key = `${threadId}:${req.idempotency_key}`;
     const again = this.sent.get(key);
@@ -353,21 +419,28 @@ export class ClaudeCodeLive {
     const parent = parentId ? msgs.find((m) => m.id === parentId) : undefined;
     if (parentId && !parent) throw notFound('That message');
     const pc = parent?.provenance?.claude_code as CcProvenance | undefined;
-    if (parent && !pc?.uuid) throw ccErrors.branchUnmapped();
-    const sessionId = pc?.session_id ?? cc.session_id;
-    const resumeAt = pc?.uuid ? stripMarker(pc.uuid) : null;
+    // Engines: a parent written by another model goes on from Claude Code's last message on
+    // the path, with what the others said as a digest (engines/claude.ts).
+    const plan = this.deps.engines
+      ? await this.deps.engines.plan({ thread, messages: msgs, parentId: parent?.id ?? null })
+      : null;
+    if (parent && !pc?.uuid && !plan) throw ccErrors.branchUnmapped();
+    const fresh = plan?.fresh === true;
+    const sessionId = plan ? (plan.sessionId ?? cc.session_id) : (pc?.session_id ?? cc.session_id);
+    const resumeAt = plan ? plan.resumeAt : pc?.uuid ? stripMarker(pc.uuid) : null;
     // Claude Code went on past the parent in the same session: carry on in a fork.
-    const goneOn =
-      !!parent &&
-      msgs.some(
-        (m) =>
-          m.parent_id === parent.id &&
-          (m.provenance?.claude_code as CcProvenance | undefined)?.session_id === sessionId,
-      );
-    const fork = !!parent && (goneOn || req.as_branch === true);
-    if (!fork && (await this.lockedElsewhere(sessionId))) throw ccErrors.sessionBusy(sessionId);
+    const goneOn = plan
+      ? plan.goneOn
+      : !!parent &&
+        msgs.some(
+          (m) =>
+            m.parent_id === parent.id &&
+            (m.provenance?.claude_code as CcProvenance | undefined)?.session_id === sessionId,
+        );
+    const fork = !fresh && (plan ? !!plan.anchorId : !!parent) && (goneOn || req.as_branch === true);
+    if (!fork && !fresh && (await this.lockedElsewhere(sessionId))) throw ccErrors.sessionBusy(sessionId);
     for (const other of this.lives.values())
-      if (other.threadId !== thread.id && other.handle && other.sessionId === sessionId && !fork)
+      if (other.threadId !== thread.id && other.handle && other.sessionId === sessionId && !fork && !fresh)
         throw ccErrors.sessionBusy(sessionId);
 
     const traceId = currentContext()?.traceId ?? newTraceId();
@@ -415,6 +488,12 @@ export class ClaudeCodeLive {
       effort: req.effort ?? null,
       sourceIds: req.source_ids?.length ? req.source_ids : null,
       finalSessionId: null,
+      ...(plan && {
+        prefix: plan.prefix,
+        fresh,
+        seedSummaryId: plan.seedSummaryId,
+        engineContext: plan.report,
+      }),
     };
     try {
       await this.deps.runs.create({
@@ -431,7 +510,7 @@ export class ClaudeCodeLive {
     }
     await this.deps.threads.patchThread(thread.id, { active_head_id: assistantId });
     this.deps.worker.kick();
-    const result = { run_id: runId, user_message_id: userId };
+    const result = { run_id: runId, user_message_id: userId, ...(plan?.prefix && { context_shared: true }) };
     this.sent.set(key, { at: this.now(), result });
     log.info({ thread_id: thread.id, run_id: runId, fork }, 'a Claude Code turn was sent');
     return result;
@@ -440,8 +519,16 @@ export class ClaudeCodeLive {
   /* ---- the session behind a thread -------------------------------------- */
 
   private async ensureHandle(l: Live, cp: ClaudeCodeCheckpoint): Promise<string> {
-    const want = cp.fork ? null : cp.sessionId;
-    if (l.handle && want && l.sessionId === want) {
+    const want = cp.fork || cp.fresh ? null : cp.sessionId;
+    const nb = l.notebookId ? await this.deps.notebook(l.notebookId) : null;
+    const base = appendPrompt(nb?.title ?? null);
+    // NVX Ancile's instructions and persona ride in the appended note; a changed note reopens the session.
+    const note = this.deps.engines
+      ? await this.deps.engines
+          .systemNote({ threadId: l.threadId, notebookId: l.notebookId, base })
+          .catch(() => base)
+      : base;
+    if (l.handle && want && l.sessionId === want && (l.note === null || l.note === note)) {
       if (cp.model && cp.model !== l.model) {
         await this.deps.bridge.control(l.handle, 'set_model', { model: cp.model });
         l.model = cp.model;
@@ -454,16 +541,16 @@ export class ClaudeCodeLive {
     }
     if (l.handle) await this.closeHandle(l);
     const cli = await this.deps.service.cliPath();
-    const nb = l.notebookId ? await this.deps.notebook(l.notebookId) : null;
     l.state = 'starting';
     const { handle } = await this.deps.bridge.open({
-      resume: cp.sessionId,
-      ...(cp.fork && { fork: true, ...(cp.resumeAt && { resume_at: cp.resumeAt }) }),
+      // A fresh session (seeded from NVX Ancile's summary) resumes nothing.
+      ...(!cp.fresh && { resume: cp.sessionId }),
+      ...(cp.fork && !cp.fresh && { fork: true, ...(cp.resumeAt && { resume_at: cp.resumeAt }) }),
       cwd: cp.cwd,
       ...(cp.model && { model: cp.model }),
       ...(cp.effort && { effort: cp.effort }),
       permission_mode: 'default',
-      append_system_prompt: appendPrompt(nb?.title ?? null),
+      append_system_prompt: note,
       ...(this.deps.mcp && {
         mcp_servers: {
           [ANCILE_MCP_SERVER]: {
@@ -477,7 +564,8 @@ export class ClaudeCodeLive {
       path_to_cli: cli.path,
     });
     l.handle = handle;
-    l.sessionId = cp.fork ? null : cp.sessionId;
+    l.sessionId = cp.fork || cp.fresh ? null : cp.sessionId;
+    l.note = note;
     l.state = 'ready';
     l.model = cp.model;
     l.effort = cp.effort;
@@ -552,6 +640,17 @@ export class ClaudeCodeLive {
     // A restart after the prompt went out: Claude Code may have answered while
     // nobody was listening. What it wrote comes in from its transcript.
     if (run.attempt > 0 && (await this.deps.runs.step(run.id, 0))) return this.recover(cp, emit);
+    // Engines: say once, above the answer, that some of the thread goes to Claude Code.
+    if (cp.prefix && cp.engineContext)
+      await emit({
+        type: 'context.shared',
+        message_id: cp.assistantMessageId,
+        engine: 'claude_code',
+        notice: CLAUDE_CODE_CONTEXT_NOTICE,
+        turns: cp.engineContext.foreign_turns,
+        tokens: cp.engineContext.tokens,
+        seeded_from_summary: cp.engineContext.seeded_from_summary,
+      });
 
     const turn: Turn = {
       cp,
@@ -565,6 +664,7 @@ export class ClaudeCodeLive {
       modelSpan: null,
       toolSpans: new Map(),
       calls: new Set(),
+      toolInputs: new Map(),
       passages: [],
       result: null,
       error: null,
@@ -603,7 +703,9 @@ export class ClaudeCodeLive {
       l.state = 'working';
       try {
         await ctx.once(0, 'claude_code_prompt', { promptUuid: cp.promptUuid }, async () => {
-          await this.deps.bridge.send(handle, cp.text, { uuid: cp.promptUuid });
+          await this.deps.bridge.send(handle, cp.prefix ? `${cp.prefix}\n\n${cp.text}` : cp.text, {
+            uuid: cp.promptUuid,
+          });
           return true;
         });
       } catch (err) {
@@ -678,6 +780,18 @@ export class ClaudeCodeLive {
     cp.finalSessionId = sessionId;
     const { threads } = this.deps;
 
+    // Engines: the fresh session now holds NVX Ancile's summary.
+    if (cp.fresh && cp.seedSummaryId && sessionId !== cp.sessionId && this.deps.engines)
+      await this.deps.engines
+        .seen({
+          workspaceId: cp.workspaceId,
+          threadId: cp.threadId,
+          sessionId,
+          summaryId: cp.seedSummaryId,
+        })
+        .catch((err: unknown) =>
+          log.warn({ err: (err as Error).message }, 'could not record that a session holds the summary'),
+        );
     // A fork is a session of its own, bound to the same thread.
     if (sessionId !== cp.sessionId) {
       const existing = (await this.deps.store.sessions(this.deps.workspaceId)).find(
@@ -789,6 +903,7 @@ export class ClaudeCodeLive {
               }),
             },
             ...retrieval,
+            ...(cp.engineContext && { engine_context: cp.engineContext }),
             ...(turn.error &&
               status === 'error' && {
                 error: {
@@ -873,6 +988,7 @@ export class ClaudeCodeLive {
     }
     const l = this.byHandle.get(e.data.handle);
     if (!l) {
+      if (this.deps.foreignHandle?.(e.data.handle)) return;
       if (e.event === 'session.permission')
         await this.deps.bridge
           .reply(e.data.handle, e.data.request_id, {
@@ -969,6 +1085,7 @@ export class ClaudeCodeLive {
             if (t.calls.has(b.id)) continue;
             t.calls.add(b.id);
             const name = String(b.name ?? 'tool');
+            if (!t.toolInputs.has(b.id)) t.toolInputs.set(b.id, { name, input: b.input });
             const mapped = this.map(l, name, b.input);
             await this.emitFor(t, {
               type: 'tool.call',
@@ -1008,6 +1125,20 @@ export class ClaudeCodeLive {
           const s = t.toolSpans.get(b.tool_use_id);
           s?.span.end(ok ? 'ok' : 'error');
           t.toolSpans.delete(b.tool_use_id);
+          const ran = t.toolInputs.get(b.tool_use_id);
+          if (ran && this.deps.engines?.toolDone)
+            void this.deps.engines
+              .toolDone({
+                threadId: l.threadId,
+                notebookId: l.notebookId,
+                runId: t.runId,
+                messageId: msgId,
+                cwd: l.cwd,
+                tool: ran.name,
+                input: ran.input,
+                ok,
+              })
+              .catch(() => undefined);
         }
         return;
       }
@@ -1210,6 +1341,8 @@ export class ClaudeCodeLive {
     });
     if (status === 'approved') {
       if (w.mapped.hosted) this.deps.passes?.grant(w.mapped.hosted);
+      if (t && isObj(updatedArgs) && a.call_id)
+        t.toolInputs.set(a.call_id, { name: w.ask.tool_name, input: updatedArgs });
       await this.reply(w.live, w.ask, {
         behavior: 'allow',
         ...(isObj(updatedArgs) && { updated_input: updatedArgs }),
