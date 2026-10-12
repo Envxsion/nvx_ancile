@@ -313,6 +313,42 @@ describe('live sessions', () => {
     });
   });
 
+  it("asks Core about a subagent's tool call too, with its agent id, and denies it when Core does", async () => {
+    // Track G: a Task subagent's calls fire the same PreToolUse hook (hook_event_name, agent_id).
+    const rec: { hook?: unknown } = {};
+    const sdk = fakeSdk({
+      async turn(_msg, opts, out) {
+        rec.hook = await hookOf(opts)(
+          {
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Bash',
+            tool_input: { command: 'rm -rf ~' },
+            tool_use_id: 'sub-t1',
+            agent_id: 'agent-7',
+          },
+          'sub-t1',
+          { signal: new AbortController().signal },
+        );
+        out({ type: 'result', subtype: 'success', is_error: false, session_id: 'S1' });
+      },
+    });
+    mgr = new SessionManager({ load: async () => sdk });
+    const c = collector();
+    const { handle } = await mgr.openSession(openParams(OPEN), c.push);
+    mgr.send(handle, 'clean up with a subagent');
+    const ask = await c.next((e) => e.event === 'session.permission');
+    expect(ask.data).toMatchObject({
+      tool_name: 'Bash',
+      input: { command: 'rm -rf ~' },
+      tool_use_id: 'sub-t1',
+      agent_id: 'agent-7',
+      via: 'hook',
+    });
+    mgr.reply(handle, ask.data.request_id, { behavior: 'deny', message: 'It deletes your home folder' });
+    await c.next((e) => (e.data.message as { type?: string })?.type === 'result');
+    expect(rec.hook).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+  });
+
   it('denies when Core does not answer in time', async () => {
     const rec: { hook?: unknown } = {};
     mgr = new SessionManager({ load: async () => fakeSdk(bashScript(rec)), permissionTimeoutMs: 30 });

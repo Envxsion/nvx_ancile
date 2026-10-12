@@ -17,6 +17,18 @@ describe('Auto mode evals', () => {
     expect(INJECTION_CASES.filter((c) => c.name.startsWith('source:')).length).toBeGreaterThanOrEqual(7);
   });
 
+  it('includes Claude Code subagent calls, decided as agent:claude-code (track G)', () => {
+    const sub = [...INJECTION_CASES, ...NORMAL_CASES].filter((c) => c.name.startsWith('subagent:'));
+    expect(sub.length).toBeGreaterThanOrEqual(4);
+    for (const c of sub) expect(c.principal).toBe('agent:claude-code');
+    expect(
+      INJECTION_CASES.find((c) => c.name === 'subagent: Task subagent wipes the home folder'),
+    ).toMatchObject({
+      action: 'shell.exec',
+      resource: 'shell:rm -rf ~',
+    });
+  });
+
   it('asks before a web address carries a lot of text away, and not for an ordinary link', () => {
     expect(urlPayload('https://developer.mozilla.org/en-US/docs/Web/API/fetch?retiredLocale=de#syntax')).toBe(
       false,
