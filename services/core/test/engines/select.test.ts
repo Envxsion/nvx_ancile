@@ -147,6 +147,8 @@ describe('the scope is checked before anything runs', () => {
 });
 
 class Bridge implements LiveBridge {
+  /** What the session's result says; the default is a normal success. */
+  result: Record<string, unknown> = { subtype: 'success', is_error: false };
   opened: LiveOpenParams[] = [];
   sent: string[] = [];
   replies: LivePermissionReply[] = [];
@@ -191,8 +193,7 @@ class Bridge implements LiveBridge {
         () =>
           this.msg(handle, {
             type: 'result',
-            subtype: 'success',
-            is_error: false,
+            ...this.result,
             usage: { input_tokens: 7, output_tokens: 2, cache_read_input_tokens: 40 },
           }),
         20,
@@ -293,6 +294,31 @@ describe('Claude Code as a model (Mode A)', () => {
     expect(bridge.replies[1]).toMatchObject({ behavior: 'allow' }); // the notebook's search
     expect(handles.size).toBe(0);
     expect(bridge.closed).toEqual(['hA']);
+  });
+
+  it('says what Claude Code said when its result is an error, even one marked success', async () => {
+    const bridge = new Bridge();
+    bridge.result = { subtype: 'success', is_error: true, result: 'API Error: 529 Overloaded' };
+    const client = new ClaudeCodeModelClient({
+      bridge,
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/haiku') as ModelConfig;
+    const run = async () => {
+      for await (const _ of client.stream(
+        model,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ));
+    };
+    await expect(run()).rejects.toThrow('Claude Code could not answer: API Error: 529 Overloaded');
   });
 
   it('turns a conversation into one prompt', () => {

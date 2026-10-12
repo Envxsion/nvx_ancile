@@ -201,11 +201,17 @@ export class ClaudeCodeModelClient implements ModelClient {
           for (const b of content)
             if (b.type === 'text' && typeof b.text === 'string') yield { type: 'text', delta: b.text };
         } else if (m.type === 'result') {
-          if (m.is_error === true)
+          if (m.is_error === true) {
+            // An error result can say "success" as its subtype; its text says what went wrong.
+            const said =
+              typeof m.result === 'string' ? m.result.trim().replace(/\s+/g, ' ').slice(0, 200) : '';
             throw new ClassifiedError(
               'transient',
-              `Claude Code could not answer (${String(m.subtype ?? 'error')})`,
+              said
+                ? `Claude Code could not answer: ${said}`
+                : `Claude Code could not answer (${String(m.subtype ?? 'error')})`,
             );
+          }
           const u = isObj(m.usage) ? m.usage : {};
           const n = (v: unknown) => (typeof v === 'number' ? v : 0);
           yield {

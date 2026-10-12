@@ -352,6 +352,40 @@ describe('syncing', () => {
     expect((await threads.getThread(id))?.active_head_id).toBe(msgs[3]?.id);
   });
 
+  it("leaves the head on another model's answer: a sync never moves the person off it", async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // A gateway model answered after Claude Code's last message (a mixed thread).
+    const q = { id: 'msg_gw_q' };
+    await threads.insertMessage({
+      id: q.id,
+      thread_id: id,
+      parent_id: before.at(-1)?.id ?? null,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Remember PERIWINKLE-42' }],
+      trace_id: 't-gw',
+      status: 'complete',
+    });
+    const a = { id: 'msg_gw_a' };
+    await threads.insertMessage({
+      id: a.id,
+      thread_id: id,
+      parent_id: q.id,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Noted.' }],
+      trace_id: 't-gw',
+      status: 'complete',
+      model_id: 'ollama/llama3.2:3b',
+    });
+    await threads.patchThread(id, { active_head_id: a.id });
+    // Claude Code's session file changes (a sync with something new to add).
+    chain.push(user('u2', 'Now add a test'), assistant('a4', [{ type: 'text', text: 'Added.' }]));
+    await svc.syncThread(id);
+    expect((await threads.getThread(id))?.active_head_id).toBe(a.id);
+  });
+
   it('carries on an assistant turn that was still going at the last sync', async () => {
     const chain = [
       user('u1', 'go'),
@@ -861,6 +895,21 @@ describe('first-run import order and pacing', () => {
     expect(order).toEqual(['bound', 'new-a', 'new-fork', 'mid-a', 'old-a', 'nowhere']);
   });
 
+  it('puts a /branch fork after its origin when both report the same createdAt (copied entries keep their timestamps)', () => {
+    const t = (h: number) => Date.UTC(2026, 9, 1, h);
+    // The fork is listed first and shares its origin's first timestamp; only its last write is later.
+    const todo = [
+      info('fork', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(6) }),
+      info('origin', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(todo, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+    const loose = [
+      info('fork', { createdAt: t(1), lastModified: t(6) }),
+      info('origin', { createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(loose, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+  });
+
   it('orders a thousand sessions newest folder first, oldest first within each folder', () => {
     const t0 = Date.UTC(2026, 0, 1);
     const all = Array.from({ length: 1000 }, (_, i) =>
@@ -903,7 +952,7 @@ describe('first-run import order and pacing', () => {
     await svc.idle();
     const list = await threads.listThreads(WS);
     expect(list).toHaveLength(2); // the fork joined its parent's thread
-    // …and the thread is the parent's: it came in first, so the fork is the branch.
+    // â€¦and the thread is the parent's: it came in first, so the fork is the branch.
     const sessions = list.map((t) => t.settings.claude_code?.session_id).sort();
     expect(sessions).toEqual(['older', 'parent']);
   });

@@ -12,7 +12,13 @@ import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { AppEnv } from '../../src/app';
 import { fitOf, type HardwareProbe, parseNvidia } from '../../src/localmodels/hardware';
-import { OllamaClient, ollamaBase, ollamaDownload, ollamaInstalled } from '../../src/localmodels/ollama';
+import {
+  NETWORK_TROUBLE,
+  OllamaClient,
+  ollamaBase,
+  ollamaDownload,
+  ollamaInstalled,
+} from '../../src/localmodels/ollama';
 import { localModelRoutes } from '../../src/localmodels/routes';
 import { LocalModels } from '../../src/localmodels/service';
 import { errorHandler } from '../../src/obs/errors';
@@ -346,6 +352,17 @@ describe('what fits this computer', () => {
     expect(rv.body.hardware.disk_free_gb).toBeNull();
     expect(await ollamaInstalled({ PATH: '' }, 'linux')).toBe(false);
   }, 30_000);
+});
+
+describe('what Ollama says when a pull fails', () => {
+  it('tells its own network trouble from a refusal', () => {
+    const timeout =
+      'Head "https://registry.ollama.ai/v2/library/llama3.2/blobs/sha256:56bb": dial tcp 104.18.16.170:443: i/o timeout';
+    expect(NETWORK_TROUBLE.test(timeout)).toBe(true);
+    expect(NETWORK_TROUBLE.test('read tcp 10.0.0.2:5123: connection reset by peer')).toBe(true);
+    expect(NETWORK_TROUBLE.test('pull model manifest: file does not exist')).toBe(false);
+    expect(NETWORK_TROUBLE.test('model not found')).toBe(false);
+  });
 });
 
 describe('downloading', () => {

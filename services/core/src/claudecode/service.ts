@@ -254,6 +254,11 @@ export function importOrder(
   platform: NodeJS.Platform = process.platform,
 ): CcSessionInfo[] {
   const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified ?? 0;
+  // A fork made with /branch copies the entries it came from, timestamps
+  // included, so it reports the same createdAt as its origin. The one
+  // written to last is the fork: on a tie, the older lastModified goes first.
+  const older = (a: CcSessionInfo, b: CcSessionInfo) =>
+    age(a) - age(b) || (a.lastModified ?? 0) - (b.lastModified ?? 0);
   const updates = todo.filter(isBound).sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
   const families = new Map<string, CcSessionInfo[]>();
   const loose: CcSessionInfo[] = [];
@@ -270,9 +275,9 @@ export function importOrder(
   }
   const newest = (list: CcSessionInfo[]) => Math.max(...list.map((i) => i.lastModified ?? 0));
   const fams = [...families.values()]
-    .map((list) => ({ list: list.sort((a, b) => age(a) - age(b)), newest: newest(list) }))
+    .map((list) => ({ list: list.sort(older), newest: newest(list) }))
     .sort((a, b) => b.newest - a.newest);
-  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort((a, b) => age(a) - age(b))];
+  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort(older)];
 }
 
 export class ClaudeCodeService {
@@ -990,8 +995,13 @@ export class ClaudeCodeService {
     // A folder chosen in NVX Ancile (the old one moved), or a thread going on without files,
     // keeps its folder until its next session says otherwise.
     const keepCwd = !!bound && (bound.no_files === true || bound.fresh_next === true);
+    // The session's latest entry becomes the thread's head only while the person is
+    // still on Claude Code's path. A head written by another engine (a gateway model's
+    // answer) stays: moving it back would send the next turn on without that answer.
+    const head = thread.active_head_id ? await threads.getMessage(thread.active_head_id) : undefined;
+    const headElsewhere = !!head && head.role === 'assistant' && !head.provenance?.claude_code;
     await threads.patchThread(thread.id, {
-      ...(primary && plan.head && { active_head_id: plan.head }),
+      ...(primary && plan.head && !headElsewhere && { active_head_id: plan.head }),
       ...(firstRoot && !thread.root_message_id ? { root_message_id: firstRoot } : {}),
       ...(nextTitle && { title: nextTitle }),
       ...(primary && {
