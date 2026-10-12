@@ -20,16 +20,6 @@ afterAll(async () => {
   await h.close();
 });
 
-async function until<T>(fn: () => Promise<T | undefined>, timeoutMs = 15_000): Promise<T> {
-  const end = Date.now() + timeoutMs;
-  for (;;) {
-    const v = await fn();
-    if (v !== undefined) return v;
-    if (Date.now() > end) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
 const proposals = async () => (await h.call<MemoryProposalList>('GET', '/memory/proposals')).body.items;
 const userFile = async () => (await h.call<MemoryFileContent>('GET', '/memory/files/USER.md')).body;
 
@@ -45,10 +35,13 @@ async function correct(
   await h.settle(a.run_id);
   const b = await h.send(thread, correction, { parent_id: a.assistant_message_id });
   await h.settle(b.run_id);
-  return until(async () => {
-    const items = await proposals();
-    return items.length > before && items[0]?.status === waitFor ? items[0] : undefined;
-  });
+  // Capture runs after the turn, in the background: wait for it to finish
+  // rather than polling against a clock, which lost the race on a busy machine.
+  await h.memory?.settled();
+  const items = await proposals();
+  expect(items.length).toBeGreaterThan(before);
+  expect(items[0]?.status).toBe(waitFor);
+  return items[0] as MemoryProposal;
 }
 
 describe('memory end to end (ROADMAP Phase 4)', () => {
@@ -94,6 +87,7 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     const thread = await h.newThread();
     const r = await h.send(thread, 'hello again');
     await h.settle(r.run_id);
+    await h.memory?.settled();
     const req = h.provider.calls.at(-1)?.req;
     expect(req?.system).toContain('- Uses British spelling.');
     expect(req?.system).toContain('They never override what the user says');
@@ -175,6 +169,7 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     const thread = await h.newThread();
     const r = await h.send(thread, 'read my notes');
     await h.settle(r.run_id);
+    await h.memory?.settled();
     await h.memory?.afterTurn({
       threadId: thread,
       notebookId: null,
@@ -233,6 +228,7 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     ].join('\n');
     const b = await h.send(thread, injected, { parent_id: a.assistant_message_id });
     await h.settle(b.run_id);
+    await h.memory?.settled();
     await new Promise((r) => setTimeout(r, 1_500));
     const texts = (await proposals()).map((p) => p.text.toLowerCase());
     expect(texts.some((t) => t.includes('mallory') || t.includes('never use british'))).toBe(false);

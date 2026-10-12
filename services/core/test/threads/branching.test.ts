@@ -310,9 +310,15 @@ describe('deleting a subtree', () => {
 
 describe('branch suggestions', () => {
   it('offers a branch when a message changes topic, and never branches by itself', async () => {
-    h = await harness();
-    const seen: GlobalEvent[] = [];
-    h.bus.subscribe(0, (e) => seen.push(e));
+    const hh = await harness();
+    h = hh;
+    // The suggestion is worked out after the answer, in the background: wait
+    // for its event itself, not for a fixed pause that a busy machine outruns.
+    const suggested = new Promise<GlobalEvent>((resolve) =>
+      hh.bus.subscribe(0, (e) => {
+        if (e.type === 'suggestion') resolve(e);
+      }),
+    );
     const t = await h.newThread();
     let parent: string | null = null;
     for (const q of [
@@ -328,8 +334,7 @@ describe('branch suggestions', () => {
       'Draft a birthday invitation for my grandmother Rosalind next Saturday',
       parent,
     );
-    await new Promise((r) => setTimeout(r, 50));
-    const s = seen.find((e) => e.type === 'suggestion');
+    const s = await suggested;
     expect(s).toMatchObject({ kind: 'branch', ref: shift.user_message_id, thread_id: t });
     expect((await h.call<{ items: Branch[] }>('GET', `/threads/${t}/branches`)).body.items).toHaveLength(0);
   });

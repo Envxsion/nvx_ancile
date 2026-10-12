@@ -685,9 +685,23 @@ export class MemoryService {
 
   /** After a turn is saved: learn from it, in the background. */
   afterTurn(turn: TurnRecord): Promise<void> {
-    return this.capture(turn).catch((err) => {
+    const done = this.capture(turn).catch((err) => {
       log.warn({ err, thread_id: turn.threadId }, 'memory capture failed; nothing learned from this turn');
     });
+    this.capturing.add(done);
+    void done.finally(() => this.capturing.delete(done));
+    return done;
+  }
+
+  private readonly capturing = new Set<Promise<void>>();
+
+  /**
+   * Resolves once every capture started so far has finished (tests, and a
+   * clean shutdown). Captures run in the background after a turn, so this is
+   * how to know memory has reacted without polling against a clock.
+   */
+  async settled(): Promise<void> {
+    while (this.capturing.size) await Promise.all([...this.capturing]);
   }
 
   private async capture(turn: TurnRecord): Promise<void> {
