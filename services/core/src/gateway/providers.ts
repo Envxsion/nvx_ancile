@@ -176,17 +176,21 @@ export class AiSdkClient implements ModelClient {
         vision,
         ...(images && { images }),
       }) as SdkMessage[],
-      ...(req.tools?.length && {
-        tools: Object.fromEntries(
-          req.tools.map((t) => [
-            t.name,
-            tool({
-              description: t.description,
-              inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
-            }),
-          ]),
-        ) as ToolSet,
-      }),
+      // A model without the tools capability is never offered tools: vLLM started
+      // without a tool parser refuses the whole request ("auto" tool choice requires
+      // --enable-auto-tool-choice), so every turn to such a GPU node failed.
+      ...(req.tools?.length &&
+        m.capabilities.includes('tools') && {
+          tools: Object.fromEntries(
+            req.tools.map((t) => [
+              t.name,
+              tool({
+                description: t.description,
+                inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
+              }),
+            ]),
+          ) as ToolSet,
+        }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
       ...(req.maxOutputTokens !== undefined && { maxOutputTokens: req.maxOutputTokens }),
