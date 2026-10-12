@@ -112,6 +112,7 @@ export const CC_MODEL_NAME = 'Claude Code';
 export const BUSY_WINDOW_MS = 60_000;
 /** How long one turn may take before it is stopped. */
 export const TURN_DEADLINE_MS = 60 * 60_000;
+export const IDLE_CLOSE_MS = 3 * 60_000;
 /** Claude Code's command list is read again after this (claudecode/commands.ts). */
 export { COMMANDS_TTL_MS } from './commands';
 
@@ -262,6 +263,8 @@ export interface LiveDeps {
   now?: () => number;
   turnDeadlineMs?: number;
   stopGraceMs?: number;
+  /** How long an idle session stays open before it is closed (and its folder let go); default 3 minutes. */
+  idleCloseMs?: number;
   /** Does a folder exist (tests)? */
   folderExists?: (cwd: string) => Promise<boolean>;
   /** What is at a path, for a new thread's folder (tests); default: the file system. */
@@ -331,6 +334,8 @@ interface Live {
   /** Claude Code's running cost total for the open handle (to tell one turn's share). */
   costSoFar: number;
   turn: Turn | null;
+  /** Closes the open handle once it has been idle a while (live.ts closeWhenIdle). */
+  idleTimer: NodeJS.Timeout | null;
 }
 
 interface WaitingAsk {
@@ -475,6 +480,7 @@ export class ClaudeCodeLive {
 
   stop(): void {
     this.unsubscribe();
+    for (const l of this.lives.values()) if (l.idleTimer) clearTimeout(l.idleTimer);
     for (const l of this.byHandle.values())
       if (l.handle) void this.deps.bridge.close(l.handle).catch(() => undefined);
     this.byHandle.clear();
@@ -513,6 +519,7 @@ export class ClaudeCodeLive {
         note: null,
         costSoFar: 0,
         turn: null,
+        idleTimer: null,
       };
       this.lives.set(thread.id, l);
     }
@@ -837,6 +844,8 @@ export class ClaudeCodeLive {
   /* ---- the session behind a thread -------------------------------------- */
 
   private async ensureHandle(l: Live, cp: ClaudeCodeCheckpoint): Promise<string> {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
     const want = cp.fork || cp.fresh ? null : cp.sessionId;
     const nb = l.notebookId ? await this.deps.notebook(l.notebookId) : null;
     const base = appendPrompt(nb?.title ?? null);
@@ -905,7 +914,28 @@ export class ClaudeCodeLive {
     return handle;
   }
 
+  /**
+   * An idle session is closed after a short while. Its Claude Code process
+   * works in the thread's folder, and on Windows a folder a process works
+   * in cannot be renamed or moved. The next turn resumes the session.
+   */
+  private closeWhenIdle(l: Live) {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
+    if (!l.handle) return;
+    l.idleTimer = setTimeout(() => {
+      l.idleTimer = null;
+      if (l.turn || !l.handle) return;
+      if ([...this.waiting.values()].some((w) => w.live === l)) return this.closeWhenIdle(l);
+      log.info({ thread_id: l.threadId }, 'closed an idle Claude Code session; the next turn resumes it');
+      void this.closeHandle(l);
+    }, this.deps.idleCloseMs ?? IDLE_CLOSE_MS);
+    l.idleTimer.unref?.();
+  }
+
   private async closeHandle(l: Live) {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
     const h = l.handle;
     if (!h) return;
     l.handle = null;
@@ -1072,6 +1102,7 @@ export class ClaudeCodeLive {
       this.ownWrites.set(sid, this.now());
       // A question still open when its turn ends is withdrawn, never left for a later turn.
       await this.withdrawWaiting(l, 'turn_ended');
+      this.closeWhenIdle(l);
     }
   }
 

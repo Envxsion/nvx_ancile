@@ -806,6 +806,7 @@ async function main() {
     events: runEvents,
     worker: { kick: () => worker.kick() },
     bus: events,
+    idleCloseMs: env.ANCILE_CC_LIVE_IDLE_MS,
     permissions,
     gateFor: (root) =>
       createGate({

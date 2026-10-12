@@ -560,7 +560,7 @@ Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a
 | `subagents.list` | `{session_id, dir?}` → agent ids |
 | `subagents.messages` | `{session_id, agent_id, dir?, limit?, offset?}` → transcript entries |
 
-Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-input mode, one per handle, with `pathToClaudeCodeExecutable` (the located, verified Claude Code), the session's folder, `includePartialMessages`, `permissionMode: default`, the setting sources the terminal loads (user, project, local) and file checkpointing. It never sets `bypassPermissions`. A handle closes after ten idle minutes, on `session.close`, or when the connection that opened it closes.
+Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-input mode, one per handle, with `pathToClaudeCodeExecutable` (the located, verified Claude Code), the session's folder, `includePartialMessages`, `permissionMode: default`, the setting sources the terminal loads (user, project, local) and file checkpointing. It never sets `bypassPermissions`. A handle closes after ten idle minutes, on `session.close`, or when the connection that opened it closes. Core closes its own live sessions sooner, after `ANCILE_CC_LIVE_IDLE_MS` (3 minutes by default) without a turn, so their Claude Code process lets go of the folder (Windows keeps a folder a process works in locked against renaming or moving); the next turn resumes the session.
 
 | Op | Params → result |
 |---|---|
