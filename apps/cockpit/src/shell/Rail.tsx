@@ -24,8 +24,10 @@ import { motion } from 'motion/react';
 import {
   type CSSProperties,
   type KeyboardEvent,
+  memo,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -103,7 +105,7 @@ function InlineRename({ initial, onDone }: { initial: string; onDone: (title: st
   );
 }
 
-function ThreadRow({
+const ThreadRow = memo(function ThreadRow({
   t,
   active,
   cursor,
@@ -255,7 +257,7 @@ function ThreadRow({
       </div>
     </ContextMenu>
   );
-}
+});
 
 function Section({
   title,
@@ -432,8 +434,8 @@ export function Rail() {
 
   const isCursor = (kind: Row['kind'], id: string) =>
     focused && rows[cursor]?.kind === kind && rows[cursor]?.id === id;
-  const prefetch = (id: string) => void qc.prefetchQuery(threadQuery(id));
-  const nbs = notebooks.data ?? [];
+  const prefetch = useCallback((id: string) => void qc.prefetchQuery(threadQuery(id)), [qc]);
+  const nbs = useMemo(() => notebooks.data ?? [], [notebooks.data]);
 
   const onFilterKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {

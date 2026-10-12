@@ -34,6 +34,28 @@ eachBackend('thread and notebook repositories', (backend) => {
     trace_id: '0'.repeat(32),
   });
 
+  it('reads a thread shape without content, and messages by id in the order asked', async () => {
+    const t = (await threads.createThread({ id: uid('thr'), workspace_id: ws })).id;
+    const a = message(t, null, 'user', 'first');
+    const b = message(t, a.id, 'assistant', 'second');
+    const c = message(t, b.id, 'user', 'third');
+    await threads.insertMessages([
+      { ...a, created_at: '2026-01-01T00:00:01.000Z' },
+      { ...b, created_at: '2026-01-01T00:00:02.000Z' },
+      { ...c, created_at: '2026-01-01T00:00:03.000Z' },
+    ]);
+    await threads.discardMessages([c.id]);
+    const shape = await threads.skeleton(t);
+    expect(shape).toEqual([
+      { id: a.id, parent_id: null, role: 'user', created_at: '2026-01-01T00:00:01.000Z' },
+      { id: b.id, parent_id: a.id, role: 'assistant', created_at: '2026-01-01T00:00:02.000Z' },
+    ]);
+    const got = await threads.messagesByIds(t, [b.id, 'missing', a.id, c.id]);
+    expect(got.map((m) => m.id)).toEqual([b.id, a.id]);
+    expect(got[0]?.parts).toEqual([{ type: 'text', text: 'second' }]);
+    expect(await threads.messagesByIds(uid('thr'), [a.id])).toEqual([]);
+  });
+
   it('creates, reads, patches and soft-deletes a thread', async () => {
     const id = uid('thr');
     const t = await threads.createThread({ id, workspace_id: ws, title: 'Plan the launch' });

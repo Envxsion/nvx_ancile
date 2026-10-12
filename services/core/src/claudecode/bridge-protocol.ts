@@ -154,7 +154,9 @@ export type LiveControlOp =
   | 'rewind_files'
   | 'mcp_status'
   | 'mcp_reconnect'
-  | 'mcp_toggle';
+  | 'mcp_toggle'
+  /** The SDK's experimental usage report (plan limits), read loosely by the bridge. */
+  | 'usage';
 
 /** What the live layer drives sessions through (the bridge, or a fake in tests). */
 export interface LiveBridge {

@@ -193,12 +193,12 @@ describe("Claude Code's events are quiet rows, not bubbles", () => {
   it('a notice is one line by source, with its body as markdown when opened', () => {
     const { container } = render(<CcEventRow e={ev('s3')} />);
     expect(screen.getByText('Background task finished')).toBeInTheDocument();
-    expect([...container.querySelectorAll('.cc-notice__meta')].map((n) => n.textContent)).toEqual([
+    expect([...container.querySelectorAll('.cc-note__meta')].map((n) => n.textContent)).toEqual([
       'pnpm build',
       'completed',
     ]);
-    expect(container.querySelector('details.cc-notice')).not.toHaveAttribute('open');
-    expect(container.querySelector('.cc-notice__body')?.textContent).toContain('The build passed.');
+    expect(container.querySelector('details.cc-note')).not.toHaveAttribute('open');
+    expect(container.querySelector('.cc-note__body')?.textContent).toContain('The build passed.');
   });
 
   it('an interruption is a tiny marker', () => {
@@ -254,12 +254,34 @@ const failed = (id: string, result: unknown): Part => ({
   result,
 });
 
+/**
+ * Folded steps draw their body only once opened (useOpened); open each one
+ * once, as a reader would, then put it back as it was so the folded state
+ * can still be checked.
+ */
+function unfold(container: HTMLElement) {
+  const done = new Set<Element>();
+  for (let round = 0; round < 6; round++) {
+    const fresh = [...container.querySelectorAll('details')].filter((d) => !done.has(d));
+    if (!fresh.length) return;
+    for (const d of fresh) {
+      done.add(d);
+      const was = d.open;
+      d.open = true;
+      fireEvent(d, new Event('toggle'));
+      d.open = was;
+    }
+  }
+}
+
 function parts(ps: Part[], cwd: string | null = '/home/me/proj') {
-  return render(
+  const r = render(
     <ToolCwd.Provider value={cwd}>
       <Parts parts={ps} streaming={false} waiting={false} />
     </ToolCwd.Provider>,
   );
+  unfold(r.container);
+  return r;
 }
 
 const label = (c: HTMLElement) =>

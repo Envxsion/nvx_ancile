@@ -18,7 +18,15 @@
 
 import type { Branch, BranchTree, BranchTreeNode, Part } from '@nvx/contracts';
 import { childrenIndex } from './path';
-import { asTree, type MessageRecord, type TreeRecord } from './repo';
+import type { MessageNode, MessageRecord } from './repo';
+
+/**
+ * What the tree needs of a message: its place always, its content only for
+ * the nodes it draws (a node's first message and the end of its run).
+ */
+export type TreeInput = MessageNode &
+  Partial<Pick<MessageRecord, 'parts' | 'model_id' | 'status' | 'provenance'>>;
+type TreeItem = TreeInput & { parentId: string | null };
 
 /** First meaningful line of a message, for a node label. */
 /** Flows (Phase 5b): the flow that answered a message, from its provenance. */
@@ -45,7 +53,7 @@ export function previewOf(parts: Part[], max = 96): string {
 }
 
 /** Root → leaf: follow the newest child from `id`, as the path route does. */
-export function deepestFrom(kids: Map<string | null, TreeRecord[]>, id: string): string {
+export function deepestFrom(kids: Map<string | null, { id: string }[]>, id: string): string {
   let cur = id;
   for (;;) {
     const next = kids.get(cur)?.at(-1);
@@ -54,18 +62,43 @@ export function deepestFrom(kids: Map<string | null, TreeRecord[]>, id: string):
   }
 }
 
+/**
+ * The messages whose content the tree draws: each node's first message and
+ * the end of its run. Everything else is folded and only counted, so a
+ * 20,000-message thread with a few forks reads a handful of rows.
+ */
+export function treeDetailIds(msgs: MessageNode[]): string[] {
+  const all = msgs.map((m) => ({ ...m, parentId: m.parent_id }));
+  const kids = childrenIndex(all);
+  const out: string[] = [];
+  for (const m of all) {
+    if (!(m.parentId === null || (kids.get(m.parentId)?.length ?? 0) > 1)) continue;
+    out.push(m.id);
+    let end = m.id;
+    for (;;) {
+      const next = kids.get(end);
+      if (next?.length !== 1) break;
+      const only = next[0] as TreeItem;
+      if ((kids.get(only.parentId)?.length ?? 0) > 1) break;
+      end = only.id;
+    }
+    if (end !== m.id) out.push(end);
+  }
+  return out;
+}
+
 export function buildTree(
   threadId: string,
-  msgs: MessageRecord[],
+  msgs: TreeInput[],
   branches: Branch[],
   activeHead: string | null,
 ): BranchTree {
-  const all = asTree(msgs);
+  const all: TreeItem[] = msgs.map((m) => ({ ...m, parentId: m.parent_id }));
   const kids = childrenIndex(all);
   const byId = new Map(all.map((m) => [m.id, m] as const));
   const nKids = (id: string) => kids.get(id)?.length ?? 0;
   // A node starts at a root or right after a fork, and runs down while there is exactly one child.
-  const shown = (m: TreeRecord) => m.parentId === null || (kids.get(m.parentId)?.length ?? 0) > 1;
+  const shown = (m: TreeItem) => m.parentId === null || (kids.get(m.parentId)?.length ?? 0) > 1;
 
   // The active path, extended to its leaf.
   const headStart = activeHead && byId.has(activeHead) ? activeHead : (kids.get(null)?.at(-1)?.id ?? null);
@@ -101,9 +134,9 @@ export function buildTree(
       id: m.id,
       parent_id: parent,
       role: m.role,
-      preview: previewOf(m.parts),
-      model_id: m.model_id,
-      status: m.status,
+      preview: previewOf(m.parts ?? []),
+      model_id: m.model_id ?? null,
+      status: m.status ?? 'complete',
       collapsed: folded,
       end_id: end.id,
       children: nKids(end.id),

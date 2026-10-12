@@ -49,7 +49,9 @@ function placeTurn(threadId: string, parentId: string | null, rows: MessageView[
     if (!t) return t;
     const cut = parentId ? t.messages.findIndex((m) => m.id === parentId) : -1;
     const kept = parentId ? (cut >= 0 ? t.messages.slice(0, cut + 1) : t.messages) : [];
-    return { ...t, messages: [...kept, ...rows], activeRun: null };
+    // A new root starts a path with nothing before it to page back to.
+    const paging = parentId ? {} : { cursor: rows[0]?.id ?? null, hasMore: false };
+    return { ...t, messages: [...kept, ...rows], activeRun: null, ...paging };
   });
 }
 

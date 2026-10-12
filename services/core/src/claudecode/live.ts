@@ -83,7 +83,7 @@ import type {
   LivePermissionAsk,
   LivePermissionReply,
 } from './bridge-protocol';
-import { type CliCommand, mergeCommands } from './commands';
+import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } from './commands';
 import { ccErrors } from './errors';
 import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf } from './map';
 import { type Passage, threadToken } from './mcp-server';
@@ -103,8 +103,9 @@ export const CC_MODEL_NAME = 'Claude Code';
 export const BUSY_WINDOW_MS = 60_000;
 /** How long one turn may take before it is stopped. */
 export const TURN_DEADLINE_MS = 60 * 60_000;
-/** Claude Code's command list is read again after this. */
-export const COMMANDS_TTL_MS = 10 * 60_000;
+/** Claude Code's command list is read again after this (claudecode/commands.ts). */
+export { COMMANDS_TTL_MS } from './commands';
+
 const IDEMPOTENCY_MS = 10 * 60_000;
 const STOP_GRACE_MS = 15_000;
 const PREVIEW = 280;
@@ -243,6 +244,8 @@ export interface LiveDeps {
   foreignHandle?: (handle: string) => boolean;
   /** Keep the bridge running for those handles too. */
   keepAlive?: () => boolean;
+  /** Plan limits: sees every pushed message (rate_limit_event) and each turn's end. */
+  limits?: { observe(m: Record<string, unknown>): Promise<void>; afterTurn(handle: string): void };
 }
 
 interface Turn {
@@ -394,7 +397,11 @@ export class ClaudeCodeLive {
   private readonly byHandle = new Map<string, Live>();
   private readonly waiting = new Map<string, WaitingAsk>(); // approval id → ask
   private readonly sent = new Map<string, { at: number; result: SendClaudeCodeResult }>();
-  private readonly commandCache = new Map<string, { at: number; items: ClaudeCodeCommand[] }>();
+  private readonly commandCatalogue = new CommandCatalogue(
+    () => this.now(),
+    (key, err) =>
+      log.warn({ err: (err as Error).message, key }, "Claude Code's command list could not be read"),
+  );
   /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
   private readonly ownWrites = new Map<string, number>();
   private readonly now: () => number;
@@ -1180,6 +1187,10 @@ export class ClaudeCodeLive {
       l.sessionId = sid;
       this.ownWrites.set(sid, this.now());
     }
+    if (m.type === 'rate_limit_event') {
+      await this.deps.limits?.observe(m).catch(() => undefined);
+      return;
+    }
     if (m.type === 'system' && m.subtype === 'init') {
       if (typeof m.model === 'string') l.model = m.model;
       if (typeof m.permissionMode === 'string') l.permissionMode = m.permissionMode;
@@ -1299,6 +1310,7 @@ export class ClaudeCodeLive {
         t.modelSpan?.span.end('ok');
         t.modelSpan = null;
         t.settle?.();
+        if (l.handle) this.deps.limits?.afterTurn(l.handle);
         return;
       default:
         return;
@@ -1536,13 +1548,19 @@ export class ClaudeCodeLive {
     let context: ClaudeCodeLiveState['context'] = null;
     if (l?.handle) {
       const u = await this.deps.bridge
-        .control<{ total_tokens: number; max_tokens: number; percentage: number }>(l.handle, 'context_usage')
+        .control<{
+          total_tokens: number;
+          max_tokens: number;
+          percentage: number;
+          compacts_at?: number | null;
+        }>(l.handle, 'context_usage')
         .catch(() => null);
       if (u && typeof u.max_tokens === 'number')
         context = {
           used_tokens: Math.round(u.total_tokens),
           max_tokens: Math.round(u.max_tokens),
           percent: u.percentage,
+          compacts_at: typeof u.compacts_at === 'number' ? u.compacts_at : null,
         };
     }
     return {
@@ -1560,22 +1578,63 @@ export class ClaudeCodeLive {
    * The "/" list: Claude Code's own (read from a session opened without a
    * prompt and without a transcript, so it spends nothing), merged with
    * what NVX Ancile does itself. Cached per folder and Claude Code version.
+   * Never makes the composer wait: until Claude Code's list has been read,
+   * the built-ins come back at once marked partial and the read goes on in
+   * the background (`wait` waits for it, for tests and scripts).
    */
-  async commands(threadId: string): Promise<ClaudeCodeCommand[]> {
+  async commands(threadId: string, opts: { wait?: boolean } = {}): Promise<CommandList> {
     const thread = await this.thread(threadId);
     const cwd = thread.settings.claude_code?.cwd;
     if (!cwd) throw ccErrors.noFolder();
     const cli = await this.deps.service.cliPath();
     const key = `${cli.version}|${cwd}`;
-    const hit = this.commandCache.get(key);
-    if (hit && this.now() - hit.at < COMMANDS_TTL_MS) return hit.items;
-    const open = this.lives.get(thread.id)?.handle ?? null;
+    const load = () => this.readCommands(thread.id, cwd, cli.path);
+    if (opts.wait) {
+      const items = await this.commandCatalogue.warm(key, load);
+      if (items) return { items, partial: false };
+    }
+    return this.commandCatalogue.read(key, load);
+  }
+
+  /**
+   * Read the lists ahead of time for the folders of the most recent Claude
+   * Code threads, one at a time, so the first "/" in them is already full.
+   * Quietly does nothing when Claude Code is not installed.
+   */
+  async warmCommands(opts: { folders?: number } = {}): Promise<number> {
+    let cli: { path: string; version: string };
+    try {
+      cli = await this.deps.service.cliPath();
+    } catch {
+      return 0;
+    }
+    const recent = await this.deps.threads.listThreads(this.deps.workspaceId, { limit: 50 });
+    const cwds = [
+      ...new Set(recent.flatMap((t) => (t.settings.claude_code?.cwd ? [t.settings.claude_code.cwd] : []))),
+    ].slice(0, opts.folders ?? 2);
+    let warmed = 0;
+    for (const cwd of cwds) {
+      if (this.deps.folderExists && !(await this.deps.folderExists(cwd))) continue;
+      const items = await this.commandCatalogue.warm(`${cli.version}|${cwd}`, () =>
+        this.readCommands(null, cwd, cli.path),
+      );
+      if (items) warmed++;
+    }
+    return warmed;
+  }
+
+  private async readCommands(
+    threadId: string | null,
+    cwd: string,
+    cliPath: string,
+  ): Promise<ClaudeCodeCommand[]> {
+    const open = (threadId && this.lives.get(threadId)?.handle) || null;
     let handle = open;
     if (!handle)
       handle = (
         await this.deps.bridge.open({
           cwd,
-          path_to_cli: cli.path,
+          path_to_cli: cliPath,
           persist: false,
           permission_mode: 'default',
           env: await this.deps.service.cliEnv(),
@@ -1589,14 +1648,12 @@ export class ClaudeCodeLive {
           .catch(() => []),
         this.deps.bridge.control<{ name: string }[]>(handle, 'mcp_status').catch(() => []),
       ]);
-      const items = dedupeCommands(
+      return dedupeCommands(
         mergeCommands(Array.isArray(list) ? dedupeCliCommands(list) : [], {
           models: Array.isArray(models) ? models : [],
           mcp: Array.isArray(mcp) ? mcp.map((s) => s.name).filter((n) => typeof n === 'string') : [],
         }),
       );
-      this.commandCache.set(key, { at: this.now(), items });
-      return items;
     } finally {
       if (!open) await this.deps.bridge.close(handle).catch(() => undefined);
     }
@@ -1628,6 +1685,12 @@ export class ClaudeCodeLive {
 
   sourceIdsOf(threadId: string): string[] | null {
     return this.lives.get(threadId)?.turn?.cp.sourceIds ?? null;
+  }
+
+  /** A live session's handle, if any is open (the plan-limits report can be asked on it). */
+  openHandle(): string | null {
+    for (const h of this.byHandle.keys()) return h;
+    return null;
   }
 
   /** For tests and the health view. */

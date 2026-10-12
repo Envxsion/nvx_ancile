@@ -2,7 +2,7 @@
  * ------------------------------------------------------------------
  *  Title    |  Claude Code bindings
  *  Ref      |  docs/claude-code.md · migrations/0013_claude_code.sql,
- *           |  0014_claude_code_mapper.sql, 0018_claude_code_fork_lookup.sql
+ *           |  0014_claude_code_mapper.sql, 0020_claude_code_fork_lookup.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which notebook a folder's sessions go to, which thread

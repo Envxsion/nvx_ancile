@@ -37,6 +37,7 @@ import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './bui
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
+import { PlanLimits } from './claudecode/plan-limits';
 import { claudeCodeRoutes } from './claudecode/routes';
 import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
@@ -149,6 +150,8 @@ import { threadRoutes } from './threads/routes';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
+import { PgUsageSource } from './usage/report';
+import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
 
@@ -497,7 +500,16 @@ async function main() {
   /** Bridge handles Claude Code as a model drives (their events are not a live session's). */
   const modeAHandles = new Set<string>();
   // ---- end Engines ----
+  const planLimits = new PlanLimits({
+    settings,
+    bridge: claudeCode.bridge,
+    cli: () => claudeCode.service.cliPath(),
+    env: () => claudeCode.service.cliEnv(),
+    openHandle: () => claudeLive.openHandle(),
+    bus: events,
+  });
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
+    limits: planLimits,
     workspaceId: owner.workspaceId,
     userId: owner.userId,
     bridge: claudeCode.bridge,
@@ -1156,6 +1168,11 @@ async function main() {
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       claudeCodeRoutes({ service: () => claudeCode.service, live: () => claudeLive }),
       engineRoutes({ engines: () => engines, threads, store: engineStore, workspaceId: owner.workspaceId }),
+      usageRoutes({
+        workspaceId: owner.workspaceId,
+        source: new PgUsageSource(sql),
+        limits: () => planLimits,
+      }),
       labRoutes({
         engine,
         repo: threads,
@@ -1208,6 +1225,16 @@ async function main() {
   events.subscribe(Number.MAX_SAFE_INTEGER, (e) => {
     if (e.type === 'claude_code.changed' && e.what === 'install') void offerClaudeModels();
   });
+  // Claude Code's "/" list for the latest folders, read once Core has settled,
+  // so the first "/" in a Claude Code thread is already complete.
+  const warmCommands = setTimeout(() => {
+    void claudeLive
+      .warmCommands()
+      .catch((err: unknown) =>
+        log.warn({ err: (err as Error).message }, "Claude Code's command lists were not read ahead"),
+      );
+  }, 45_000);
+  warmCommands.unref();
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');

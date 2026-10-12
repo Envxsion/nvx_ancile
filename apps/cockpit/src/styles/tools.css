@@ -1,9 +1,40 @@
 /* ---------------------------------------------------------------------------
    Tool steps, code, thinking (thread/ToolSteps.tsx, thread/Code.tsx).
-   A calm timeline: one quiet line per step, the detail indented on a
-   hairline when opened. Colour is for state (ok, warn, live), never for
-   decoration; syntax colours are hue tokens mixed toward the text colour.
+   A calm timeline: one quiet line per step. Each step's icon sits in a
+   16px column on the answer's left edge; an opened step's detail hangs
+   from a hairline under its icon, aligned with the step's words (24px). Colour is for
+   state (failed, waiting, live), never for decoration; a step that went
+   fine stays grey. Syntax colours are hue tokens mixed toward the text.
    --------------------------------------------------------------------------- */
+
+/* ---- The hairline ---------------------------------------------------------- */
+
+.tool-step,
+.thinking,
+.tool-group {
+  position: relative;
+}
+/* An opened step's detail hangs from a hairline under its icon. */
+.tool-step[open]::before,
+.thinking[open]::before,
+.tool-group[open]::before {
+  content: '';
+  position: absolute;
+  left: 7.5px;
+  top: 24px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--hair-2);
+  pointer-events: none;
+}
+
+/* Martian is wide and dark beside Archivo: in the thread it is set a step
+   narrower and lighter, so code reads as code, not as emphasis. */
+.msg__body :is(pre, code, .code, .term, .mem-diff, .tool-step__meta, [data-mono]),
+.cc-row :is(pre, code) {
+  font-stretch: 87.5%;
+  font-weight: 380;
+}
 
 /* ---- Disclosure chevrons ---------------------------------------------- */
 
@@ -27,22 +58,19 @@ details[open] > summary .cc-chev {
 /* ---- One step ---------------------------------------------------------- */
 
 .tool-step {
-  margin-top: 0.6em;
   font-size: var(--t-ui);
   line-height: 1.45;
 }
-.tool-step + .tool-step,
-.thinking + .tool-step,
-.tool-step + .thinking {
+:is(.tool-step, .thinking, .tool-group) + :is(.tool-step, .thinking, .tool-group) {
   margin-top: 2px;
 }
 .tool-step > summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  margin: 0 -8px;
-  padding: 4px 8px;
+  min-height: 28px;
+  margin: 0 -6px;
+  padding: 3px 6px;
   border-radius: var(--r-sm);
   list-style: none;
   cursor: pointer;
@@ -52,13 +80,17 @@ details[open] > summary .cc-chev {
 .tool-step > summary::-webkit-details-marker {
   display: none;
 }
-.tool-step > summary:hover,
-.tool-step[open] > summary {
+.tool-step > summary:hover {
   background: var(--wash-2);
 }
 .tool-step__icon {
   flex: none;
+  margin: 0 1.5px;
   color: var(--mute);
+}
+.tool-step[open] .tool-step__icon,
+.tool-step > summary:hover .tool-step__icon {
+  color: var(--fg-3);
 }
 .tool-step__label {
   display: flex;
@@ -71,19 +103,20 @@ details[open] > summary .cc-chev {
 }
 .tool-step__verb {
   flex: none;
-  color: var(--fg-2);
-  font-weight: 520;
+  color: var(--fg-3);
+  font-weight: 500;
 }
 .tool-step__target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--fg);
+  color: var(--fg-2);
 }
 .tool-step__target[data-mono],
 .tool-step__where [data-mono] {
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: 0.88em;
+  font-stretch: 87.5%;
 }
 .tool-step__where {
   flex: 0 1 auto;
@@ -115,9 +148,10 @@ details[open] > summary .cc-chev {
 }
 .tool-step__meta {
   flex: none;
-  color: var(--mute);
+  color: var(--mute-2);
   font-family: var(--font-mono);
-  font-size: var(--t-small);
+  font-size: 11px;
+  font-stretch: 87.5%;
 }
 .tool-step__status {
   flex: none;
@@ -125,9 +159,6 @@ details[open] > summary .cc-chev {
   place-items: center;
   width: 16px;
   color: var(--mute-2);
-}
-.tool-step[data-state='ok'] .tool-step__status {
-  color: var(--ok);
 }
 .tool-step[data-state='failed'] .tool-step__status,
 .tool-step[data-state='declined'] .tool-step__status,
@@ -149,9 +180,7 @@ details[open] > summary .cc-chev {
   display: grid;
   gap: 8px;
   min-width: 0;
-  margin: 4px 0 10px 6px;
-  padding: 4px 0 4px 16px;
-  border-left: 1px solid var(--hair);
+  margin: 4px 0 12px 24px;
 }
 .tool-step__body > * {
   margin: 0;
@@ -224,7 +253,7 @@ details[open] > summary .cc-chev {
 .subagent__turns .md,
 .thinking__body .md,
 .cc-before__body .md,
-.cc-notice__body .md {
+.cc-note__body .md {
   font-size: var(--t-ui);
   line-height: 1.6;
   color: var(--fg-2);
@@ -251,22 +280,21 @@ details[open] > summary .cc-chev {
 
 /* ---- Many steps, one line ---------------------------------------------- */
 
-.tool-group {
-  margin-top: 0.6em;
-}
 .tool-group > summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 5px 10px;
-  border-radius: var(--r-md);
+  min-height: 28px;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
   list-style: none;
   cursor: pointer;
   font-size: var(--t-ui);
-  background: var(--wash);
-  box-shadow: inset 0 0 0 1px var(--hair);
   transition: background var(--d-micro) var(--ease);
+}
+.tool-group__chev {
+  margin: 0 2px;
 }
 .tool-group > summary::-webkit-details-marker {
   display: none;
@@ -276,13 +304,14 @@ details[open] > summary .cc-chev {
 }
 .tool-group__title {
   flex: none;
-  font-weight: 560;
-  color: var(--fg);
+  font-weight: 500;
+  color: var(--fg-2);
 }
 .tool-group__failed {
   flex: none;
   color: var(--warn);
-  font-size: var(--t-small);
+  font-size: 11px;
+  font-stretch: 87.5%;
 }
 .tool-group__last {
   min-width: 0;
@@ -299,9 +328,7 @@ details[open] > summary .cc-chev {
   color: var(--signal-ink);
 }
 .tool-group__steps {
-  margin: 6px 0 0 14px;
-  padding-left: 12px;
-  border-left: 1px solid var(--hair);
+  margin: 2px 0 8px 24px;
 }
 .tool-group__steps > :first-child {
   margin-top: 0;
@@ -310,17 +337,16 @@ details[open] > summary .cc-chev {
 /* ---- Thinking ----------------------------------------------------------- */
 
 .thinking {
-  margin-top: 0.6em;
   font-size: var(--t-ui);
   color: var(--mute);
 }
 .thinking > summary {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  margin-left: -8px;
-  padding: 2px 8px;
+  gap: 8px;
+  min-height: 28px;
+  margin-left: -6px;
+  padding: 3px 8px 3px 6px;
   border-radius: var(--r-sm);
   list-style: none;
   cursor: pointer;
@@ -336,12 +362,13 @@ details[open] > summary .cc-chev {
   background: var(--wash-2);
   color: var(--fg-3);
 }
+.thinking__chev {
+  margin: 0 2.5px;
+}
 .thinking__body {
   max-height: 420px;
   overflow: auto;
-  margin: 4px 0 6px 4px;
-  padding-left: 14px;
-  border-left: 1px solid var(--hair);
+  margin: 2px 0 12px 24px;
 }
 .thinking__body .md {
   color: var(--fg-3);

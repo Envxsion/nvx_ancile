@@ -1,7 +1,7 @@
 /**
  * ------------------------------------------------------------------
  *  Title    |  Engines: what they remember
- *  Ref      |  docs/engines.md · migration 0017_engines.sql
+ *  Ref      |  docs/engines.md · migration 0019_engines.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Which NVX Ancile compaction each Claude Code session has

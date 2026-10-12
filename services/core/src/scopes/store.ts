@@ -1,7 +1,7 @@
 /**
  * ------------------------------------------------------------------
  *  Title    |  Scopes at rest
- *  Ref      |  docs/scopes.md · migrations/0016_scopes_auto.sql
+ *  Ref      |  docs/scopes.md · migrations/0018_scopes_auto.sql
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Keep each notebook's and thread's scope patch, and a

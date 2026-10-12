@@ -81,6 +81,16 @@ export const CREDENTIAL_META: CredentialMeta[] = [
     removes: 'OpenRouter models stop answering until you add a key again.',
   },
   {
+    id: 'typesafe',
+    name: 'TypeSafe (Jev)',
+    desc: 'Reviews actions in Auto mode when there is no OpenRouter key. Only the action and its plan are sent.',
+    noun: 'API key',
+    placeholder: 'ts_…',
+    getUrl: 'https://typesafe.ai',
+    getLabel: 'Get a key',
+    removes: 'Auto mode reviews with OpenRouter, a local model or rules only.',
+  },
+  {
     id: 'runpod',
     name: 'RunPod',
     desc: 'Starts and stops GPU nodes in your RunPod account. Needs read and write access to pods.',
@@ -129,6 +139,11 @@ const GROUPS: { title: string; lede: string; ids: CredentialId[] }[] = [
     ids: ['anthropic', 'openai', 'google', 'openrouter'],
   },
   { title: 'Compute', lede: 'Your own GPU nodes.', ids: ['runpod', 'huggingface'] },
+  {
+    title: 'Auto mode review',
+    lede: 'An independent reviewer for actions that are not clearly safe.',
+    ids: ['typesafe'],
+  },
   {
     title: 'Repositories and backup',
     lede: 'GitHub and where memory is copied to.',

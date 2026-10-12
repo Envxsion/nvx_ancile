@@ -161,3 +161,71 @@ export function mergeCommands(
     if (cur.always && !out.has(name)) out.set(name, make(name, null));
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/* ---- The catalogue: never makes the composer wait -------------------------- */
+
+/** How long Claude Code's own list is trusted before it is read again. */
+export const COMMANDS_TTL_MS = 10 * 60_000;
+
+/** Claude Code's well-known built-ins, for the list shown before its own arrives. */
+const KNOWN_BUILTINS: CliCommand[] = [
+  ...Object.keys(CURATED).map((name) => ({ name, description: '', builtin: true })),
+  { name: 'init', description: 'Write a CLAUDE.md that describes this folder', builtin: true },
+  { name: 'review', description: 'Review a pull request', builtin: true },
+];
+
+/** The list NVX Ancile can offer at once: the curated table and Claude Code's known built-ins. */
+export function builtinCommands(): ClaudeCodeCommand[] {
+  return mergeCommands(KNOWN_BUILTINS);
+}
+
+export interface CommandList {
+  items: ClaudeCodeCommand[];
+  /** True while Claude Code's own list (skills, plugins, MCP prompts) is still being read. */
+  partial: boolean;
+}
+
+/**
+ * Claude Code's "/" list per Claude Code version and folder. Reading it opens
+ * a session (seconds), so `read` answers at once: the cached list, or the
+ * built-ins marked partial while the real list is read in the background.
+ * One read per key at a time; a failed read leaves the built-ins and is
+ * tried again on the next ask.
+ */
+export class CommandCatalogue {
+  private readonly cache = new Map<string, { at: number; items: ClaudeCodeCommand[] }>();
+  private readonly inflight = new Map<string, Promise<ClaudeCodeCommand[] | null>>();
+
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly onError: (key: string, err: unknown) => void = () => {},
+  ) {}
+
+  read(key: string, load: () => Promise<ClaudeCodeCommand[]>): CommandList {
+    const hit = this.cache.get(key);
+    if (hit && this.now() - hit.at < COMMANDS_TTL_MS) return { items: hit.items, partial: false };
+    void this.warm(key, load);
+    // A stale list is still better than the built-ins while it refreshes.
+    return hit ? { items: hit.items, partial: true } : { items: builtinCommands(), partial: true };
+  }
+
+  /** Read the list for `key` unless it is fresh or already being read. Never throws. */
+  warm(key: string, load: () => Promise<ClaudeCodeCommand[]>): Promise<ClaudeCodeCommand[] | null> {
+    const hit = this.cache.get(key);
+    if (hit && this.now() - hit.at < COMMANDS_TTL_MS) return Promise.resolve(hit.items);
+    const running = this.inflight.get(key);
+    if (running) return running;
+    const p = load()
+      .then((items) => {
+        this.cache.set(key, { at: this.now(), items });
+        return items;
+      })
+      .catch((err: unknown) => {
+        this.onError(key, err);
+        return null;
+      })
+      .finally(() => this.inflight.delete(key));
+    this.inflight.set(key, p);
+    return p;
+  }
+}

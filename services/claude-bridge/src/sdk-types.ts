@@ -188,6 +188,8 @@ export interface SdkQuery extends AsyncIterable<unknown> {
     maxTokens: number;
     percentage: number;
     model?: string;
+    autoCompactThreshold?: number;
+    isAutoCompactEnabled?: boolean;
   }>;
   rewindFiles(userMessageId: string, options?: { dryRun?: boolean }): Promise<unknown>;
   reconnectMcpServer?(name: string): Promise<void>;

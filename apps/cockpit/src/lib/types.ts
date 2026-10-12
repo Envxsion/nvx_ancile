@@ -163,6 +163,15 @@ export interface ThreadView {
   activeRun?: { id: string; messageId: string | null } | null;
   /** The Claude Code session this thread came from, if it did. */
   claudeCode?: import('@nvx/contracts').ClaudeCodeBinding | null;
+  /**
+   * Paging (lib/threadPages.ts): the path's head, how many messages it has,
+   * the id of the first one loaded (the cursor for the page before it) and
+   * whether earlier ones remain on Core. Absent for demo data (all loaded).
+   */
+  headId?: string | null;
+  total?: number;
+  cursor?: string | null;
+  hasMore?: boolean;
 }
 
 export interface TreeNodeView {

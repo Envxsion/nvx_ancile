@@ -16,7 +16,9 @@
  *           |  session.open / send / interrupt / control / close /
  *           |  permission_reply, and pushed events session.message,
  *           |  session.permission and session.state. Protocol 1
- *           |  clients still get the read-only ops.
+ *           |  clients still get the read-only ops. The control op
+ *           |  `usage` (plan limits, src/usage.ts) is additive: an
+ *           |  older bridge answers it with bad_request.
  * ------------------------------------------------------------------
  */
 

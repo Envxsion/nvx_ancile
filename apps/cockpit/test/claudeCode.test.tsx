@@ -19,6 +19,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 });
 
 import {
+  CC_INVALIDATE_MS,
   CC_KEYS,
   excludeFolder,
   onClaudeCodeChanged,
@@ -525,17 +526,48 @@ describe('claude_code.changed', () => {
   });
 
   it('install and auth refresh the status; sessions the list; thread that thread', () => {
-    const spy = vi.spyOn(queryClient, 'invalidateQueries');
-    onClaudeCodeChanged(ev('install', { detail: 'Verifying' }), queryClient);
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.status });
-    expect(useInstallProgress.getState().detail).toBe('Verifying');
-    onClaudeCodeChanged(ev('auth'), queryClient);
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.status });
-    onClaudeCodeChanged(ev('sessions'), queryClient);
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.sessions });
-    spy.mockClear();
-    onClaudeCodeChanged(ev('thread', { thread_id: 't7' }), queryClient);
-    expect(spy).toHaveBeenCalledWith({ queryKey: keys.thread('t7') });
+    vi.useFakeTimers();
+    try {
+      const spy = vi.spyOn(queryClient, 'invalidateQueries');
+      onClaudeCodeChanged(ev('install', { detail: 'Verifying' }), queryClient);
+      expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.status });
+      expect(useInstallProgress.getState().detail).toBe('Verifying');
+      onClaudeCodeChanged(ev('auth'), queryClient);
+      expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.status });
+      spy.mockClear();
+      onClaudeCodeChanged(ev('sessions'), queryClient);
+      vi.advanceTimersByTime(CC_INVALIDATE_MS);
+      expect(spy).toHaveBeenLastCalledWith({ queryKey: CC_KEYS.sessions });
+      spy.mockClear();
+      onClaudeCodeChanged(ev('thread', { thread_id: 't7' }), queryClient);
+      expect(spy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(CC_INVALIDATE_MS);
+      expect(spy).toHaveBeenCalledWith({ queryKey: keys.thread('t7') });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a burst of events during an import refetches each query once, after a second', () => {
+    vi.useFakeTimers();
+    try {
+      const spy = vi.spyOn(queryClient, 'invalidateQueries');
+      spy.mockClear();
+      for (let i = 0; i < 30; i++) {
+        onClaudeCodeChanged(ev('thread', { thread_id: `t${i % 3}` }), queryClient);
+        onClaudeCodeChanged(ev('sessions', { detail: `importing:${i}/30` }), queryClient);
+      }
+      expect(spy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(CC_INVALIDATE_MS);
+      const asked = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+      expect(asked.sort()).toEqual(
+        [CC_KEYS.sessions, ['usage', 'report'], keys.thread('t0'), keys.thread('t1'), keys.thread('t2')]
+          .map((k) => JSON.stringify(k))
+          .sort(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('the end of a background import is one toast, and clears the progress line', () => {

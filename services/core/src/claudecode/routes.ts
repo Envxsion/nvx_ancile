@@ -64,7 +64,10 @@ export function claudeCodeRoutes(deps: {
 
   r.get('/claude-code/threads/:id/live', async (c) => c.json(await live().state(c.req.param('id'))));
 
-  r.get('/claude-code/threads/:id/commands', async (c) => c.json(await live().commands(c.req.param('id'))));
+  // At once: the built-ins marked partial until Claude Code's own list is read (?wait=1 waits for it).
+  r.get('/claude-code/threads/:id/commands', async (c) =>
+    c.json(await live().commands(c.req.param('id'), { wait: c.req.query('wait') === '1' })),
+  );
 
   r.get('/claude-code/status', async (c) => c.json(await svc().status(!!c.req.query('fresh'))));
 

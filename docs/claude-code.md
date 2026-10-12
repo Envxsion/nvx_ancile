@@ -20,7 +20,7 @@ Signing in is Claude Code's own: press **Sign in** and Claude Code opens its sig
 
 You do not need to be signed in to see and bring in sessions: they are already on your computer. **Sign out** runs `claude auth logout`, and only when you press it.
 
-Claude Code's usage counts against whichever account Claude Code is signed into (your Claude plan, or API billing), exactly as in the terminal. NVX Ancile shows token counts from your sessions but no prices.
+Claude Code's usage counts against whichever account Claude Code is signed into (your Claude plan, or API billing), exactly as in the terminal. Settings → Usage shows your plan's limits as Claude Code's own `/usage` does (see Usage), and token counts from your sessions; a cost, where Claude Code reports one, is its estimate at API list prices, never your bill.
 
 ## Names and notebooks
 
@@ -46,7 +46,7 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
   - More than four steps in a row fold into "Worked through N steps" (while it runs, "Working through N steps").
   - Thinking is folded to one line until you open it.
 - Long messages start folded at about twelve lines; long pastes too.
-- A Claude Code thread shows no NVX Ancile context estimate: the context is Claude Code's, and its own count comes with a live session (`GET /claude-code/threads/:id/live`).
+- A Claude Code thread shows no NVX Ancile context estimate: the context is Claude Code's, and its own count (with where it compacts) shows in the same meter once its session is open (`GET /claude-code/threads/:id/live`).
 - What Claude Code itself wrote on your side of the conversation is not shown as if you typed it:
   - **Commands you ran** (`/model opus`, or `!git status` in shell mode) are a chip showing the command, with what it printed folded under it (colour codes removed).
   - **Notifications** are slim rows, not your words: a background task that finished or failed (with its result), a message from another Claude Code session ("Message from nvx_folio"), and an agent's report.
@@ -137,13 +137,13 @@ Passages are numbered across a turn, so the markers in an answer are unique. Whe
 
 ### Commands
 
-Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing (or from the session a turn left open); new commands appear without an NVX Ancile update. Each name is listed once: when Claude Code lists a command twice (a skill found in two places, say), the entry that says the most is kept. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
+Typing `/` in a Claude Code thread lists Claude Code's own commands for that folder (its built-ins, your skills, plugins, MCP prompts and custom commands), read from a session that sends nothing and writes no transcript, so it costs nothing; new commands appear without an NVX Ancile update. Reading that list takes a few seconds the first time in a folder, so the built-ins show at once and your skills, plugins and MCP prompts join the list when it arrives; typing never waits for it. Each name is listed once: when Claude Code lists a command twice (a skill found in two places, say), the entry that says the most is kept. The built-ins NVX Ancile does better itself point at its own screens, so nothing clashes:
 
 | Command | In NVX Ancile |
 |---|---|
 | `/mcp` | Opens MCP servers (with `reconnect`, `enable`, `disable` and the session's servers to complete) |
 | `/permissions` | Opens Admin → Permissions |
-| `/usage`, `/cost`, `/context`, `/stats` | Opens usage: tokens, the estimate, Claude Code's own context count |
+| `/usage`, `/cost`, `/context`, `/stats` | Opens usage: Claude Code's own context count and where it compacts, the last turn's tokens and estimate, the plan limits, and a link to Settings → Usage |
 | `/branch`, `/fork` | Branches the thread here (a fork in Claude Code) |
 | `/rewind`, `/checkpoint` | Go back to an earlier message and branch from it |
 | `/clear`, `/new`, `/reset` | A new thread in this folder |
@@ -157,6 +157,21 @@ Typing `/` in a Claude Code thread lists Claude Code's own commands for that fol
 | `/theme`, `/vim`, `/terminal-setup`, `/doctor`, `/ide`, `/statusline`, `/keybindings`, `/hooks`, `/upgrade`, … | Work in a terminal only; the list says where to do them instead |
 
 A command you or a plugin made that shares a built-in's name is yours, and goes to Claude Code.
+
+### Usage
+
+Settings → Usage (also the status bar's usage segment, and **All usage** in a Claude Code thread's usage popover) shows:
+
+- **Plan limits**, as Claude Code's own `/usage` shows them: "Current session (5 hours): 42% used, resets at 3:40 pm", "This week: 18% used, resets Mon 9:00 am", and a weekly row per model when your plan has one, each a meter that turns amber from 70% and red from 90%. "Updated 2 min ago" says how fresh they are; **Refresh** asks Claude Code now. With an API key (or a cloud provider) it says "Plan limits apply to Claude subscription sign-ins only."
+- **NVX Ancile usage**: tokens and recorded cost today, or over the last 7 or 30 days, with a bar per hour or day and a split by engine (chat and flows, Claude Code, the lab) and by model. Claude Code's part of the cost is its estimate at API list prices, and says so. GPU compute shows the Controller's month when a node is set up. Pro's Insights goes deeper.
+
+Where the plan figures come from:
+
+- Every `rate_limit_event` a live session reports (the Agent SDK's message for plan sign-ins) updates its window as it happens.
+- The Agent SDK's usage report (the data behind `/usage`), which the SDK marks experimental: NVX Ancile asks for it at most every 3 minutes, after a turn on the open session, or when you press Refresh (at most every 20 seconds; with no session open it asks from a session that sends nothing and writes no transcript). It asks without the scan of your local transcripts. If this Claude Code does not offer it, or answers in a shape NVX Ancile does not know, the figures from `rate_limit_event` stand.
+- The latest figures are kept in NVX Ancile's settings, so they are there after a restart. Only the plan's kind and the windows are kept, never your account, email or organisation.
+
+The context meter (the status bar, and the line above a Claude Code thread's composer) is one meter for every thread: "62% of context: compacts at 95%", with a tick at the line. In a normal thread it is NVX Ancile's estimate for the model that would answer, which compacts the older messages by itself at 95% (and offers **Compact now** from 80%). In a Claude Code thread it is Claude Code's own count and Claude Code's own auto-compact line, once its session is open.
 
 ### Traces
 

@@ -35,6 +35,10 @@ export const PRESET_WORDS: Record<PermissionPreset, { name: string; line: string
     name: 'Hands-off',
     line: 'Writing a file in your workspace just happens. Deleting, sending and spending still always ask.',
   },
+  auto: {
+    name: 'Auto: reviewed',
+    line: 'Clean actions just happen. Anything unclear is checked by an independent reviewer first, and asks if it is not clearly safe.',
+  },
 };
 
 export function usePermissionPreset() {

@@ -46,12 +46,22 @@ export const LayoutPrefs = z.object({
     .object({
       model: z.boolean().default(true),
       context: z.boolean().default(true),
+      /** Claude Code's plan limits (or Usage), opening Settings → Usage. */
+      usage: z.boolean().default(true),
       node: z.boolean().default(true),
       approvals: z.boolean().default(true),
       health: z.boolean().default(true),
       clock: z.boolean().default(false),
     })
-    .default({ model: true, context: true, node: true, approvals: true, health: true, clock: false }),
+    .default({
+      model: true,
+      context: true,
+      usage: true,
+      node: true,
+      approvals: true,
+      health: true,
+      clock: false,
+    }),
 });
 
 export const ReadingPrefs = z.object({

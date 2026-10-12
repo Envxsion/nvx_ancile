@@ -36,7 +36,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CACHE_BUSTER, persister, queryClient } from './lib/query';
+import { CACHE_BUSTER, persistable, persister, queryClient } from './lib/query';
 import { markRuntime } from './lib/runtime';
 import { router } from './router';
 import { useUi } from './state/ui';
@@ -55,7 +55,8 @@ createRoot(root).render(
         maxAge: 1000 * 60 * 60 * 24 * 7,
         // The sample workspace is never remembered as if it were yours.
         dehydrateOptions: {
-          shouldDehydrateQuery: (q) => q.state.status === 'success' && !useUi.getState().demo,
+          // Large and live queries stay out (lib/query.ts); what is kept is trimmed when written.
+          shouldDehydrateQuery: (q) => persistable(q.queryKey, q.state.status) && !useUi.getState().demo,
         },
       }}
     >

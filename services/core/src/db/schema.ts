@@ -95,6 +95,8 @@ export const notebooks = core.table(
     color: text('color'),
     memoryPath: text('memory_path').notNull(),
     settings: jsonb('settings').notNull().default({}),
+    /** Private: local engines only, nothing leaves this machine (0018, docs/scopes.md). */
+    private: boolean('private').notNull().default(false),
     archivedAt: ts('archived_at'),
     pinnedAt: ts('pinned_at'),
     deletedAt: ts('deleted_at'),
@@ -681,3 +683,54 @@ export const diagnostics = core.table('diagnostics', {
   startedAt: ts('started_at').notNull().defaultNow(),
   finishedAt: ts('finished_at'),
 });
+
+// ---- Phase 3 (A): scopes, Auto mode plans, engine sessions (0018, 0019) ----
+
+/** One stored scope patch per notebook or thread (docs/scopes.md). */
+export const scopes = core.table(
+  'scopes',
+  {
+    level: text('level', { enum: ['notebook', 'thread'] }).notNull(),
+    refId: text('ref_id').notNull(),
+    patch: jsonb('patch').notNull().default({}),
+    updatedAt: updated(),
+  },
+  (t) => [primaryKey({ columns: [t.level, t.refId] })],
+);
+
+/** Auto mode plans, approved once per session (docs/auto-mode.md). */
+export const autoPlans = core.table(
+  'auto_plans',
+  {
+    id: text('id').primaryKey(),
+    sessionKey: text('session_key').notNull(),
+    runId: text('run_id'),
+    threadId: text('thread_id'),
+    summary: text('summary').notNull(),
+    steps: jsonb('steps').notNull(),
+    status: text('status', { enum: ['proposed', 'approved', 'rejected', 'superseded'] }).notNull(),
+    createdAt: created(),
+    decidedAt: ts('decided_at'),
+  },
+  (t) => [index('auto_plans_session').on(t.sessionKey, t.createdAt)],
+);
+
+/** Which NVX Ancile summary each Claude Code session has seen (docs/engines.md). */
+export const engineSessions = core.table(
+  'engine_sessions',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    sessionId: text('session_id').notNull(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id),
+    seenSummaryId: text('seen_summary_id'),
+    seenAt: ts('seen_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.sessionId] }),
+    index('engine_sessions_thread').on(t.threadId),
+  ],
+);

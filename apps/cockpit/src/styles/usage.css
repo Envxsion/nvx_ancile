@@ -1,0 +1,337 @@
+/* Usage: meters, plan limits and the Settings → Usage page (usage/*.tsx).
+   Meters are neutral, then --warn near the line, then --fail at it: never
+   signal violet (live state only) and never gilt (kept, not a warning).
+   Engines wear identity hues: gateway azure, Claude Code cyan, lab jade. */
+
+.u-meter {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 54px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chalk-2);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.u-meter[data-size='large'] {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+}
+.u-meter__fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: var(--fg-3);
+  transition: transform var(--d-view) var(--ease);
+}
+.u-meter[data-tone='high'] .u-meter__fill {
+  background: var(--warn);
+}
+.u-meter[data-tone='over'] .u-meter__fill {
+  background: var(--fail);
+}
+.u-meter__mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -1px;
+  background: var(--fg-2);
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  .u-meter__fill {
+    transition: none;
+  }
+}
+
+.u-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.u-gauge__num {
+  min-width: 3ch;
+  color: var(--fg-2);
+}
+
+.u-quiet {
+  margin: 0;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+
+/* Plan limits */
+.u-plan {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.u-plan[data-compact] {
+  gap: 10px;
+}
+.u-plan__row {
+  display: grid;
+  gap: 6px;
+}
+.u-plan__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.u-plan__title {
+  color: var(--fg);
+}
+.u-plan__row[data-kind='week_model'] .u-plan__title {
+  color: var(--fg-2);
+}
+.u-plan__pct {
+  color: var(--fg-2);
+}
+.u-plan__reset {
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.u-plan[data-compact] .u-plan__reset {
+  font-size: var(--t-micro);
+}
+.u-plan__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.u-plan-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.u-plan-empty p {
+  margin: 0;
+}
+.u-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+  transition:
+    background-color var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.u-refresh:hover:not(:disabled) {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.u-refresh:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.u-refresh:focus-visible {
+  outline: 2px solid var(--signal-ink);
+  outline-offset: 2px;
+}
+
+/* The page */
+.u-view {
+  display: grid;
+  gap: 28px;
+}
+.u-card {
+  padding: 18px 20px;
+  border-radius: var(--r-md);
+}
+.u-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.u-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin: 0 0 18px;
+}
+.u-totals > div {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+}
+.u-totals dt {
+  color: var(--fg-3);
+  font-size: var(--t-small);
+}
+.u-totals dd {
+  margin: 0;
+}
+.u-totals dd:nth-of-type(1) {
+  color: var(--fg);
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+.u-totals dd.u-quiet {
+  font-size: var(--t-micro);
+}
+
+.u-chart {
+  position: relative;
+  margin: 0 0 22px;
+}
+.u-chart svg {
+  display: block;
+  width: 100%;
+  height: 112px;
+}
+.u-chart__bar {
+  fill: var(--s-chalk);
+  opacity: 0.85;
+  transition: opacity var(--d-micro) var(--ease);
+}
+.u-chart g:hover .u-chart__bar {
+  opacity: 1;
+}
+.u-chart__bar[data-engine='gateway'] {
+  fill: var(--s-azure);
+}
+.u-chart__bar[data-engine='claude_code'] {
+  fill: var(--s-cyan);
+}
+.u-chart__bar[data-engine='lab'] {
+  fill: var(--s-jade);
+}
+.u-chart__axis {
+  position: relative;
+  height: 16px;
+  margin-top: 6px;
+  border-top: 1px solid var(--hair);
+}
+.u-chart__axis span {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  color: var(--mute);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+}
+.u-chart__empty {
+  position: absolute;
+  inset: 0 0 22px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+
+.u-breaks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px 28px;
+}
+.u-h3 {
+  margin: 0 0 8px;
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+.u-break ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.u-break__row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 64px auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-small);
+}
+.u-break__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--s-chalk);
+}
+.u-break__label {
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.u-break__bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chalk-2);
+  overflow: hidden;
+}
+.u-break__bar > span {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: var(--s-chalk);
+}
+.u-break__num {
+  min-width: 5ch;
+  color: var(--fg-2);
+  text-align: right;
+}
+[data-engine='gateway'].u-break__swatch,
+.u-break__bar > [data-engine='gateway'] {
+  background: var(--s-azure);
+}
+[data-engine='claude_code'].u-break__swatch,
+.u-break__bar > [data-engine='claude_code'] {
+  background: var(--s-cyan);
+}
+[data-engine='lab'].u-break__swatch,
+.u-break__bar > [data-engine='lab'] {
+  background: var(--s-jade);
+}
+
+.u-compute {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--hair);
+  font-size: var(--t-small);
+}
+.u-compute > span:first-child {
+  color: var(--fg-3);
+}
+.u-more {
+  margin: 10px 0 0;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .u-card {
+    padding: 14px;
+  }
+  .u-break__row {
+    grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  }
+  .u-break__bar {
+    display: none;
+  }
+}

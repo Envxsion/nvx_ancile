@@ -1,0 +1,325 @@
+/**
+ * ------------------------------------------------------------------
+ *  Title    |  Usage report
+ *  Ref      |  docs/api.md (Usage) · contracts usage.ts
+ *  ID       |  core
+ * ------------------------------------------------------------------
+ *  Purpose  |  Personal token and cost totals for Settings → Usage:
+ *           |  today by hour, the last 7 or 30 days by day, split by
+ *           |  engine and by model.
+ *  How      |  Every answer records its usage on its message (tokens
+ *           |  in, out and cached, cost). A source groups those by
+ *           |  local bucket, engine and model: in Postgres with one
+ *           |  grouped query over the partial index on created_at
+ *           |  (migration 0016), in memory for tests. build() fills
+ *           |  the empty buckets and folds the long tail of models.
+ *           |  The engine is the answer's: Claude Code (its provenance
+ *           |  or a claude_code run), the lab (an agent run), the model
+ *           |  gateway (chat and flows), else other.
+ *  Note     |  Claude Code's cost is its own estimate at API list
+ *           |  prices; the report says how much of the total that is.
+ * ------------------------------------------------------------------
+ */
+
+import type { UsageEngine, UsageRange, UsageReport, UsageTotals } from '@nvx/contracts';
+import type { Sql } from 'postgres';
+import type { MessageRecord } from '../threads/repo';
+
+/** One group: a local bucket ("2026-10-12" or "2026-10-12T14:00"), an engine and a model. */
+export interface UsageRow {
+  bucket: string;
+  engine: UsageEngine;
+  model_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cost_usd: number;
+  /** Of cost_usd, Claude Code's estimate. */
+  estimated_usd: number;
+  answers: number;
+}
+
+export interface UsageQuery {
+  workspaceId: string;
+  tz: string;
+  bucket: 'hour' | 'day';
+  from: Date;
+  to: Date;
+}
+
+export interface UsageSource {
+  rows(q: UsageQuery): Promise<UsageRow[]>;
+}
+
+export const TOP_MODELS = 6;
+const DAY_MS = 86_400_000;
+
+/* ---- time zones ------------------------------------------------------------ */
+
+/** A zone Intl knows, else null. */
+export function validZone(tz: string | undefined): string | null {
+  if (!tz || tz.length > 64 || !/^[A-Za-z0-9_+\-/]+$/.test(tz)) return null;
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+    return tz;
+  } catch {
+    return null;
+  }
+}
+
+/** The local calendar parts of an instant in a zone. */
+function parts(tz: string, at: number) {
+  const f = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p: Record<string, string> = Object.fromEntries(
+    f.formatToParts(new Date(at)).map((x) => [x.type, x.value]),
+  );
+  const n = (k: string) => Number(p[k] ?? 0);
+  return { y: n('year'), m: n('month'), d: n('day'), h: n('hour') % 24, mi: n('minute'), s: n('second') };
+}
+
+/** How far a zone is ahead of UTC at an instant, in ms. */
+function offset(tz: string, at: number): number {
+  const p = parts(tz, at);
+  return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(at / 1000) * 1000;
+}
+
+/** The instant of local midnight for a local date in a zone. */
+function localMidnight(tz: string, y: number, m: number, d: number): number {
+  const guess = Date.UTC(y, m - 1, d);
+  const first = guess - offset(tz, guess);
+  return guess - offset(tz, first);
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const dayKey = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
+
+/** The range's bounds and every bucket key in it, oldest first. */
+export function window(range: UsageRange, tz: string, now: number) {
+  const p = parts(tz, now);
+  const days = range === 'day' ? 1 : range === 'week' ? 7 : 30;
+  const first = new Date(Date.UTC(p.y, p.m - 1, p.d) - (days - 1) * DAY_MS);
+  const from = localMidnight(tz, first.getUTCFullYear(), first.getUTCMonth() + 1, first.getUTCDate());
+  const next = new Date(Date.UTC(p.y, p.m - 1, p.d) + DAY_MS);
+  const to = localMidnight(tz, next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate());
+  const keys: string[] = [];
+  if (range === 'day') for (let h = 0; h < 24; h++) keys.push(`${dayKey(p.y, p.m, p.d)}T${pad(h)}:00`);
+  else
+    for (let i = 0; i < days; i++) {
+      const d = new Date(first.getTime() + i * DAY_MS);
+      keys.push(dayKey(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()));
+    }
+  return {
+    from: new Date(from),
+    to: new Date(to),
+    bucket: range === 'day' ? ('hour' as const) : ('day' as const),
+    keys,
+  };
+}
+
+/** An instant's bucket key in a zone. */
+export function bucketOf(tz: string, at: number, bucket: 'hour' | 'day'): string {
+  const p = parts(tz, at);
+  return bucket === 'day' ? dayKey(p.y, p.m, p.d) : `${dayKey(p.y, p.m, p.d)}T${pad(p.h)}:00`;
+}
+
+/* ---- building the report ----------------------------------------------------- */
+
+const zero = (): UsageTotals => ({
+  input_tokens: 0,
+  output_tokens: 0,
+  cached_tokens: 0,
+  cost_usd: 0,
+  answers: 0,
+});
+const add = (t: UsageTotals, r: UsageRow) => {
+  t.input_tokens += r.input_tokens;
+  t.output_tokens += r.output_tokens;
+  t.cached_tokens += r.cached_tokens;
+  t.cost_usd += r.cost_usd;
+  t.answers += r.answers;
+};
+const tokens = (t: Pick<UsageTotals, 'input_tokens' | 'output_tokens'>) => t.input_tokens + t.output_tokens;
+const money = (n: number) => Math.round(n * 1e6) / 1e6;
+const ENGINES: UsageEngine[] = ['gateway', 'claude_code', 'lab', 'other'];
+
+export function buildReport(
+  range: UsageRange,
+  tz: string,
+  w: { from: Date; to: Date; bucket: 'hour' | 'day'; keys: string[] },
+  rows: UsageRow[],
+  topModels = TOP_MODELS,
+): UsageReport {
+  const totals = zero();
+  let estimated = 0;
+  const series = new Map(
+    w.keys.map((k) => [k, { start: k, tokens: 0, cost_usd: 0, by_engine: {} as Record<string, number> }]),
+  );
+  const engines = new Map<UsageEngine, UsageTotals>();
+  const models = new Map<string, UsageTotals & { model_id: string | null; engine: UsageEngine }>();
+  for (const r of rows) {
+    add(totals, r);
+    estimated += r.estimated_usd;
+    const s = series.get(r.bucket);
+    if (s) {
+      s.tokens += tokens(r);
+      s.cost_usd += r.cost_usd;
+      s.by_engine[r.engine] = (s.by_engine[r.engine] ?? 0) + tokens(r);
+    }
+    const e = engines.get(r.engine) ?? zero();
+    add(e, r);
+    engines.set(r.engine, e);
+    const key = `${r.engine}|${r.model_id ?? ''}`;
+    const m = models.get(key) ?? { ...zero(), model_id: r.model_id, engine: r.engine };
+    add(m, r);
+    models.set(key, m);
+  }
+  const sorted = [...models.values()].sort((a, b) => tokens(b) - tokens(a) || b.cost_usd - a.cost_usd);
+  const top = sorted.slice(0, topModels);
+  const rest = sorted.slice(topModels);
+  if (rest.length) {
+    const other = { ...zero(), model_id: null, engine: 'other' as UsageEngine };
+    for (const m of rest) add(other, { ...m, bucket: '', estimated_usd: 0 });
+    top.push(other);
+  }
+  const round = <T extends UsageTotals>(t: T): T => ({ ...t, cost_usd: money(t.cost_usd) });
+  return {
+    range,
+    tz,
+    from: w.from.toISOString(),
+    to: w.to.toISOString(),
+    bucket: w.bucket,
+    totals: round(totals),
+    series: [...series.values()].map((s) => ({ ...s, cost_usd: money(s.cost_usd) })),
+    by_engine: ENGINES.filter((e) => engines.has(e)).map((engine) =>
+      round({ ...(engines.get(engine) as UsageTotals), engine }),
+    ),
+    by_model: top.map(round),
+    estimated_cost_usd: money(estimated),
+  };
+}
+
+/* ---- sources ------------------------------------------------------------------ */
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** The engine an answer belongs to. */
+export function engineOf(provenance: unknown, runKind: string | null, modelId: string | null): UsageEngine {
+  const p = isObj(provenance) ? provenance : {};
+  if ('claude_code' in p || runKind === 'claude_code') return 'claude_code';
+  if ('lab' in p || runKind === 'agent') return 'lab';
+  if (runKind === 'chat_turn' || runKind === 'flow_try' || modelId) return 'gateway';
+  return 'other';
+}
+
+export class PgUsageSource implements UsageSource {
+  constructor(private readonly sql: Sql) {}
+
+  async rows(q: UsageQuery): Promise<UsageRow[]> {
+    const fmt = q.bucket === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DD"T"HH24":00"';
+    const rows = await this.sql<
+      {
+        bucket: string;
+        engine: UsageEngine;
+        model_id: string | null;
+        input_tokens: string;
+        output_tokens: string;
+        cached_tokens: string;
+        cost_usd: string | number;
+        estimated_usd: string | number;
+        answers: number;
+      }[]
+    >`
+      with u as (
+        select
+          to_char(m.created_at at time zone ${q.tz}, ${fmt}) as bucket,
+          case
+            when m.provenance ? 'claude_code' or r.kind = 'claude_code' then 'claude_code'
+            when m.provenance ? 'lab' or r.kind = 'agent' then 'lab'
+            when r.kind in ('chat_turn', 'flow_try') or m.model_id is not null then 'gateway'
+            else 'other'
+          end as engine,
+          m.model_id,
+          coalesce((m.usage->>'input_tokens')::bigint, 0) as i,
+          coalesce((m.usage->>'output_tokens')::bigint, 0) as o,
+          coalesce((m.usage->>'cached_tokens')::bigint, 0) as c,
+          coalesce((m.usage->>'cost_usd')::numeric, 0) as cost
+        from core.messages m
+        join core.threads t on t.id = m.thread_id
+        left join core.runs r on r.id = m.run_id
+        where m.usage is not null
+          and m.created_at >= ${q.from}
+          and m.created_at < ${q.to}
+          and t.workspace_id = ${q.workspaceId}
+      )
+      select bucket, engine, model_id,
+        sum(i)::text as input_tokens, sum(o)::text as output_tokens, sum(c)::text as cached_tokens,
+        sum(cost)::float8 as cost_usd,
+        sum(case when engine = 'claude_code' then cost else 0 end)::float8 as estimated_usd,
+        count(*)::int as answers
+      from u
+      group by bucket, engine, model_id`;
+    return rows.map((r) => ({
+      bucket: r.bucket,
+      engine: r.engine,
+      model_id: r.model_id,
+      input_tokens: Number(r.input_tokens),
+      output_tokens: Number(r.output_tokens),
+      cached_tokens: Number(r.cached_tokens),
+      cost_usd: Number(r.cost_usd),
+      estimated_usd: Number(r.estimated_usd),
+      answers: r.answers,
+    }));
+  }
+}
+
+/** For tests: the same grouping over in-memory messages. */
+export class MemoryUsageSource implements UsageSource {
+  constructor(
+    private readonly deps: {
+      messages(): Iterable<MessageRecord>;
+      workspaceOf(threadId: string): string | null;
+      runKind(runId: string): string | null;
+    },
+  ) {}
+
+  async rows(q: UsageQuery): Promise<UsageRow[]> {
+    const by = new Map<string, UsageRow>();
+    for (const m of this.deps.messages()) {
+      if (!m.usage) continue;
+      const at = Date.parse(m.created_at);
+      if (at < q.from.getTime() || at >= q.to.getTime()) continue;
+      if (this.deps.workspaceOf(m.thread_id) !== q.workspaceId) continue;
+      const engine = engineOf(m.provenance, m.run_id ? this.deps.runKind(m.run_id) : null, m.model_id);
+      const bucket = bucketOf(q.tz, at, q.bucket);
+      const key = `${bucket}|${engine}|${m.model_id ?? ''}`;
+      const r = by.get(key) ?? {
+        bucket,
+        engine,
+        model_id: m.model_id,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_tokens: 0,
+        cost_usd: 0,
+        estimated_usd: 0,
+        answers: 0,
+      };
+      r.input_tokens += m.usage.input_tokens;
+      r.output_tokens += m.usage.output_tokens;
+      r.cached_tokens += m.usage.cached_tokens ?? 0;
+      r.cost_usd += m.usage.cost_usd;
+      if (engine === 'claude_code') r.estimated_usd += m.usage.cost_usd;
+      r.answers += 1;
+      by.set(key, r);
+    }
+    return [...by.values()];
+  }
+}

@@ -87,6 +87,27 @@ export function readSessionsDetail(
 
 type CcChanged = Extract<GlobalEvent, { type: 'claude_code.changed' }>;
 
+/** How long invalidations from a burst of claude_code.changed events are gathered before one refetch. */
+export const CC_INVALIDATE_MS = 1_000;
+
+/**
+ * A background import sends an event per session (and progress several
+ * times a second): gather what they make stale and refetch each query once
+ * a second at most, never once per event.
+ */
+const pending = new Map<string, readonly unknown[]>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+export function invalidateSoon(qc: QueryClient, queryKey: readonly unknown[]): void {
+  pending.set(JSON.stringify(queryKey), queryKey);
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    const keys = [...pending.values()];
+    pending.clear();
+    for (const queryKey of keys) void qc.invalidateQueries({ queryKey });
+  }, CC_INVALIDATE_MS);
+}
+
 /** What a claude_code.changed event makes stale. */
 export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
   switch (e.what) {
@@ -109,16 +130,23 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
             level: 'success',
             title: `Brought in ${d.count} Claude Code ${d.count === 1 ? 'session' : 'sessions'}`,
           });
-          void qc.invalidateQueries({ queryKey: keys.threads });
-          void qc.invalidateQueries({ queryKey: keys.notebooks });
+          invalidateSoon(qc, keys.threads);
+          invalidateSoon(qc, keys.notebooks);
         }
       }
-      void qc.invalidateQueries({ queryKey: CC_KEYS.sessions });
+      // Progress lines are local state; the list itself only changes when a session lands.
+      if (d?.kind !== 'progress') invalidateSoon(qc, CC_KEYS.sessions);
       break;
     }
     case 'thread':
-      if (e.thread_id) void qc.invalidateQueries({ queryKey: keys.thread(e.thread_id) });
-      void qc.invalidateQueries({ queryKey: CC_KEYS.sessions });
+      // Only that thread, and only if it is loaded (an open or recently opened thread).
+      if (e.thread_id) invalidateSoon(qc, keys.thread(e.thread_id));
+      invalidateSoon(qc, CC_KEYS.sessions);
+      // A turn ended or a session synced: the totals in Settings → Usage moved.
+      invalidateSoon(qc, ['usage', 'report']);
+      break;
+    case 'limits':
+      void qc.invalidateQueries({ queryKey: ['usage', 'plan-limits'] });
       break;
     default:
       break;

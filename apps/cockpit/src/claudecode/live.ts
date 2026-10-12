@@ -23,7 +23,13 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodeCommand, ClaudeCodeLiveState, Part, SendClaudeCodeRequest } from '@nvx/contracts';
+import type {
+  ClaudeCodeCommand,
+  ClaudeCodeCommandList,
+  ClaudeCodeLiveState,
+  Part,
+  SendClaudeCodeRequest,
+} from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
@@ -60,16 +66,38 @@ export function useClaudeCodeLive(threadId: string | undefined) {
   });
 }
 
-/** Claude Code's own "/" list for the session's folder (a bare array). */
+/** How often a partial "/" list asks again, and for how long. */
+const PARTIAL_POLL_MS = 1_500;
+const PARTIAL_POLL_TRIES = 40;
+
+/** A list response as a list: the current shape, or the bare array an older Core sends. */
+export function commandItems(r: ClaudeCodeCommandList | ClaudeCodeCommand[] | undefined): {
+  items: ClaudeCodeCommand[];
+  partial: boolean;
+} {
+  if (Array.isArray(r)) return { items: r, partial: false };
+  return { items: Array.isArray(r?.items) ? r.items : [], partial: r?.partial === true };
+}
+
+/**
+ * Claude Code's own "/" list for the session's folder. Core answers at once
+ * with the built-ins while it reads Claude Code's list; this asks again
+ * until the whole list is there, so typing never waits on it.
+ */
 export function useClaudeCodeCommands(threadId: string | undefined) {
   return useQuery({
     queryKey: CC_LIVE_KEYS.commands(threadId ?? ''),
-    queryFn: () => api.get<ClaudeCodeCommand[]>(`/claude-code/threads/${threadId}/commands`),
+    queryFn: () =>
+      api.get<ClaudeCodeCommandList | ClaudeCodeCommand[]>(`/claude-code/threads/${threadId}/commands`),
     enabled: !!threadId,
     staleTime: 10 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: true,
-    select: (r) => (Array.isArray(r) ? r : []),
+    refetchInterval: (q) =>
+      commandItems(q.state.data).partial && q.state.dataUpdateCount < PARTIAL_POLL_TRIES
+        ? PARTIAL_POLL_MS
+        : false,
+    select: (r) => commandItems(r).items,
   });
 }
 

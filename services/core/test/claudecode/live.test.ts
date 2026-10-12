@@ -793,6 +793,45 @@ describe('state and commands', () => {
     });
   });
 
+  it('hands rate_limit_event to the plan limits, asks for usage after the turn, and passes the compaction point', async () => {
+    const seen: unknown[] = [];
+    const after: string[] = [];
+    live = makeLive({
+      limits: {
+        observe: async (m) => {
+          seen.push(m);
+        },
+        afterTurn: (h) => after.push(h),
+      },
+    });
+    const answer = textAnswer(S, 'a8', 'ok');
+    bridge.script = (b, h, ...rest) => {
+      b.msg(h, {
+        type: 'rate_limit_event',
+        session_id: S,
+        rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.4 },
+      });
+      return answer(b, h, ...rest);
+    };
+    const sent = await live.send('thr_1', { text: 'x', idempotency_key: 'key-00000012' });
+    await execute(sent.run_id);
+    expect(seen).toEqual([expect.objectContaining({ type: 'rate_limit_event' })]);
+    expect(after).toHaveLength(1);
+    expect(live.openHandle()).toBe(after[0]);
+    bridge.controlAnswers.context_usage = {
+      total_tokens: 50_000,
+      max_tokens: 200_000,
+      percentage: 25,
+      compacts_at: 83.5,
+    };
+    expect((await live.state('thr_1')).context).toEqual({
+      used_tokens: 50_000,
+      max_tokens: 200_000,
+      percent: 25,
+      compacts_at: 83.5,
+    });
+  });
+
   it("merges Claude Code's own list with what NVX Ancile does itself, from a session that writes nothing", async () => {
     bridge.controlAnswers.supported_commands = [
       { name: 'mcp', description: 'Manage MCP servers', argumentHint: '', builtin: true },
@@ -806,7 +845,13 @@ describe('state and commands', () => {
     ];
     bridge.controlAnswers.supported_models = [{ value: 'opus', displayName: 'Opus' }];
     bridge.controlAnswers.mcp_status = [{ name: 'github' }];
-    const items = await live.commands('thr_1');
+    const first = await live.commands('thr_1');
+    // At once: the built-ins, marked partial, while Claude Code's own list is read.
+    expect(first.partial).toBe(true);
+    expect(first.items.find((c) => c.name === 'mcp')).toMatchObject({ ancile_action: 'open_mcp' });
+    expect(first.items.find((c) => c.name === 'my-skill')).toBeUndefined();
+    const { items, partial } = await live.commands('thr_1', { wait: true });
+    expect(partial).toBe(false);
     const by = new Map(items.map((c) => [c.name, c]));
     expect(by.get('mcp')).toMatchObject({
       handled_by: 'ancile',
@@ -845,7 +890,7 @@ describe('state and commands', () => {
     expect(bridge.opened[0]).toMatchObject({ cwd: CWD, persist: false });
     expect(bridge.opened[0]?.resume).toBeUndefined();
     expect(bridge.closed).toEqual(['h1']);
-    await live.commands('thr_1');
+    expect((await live.commands('thr_1')).partial).toBe(false);
     expect(bridge.opened).toHaveLength(1); // cached per folder and version
   });
 
@@ -1111,7 +1156,7 @@ describe('the command list after a turn', () => {
       { name: 'deploy', description: 'Deploy the app to staging', argumentHint: '<env>' },
       { name: 'compact', description: 'Compact', argumentHint: '<instructions>', builtin: true },
     ];
-    const items = await live.commands('thr_1');
+    const { items } = await live.commands('thr_1', { wait: true });
     expect(items.filter((c) => c.name.toLowerCase() === 'deploy')).toEqual([
       expect.objectContaining({
         name: 'deploy',
@@ -1123,7 +1168,6 @@ describe('the command list after a turn', () => {
       expect.objectContaining({ description: 'Review a pull request', argument_hint: '[pr]' }),
     ]);
     expect(new Set(items.map((c) => c.name.toLowerCase())).size).toBe(items.length);
-    expect(bridge.opened).toHaveLength(1); // read from the session the turn left open
   });
 
   it('keeps what NVX Ancile handles over a plain entry of the same name', () => {
