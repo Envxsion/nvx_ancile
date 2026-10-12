@@ -15,12 +15,16 @@
  *           |  front (widenedFields).
  *  Note     |  A private notebook is a floor, not a default: nothing in
  *           |  it can switch cloud engines, Claude Code or data leaving
- *           |  the machine back on.
+ *           |  the machine back on. Tool presets are kept beside the
+ *           |  values, not merged into them: checkToolCall tests each
+ *           |  preset in force as its own narrowing layer, so the
+ *           |  editor still shows what each level itself set.
  * ------------------------------------------------------------------
  */
 
 import { posix } from 'node:path';
 import type {
+  AppliedToolPreset,
   EffectiveScope,
   ScopeCheck,
   ScopeField,
@@ -28,6 +32,7 @@ import type {
   ScopePatch,
   ScopeProvenance,
   ScopeValues,
+  ToolPreset,
 } from '@nvx/contracts';
 import { matchAction, matchGlob } from '../permissions/glob';
 import { isWithin, scheme } from '../permissions/normalize';
@@ -47,6 +52,7 @@ export const DEFAULT_SCOPE: ScopeValues = {
   mcp_servers_deny: [],
   folders: null,
   network: true,
+  tool_preset: null,
 };
 
 export const SCOPE_FIELDS = Object.keys(DEFAULT_SCOPE) as ScopeField[];
@@ -181,6 +187,40 @@ export interface ResolveInput {
   private: boolean;
   notebook: ScopePatch | null;
   thread: ScopePatch | null;
+  /** Every tool preset by id (built-in and your own); a chosen id not here fails closed. */
+  presets?: ReadonlyMap<string, ToolPreset>;
+}
+
+/** The preset a level chose, as applied; a missing one allows no tool at all. */
+function appliedPreset(
+  level: 'notebook' | 'thread',
+  id: string,
+  presets: ReadonlyMap<string, ToolPreset> | undefined,
+): AppliedToolPreset {
+  const p = presets?.get(id);
+  if (!p)
+    return {
+      level,
+      id,
+      name: id,
+      missing: true,
+      tools_allow: [],
+      tools_deny: [],
+      mcp_servers_allow: [],
+      mcp_servers_deny: [],
+      network: false,
+    };
+  return {
+    level,
+    id,
+    name: p.name,
+    missing: false,
+    tools_allow: p.tools_allow,
+    tools_deny: p.tools_deny,
+    mcp_servers_allow: p.mcp_servers_allow,
+    mcp_servers_deny: p.mcp_servers_deny,
+    network: p.network,
+  };
 }
 
 export function resolveScope(input: ResolveInput): EffectiveScope {
@@ -194,6 +234,15 @@ export function resolveScope(input: ResolveInput): EffectiveScope {
   if (input.notebook) s = applyLevel(s, provenance, input.notebook, 'notebook', false, clamped);
   if (input.private) s = privateFloor(s, provenance);
   if (input.thread) s = applyLevel(s, provenance, input.thread, 'thread', true, clamped);
+  // Presets only narrow, so a thread's preset never widens and is never clamped.
+  const toolPresets: AppliedToolPreset[] = [];
+  for (const level of ['notebook', 'thread'] as const) {
+    const id = input[level]?.tool_preset;
+    if (!id) continue;
+    toolPresets.push(appliedPreset(level, id, input.presets));
+    s.tool_preset = id;
+    provenance.tool_preset = prov(level);
+  }
   return {
     notebook_id: input.notebookId,
     thread_id: input.threadId,
@@ -201,6 +250,7 @@ export function resolveScope(input: ResolveInput): EffectiveScope {
     scope: s,
     provenance,
     clamped: [...new Set(clamped)],
+    tool_presets: toolPresets,
   };
 }
 
@@ -317,7 +367,64 @@ export interface ToolCallShape {
   mcpServer?: string | null;
 }
 
-/** May this tool call run here? Checked before and after any reviewer. */
+const presetsOf = (scope: EffectiveScope | ScopeValues): AppliedToolPreset[] =>
+  'tool_presets' in scope ? scope.tool_presets : [];
+
+/** The MCP server behind a call: given, or named by an mcp.<server>.<tool> action. */
+const serverOf = (call: ToolCallShape) =>
+  call.mcpServer ?? (call.action.startsWith('mcp.') ? (call.action.split('.')[1] ?? null) : null);
+
+/** May this call run under one tool preset? Each preset in force is its own narrowing layer. */
+function checkPreset(p: AppliedToolPreset, call: ToolCallShape): ScopeCheck {
+  const { action, resource } = call;
+  const named = `the ${p.name} tool preset`;
+  if (p.missing)
+    return {
+      ok: false,
+      code: 'scope.tool_not_allowed',
+      field: 'tool_preset',
+      reason: `The tool preset chosen here (${p.id}) no longer exists, so no tool runs until another is chosen`,
+    };
+  if (p.tools_deny.some((g) => matchAction(g, action)))
+    return {
+      ok: false,
+      code: 'scope.tool_not_allowed',
+      field: 'tool_preset',
+      reason: `${action} is blocked by ${named}`,
+    };
+  if (p.tools_allow !== null && !p.tools_allow.some((g) => matchAction(g, action)))
+    return {
+      ok: false,
+      code: 'scope.tool_not_allowed',
+      field: 'tool_preset',
+      reason: `${action} is not in ${named}`,
+    };
+  const server = serverOf(call);
+  if (
+    server &&
+    (p.mcp_servers_deny.some((g) => matchAction(g, server)) ||
+      (p.mcp_servers_allow !== null && !p.mcp_servers_allow.some((g) => matchAction(g, server))))
+  )
+    return {
+      ok: false,
+      code: 'scope.mcp_server_not_allowed',
+      field: 'tool_preset',
+      reason: `The ${server} MCP server is not in ${named}`,
+    };
+  if (!p.network && networkReach(action, resource) !== 'none')
+    return {
+      ok: false,
+      code: 'scope.network_off',
+      field: 'tool_preset',
+      reason: `The ${p.name} tool preset has no network`,
+    };
+  return OK;
+}
+
+/**
+ * May this tool call run here? Checked before and after any reviewer. The
+ * scope's own fields first, then every tool preset in force.
+ */
 export function checkToolCall(scope: EffectiveScope | ScopeValues, call: ToolCallShape): ScopeCheck {
   const s = valuesOf(scope);
   const { action, resource } = call;
@@ -335,7 +442,7 @@ export function checkToolCall(scope: EffectiveScope | ScopeValues, call: ToolCal
       field: 'tools_allow',
       reason: `${action} is not one of the tools allowed here`,
     };
-  const server = call.mcpServer ?? (action.startsWith('mcp.') ? (action.split('.')[1] ?? null) : null);
+  const server = serverOf(call);
   if (server) {
     if (s.mcp_servers_deny.some((p) => matchAction(p, server)))
       return {
@@ -388,6 +495,10 @@ export function checkToolCall(scope: EffectiveScope | ScopeValues, call: ToolCal
           field: 'data_leaves_machine',
           reason: 'Nothing may leave this machine here',
         };
+  for (const p of presetsOf(scope)) {
+    const r = checkPreset(p, call);
+    if (!r.ok) return r;
+  }
   return OK;
 }
 

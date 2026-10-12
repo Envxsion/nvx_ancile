@@ -91,6 +91,7 @@ function scopeText(scope: EffectiveScope | null): string {
     tools_allow: s.tools_allow,
     tools_deny: s.tools_deny,
     mcp_servers_allow: s.mcp_servers_allow,
+    tool_presets: scope.tool_presets.map((p) => ({ name: p.name, tools_allow: p.tools_allow })),
   });
 }
 

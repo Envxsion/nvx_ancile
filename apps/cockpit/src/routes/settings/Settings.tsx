@@ -344,7 +344,8 @@ export function SettingsScreen() {
         </div>
       </aside>
 
-      <main className="settings__main">
+      {/* A section, not a second main landmark: the shell already has one. */}
+      <section className="settings__main" aria-label="Settings">
         <header className="settings__head">
           <div>
             <h2 className="settings__group-title" data-display>
@@ -407,7 +408,7 @@ export function SettingsScreen() {
           Changes save as you make them and follow you to your other devices. <Kbd keys="mod+," /> opens
           Settings from anywhere.
         </footer>
-      </main>
+      </section>
     </div>
   );
 }

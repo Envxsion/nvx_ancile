@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from .. import offsets
 from ..db import sessions
 from ..ingest import embed as embed_mod
+from ..ingest import reembed
 from ..obs import get_logger
 from . import rerank as rerank_mod
 from .hybrid import reciprocal_rank_fusion
@@ -302,7 +303,8 @@ def search(q: Query) -> dict[str, Any]:
     embedder = None
     qvec: list[float] | None = None
     if mode in ("hybrid", "vector"):
-        embedder = embed_mod.try_get_embedder(download=False)
+        # The active model's, which during a re-embed is still the old one (ingest/reembed.py).
+        embedder = reembed.search_embedder()
         if embedder is None:
             mode = "text"  # degrade, and say so in the response
         else:

@@ -9,7 +9,8 @@
           |  (Authorization: Bearer $ANCILE_SERVICE_TOKEN).
  How      |  Sources, notebook links, duplicates and maintenance live
           |  in sources/routes.py and are mounted here, so the token
-          |  check covers them. Search is here.
+          |  check covers them. Search is here, and /embeddings: the
+          |  model search reads and a background re-embed's progress.
  Note     |  TODO(phase-5): /tags/recompute and /transformations/run
           |  answer 501 in the standard error shape until then.
 ------------------------------------------------------------------
@@ -17,13 +18,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
+from . import jobs
 from .errors import AncileError
+from .ingest import reembed
 from .search import evidence as evidence_service
 from .search import service as search_service
 from .settings import get_settings
@@ -127,6 +131,20 @@ def evidence(body: EvidenceRequest) -> dict[str, Any]:
             k_per_claim=body.k_per_claim,
         )
     )
+
+
+@router.get("/embeddings")
+def embeddings() -> dict[str, Any]:
+    """The model search reads, the configured one, and a background re-embed's progress."""
+    return reembed.status()
+
+
+@router.post("/embeddings/check")
+async def embeddings_check() -> dict[str, Any]:
+    """Look for a changed embedding model now, instead of within the minute; the worker does the rest."""
+    out = await asyncio.to_thread(reembed.check)
+    jobs.wake_worker()
+    return out
 
 
 @router.post("/tags/recompute")

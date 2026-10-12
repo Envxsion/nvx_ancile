@@ -27,14 +27,15 @@ jobs:
         with: { enable-cache: true, python-version: '3.12' }
       - run: uv sync --project services/knowledge --frozen
       - run: psql postgres://ancile:ancile@localhost:5433/ancile -f infra/db/init.sql
-      # TODO(phase-3): runner lands with the retrieval pipeline
+      # The real local embedder (downloaded once into the cache) against the
+      # floors for it in tests/eval/retrieval/thresholds.json. CI runs the same
+      # suite on every push with the offline hash embedder (ci.yml, evals).
+      - run: uv sync --project services/knowledge --frozen --extra embed
       - name: Retrieval eval
-        if: hashFiles('tests/eval/retrieval/run.py') != ''
-        run: uv run --project services/knowledge python tests/eval/retrieval/run.py --fail-under-recall10 0.85
-      # TODO(phase-4): runner lands with fact-checking
-      - name: Fact-check eval
-        if: hashFiles('tests/eval/factcheck/run.py') != ''
-        run: uv run --project services/knowledge python tests/eval/factcheck/run.py --fail-under-f1 0.75 --max-ece 0.12
+        run: uv run --project services/knowledge python tests/eval/retrieval/run.py --download --prepare --report tests/eval/retrieval/report.json
+      # TODO(phase-6): the fact-check eval against a real verifier model
+      # (services/core eval:factcheck with the registry pointed at it), using
+      # the EVAL_* keys above; CI already gates the offline verifier.
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: eval-reports, path: tests/eval/**/report*.json, if-no-files-found: ignore }

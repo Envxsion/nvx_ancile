@@ -164,7 +164,9 @@ export function listLanguages(codes: string[]): string {
 /**
  * Sources in several languages, searched with an English-only embedder:
  * say so in one line and name the multilingual model to switch to.
- * TODO(phase-3): switch in one click once background re-embedding (track F) lands.
+ * TODO(phase-3): switch in one click. Background re-embedding is in place (POST
+ * /knowledge/embeddings/check); what is missing is a runtime setting for the
+ * embedding model, which today is the KNOWLEDGE_EMBED_MODEL env var.
  */
 function LanguageHint({ notebookId }: { notebookId: string }) {
   const langs = useQuery({

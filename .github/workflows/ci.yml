@@ -76,6 +76,66 @@ jobs:
         if: always()
         with: { name: coverage, path: '**/coverage/**', if-no-files-found: ignore }
 
+  evals:
+    name: Retrieval and fact-check evals
+    # Blocking: a drop below a floor in tests/eval/*/thresholds.json fails the
+    # build. Offline and deterministic: the hash embedder and the offline test
+    # models, no provider keys, no network beyond this job's Postgres.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17
+        env: { POSTGRES_USER: ancile, POSTGRES_PASSWORD: ancile, POSTGRES_DB: ancile }
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U ancile" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://ancile:ancile@localhost:5433/ancile
+      KNOWLEDGE_MODEL_DOWNLOAD: 'false'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true, python-version: '${{ env.PYTHON_VERSION }}' }
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --project services/knowledge --frozen
+      - name: Retrieval and citations (hash embedder, Postgres)
+        run: uv run --project services/knowledge python tests/eval/retrieval/run.py --embedder hash --prepare --report retrieval-report.json
+      - name: Fact-check verdicts (offline verifier)
+        run: pnpm --filter @nvx/ancile-core run eval:factcheck --report ../../factcheck-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-reports
+          path: |
+            retrieval-report.json
+            factcheck-report.json
+          if-no-files-found: ignore
+
+  a11y:
+    name: Accessibility
+    # Blocking: axe (WCAG 2.2 AA tags) on every Cockpit route and the open
+    # palette, dark and light, on the demo data. Any serious or critical
+    # violation fails the build. No backend, so it is quick; the crawl in the
+    # e2e job repeats the check against the real stack.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e a11y --project=chromium-dark --project=chromium-light
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: a11y-results, path: test-results, if-no-files-found: ignore }
+
   e2e:
     name: End to end, chaos and load
     runs-on: ubuntu-latest

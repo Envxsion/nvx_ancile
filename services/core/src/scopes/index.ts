@@ -12,11 +12,13 @@
  *           |  them with resolve.ts. A thread's notebook is read from
  *           |  the thread when it is not given.
  *  Note     |  Engine selection (engines/) and the permission gate call
- *           |  these at execution time, never from a cached answer.
+ *           |  these at execution time, never from a cached answer. That
+ *           |  includes tool presets: a preset edited or deleted applies
+ *           |  to the very next call.
  * ------------------------------------------------------------------
  */
 
-import type { EffectiveScope } from '@nvx/contracts';
+import { BUILTIN_TOOL_PRESETS, type EffectiveScope, type ToolPreset } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { resolveScope } from './resolve';
 import { PgScopeStore, type ScopeStore } from './store';
@@ -68,13 +70,35 @@ export async function getEffectiveScope(db: ScopeStore | Sql, ref: ScopeRef): Pr
     notebookId ? store.getPatch('notebook', notebookId) : Promise.resolve(null),
     threadId ? store.getPatch('thread', threadId) : Promise.resolve(null),
   ]);
+  // Your own presets are only read when a level has chosen one that is not built in.
+  const chosen = [notebook?.patch.tool_preset, thread?.patch.tool_preset].filter((id): id is string => !!id);
+  const presets = await allPresets(
+    store,
+    chosen.some((id) => !BUILTIN.has(id)),
+  );
   return resolveScope({
     notebookId,
     threadId,
     private: priv,
     notebook: notebook?.patch ?? null,
     thread: thread?.patch ?? null,
+    presets,
   });
+}
+
+const BUILTIN: ReadonlyMap<string, ToolPreset> = new Map(BUILTIN_TOOL_PRESETS.map((p) => [p.id, p]));
+
+/** Every tool preset by id: the built-in ones, then (when asked) your own. */
+export async function allPresets(store: ScopeStore, own = true): Promise<ReadonlyMap<string, ToolPreset>> {
+  if (!own) return BUILTIN;
+  const out = new Map(BUILTIN);
+  for (const p of await store.listPresets()) if (!out.has(p.id)) out.set(p.id, p);
+  return out;
+}
+
+/** GET /tool-presets: built-in presets first, then your own by name. */
+export async function listPresets(store: ScopeStore): Promise<ToolPreset[]> {
+  return [...BUILTIN_TOOL_PRESETS, ...(await store.listPresets()).filter((p) => !BUILTIN.has(p.id))];
 }
 
 /** What the gate and the conductor are given: a resolver bound to a store. */

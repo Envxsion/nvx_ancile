@@ -18,23 +18,10 @@ from __future__ import annotations
 
 import os
 import tempfile
-from urllib.parse import urlsplit, urlunsplit
 
-TEST_DB_NAME = "ancile_kn_test"
+from tests.testdb import db_url_for_tests, prepare_test_database
 
-
-def _test_db_url() -> str | None:
-    explicit = os.environ.get("ANCILE_TEST_DATABASE_URL")
-    if explicit:
-        return explicit
-    base = os.environ.get("DATABASE_URL")
-    if not base:
-        return None
-    parts = urlsplit(base)
-    return urlunsplit((parts.scheme, parts.netloc, f"/{TEST_DB_NAME}", parts.query, parts.fragment))
-
-
-TEST_DB_URL = _test_db_url()
+TEST_DB_URL = db_url_for_tests(os.environ.get("ANCILE_TEST_DATABASE_URL"), os.environ.get("DATABASE_URL"))
 if TEST_DB_URL:
     os.environ["DATABASE_URL"] = TEST_DB_URL
 else:
@@ -53,37 +40,8 @@ _db_state: dict[str, object] = {}
 
 
 def _prepare_database() -> str | None:
-    """Create, extend and migrate the test database. Returns a skip reason, or None."""
-    if not TEST_DB_URL:
-        return "No test database: set ANCILE_TEST_DATABASE_URL (or DATABASE_URL) to a Postgres with pgvector."
-    import psycopg
-
-    plain = TEST_DB_URL.replace("postgresql+psycopg://", "postgresql://").replace(
-        "postgres://", "postgresql://"
-    )
-    parts = urlsplit(plain)
-    admin = urlunsplit((parts.scheme, parts.netloc, "/postgres", parts.query, parts.fragment))
-    try:
-        with psycopg.connect(admin, connect_timeout=3, autocommit=True) as conn:
-            exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TEST_DB_NAME,)).fetchone()
-            if not exists and parts.path.lstrip("/") == TEST_DB_NAME:
-                conn.execute(f'CREATE DATABASE "{TEST_DB_NAME}"')
-        with psycopg.connect(plain, connect_timeout=3, autocommit=True) as conn:
-            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-    except Exception as exc:
-        return f"Test Postgres unreachable ({type(exc).__name__}); start it or set ANCILE_TEST_DATABASE_URL."
-    from pathlib import Path
-
-    from alembic.config import Config
-
-    from alembic import command
-
-    root = Path(__file__).resolve().parents[1]
-    cfg = Config(str(root / "alembic.ini"))
-    cfg.set_main_option("script_location", str(root / "alembic"))
-    command.upgrade(cfg, "head")
-    return None
+    """Create, extend and migrate the test database (tests/testdb.py). Returns a skip reason, or None."""
+    return prepare_test_database(TEST_DB_URL)
 
 
 @pytest.fixture(scope="session")
@@ -100,11 +58,12 @@ def kdb(_migrated: None):  # type: ignore[no-untyped-def]
     from sqlalchemy import text
 
     from ancile_knowledge.db import sessions
-    from ancile_knowledge.ingest import embed, fetch
+    from ancile_knowledge.ingest import embed, fetch, reembed
     from ancile_knowledge.search import rerank
 
     with sessions().begin() as db:
         db.execute(text("TRUNCATE knowledge.sources CASCADE"))
+    reembed.reset_index()
     if os.environ.get("ANCILE_TEST_REAL_EMBEDDER") != "1":
         embed.set_embedder(embed.HashEmbedder())
     rerank.set_reranker(rerank.IdentityReranker())

@@ -260,6 +260,33 @@ export const MessageToNoteRequest = z
   .object({ notebook_id: z.string(), title: z.string().trim().min(1).max(300).optional() })
   .strict();
 
+/* ---- Embeddings: the model search reads, and a background re-embed ------ */
+
+/**
+ * GET /knowledge/embeddings. When the configured embedding model changes,
+ * Knowledge re-embeds every current passage in the background; search keeps
+ * reading the active model's vectors until the new ones are complete, then
+ * swaps in one step (docs/configuration.md, Changing the embedding model).
+ */
+export const EmbeddingStatus = z.object({
+  /** The model whose vectors search reads; null before any is adopted. */
+  active_model_key: z.string().nullable(),
+  /** The model ingestion uses now; null when none can be loaded. */
+  configured_model_key: z.string().nullable(),
+  reembed: z.object({
+    status: z.enum(['idle', 'running', 'failed']),
+    target_model_key: z.string().nullable(),
+    total: z.number().int(),
+    done: z.number().int(),
+    percent: z.number().int(),
+    error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
+    started_at: z.string().nullable(),
+    finished_at: z.string().nullable(),
+    updated_at: z.string().nullable(),
+  }),
+});
+export type EmbeddingStatus = z.infer<typeof EmbeddingStatus>;
+
 /* ---- Retrieval trace (Core writes it into an answer's provenance) -------- */
 
 /** What a grounded answer was given and what it used: the "why" view reads this. */

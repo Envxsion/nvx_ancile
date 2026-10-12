@@ -717,6 +717,16 @@ export const scopes = core.table(
   (t) => [primaryKey({ columns: [t.level, t.refId] })],
 );
 
+/** Your own tool presets; the built-in ones live in contracts (0025, docs/scopes.md). */
+export const toolPresets = core.table('tool_presets', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  rules: jsonb('rules').notNull(),
+  createdAt: created(),
+  updatedAt: updated(),
+});
+
 /** Auto mode plans, approved once per session (docs/auto-mode.md). */
 export const autoPlans = core.table(
   'auto_plans',

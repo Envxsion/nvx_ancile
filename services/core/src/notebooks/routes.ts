@@ -23,6 +23,7 @@ import {
   CreateNotebookRequest,
   CreateNoteRequest,
   DismissDuplicateRequest,
+  type EmbeddingStatus,
   MergeSourcesRequest,
   MessageToNoteRequest,
   type Notebook,
@@ -391,6 +392,14 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
   );
   r.post('/sources/:id/refetch', async (c) =>
     c.json(await kn.post(`/sources/${enc(c.req.param('id'))}/refetch`)),
+  );
+
+  /* ---- Embeddings: the active model and a background re-embed ----------- */
+
+  r.get('/knowledge/embeddings', async (c) => c.json(await kn.get<EmbeddingStatus>('/embeddings')));
+  // Look for a changed embedding model now rather than within the minute.
+  r.post('/knowledge/embeddings/check', async (c) =>
+    c.json(await kn.post<EmbeddingStatus>('/embeddings/check')),
   );
 
   /* ---- Search ----------------------------------------------------------- */

@@ -23,7 +23,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -40,6 +40,24 @@ import { type SimpleGit, simpleGit } from 'simple-git';
 import { parseMemory } from './format';
 
 const run = promisify(execFile);
+
+/** A git config value, quoted, with backslashes and quotes escaped and no line breaks. */
+const configValue = (v: string) => `"${v.replace(/[\r\n]+/g, ' ').replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+
+/** What a memory repository sets for itself: byte-exact files, the author, no signing. */
+export function gitConfig(author: { name: string; email: string }): string {
+  return [
+    '[core]',
+    '\tautocrlf = false',
+    '\tsafecrlf = false',
+    '[user]',
+    `\tname = ${configValue(author.name)}`,
+    `\temail = ${configValue(author.email)}`,
+    '[commit]',
+    '\tgpgsign = false',
+    '',
+  ].join('\n');
+}
 
 export interface CommitMessage {
   scope: string; // user | agents | project:<slug> | failures | model:<id>
@@ -176,11 +194,12 @@ export class GitMemoryProvider implements MemoryProvider {
         .catch(() => false);
       if (!isRepo) {
         await this.git.init();
-        await this.git.addConfig('core.autocrlf', 'false');
-        await this.git.addConfig('core.safecrlf', 'false');
-        await this.git.addConfig('user.name', this.author.name);
-        await this.git.addConfig('user.email', this.author.email);
-        await this.git.addConfig('commit.gpgsign', 'false');
+        // The repository's own settings, written into .git/config directly
+        // rather than with five `git config` processes: each process costs
+        // 100 ms or more on Windows, and seconds when the machine is busy,
+        // which made creating a repository (tests, first boot) time out.
+        // A repeated [core] section is valid git config; the last value wins.
+        await appendFile(join(this.root, '.git', 'config'), gitConfig(this.author));
         if (this.template) {
           await cp(this.template, this.root, { recursive: true, errorOnExist: false, force: false });
         }

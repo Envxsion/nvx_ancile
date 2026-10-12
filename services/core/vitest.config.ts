@@ -12,9 +12,15 @@ export default defineConfig({
     // Product code only: the composition root (main.ts) and the declarative
     // schema are exercised by the boot suite and the e2e stack, and scripts/
     // holds development tools such as the sample-data seeder.
+    // The floor CI holds `--coverage` to (with CORE_TEST_DATABASE_URL set, so
+    // the Postgres stores count): 80% lines, the target. Measured 12 Oct 2026:
+    // lines 80.57%, branches 78.2%, functions 87.67%. Raise these as coverage
+    // rises; never lower one.
     coverage: {
+      provider: 'v8',
       include: ['src/**/*.ts'],
       exclude: ['src/main.ts', 'src/db/schema.ts'],
+      thresholds: { lines: 80, statements: 80, branches: 78, functions: 87 },
     },
     projects: [
       {

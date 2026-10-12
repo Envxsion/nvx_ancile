@@ -270,6 +270,10 @@ describe('the offline model as a fact-checker', () => {
     const ev = [{ ref: 'E1', text: 'The pump runs at 3000 rpm.' }];
     expect(fakeVerdict('The pump runs at 3000 rpm.', ev).stance).toBe('supported');
     expect(fakeVerdict('The pump runs at 4500 rpm.', ev).stance).toBe('contradicted');
+    // A shared number does not hide one that differs.
+    const dated = [{ ref: 'E1', text: 'The bridge opened on 14 June 1932.' }];
+    expect(fakeVerdict('The bridge opened on 14 June 1933.', dated).stance).toBe('contradicted');
+    expect(fakeVerdict('The bridge opened on 14 June 1932.', dated).stance).toBe('supported');
     expect(fakeVerdict('The pump never runs at 3000 rpm.', ev).stance).toBe('contradicted');
     expect(fakeVerdict('Owls hunt at night.', ev).stance).toBe('insufficient');
   });

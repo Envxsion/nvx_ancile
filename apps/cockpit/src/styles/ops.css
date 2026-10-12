@@ -347,8 +347,30 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.logline + .logline {
+.logline + .logline,
+.logblock + .logblock > .logline:first-child {
   border-top: 1px solid var(--hair);
+}
+/* LogWindow: drawn blocks are skipped by the painter when off screen; idle ones are empty boxes. */
+.logblock {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2700px;
+}
+.logblock[data-idle] {
+  content-visibility: visible;
+  contain: strict;
+}
+.logblock:not(:first-child) > .logline:first-child {
+  animation: none;
+}
+.logview__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--hair);
+  font-family: var(--font-sans);
 }
 .logline__row {
   display: grid;

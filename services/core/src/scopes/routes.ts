@@ -12,22 +12,31 @@
  *           |  machine back on. A thread PATCH may only narrow its
  *           |  notebook: a widening field is refused (scope.widen)
  *           |  rather than silently clamped, so what you saw is what
- *           |  you get.
+ *           |  you get. /tool-presets lists the built-in presets and
+ *           |  keeps your own; a level chooses one with `tool_preset`,
+ *           |  which must exist when chosen (tool_preset.not_found). A
+ *           |  preset in use cannot be deleted (tool_preset.in_use).
  * ------------------------------------------------------------------
  */
 
 import {
   AncileError,
+  BUILTIN_TOOL_PRESETS,
+  CreateToolPresetRequest,
   PatchNotebookScopeRequest,
   PatchThreadScopeRequest,
   type ScopeField,
   type StoredScope,
+  type ToolPreset,
+  type ToolPresetList,
+  UpdateToolPresetRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
+import { ulid } from 'ulid';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
-import { getEffectiveScope } from './index';
+import { allPresets, getEffectiveScope, listPresets } from './index';
 import { privateConflicts, widenedFields } from './resolve';
 import type { ScopeStore } from './store';
 
@@ -52,7 +61,42 @@ const FIELD_NAMES: Record<ScopeField, string> = {
   mcp_servers_deny: 'blocked MCP servers',
   folders: 'folders',
   network: 'the network',
+  tool_preset: 'the tool preset',
 };
+
+const isBuiltin = (id: string) => BUILTIN_TOOL_PRESETS.some((p) => p.id === id);
+
+export function presetNotFoundError(id: string): AncileError {
+  return new AncileError({
+    code: 'tool_preset.not_found',
+    title: 'That tool preset does not exist',
+    hint: 'It may have been deleted. Choose another preset, or none.',
+    status: 422,
+    errorClass: 'permanent',
+    context: { fields: ['tool_preset'], id },
+  });
+}
+
+export function presetBuiltinError(): AncileError {
+  return new AncileError({
+    code: 'tool_preset.builtin',
+    title: 'Built-in tool presets cannot be changed',
+    hint: 'Make your own preset instead, starting from the rules you want.',
+    status: 409,
+    errorClass: 'permanent',
+  });
+}
+
+export function presetInUseError(uses: number): AncileError {
+  return new AncileError({
+    code: 'tool_preset.in_use',
+    title: 'This tool preset is still in use',
+    hint: `${uses} ${uses === 1 ? 'notebook or thread uses' : 'notebooks and threads use'} it. Choose another preset there first, then delete it.`,
+    status: 409,
+    errorClass: 'permanent',
+    context: { uses },
+  });
+}
 
 const names = (fields: ScopeField[]) => fields.map((f) => FIELD_NAMES[f]).join(', ');
 
@@ -121,6 +165,53 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     if (nb === undefined) throw notFound('That thread');
     return nb;
   };
+  /** A chosen preset must exist when it is chosen; one deleted later fails closed at resolve. */
+  const needPreset = async (id: string | null | undefined) => {
+    if (!id || isBuiltin(id)) return;
+    if (!(await allPresets(store)).has(id)) throw presetNotFoundError(id);
+  };
+  const needOwnPreset = async (id: string): Promise<ToolPreset> => {
+    if (isBuiltin(id)) throw presetBuiltinError();
+    const p = (await store.listPresets()).find((x) => x.id === id);
+    if (!p) throw notFound('That tool preset');
+    return p;
+  };
+
+  r.get('/tool-presets', async (c) => {
+    const out: ToolPresetList = { presets: await listPresets(store) };
+    return c.json(out);
+  });
+
+  r.post('/tool-presets', async (c) => {
+    const req = await body(c, CreateToolPresetRequest);
+    const created = await store.putPreset({
+      ...req,
+      id: `tp_${ulid().toLowerCase()}`,
+      builtin: false,
+      updated_at: null,
+    });
+    deps.onChange?.({});
+    return c.json(created, 201);
+  });
+
+  r.patch('/tool-presets/:id', async (c) => {
+    const id = c.req.param('id');
+    const patch = await body(c, UpdateToolPresetRequest);
+    const cur = await needOwnPreset(id);
+    const next = await store.putPreset({ ...cur, ...patch });
+    deps.onChange?.({});
+    return c.json(next);
+  });
+
+  r.delete('/tool-presets/:id', async (c) => {
+    const id = c.req.param('id');
+    await needOwnPreset(id);
+    const uses = await store.presetUsage(id);
+    if (uses > 0) throw presetInUseError(uses);
+    await store.deletePreset(id);
+    deps.onChange?.({});
+    return c.body(null, 204);
+  });
 
   r.get('/notebooks/:id/scope', async (c) => {
     const id = c.req.param('id');
@@ -132,6 +223,7 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     const id = c.req.param('id');
     await needNotebook(id);
     const { private: priv, ...patch } = await body(c, PatchNotebookScopeRequest);
+    await needPreset(patch.tool_preset);
     const willBePrivate = priv ?? (await store.isPrivate(id));
     if (willBePrivate) {
       const conflicts = privateConflicts(patch);
@@ -159,6 +251,8 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     const id = c.req.param('id');
     const notebookId = await needThread(id);
     const patch = await body(c, PatchThreadScopeRequest);
+    // A preset only narrows, so a thread may always choose one; it must exist.
+    await needPreset(patch.tool_preset);
     // Narrowing is checked against the notebook alone, so the thread's own
     // earlier choices never block widening back up to the notebook.
     const parent = await getEffectiveScope(store, { notebookId });

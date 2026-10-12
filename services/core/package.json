@@ -19,7 +19,8 @@
     "db:backups": "tsx src/db/cli.ts backups",
     "db:backup": "tsx src/db/cli.ts backup",
     "db:restore": "tsx src/db/cli.ts restore",
-    "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts"
+    "eval:auto": "tsx --env-file-if-exists=../../.env scripts/eval-auto-review.ts",
+    "eval:factcheck": "tsx scripts/eval-factcheck.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",

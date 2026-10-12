@@ -626,9 +626,28 @@ def stage_embedding(row: dict[str, Any], report: Reporter) -> None:
                 "Ready for text search. Vector search is unavailable until the embedding model loads.",
             )
         return
-    ensure_vector_index(embedder.model_key, embedder.dim)
     batch_size = get_settings().embed_batch
     report("embedding", f"Embedding {passages(total)}", 0, total, force=True)
+    # While a re-embed is moving search to a new model, the model search still
+    # reads gets vectors too, so this source is found before and after the swap.
+    from . import reembed
+
+    for i, current in enumerate([embedder, *reembed.extra_ingest_embedders(embedder)]):
+        ensure_vector_index(current.model_key, current.dim)
+        _embed_version(row["id"], version, current, batch_size, report if i == 0 else None, total)
+    with sessions().begin() as db:
+        _finish(db, row, report.worker_id, version, f"Ready · {passages(total)}")
+
+
+def _embed_version(
+    source_id: str,
+    version: int,
+    embedder: embed_mod.Embedder,
+    batch_size: int,
+    report: Reporter | None,
+    total: int,
+) -> None:
+    """Embed every child passage of this version that has no vector from this model yet."""
     while True:
         with sessions().begin() as db:
             todo = db.execute(
@@ -638,10 +657,10 @@ def stage_embedding(row: dict[str, Any], report: Reporter) -> None:
                     f"  SELECT 1 FROM {S}.chunk_embeddings e WHERE e.chunk_id = c.id AND e.model_key = :mk) "
                     f"ORDER BY c.ordinal LIMIT :n"
                 ),
-                {"id": row["id"], "v": version, "mk": embedder.model_key, "n": batch_size},
+                {"id": source_id, "v": version, "mk": embedder.model_key, "n": batch_size},
             ).all()
         if not todo:
-            break
+            return
         vectors = embedder.embed([embedding_text(b, t) for _, b, t in todo])
         with sessions().begin() as db:
             db.execute(
@@ -650,7 +669,7 @@ def stage_embedding(row: dict[str, Any], report: Reporter) -> None:
                     f"VALUES (:cid, :mk, CAST(:vec AS vector)) ON CONFLICT DO NOTHING"
                 ),
                 [
-                    {"cid": cid, "mk": embedder.model_key, "vec": _vec_literal(vec)}
+                    {"cid": cid, "mk": embedder.model_key, "vec": vec_literal(vec)}
                     for (cid, _, _), vec in zip(todo, vectors, strict=True)
                 ],
             )
@@ -659,15 +678,14 @@ def stage_embedding(row: dict[str, Any], report: Reporter) -> None:
                     f"SELECT count(*) FROM {S}.chunk_embeddings e JOIN {S}.chunks c ON c.id = e.chunk_id "
                     f"WHERE c.source_id = :id AND c.version = :v AND e.model_key = :mk"
                 ),
-                {"id": row["id"], "v": version, "mk": embedder.model_key},
+                {"id": source_id, "v": version, "mk": embedder.model_key},
             ).scalar_one()
-        pct = round(100 * done / total)
-        report("embedding", f"Embedding {passages(total)} · {pct}%", int(done), int(total))
-    with sessions().begin() as db:
-        _finish(db, row, report.worker_id, version, f"Ready · {passages(total)}")
+        if report is not None:
+            pct = round(100 * done / total)
+            report("embedding", f"Embedding {passages(total)} · {pct}%", int(done), int(total))
 
 
-def _vec_literal(vec: list[float]) -> str:
+def vec_literal(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:.7g}" for x in vec) + "]"
 
 

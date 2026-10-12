@@ -10,5 +10,17 @@ export default defineConfig({
     include: ['test/**/*.test.{ts,tsx}'],
     setupFiles: ['test/setup.ts'],
     css: false,
+    // `vitest run --coverage` (CI). Every source file counts, tested or not;
+    // only the composition root is left out, as in Core. The target is 80%
+    // lines; until the screens have tests, the floor is the measured value
+    // (12 Oct 2026: lines 40.98%, branches 73.58%, functions 52.05%), rounded
+    // down: a ratchet. Raise it as coverage rises, never lower it.
+    // TODO(phase-6): screen tests (flows editor, settings, repos, rail) to reach 80%.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['src/main.tsx'],
+      thresholds: { lines: 40, statements: 40, branches: 73, functions: 52 },
+    },
   },
 });

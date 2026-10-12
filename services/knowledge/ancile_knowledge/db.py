@@ -143,6 +143,22 @@ class ChunkEmbedding(Base):
     embedding: Mapped[Any] = mapped_column(Vector())
 
 
+class EmbedIndex(Base):
+    """One row: the model search reads, and the background re-embed (0004, ingest/reembed.py)."""
+
+    __tablename__ = "embed_index"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    active_model_key: Mapped[str | None] = mapped_column(String)
+    target_model_key: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="idle")  # idle|running|failed
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    done: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=_now())
+
+
 class Insight(Base):
     __tablename__ = "insights"
     id: Mapped[str] = mapped_column(String, primary_key=True)
