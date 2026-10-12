@@ -68,7 +68,7 @@ export function artifactRecord(
   list: ThreadArtifacts | undefined,
 ): ThreadArtifact & { local: boolean } {
   const found = list?.items.find((a) => a.key === o.artifact.key);
-  if (found && found.versions.length) return { ...found, local: false };
+  if (found?.versions.length) return { ...found, local: false };
   return {
     key: o.artifact.key,
     type: o.artifact.type,
