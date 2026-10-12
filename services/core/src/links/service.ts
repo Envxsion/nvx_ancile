@@ -29,7 +29,10 @@ import {
   type ExplainLink,
   type ScopeCheck,
 } from '@nvx/contracts';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
+
+const ulid = monotonicFactory();
+
 import { notFound } from '../obs/errors';
 import { allowedSources, checkLinkRead, type ScopeResolver } from '../scopes';
 import type { LinkEnd, LinkRecord, LinkStore } from './store';

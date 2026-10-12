@@ -38,7 +38,15 @@ describe('pro seam', () => {
     const d = await m.license.details();
     expect(d).toMatchObject({ build: 'free', key_held: false, status: { tier: 'free' } });
     expect(d.device_id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(d.features.map((f) => f.id)).toEqual(['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights']);
+    expect(d.features.map((f) => f.id)).toEqual([
+      'beam',
+      'team',
+      'sync',
+      'fleet',
+      'flow_lab',
+      'insights',
+      'context_packs',
+    ]);
     expect(d.features.every((f) => !f.unlocked)).toBe(true);
     // Anything but a claim key is refused before nvx.sh is asked.
     await expect(m.license.activate('h.p.s')).rejects.toMatchObject({ code: 'license.invalid' });

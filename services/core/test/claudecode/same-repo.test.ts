@@ -139,6 +139,14 @@ describe('suggestions and choices', () => {
     const { finder } = setup();
     const first = await finder.matchesFor('nbk_feature');
     expect(first.can_merge).toBe(false);
+    // Where notebook merge is wired, the pair can be merged (never automatically).
+    const merging = new SameRepoFinder({
+      projects: async () => [],
+      notebook: async () => null,
+      pairs: new MemoryRepoPairStore(),
+      canMerge: true,
+    });
+    expect((await merging.matchesFor('nbk_feature')).can_merge).toBe(true);
     expect(first.items).toEqual([
       expect.objectContaining({ notebook_id: 'nbk_app', title: 'app', reason: 'worktree', together: false }),
       expect.objectContaining({ notebook_id: 'nbk_link', reason: 'worktree' }),

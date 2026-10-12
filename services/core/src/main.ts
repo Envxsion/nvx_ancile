@@ -490,6 +490,8 @@ async function main() {
       return n && n.workspace_id === owner.workspaceId && !n.archived_at ? { title: n.title } : null;
     },
     pairs: new PgRepoPairStore(sql),
+    // Notebook merge (notebooks/merge.ts) is wired below, so a pair can be merged.
+    canMerge: true,
   });
   // Anonymous usage statistics (docs/telemetry.md): off until you say yes.
   let tierNow: () => 'free' | 'pro' | 'max_access' = () => 'free';

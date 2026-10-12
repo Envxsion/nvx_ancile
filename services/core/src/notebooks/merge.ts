@@ -36,7 +36,10 @@ import {
   type NotebookMergePreview,
   type Source,
 } from '@nvx/contracts';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
+
+const ulid = monotonicFactory();
+
 import { entries as memoryEntries, parseMemory } from '../memory/format';
 import { notFound } from '../obs/errors';
 import { logFor } from '../obs/logger';

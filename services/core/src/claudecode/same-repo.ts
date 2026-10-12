@@ -189,6 +189,8 @@ export interface SameRepoDeps {
   pairs: RepoPairStore;
   identity?: (cwd: string) => Promise<FolderIdentity>;
   now?: () => number;
+  /** Notebooks can be merged here (notebooks/merge.ts): the Cockpit offers "Merge notebooks". */
+  canMerge?: boolean;
 }
 
 export class SameRepoFinder {
@@ -255,8 +257,8 @@ export class SameRepoFinder {
       .map((m) => ({ ...m, together: choice(m.notebook_id) === 'show_together' }));
     if (items.length)
       log.info({ notebook_id: notebookId, matches: items.length }, 'notebooks that are one repository');
-    // TODO(phase-3): can_merge once notebook merge exists (track C).
-    return { items, can_merge: false };
+    // Track C: merging is offered where the merge API is wired (GET /notebooks/:id/merge-preview).
+    return { items, can_merge: this.deps.canMerge ?? false };
   }
 
   /** "Keep apart" or "Show together", remembered for the pair; only for a pair that matches. */
