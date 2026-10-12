@@ -995,8 +995,13 @@ export class ClaudeCodeService {
     // A folder chosen in NVX Ancile (the old one moved), or a thread going on without files,
     // keeps its folder until its next session says otherwise.
     const keepCwd = !!bound && (bound.no_files === true || bound.fresh_next === true);
+    // The session's latest entry becomes the thread's head only while the person is
+    // still on Claude Code's path. A head written by another engine (a gateway model's
+    // answer) stays: moving it back would send the next turn on without that answer.
+    const head = thread.active_head_id ? await threads.getMessage(thread.active_head_id) : undefined;
+    const headElsewhere = !!head && head.role === 'assistant' && !head.provenance?.claude_code;
     await threads.patchThread(thread.id, {
-      ...(primary && plan.head && { active_head_id: plan.head }),
+      ...(primary && plan.head && !headElsewhere && { active_head_id: plan.head }),
       ...(firstRoot && !thread.root_message_id ? { root_message_id: firstRoot } : {}),
       ...(nextTitle && { title: nextTitle }),
       ...(primary && {

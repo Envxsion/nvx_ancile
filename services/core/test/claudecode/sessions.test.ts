@@ -352,6 +352,38 @@ describe('syncing', () => {
     expect((await threads.getThread(id))?.active_head_id).toBe(msgs[3]?.id);
   });
 
+  it("leaves the head on another model's answer: a sync never moves the person off it", async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // A gateway model answered after Claude Code's last message (a mixed thread).
+    const q = { id: 'msg_gw_q' };
+    await threads.insertMessage({
+      id: q.id,
+      thread_id: id,
+      parent_id: before.at(-1)?.id ?? null,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Remember PERIWINKLE-42' }],
+      status: 'complete',
+    });
+    const a = { id: 'msg_gw_a' };
+    await threads.insertMessage({
+      id: a.id,
+      thread_id: id,
+      parent_id: q.id,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Noted.' }],
+      status: 'complete',
+      model_id: 'ollama/llama3.2:3b',
+    });
+    await threads.patchThread(id, { active_head_id: a.id });
+    // Claude Code's session file changes (a sync with something new to add).
+    chain.push(user('u2', 'Now add a test'), assistant('a4', [{ type: 'text', text: 'Added.' }]));
+    await svc.syncThread(id);
+    expect((await threads.getThread(id))?.active_head_id).toBe(a.id);
+  });
+
   it('carries on an assistant turn that was still going at the last sync', async () => {
     const chain = [
       user('u1', 'go'),
@@ -918,7 +950,7 @@ describe('first-run import order and pacing', () => {
     await svc.idle();
     const list = await threads.listThreads(WS);
     expect(list).toHaveLength(2); // the fork joined its parent's thread
-    // …and the thread is the parent's: it came in first, so the fork is the branch.
+    // â€¦and the thread is the parent's: it came in first, so the fork is the branch.
     const sessions = list.map((t) => t.settings.claude_code?.session_id).sort();
     expect(sessions).toEqual(['older', 'parent']);
   });
