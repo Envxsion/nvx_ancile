@@ -16,6 +16,7 @@
  */
 
 import type { EngineContextHook } from '../conductor/pipeline';
+import { servedWindow } from '../gateway/ollama-chat';
 import { approxTokens } from '../memory/inject';
 import type { ThreadRepo } from '../threads/repo';
 import { assembleForGateway, isMixed, pathTo } from './context';
@@ -41,7 +42,7 @@ export function gatewayContextHook(deps: {
       summary: c
         ? { id: c.summaryId, uptoMessageId: c.skipThrough, content: c.note.slice(c.note.indexOf('\n\n') + 2) }
         : null,
-      window: a.model.context_window,
+      window: servedWindow(a.model),
       maxOutput: a.model.max_output,
       fixedTokens: a.fixedTokens + approxTokens(instructions),
       cwd: thread?.settings.claude_code?.cwd ?? null,

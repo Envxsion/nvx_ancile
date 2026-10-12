@@ -1227,6 +1227,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                   args_preview: argsPreview(c.args),
                   tier: spec?.tier ?? 'gated',
                 });
+              } else if (c.type === 'warning') {
+                await deltas.flush();
+                await emit({ type: 'warning', code: c.code, message: c.message });
               } else if (c.type === 'finish') {
                 cp.usage.input += c.usage.inputTokens;
                 cp.usage.output += c.usage.outputTokens;

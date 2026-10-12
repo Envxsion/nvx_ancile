@@ -32,6 +32,7 @@ Rules for new codes:
 | `provider.unavailable` | 503 | "<Model> is unavailable." / Ancile fell back where it could; check Health for the provider's status. |
 | `provider.refused` | 502 | "<Model> declined to answer." / Another model answered if one was available. Rephrase, or pick a model in the switcher. |
 | `provider.context_overflow` | 413 | "This conversation is too long for <model>." / Compact it, or switch to a model with a larger window. |
+| `model.context_truncated` | (warning) | "This local model only read part of the conversation." / Sent as a `warning` event, once per thread and model, when Ollama reports reading far fewer prompt tokens than were sent. Raise the model's context length in Ollama, or choose a model with a larger window. |
 | `model.chain_exhausted` | 503 | "No model could answer." / Each attempt and its reason are listed. Check your keys and Health. |
 | `model.not_configured` | 422 | "<Model> isn't set up." / Add a key in Settings → Models. |
 | `model.not_chat` | 422 | "<Model> can't answer messages." / It is an embedding or rerank model; pick a chat model in the model switcher. |

@@ -24,6 +24,7 @@
 import type { CompactionProvenance, CompactResult, ModelConfig, Part, PathBudget } from '@nvx/contracts';
 import { AncileError } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { servedWindow } from '../gateway/ollama-chat';
 import { approxTokens } from '../memory/inject';
 import type { BranchStore, SummaryRecord } from './branches';
 import { ancestorPath, applyCompaction } from './path';
@@ -101,7 +102,7 @@ export function pathBudget(opts: {
   const history =
     messages.reduce((n, m) => n + (isClaudeCodeCompaction(m) ? 0 : messageTokens(m)), 0) +
     (summary ? summary.tokens + approxTokens(SUMMARY_HEADER) : 0);
-  const window = opts.model?.context_window ?? 0;
+  const window = opts.model ? servedWindow(opts.model) : 0;
   const reserve = opts.model ? Math.min(opts.model.max_output, Math.floor(window / 4)) : 0;
   const used = {
     system: opts.system ?? 0,

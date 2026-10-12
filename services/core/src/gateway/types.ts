@@ -46,6 +46,8 @@ export type StreamChunk =
   | { type: 'text'; delta: string }
   | { type: 'reasoning'; delta: string }
   | { type: 'tool_call'; callId: string; tool: string; args: unknown }
+  /** Something the person should know about this answer (a local model cut the prompt). */
+  | { type: 'warning'; code: string; message: string }
   | {
       type: 'finish';
       finishReason: string;

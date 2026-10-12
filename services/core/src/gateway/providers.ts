@@ -39,6 +39,7 @@ import {
   tool,
 } from 'ai';
 import { toSdkMessages } from './convert';
+import { isOllama, ollamaChat } from './ollama-chat';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
 
 /** Reads a stored image's bytes by id (images/store.ts), for vision models. */
@@ -222,9 +223,18 @@ export class AiSdkClient implements ModelClient {
   ) {}
 
   async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
-    const model = await languageModelFor(m, this.secrets, this.endpoints);
     const vision = m.capabilities.includes('vision');
     const images = vision ? await imagesFor(req.messages, this.images) : undefined;
+    // Ollama goes through its own /api/chat so the call can say how much context to
+    // load: through /v1 it silently keeps its server default and cuts long prompts.
+    if (isOllama(m)) {
+      yield* ollamaChat(m, req, signal, {
+        baseUrl: m.base_url ?? this.endpoints.ollamaUrl ?? 'http://localhost:11434',
+        ...(images && { images }),
+      });
+      return;
+    }
+    const model = await languageModelFor(m, this.secrets, this.endpoints);
     // A routing problem never stops the call: it goes out as OpenRouter's default.
     const routing =
       m.provider === 'openrouter' && this.openrouter ? await this.openrouter(m, req).catch(() => null) : null;
