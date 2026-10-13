@@ -94,3 +94,25 @@ export const ClaudeCodePlanLimits = z.object({
   can_refresh: z.boolean(),
 });
 export type ClaudeCodePlanLimits = z.infer<typeof ClaudeCodePlanLimits>;
+
+/** What NVX Ancile measured of Claude Code on this computer (GET /claude-code/usage). */
+export const ClaudeCodeUsage = z.object({
+  tz: z.string(),
+  today: UsageTotals,
+  /** The last 7 days, today included. */
+  week: UsageTotals,
+  /** Of what Claude Code read over the 7 days, the share its prompt cache served (0 to 1); null with nothing read. */
+  cache_hit_rate: z.number().min(0).max(1).nullable(),
+  /** The 7 days by local day, oldest first. */
+  days: z.array(
+    z.object({
+      start: z.string(),
+      input_tokens: z.number().int().nonnegative(),
+      output_tokens: z.number().int().nonnegative(),
+      cached_tokens: z.number().int().nonnegative(),
+    }),
+  ),
+  /** The busiest Claude Code threads over the 7 days, by tokens. */
+  by_thread: z.array(UsageTotals.extend({ thread_id: z.string(), title: z.string().nullable() })),
+});
+export type ClaudeCodeUsage = z.infer<typeof ClaudeCodeUsage>;

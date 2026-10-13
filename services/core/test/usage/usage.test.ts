@@ -2,7 +2,7 @@
  * Settings → Usage: totals across every engine, by local hour or day, by
  * engine and by model, with Claude Code's estimate told apart.
  */
-import type { UsageReport } from '@nvx/contracts';
+import type { ClaudeCodeUsage, UsageReport } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bucketOf, buildReport, engineOf, type UsageRow, window } from '../../src/usage/report';
 import { type Harness, harness, WORKSPACE_ID } from '../support/harness';
@@ -121,6 +121,20 @@ describe('GET /usage', () => {
     expect((await h.call('GET', '/usage?range=day&tz=Not/AZone')).status).toBe(400);
     // Without a zone, UTC.
     expect((await h.call<UsageReport>('GET', '/usage?range=month')).body.series).toHaveLength(30);
+  });
+
+  it("measures Claude Code's own part: today, the week by day, and its threads", async () => {
+    h = await harness({ now: () => NOW });
+    await seed(h);
+    const u = (await h.call<ClaudeCodeUsage>('GET', '/claude-code/usage?tz=Europe/London')).body;
+    expect(u.today).toMatchObject({ input_tokens: 5000, output_tokens: 500, answers: 1 });
+    expect(u.week).toMatchObject({ input_tokens: 9000, output_tokens: 900, answers: 2 });
+    expect(u.days).toHaveLength(7);
+    expect(u.days[3]).toMatchObject({ start: '2026-10-09', input_tokens: 4000 });
+    // Nothing came from the cache in this seed.
+    expect(u.cache_hit_rate).toBe(0);
+    expect(u.by_thread.map((t) => [t.thread_id, t.answers])).toEqual([['thr_usage', 2]]);
+    expect((await h.call('GET', '/claude-code/usage?tz=Not/AZone')).status).toBe(400);
   });
 
   it('answers empty plan limits when Claude Code is not wired', async () => {

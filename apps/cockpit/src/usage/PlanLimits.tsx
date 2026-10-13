@@ -8,9 +8,13 @@
  *           |  used, as Claude Code's own /usage says it: "Current
  *           |  session (5 hours): 42% used, resets at 3:40 pm".
  *  How      |  usePlanLimits. Each window is a calm meter (neutral,
- *           |  --warn from 70%, --fail from 90%) with its words, then
- *           |  "Updated 2 min ago" and Refresh. An API key sign-in is
- *           |  told plainly that plan limits do not apply.
+ *           |  --warn from 70%, --fail from 90%) with its words, a
+ *           |  pacing line when the pace so far runs out before the
+ *           |  reset ("At this pace you'll run out Thursday night"),
+ *           |  then "Updated 2 min ago" and Refresh. With nothing
+ *           |  reported yet it says what will appear; a line points to
+ *           |  claude.ai's own usage page. An API key sign-in is told
+ *           |  plainly that plan limits do not apply.
  *  Note     |  No account, email or organisation is ever shown.
  * ------------------------------------------------------------------
  */
@@ -18,7 +22,16 @@
 import type { ClaudeCodePlanLimits } from '@nvx/contracts';
 import { useEffect, useState } from 'react';
 import { Icon } from '../ui/Icon';
-import { refreshPlanLimits, resetWords, toneOf, updatedWords, usePlanLimits, windowTitle } from './api';
+import {
+  CLAUDE_USAGE_URL,
+  paceWords,
+  refreshPlanLimits,
+  resetWords,
+  toneOf,
+  updatedWords,
+  usePlanLimits,
+  windowTitle,
+} from './api';
 import { Meter } from './Meter';
 
 export const NOT_A_PLAN = 'Plan limits apply to Claude subscription sign-ins only.';
@@ -47,6 +60,7 @@ export function PlanWindows({
       {windows.map((w) => {
         const resets = resetWords(w.resets_at, now);
         const title = windowTitle(w);
+        const pace = w.status === 'rejected' ? null : paceWords(w, now);
         const note =
           w.status === 'rejected'
             ? ['Limit reached', resets].filter(Boolean).join(', ')
@@ -68,6 +82,12 @@ export function PlanWindows({
               label={`${title}: ${w.percent === null ? 'not reported' : `${Math.round(w.percent)}% used`}`}
             />
             {note ? <span className="u-plan__reset">{note}</span> : null}
+            {pace ? (
+              <span className="u-plan__pace">
+                <Icon name="warn" size={12} />
+                {pace}
+              </span>
+            ) : null}
           </li>
         );
       })}
@@ -128,11 +148,19 @@ export function PlanLimits({ compact = false }: { compact?: boolean }) {
         <p>
           {limits.can_refresh
             ? asked
-              ? 'Claude Code has not reported its limits yet. They appear after its next answer.'
-              : "Claude Code's limits show here once it reports them."
-            : 'Install and sign in to Claude Code (Settings → Claude Code) to see its plan limits here.'}
+              ? 'Claude Code has not reported its limits yet. They appear after its next answer, or try Refresh in a minute.'
+              : 'Claude Code has not reported its limits yet. Once it does, this shows:'
+            : 'Install and sign in to Claude Code (Settings → Claude Code) to see its plan limits here. Then this shows:'}
         </p>
+        {asked && limits.can_refresh ? null : (
+          <ul className="u-quiet">
+            <li>Your current session (5 hours) and this week, each with when it resets</li>
+            <li>A weekly limit per model, when your plan has one</li>
+            <li>A note when the pace so far would run out before the reset</li>
+          </ul>
+        )}
         {refreshButton}
+        {compact ? null : <ClaudeAiNote />}
       </div>
     );
 
@@ -146,6 +174,24 @@ export function PlanLimits({ compact = false }: { compact?: boolean }) {
         </span>
         {refreshButton}
       </div>
+      {compact ? null : <ClaudeAiNote />}
     </div>
+  );
+}
+
+/** Where the plan's own figures live: NVX Ancile shows what Claude Code reports, claude.ai has the full page. */
+function ClaudeAiNote() {
+  return (
+    <p className="u-plan-note">
+      Your plan's limits are also on claude.ai.{' '}
+      <a
+        className="link-btn link-btn--quiet"
+        href={CLAUDE_USAGE_URL}
+        target="_blank"
+        rel="noreferrer noopener"
+      >
+        Open usage on claude.ai
+      </a>
+    </p>
   );
 }

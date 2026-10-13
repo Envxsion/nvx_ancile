@@ -333,6 +333,22 @@ export function SettingsScreen() {
             <span>Permissions</span>
             <Icon name="ext" size={11} className="settings__ext" />
           </Link>
+          {/* Your preferences as a file, for another computer: they belong to Settings as a whole, not to one group. */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => void onFile(e)}
+          />
+          <button type="button" className="settings__link" onClick={() => fileRef.current?.click()}>
+            <Icon name="upload" size={14} />
+            <span>Import settings</span>
+          </button>
+          <button type="button" className="settings__link" onClick={exportFile}>
+            <Icon name="download" size={14} />
+            <span>Export settings</span>
+          </button>
           <button
             type="button"
             className="settings__link"
@@ -354,21 +370,6 @@ export function SettingsScreen() {
             {!searching ? <p className="mute">{current?.lede}</p> : null}
           </div>
           <div className="settings__actions">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={(e) => void onFile(e)}
-            />
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileRef.current?.click()}>
-              <Icon name="upload" size={13} />
-              Import
-            </button>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={exportFile}>
-              <Icon name="download" size={13} />
-              Export
-            </button>
             {!searching &&
             current &&
             current.id !== 'about' &&

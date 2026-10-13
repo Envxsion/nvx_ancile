@@ -15,7 +15,13 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodePlanLimits, PlanWindow, UsageRange, UsageReport } from '@nvx/contracts';
+import type {
+  ClaudeCodePlanLimits,
+  ClaudeCodeUsage,
+  PlanWindow,
+  UsageRange,
+  UsageReport,
+} from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { queryClient } from '../lib/query';
@@ -102,6 +108,57 @@ export function windowLine(w: PlanWindow, now = Date.now()): string {
   const used = w.percent === null ? 'use not reported' : `${Math.round(w.percent)}% used`;
   const resets = resetWords(w.resets_at, now);
   return `${windowTitle(w)}: ${used}${resets ? `, ${resets}` : ''}`;
+}
+
+const WINDOW_MS: Partial<Record<PlanWindow['kind'], number>> = {
+  session: 5 * 3600_000,
+  week: 7 * 86_400_000,
+  week_model: 7 * 86_400_000,
+};
+
+function partOfDay(d: Date): string {
+  const h = d.getHours();
+  if (h >= 5 && h < 12) return 'morning';
+  if (h >= 12 && h < 17) return 'afternoon';
+  if (h >= 17 && h < 21) return 'evening';
+  return 'night';
+}
+
+/**
+ * When a window runs out at the pace used so far, if that is before it
+ * resets: "At this pace you'll run out Thursday night", or "around 3:10 pm"
+ * for the 5-hour session. Null when the pace is fine, or too early to tell
+ * (under a tenth of the window gone, or under 5% used).
+ */
+export function paceWords(w: PlanWindow, now = Date.now()): string | null {
+  const span = WINDOW_MS[w.kind];
+  if (!span || w.percent === null || w.percent < 5 || w.percent >= 100 || !w.resets_at) return null;
+  const reset = Date.parse(w.resets_at);
+  if (!Number.isFinite(reset) || reset <= now) return null;
+  const start = reset - span;
+  const gone = now - start;
+  if (gone < span / 10) return null;
+  const out = start + (gone * 100) / w.percent;
+  if (out >= reset) return null;
+  const d = new Date(out);
+  if (w.kind === 'session') return `At this pace you'll reach it around ${time(d)}`;
+  const today = new Date(now).toDateString() === d.toDateString();
+  const day = today ? 'today' : d.toLocaleDateString('en-GB', { weekday: 'long' });
+  return `At this pace you'll run out ${day} ${partOfDay(d)}`.replace('today night', 'tonight');
+}
+
+/** Where your plan's own usage page is (Claude's settings). */
+export const CLAUDE_USAGE_URL = 'https://claude.ai/settings/usage';
+
+export function useClaudeCodeUsage(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    // Under the report's key, so whatever refreshes the totals refreshes this too.
+    queryKey: ['usage', 'report', 'claude-code'] as const,
+    queryFn: () => api.get<ClaudeCodeUsage>(`/claude-code/usage?tz=${encodeURIComponent(localZone())}`),
+    enabled: opts.enabled ?? true,
+    staleTime: 30_000,
+    refetchInterval: 120_000,
+  });
 }
 
 export function updatedWords(iso: string | null, now = Date.now()): string {

@@ -169,6 +169,74 @@ describe('plan limits', () => {
     expect(a.calls).toEqual(['usage@h_live', 'usage@h_live']);
   });
 
+  it("shows the server's rows (session, week, a model's week) and never a codenamed window", async () => {
+    const t = Date.parse('2026-10-12T10:00:00Z');
+    const a = make({
+      now: () => t,
+      usage: () => ({
+        rate_limits_available: true,
+        subscription_type: 'max',
+        windows: {
+          five_hour: { utilization: 14, resets_at: '2026-10-13T04:40:00.000Z' },
+          iguana_necktie: { utilization: 0, resets_at: '2026-11-05T07:59:00.000Z' },
+        },
+        model_scoped: [{ label: 'Fable', utilization: 0, resets_at: null }],
+        rows: [
+          {
+            kind: 'session',
+            group: 'session',
+            utilization: 14,
+            resets_at: '2026-10-13T04:40:00.000Z',
+            label: null,
+          },
+          {
+            kind: 'weekly_all',
+            group: 'weekly',
+            utilization: 41,
+            resets_at: '2026-10-18T10:00:00.000Z',
+            label: null,
+          },
+          { kind: 'weekly_scoped', group: 'weekly', utilization: 0, resets_at: null, label: 'Fable' },
+          { kind: 'something_new', group: 'weekly', utilization: 3, resets_at: null, label: null },
+        ],
+      }),
+    });
+    const got = await a.limits.get({ refresh: true });
+    expect(got.windows.map((w) => [w.id, w.kind, w.label, w.percent])).toEqual([
+      ['five_hour', 'session', null, 14],
+      ['seven_day', 'week', null, 41],
+      ['model:fable', 'week_model', 'Fable', 0],
+    ]);
+    // Without rows, only the windows NVX Ancile knows.
+    const b = make({
+      now: () => t,
+      usage: () => ({
+        rate_limits_available: true,
+        windows: { seven_day: { utilization: 41, resets_at: null }, iguana_necktie: { utilization: 0 } },
+        model_scoped: [],
+      }),
+    });
+    expect((await b.limits.get({ refresh: true })).windows.map((w) => w.id)).toEqual(['seven_day']);
+  });
+
+  it('asks by itself when Settings → Usage opens with nothing reported yet', async () => {
+    const t = Date.parse('2026-10-12T10:00:00Z');
+    const a = make({
+      now: () => t,
+      usage: () => ({
+        rate_limits_available: true,
+        windows: { five_hour: { utilization: 20, resets_at: null } },
+        model_scoped: [],
+      }),
+    });
+    const got = await a.limits.get();
+    expect(a.calls).toEqual(['open', 'usage@h_own', 'close:h_own']);
+    expect(got.windows.map((w) => w.percent)).toEqual([20]);
+    // Fresh figures: opening again does not ask again.
+    await a.limits.get();
+    expect(a.calls).toHaveLength(3);
+  });
+
   it('cannot refresh without a verified Claude Code', async () => {
     const a = make({ cli: false });
     expect(await a.limits.get({ refresh: true })).toMatchObject({ available: null, can_refresh: false });

@@ -30,6 +30,7 @@ eachBackend('usage source', (backend) => {
         messages: () => mem.msgs.values(),
         workspaceOf: (id) => mem.threads.get(id)?.workspace_id ?? null,
         runKind: (id) => memRuns.runs.get(id)?.kind ?? null,
+        titleOf: (id) => mem.threads.get(id)?.title ?? null,
       });
     }
   });
@@ -130,6 +131,51 @@ eachBackend('usage source', (backend) => {
         estimated_usd: 0,
         answers: 1,
       },
+    ]);
+  });
+
+  it("counts Claude Code as a model as Claude Code, and adds up Claude Code's week by thread", async () => {
+    const busy = uid('thr');
+    const quiet = uid('thr');
+    await repo.createThread({ id: busy, workspace_id: ws, title: 'Refactor the parser' });
+    await repo.createThread({ id: quiet, workspace_id: ws, title: 'Quick question' });
+    const at = (iso: string) => iso.replace('2026', '2098');
+    const add = (thread: string, o: { at: string; model: string; cc?: boolean; i: number; c: number }) =>
+      repo.insertMessages([
+        {
+          id: uid('msg'),
+          thread_id: thread,
+          parent_id: null,
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'ok' }],
+          status: 'complete',
+          model_id: o.model,
+          run_id: null,
+          trace_id: 't',
+          created_at: at(o.at),
+          usage: { input_tokens: o.i, output_tokens: 5, cached_tokens: o.c, cost_usd: 0 },
+          ...(o.cc && { provenance: { claude_code: { session_id: 's' } } }),
+        },
+      ]);
+    await add(busy, { at: '2026-10-12T09:00:00Z', model: 'claude-sonnet', cc: true, i: 100, c: 300 });
+    await add(busy, { at: '2026-10-12T10:00:00Z', model: 'claude-sonnet', cc: true, i: 50, c: 150 });
+    // Claude Code as a model (Mode A): no session provenance, only its model id.
+    await add(quiet, { at: '2026-10-12T11:00:00Z', model: 'claude-code/haiku', i: 10, c: 0 });
+    await add(quiet, { at: '2026-10-12T12:00:00Z', model: 'openai/gpt-5', i: 999, c: 0 });
+    const q = {
+      workspaceId: ws,
+      tz: 'UTC',
+      bucket: 'day' as const,
+      from: new Date(at('2026-10-12T00:00:00Z')),
+      to: new Date(at('2026-10-13T00:00:00Z')),
+    };
+    const engines = (await source.rows(q)).map((r) => [r.model_id, r.engine]);
+    expect(engines).toContainEqual(['claude-code/haiku', 'claude_code']);
+    expect(engines).toContainEqual(['openai/gpt-5', 'gateway']);
+    const threads = await source.claudeCodeThreads?.(q, 8);
+    expect(threads?.map((t) => [t.title, t.input_tokens, t.cached_tokens, t.answers])).toEqual([
+      ['Refactor the parser', 150, 450, 2],
+      ['Quick question', 10, 0, 1],
     ]);
   });
 });
