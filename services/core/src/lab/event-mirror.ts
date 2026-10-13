@@ -32,7 +32,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type Part } from '@nvx/contracts';
+import { AncileError, type Part, stepTitle } from '@nvx/contracts';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import type { Gate } from '../permissions/gate';
@@ -460,7 +460,14 @@ export class LabMirror {
       s = { kind: 'tool', text: '', call: { callId, tool, args: state.input ?? {} } };
       l.parts.set(id, s);
       const tier = mapAsk({ permission: tool, patterns: [], metadata: {} }, l.turn.place).tier;
-      await this.emit(l, { type: 'tool.call', call_id: callId, tool, args_preview: state.input ?? {}, tier });
+      await this.emit(l, {
+        type: 'tool.call',
+        call_id: callId,
+        tool,
+        args_preview: state.input ?? {},
+        tier,
+        title: stepTitle(tool, state.input),
+      });
     } else if (s.call && state.input !== undefined) s.call.args = state.input;
     if (!s.result && (state.status === 'completed' || state.status === 'error')) {
       const ok = state.status === 'completed';

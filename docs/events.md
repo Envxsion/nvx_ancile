@@ -20,13 +20,14 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `text.delta` | `message_id`, `delta` | Streamed text |
 | `reasoning.delta` | `message_id`, `delta` | Collapsible "thinking" |
 | `citation` | `message_id`, `part` (citation_ref) | Inline `[n]` markers |
-| `tool.call` | `call_id`, `tool`, `args_preview`, `tier` | Tool card |
+| `tool.call` | `call_id`, `tool`, `args_preview`, `tier`, `title?` (what the step is doing in words, from `stepTitle` in contracts `steps.ts`, the same for every engine) | Tool step: the title, the raw command under it, a live timer |
 | `tool.result` | `call_id`, `ok`, `preview` | Tool card result |
 | `approval.required` | `approval_id`, `tool`, `action`, `resource`, `tier`, `suggestions[]` | Approval dialog; the mark closes |
 | `approval.resolved` | `approval_id`, `decision` (`approved`, `denied`, `expired`, or `cancelled` when withdrawn because its turn ended or the model changed) | Dialog closes; the run resumes |
 | `fallback` | `from_model`, `to_model`, `reason`, `detail` | Muted footer note: "answered by X · Y was unavailable" |
 | `compute.waiting` | `node_id`, `eta_s`, `can_use_cloud` | "Waking your GPU node · about 80 s", with **Use a cloud model instead** |
 | `usage` | `message_id`, `usage` | Footer tokens and cost |
+| `activity` | `phase` (`hooks`, `compacting`, or `null` when it ended), `detail?` | The live footer's phase ("Running PostToolUse hooks") |
 | `context.shared` | `message_id`, `engine`, `notice`, `turns`, `tokens`, `seeded_from_summary` | One line above the answer: some of the thread went to Claude Code (docs/engines.md) |
 | `warning` | `code`, `message` | Inline notice |
 | `error` | `code`, `title`, `hint`, `attempts[]` | Error block with **Copy debug info** |

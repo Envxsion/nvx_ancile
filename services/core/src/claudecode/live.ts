@@ -59,6 +59,7 @@ import {
   type SearchHit,
   type SendClaudeCodeRequest,
   type SendClaudeCodeResult,
+  stepTitle,
   type Usage,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
@@ -115,7 +116,8 @@ export { COMMANDS_TTL_MS } from './commands';
 
 const IDEMPOTENCY_MS = 10 * 60_000;
 const STOP_GRACE_MS = 15_000;
-const PREVIEW = 280;
+/** A tool result as the live step shows it until the answer is saved (search results need room). */
+const PREVIEW = 4096;
 
 /** What a claude_code run carries through a restart. */
 export interface ClaudeCodeCheckpoint {
@@ -332,8 +334,20 @@ interface WaitingAsk {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const preview = (v: unknown): string => {
-  const s = typeof v === 'string' ? v : JSON.stringify(v ?? null);
+const preview = (raw: unknown): string => {
+  // Web search hits keep their title and link; the encrypted page content is for the model only.
+  const v = Array.isArray(raw)
+    ? raw.map((b) => (isObj(b) && b.type === 'web_search_result' ? { title: b.title, url: b.url } : b))
+    : raw;
+  // Claude Code's results are often a list of text blocks: show their text, not the JSON around it.
+  const blocks =
+    Array.isArray(v) && v.every((b) => isObj(b) && b.type === 'text' && typeof b.text === 'string');
+  const s =
+    typeof v === 'string'
+      ? v
+      : blocks
+        ? (v as { text: string }[]).map((b) => b.text).join('\n')
+        : JSON.stringify(v ?? null);
   return s.length > PREVIEW ? `${s.slice(0, PREVIEW)}…` : s;
 };
 const stripMarker = (u: string) => u.replace(/\+$/, '');
@@ -436,15 +450,26 @@ export class ClaudeCodeLive {
   );
   /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
   private readonly ownWrites = new Map<string, number>();
+  /** Each bridge session's events, handled in order (by handle). */
+  private readonly inOrder = new Map<string, Promise<void>>();
   private readonly now: () => number;
   private readonly unsubscribe: () => void;
 
   constructor(private readonly deps: LiveDeps) {
     this.now = deps.now ?? Date.now;
     this.unsubscribe = deps.bridge.onEvent((e) => {
-      void this.onEvent(e).catch((err: unknown) =>
-        log.error({ err: (err as Error).message, event: e.event }, 'a live Claude Code event failed'),
-      );
+      // One session's events are handled one after another, in the order Claude Code sent them:
+      // handled side by side, the text after a step could be written before the step itself.
+      const key = isObj(e.data) && typeof e.data.handle === 'string' ? e.data.handle : '';
+      const run = (this.inOrder.get(key) ?? Promise.resolve())
+        .then(() => this.onEvent(e))
+        .catch((err: unknown) =>
+          log.error({ err: (err as Error).message, event: e.event }, 'a live Claude Code event failed'),
+        );
+      this.inOrder.set(key, run);
+      void run.then(() => {
+        if (this.inOrder.get(key) === run) this.inOrder.delete(key);
+      });
     });
     deps.bridge.setKeepAlive(() => this.byHandle.size > 0 || (deps.keepAlive?.() ?? false));
     deps.service.setLiveGuard((id) => this.writing(id));
@@ -1424,6 +1449,7 @@ export class ClaudeCodeLive {
               tool: name,
               args_preview: b.input ?? {},
               tier: mapped.tier,
+              title: stepTitle(name, b.input),
             });
             const span = startSpan(
               `tool ${name}`,
@@ -1433,6 +1459,21 @@ export class ClaudeCodeLive {
             );
             const known = t.toolSpans.get(b.id);
             t.toolSpans.set(b.id, { span, ...(known?.asked !== undefined && { asked: known.asked }) });
+          } else if (
+            typeof b.type === 'string' &&
+            b.type.endsWith('_tool_result') &&
+            typeof b.tool_use_id === 'string'
+          ) {
+            // A server tool's result (web_search_tool_result) comes in the answer itself, not as a tool result.
+            const failed = isObj(b.content) && String(b.content.type ?? '').endsWith('_error');
+            await this.emitFor(t, {
+              type: 'tool.result',
+              call_id: b.tool_use_id,
+              ok: !failed,
+              preview: preview(b.content),
+            });
+            t.toolSpans.get(b.tool_use_id)?.span.end(failed ? 'error' : 'ok');
+            t.toolSpans.delete(b.tool_use_id);
           }
         }
         return;
@@ -1470,6 +1511,28 @@ export class ClaudeCodeLive {
                 ok,
               })
               .catch(() => undefined);
+        }
+        return;
+      }
+      case 'system': {
+        // Hooks and compaction have no part of their own: the live footer says they are happening.
+        const sub = typeof m.subtype === 'string' ? m.subtype : '';
+        if (sub === 'hook_started') {
+          const ev = typeof m.hook_event === 'string' ? m.hook_event : null;
+          await this.emitFor(t, {
+            type: 'activity',
+            phase: 'hooks',
+            detail: ev ? `Running ${ev} hooks` : 'Running hooks',
+          });
+        } else if (sub === 'hook_response') {
+          await this.emitFor(t, { type: 'activity', phase: null });
+        } else if (sub === 'status') {
+          await this.emitFor(
+            t,
+            m.status === 'compacting'
+              ? { type: 'activity', phase: 'compacting', detail: 'Compacting the conversation' }
+              : { type: 'activity', phase: null },
+          );
         }
         return;
       }

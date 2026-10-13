@@ -31,6 +31,7 @@ export * as pro from './pro';
 export * as proai from './proai';
 export * from './repos';
 export * from './scopes';
+export * from './steps';
 export * as system from './system';
 export * as telemetry from './telemetry';
 export * from './usage';

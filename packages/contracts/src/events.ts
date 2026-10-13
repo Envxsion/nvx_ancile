@@ -97,6 +97,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     tier: Tier,
     /** Flows: the node that made the call. */
     node_id: z.string().optional(),
+    /** What the step is doing, in words (steps.ts stepTitle): its own description or one made from its input. */
+    title: z.string().optional(),
   }),
   z.object({
     ...base,
@@ -146,6 +148,18 @@ export const RunEvent = z.discriminatedUnion('type', [
     detail: z.string().optional(),
   }),
   z.object({ ...base, type: z.literal('usage'), message_id: z.string(), usage: Usage }),
+  /**
+   * What the run is doing between steps that have no part of their own
+   * (an engine running its hooks, compacting its context), for the live
+   * footer. `phase: null` says that activity ended.
+   */
+  z.object({
+    ...base,
+    type: z.literal('activity'),
+    phase: z.enum(['hooks', 'compacting']).nullable(),
+    /** Words for the footer, such as "Running PostToolUse hooks". */
+    detail: z.string().optional(),
+  }),
   /**
    * Engines (docs/engines.md): this turn sends some of the thread to an
    * engine outside NVX Ancile (Claude Code). One line the thread shows

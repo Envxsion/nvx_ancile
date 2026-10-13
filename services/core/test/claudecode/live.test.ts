@@ -400,6 +400,83 @@ describe('sending a turn', () => {
     expect(fresh.planned[0]?.parts).toEqual(answer?.parts);
   });
 
+  it('names each step in words, carries server tool results and says when hooks run', async () => {
+    bridge.script = (b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S, model: 'claude-opus-5-5' });
+      b.msg(h, {
+        type: 'assistant',
+        uuid: 'a3',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          id: 'api-a3',
+          role: 'assistant',
+          model: 'claude-opus-5-5',
+          content: [
+            { type: 'text', text: "I'll look it up first." },
+            { type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'AI tutoring' } },
+            {
+              type: 'web_search_tool_result',
+              tool_use_id: 'srv1',
+              content: [
+                {
+                  type: 'web_search_result',
+                  title: 'Tutoring',
+                  url: 'https://a.example',
+                  encrypted_content: 'SECRET',
+                },
+              ],
+            },
+            {
+              type: 'tool_use',
+              id: 'b1',
+              name: 'Bash',
+              input: { command: 'ls src', description: 'Listing the source folder' },
+            },
+          ],
+        },
+      });
+      b.msg(h, { type: 'system', subtype: 'hook_started', hook_event: 'PostToolUse', session_id: S });
+      b.msg(h, { type: 'system', subtype: 'hook_response', hook_event: 'PostToolUse', session_id: S });
+      b.msg(h, {
+        type: 'user',
+        uuid: 'r1',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'b1', content: [{ type: 'text', text: 'a.ts\nb.ts' }] },
+          ],
+        },
+      });
+      b.msg(h, { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, session_id: S });
+    };
+    const sent = await live.send('thr_1', { text: 'Look it up', idempotency_key: 'key-00000077' });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const evs = await events.since(sent.run_id, 0);
+    const calls = evs.flatMap((e) => (e.type === 'tool.call' ? [[e.call_id, e.title]] : []));
+    expect(calls).toEqual([
+      ['srv1', "Searching the web for 'AI tutoring'"],
+      ['b1', 'Listing the source folder'],
+    ]);
+    const results = new Map(
+      evs.flatMap((e) => (e.type === 'tool.result' ? [[e.call_id, e.preview] as const] : [])),
+    );
+    expect(results.get('srv1')).toContain('"url":"https://a.example"');
+    expect(results.get('srv1')).not.toContain('SECRET');
+    // A list of text blocks is shown as its text.
+    expect(results.get('b1')).toBe('a.ts\nb.ts');
+    const acts = evs.flatMap((e) => (e.type === 'activity' ? [e.phase] : []));
+    expect(acts).toEqual(['hooks', null]);
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    const saved = answer?.parts.find((p) => p.type === 'tool_result' && p.call_id === 'srv1');
+    expect(saved?.type === 'tool_result' && saved.result).toBe(
+      '{"title":"Tutoring","url":"https://a.example"}',
+    );
+  });
+
   it('a slash command sent from NVX Ancile shows once: the sent message becomes the command', async () => {
     bridge.script = (b, h) => {
       b.msg(h, { type: 'system', subtype: 'init', session_id: S, model: 'claude-opus-5-5' });
