@@ -7,8 +7,9 @@
  *  Purpose  |  Run code in Pyodide where it cannot reach the network,
  *           |  Core, this window's storage or anything on disk, and
  *           |  stop it when it runs too long.
- *  How      |  A hidden <iframe sandbox="allow-scripts" srcdoc> (an
- *           |  opaque origin) whose CSP allows no connections at all
+ *  How      |  A hidden <iframe sandbox="allow-scripts"> (an opaque
+ *           |  origin) on the frame host (lib/frameHost.ts), filled
+ *           |  with a document whose CSP allows no connections at all
  *           |  starts the worker (worker.ts) from a Blob and relays
  *           |  messages both ways. When the worker asks for a runtime
  *           |  file, this side fetches it from Core (which checked its
@@ -23,6 +24,7 @@
  */
 
 import { INTERPRETER_LIMITS, InterpreterOutcome } from '@nvx/contracts';
+import { FRAME_HOST_URL, feedFrame } from '../lib/frameHost';
 import { pythonWorker } from './worker';
 
 const CHANNEL = 'nvx-ancile-python';
@@ -121,6 +123,7 @@ export class PythonSandbox {
   private nonce = '';
   private ready: Promise<void> | null = null;
   private listener: ((e: MessageEvent) => void) | null = null;
+  private unfeed: (() => void) | null = null;
   private handler: ((m: Msg) => void) | null = null;
   private busy = false;
 
@@ -136,7 +139,8 @@ export class PythonSandbox {
     frame.setAttribute('tabindex', '-1');
     frame.title = 'Python sandbox';
     frame.className = 'python-sandbox';
-    frame.srcdoc = sandboxDocument(this.nonce);
+    frame.src = FRAME_HOST_URL;
+    this.unfeed = feedFrame(frame, sandboxDocument(this.nonce));
     this.ready = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('The Python sandbox did not start.')), 15_000);
       this.listener = (e: MessageEvent) => {
@@ -180,6 +184,8 @@ export class PythonSandbox {
   stop() {
     if (this.listener) window.removeEventListener('message', this.listener);
     this.listener = null;
+    this.unfeed?.();
+    this.unfeed = null;
     this.frame?.remove();
     this.frame = null;
     this.ready = null;

@@ -108,7 +108,7 @@ POST /api/v1/approvals/batch
 → { "items": [{ "approval_id": "apr_01…", "status": "approved" }, { "approval_id": "apr_02…", "status": "missing" }] }
 ```
 
-Each is answered `once` (`BatchDecisionRequest`); nothing is remembered. An approval that is gone is `missing`; one already answered keeps its status. Auto mode groups its asks with the `approval.batched` run event (`batch_id`, `call_id`, `via`, `reason`) ahead of each `approval.required`; a call it ran by itself leaves an `auto.ran` event (`via`: plan, cache, reviewer or rules).
+Each is answered `once` (`BatchDecisionRequest`); nothing is remembered. An approval that is gone is `missing`; one already answered keeps its status. Auto mode groups its asks with the `approval.batched` run event (`batch_id`, `call_id`, `via`, `reason`) ahead of each `approval.required`; a call it ran by itself leaves an `auto.ran` event (`via`: plan, cache, reviewer or rules), and a call that fits a step of the approved plan leaves `plan.step_ran` (`plan_id`, `step`, its index).
 
 ### Auto mode plans
 
@@ -474,6 +474,20 @@ Under `/api/v1` (packages/contracts/src/interpreter.ts, docs/interpreter.md). `p
 | `POST /interpreter/requests/:id/result` | The claiming window's `InterpreterOutcome` (stdout, stderr, PNG figures, error, duration). Figures are stored and named by id in the tool result |
 | `GET /interpreter/figures/:id` | A stored figure, `image/png` with `nosniff` and a sandboxing CSP |
 
+## Images
+
+Under `/api/v1` (packages/contracts/src/images.ts, docs/images.md). `image_generate` is a built-in tool (action `image.generate`); `POST /threads/:id/turns` and `POST /claude-code/threads/:id/send` take `image_ids` (up to 8, images of that thread): `422 image.model_no_vision` when the model answering cannot see images, `404 image.not_found` for an id that is not this thread's.
+
+| Route | Does |
+|---|---|
+| `GET /images/providers` | `ImageProviders {items, default_id, empty_hint}`: each provider from config/images.yaml with `ready` and, when not, `reason`; `empty_hint` is the one line to show when none is ready |
+| `POST /threads/:id/images` | Multipart, the image as `file` (PNG, JPEG, WebP or GIF by its bytes, up to 20 MB; `alt` optional). 201 `ImageRecord`. `413 image.too_large`, `415 image.type_not_allowed` |
+| `GET /threads/:id/images` | `{items: ImageRecord[]}`: the thread's images, attached, generated and loaded |
+| `GET /images/:id` | The bytes, with `nosniff` and a sandboxing CSP; 404 for an image of another workspace or a deleted thread |
+| `GET /threads/:id/image-hosts` | `RemoteImageHosts {remembered_in: notebook \| thread, hosts, allowed}`; `allowed` is false where nothing may leave this machine |
+| `POST /threads/:id/image-hosts {host}` | Allow a host's images for the thread's notebook (or the thread). 403 `scope.private_notebook` / `scope.data_stays_local` where nothing may leave |
+| `GET /threads/:id/images/remote?url=` | A remote image, fetched by Core only from an allowed host: public addresses only, at most 10 MB, raster types only. `403 image.remote_not_allowed`, `400 image.remote_blocked`, `413 image.too_large`, `502 image.remote_failed` |
+
 ## Works with Claude Code
 
 Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudecode.ts`):
@@ -546,7 +560,7 @@ Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a
 | `subagents.list` | `{session_id, dir?}` → agent ids |
 | `subagents.messages` | `{session_id, agent_id, dir?, limit?, offset?}` → transcript entries |
 
-Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-input mode, one per handle, with `pathToClaudeCodeExecutable` (the located, verified Claude Code), the session's folder, `includePartialMessages`, `permissionMode: default`, the setting sources the terminal loads (user, project, local) and file checkpointing. It never sets `bypassPermissions`. A handle closes after ten idle minutes, on `session.close`, or when the connection that opened it closes.
+Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-input mode, one per handle, with `pathToClaudeCodeExecutable` (the located, verified Claude Code), the session's folder, `includePartialMessages`, `permissionMode: default`, the setting sources the terminal loads (user, project, local) and file checkpointing. It never sets `bypassPermissions`. A handle closes after ten idle minutes, on `session.close`, or when the connection that opened it closes. Core closes its own live sessions sooner, after `ANCILE_CC_LIVE_IDLE_MS` (3 minutes by default) without a turn, so their Claude Code process lets go of the folder (Windows keeps a folder a process works in locked against renaming or moving); the next turn resumes the session.
 
 | Op | Params → result |
 |---|---|

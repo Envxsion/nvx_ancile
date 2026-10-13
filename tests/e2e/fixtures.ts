@@ -51,3 +51,43 @@ export async function openPalette(page: Page) {
 export async function resolvedTheme(page: Page) {
   return page.evaluate(() => document.documentElement.dataset.theme);
 }
+
+/** The demo data's own ids (apps/cockpit/src/fixtures/demo.ts). */
+export const DEMO_THREAD = 'thr_01J9ZK00000000000000000BUF';
+export const DEMO_NOTEBOOK = 'nbk_01J9ZK0000000000000000DEPO';
+
+const SETTINGS = [
+  'appearance',
+  'layout',
+  'reading',
+  'composer',
+  'keyboard',
+  'notifications',
+  'accessibility',
+  'advanced',
+];
+const ADMIN = [
+  'health',
+  'compute',
+  'diagnostics',
+  'logs',
+  'traces',
+  'grants',
+  'decisions',
+  'memory',
+  'models',
+  'routing',
+  'plugins',
+  'automations',
+  'license',
+];
+
+/** Every route of the Cockpit, in its demo data. */
+export const DEMO_ROUTES = [
+  '/',
+  `/t/${DEMO_THREAD}`,
+  `/n/${DEMO_NOTEBOOK}`,
+  '/flows',
+  ...SETTINGS.map((g) => `/settings/${g}`),
+  ...ADMIN.map((s) => `/admin/${s}`),
+];

@@ -47,13 +47,24 @@ export interface Selection {
 
 const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'fake', 'node']);
 const LOOPBACK = /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/i;
+/** Addresses only reachable on your own network: RFC 1918, link-local, mDNS names, IPv6 ULA. */
+const LAN =
+  /^(10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|169\.254(\.\d+){2}|[a-z0-9-]+\.(local|lan|home\.arpa)|\[?f[cd][0-9a-f]{2}:[0-9a-f:]*\]?|\[?fe80:[0-9a-f:]*\]?)$/i;
 
-/** Does this model run on this machine (or a GPU node you control)? */
-export function isLocalModel(m: Pick<ModelConfig, 'provider' | 'via' | 'base_url'>): boolean {
+/**
+ * Does this model run on this machine, a server on your own network (a LAN
+ * address), or a GPU node on your own network?
+ * A node rented from a provider (a RunPod pod) does not: prompts leave this
+ * machine for it, so a private or local-only scope never uses it.
+ */
+export function isLocalModel(m: Pick<ModelConfig, 'provider' | 'via' | 'base_url' | 'runs_on'>): boolean {
+  if (m.runs_on === 'rented') return false;
   if (LOCAL_PROVIDERS.has(m.provider) || m.via === 'controller') return true;
   if (m.base_url) {
     try {
-      return LOOPBACK.test(new URL(m.base_url).hostname);
+      // A server you added on this computer or your own network ("Your server").
+      const host = new URL(m.base_url).hostname;
+      return LOOPBACK.test(host) || LAN.test(host);
     } catch {
       return false;
     }
@@ -111,7 +122,11 @@ export function selectEngine(
     modelId: asked,
     engineModel: null,
     checkModel: resolved,
-    local: m ? isLocalModel(m) : false,
+    // No model resolved: nothing is sent by this choice. A flow's steps are each
+    // checked against the scope when they run (flows/turn.ts), and with no flow
+    // the turn ends with "No model is ready", so a local-only scope must not
+    // refuse a flow of local steps up front. An unknown model id stays refused.
+    local: m ? isLocalModel(m) : resolved === null,
   };
 }
 

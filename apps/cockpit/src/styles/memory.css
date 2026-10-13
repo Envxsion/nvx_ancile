@@ -1061,6 +1061,12 @@
 .mem-move__item .tag {
   margin-left: 6px;
 }
+.mem-move__flag {
+  display: block;
+  margin-top: 2px;
+  color: var(--warn);
+  font-size: var(--t-small);
+}
 @media (max-width: 900px) {
   .mem-move__grid {
     grid-template-columns: minmax(0, 1fr);

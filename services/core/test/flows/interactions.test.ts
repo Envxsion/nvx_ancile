@@ -183,7 +183,40 @@ describe('a thread model that can no longer answer', () => {
       parts: [{ type: 'text', text: 'hi' }],
       model: 'gone/model',
     });
-    expect(r.status).toBe(404);
+    expect(r.status).toBe(409);
+    const e = (
+      r.body as unknown as { error: { code: string; title: string; context: Record<string, unknown> } }
+    ).error;
+    expect(e.code).toBe('model.gone');
+    expect(e.title).toBe('gone/model is no longer available');
+    expect(e.context).toMatchObject({ model_id: 'gone/model', suggested_model: expect.any(String) });
+  });
+
+  it('a reply whose model was removed does not regenerate as another model unasked', async () => {
+    h = await harness();
+    const t = await h.newThread();
+    await h.repo.patchThread(t, { settings: { model: 'offline/echo' } });
+    const { sent } = await answer(t, 'Hello', { model: 'offline/test' });
+    const row = (h.repo as unknown as { msgs: Map<string, { requested_model_id: string | null }> }).msgs.get(
+      sent.assistant_message_id,
+    );
+    if (row) row.requested_model_id = 'gone/model';
+    const r = await h.call('POST', `/messages/${sent.assistant_message_id}/regenerate`, {});
+    expect(r.status).toBe(409);
+    const e = (r.body as unknown as { error: { code: string; context: Record<string, unknown> } }).error;
+    expect(e).toMatchObject({
+      code: 'model.gone',
+      context: { model_id: 'gone/model', suggested_model: 'offline/echo' },
+    });
+    // Picked on the error, the same reply regenerates with that model.
+    const again = await h.call<{ run_id: string }>(
+      'POST',
+      `/messages/${sent.assistant_message_id}/regenerate`,
+      {
+        model: 'offline/echo',
+      },
+    );
+    expect(again.status).toBe(202);
   });
 });
 

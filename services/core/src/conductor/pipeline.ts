@@ -60,6 +60,7 @@ import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
 import { type ReplayInput, replayedResult } from '../obs/replay';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
 import type { ApprovalRecord, PermissionStore } from '../permissions/store';
@@ -79,7 +80,7 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { historyFor, systemPrompt, withPartial } from './context';
+import { historyFor, systemPrompt, withPartial, withTurnContext } from './context';
 import { explainLinks, searchWithLinks } from './links';
 import {
   capPerSource,
@@ -153,7 +154,14 @@ export interface TurnCheckpoint {
   answeredBy: string | null;
   chain: string[];
   attempts: { model: string; reason: string; detail: string }[];
-  usage: { input: number; output: number; cached: number; costUsd: number };
+  usage: {
+    input: number;
+    output: number;
+    cached: number;
+    costUsd: number;
+    /** OpenRouter: who served the last call, and whether it hit the output cap. */
+    served?: { provider: string | null; model: string | null; cut_off: boolean };
+  };
   /** Retrieval ran for this turn (notebook threads only); absent on older checkpoints. */
   retrieved?: boolean;
   grounding?: Grounding | null;
@@ -310,7 +318,10 @@ function resultPreview(result: unknown): string {
 function cost(
   m: ModelConfig | undefined,
   u: { inputTokens: number; outputTokens: number; cachedTokens?: number },
+  billed?: number,
 ): number {
+  // What the provider billed beats list price (OpenRouter reports it; openrouter/auto has no list price).
+  if (billed !== undefined) return billed;
   if (!m) return 0;
   const cached = u.cachedTokens ?? 0;
   const p = m.price;
@@ -320,6 +331,15 @@ function cost(
       u.outputTokens * p.output_per_mtok) /
     1_000_000
   );
+}
+
+/** Keep who served an OpenRouter call, and flag an answer cut off at the endpoint's output cap. */
+function noteServed(
+  cp: TurnCheckpoint,
+  c: { finishReason: string; served?: { provider: string | null; model: string | null } },
+) {
+  if (!c.served) return;
+  cp.usage.served = { ...c.served, cut_off: c.finishReason === 'length' };
 }
 
 function appendText(parts: Part[], type: 'text' | 'reasoning', delta: string) {
@@ -400,6 +420,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       output_tokens: cp.usage.output,
       cached_tokens: cp.usage.cached,
       cost_usd: cp.usage.costUsd,
+      ...(cp.usage.served && { served: cp.usage.served }),
     };
     await deps.repo.updateMessage(cp.input.assistantMessageId, {
       parts: cp.parts,
@@ -592,10 +613,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           return 'done';
         }
         if (decision.outcome === 'deny') {
-          const why =
-            decision.via === 'policy'
-              ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
-              : decision.reason;
+          const why = refusalForModel(decision);
           await settle(call, {
             type: 'tool_result',
             call_id: call.callId,
@@ -776,7 +794,14 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         cp.compactionChecked = true;
         if (!deps.branches) return;
         const all = await messages();
-        const model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        // A flow can answer when no route can (its steps name their own models):
+        // an empty route is no reason to fail the turn here.
+        let model: ModelConfig | undefined;
+        try {
+          model = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel)[0];
+        } catch (err) {
+          if (!(err instanceof NoRouteError)) throw err;
+        }
         const prepared = await prepareTurnContext(
           {
             gateway: deps.gateway,
@@ -850,7 +875,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             } else if (c.type === 'tool_call') {
               out.toolCalls = [...(out.toolCalls ?? []), { callId: c.callId, tool: c.tool, args: c.args }];
             } else if (c.type === 'finish') {
-              const spent = cost(current, c.usage);
+              const spent = cost(current, c.usage, c.costUsd);
+              noteServed(cp, c);
               out.tokensIn += c.usage.inputTokens;
               out.tokensOut += c.usage.outputTokens;
               out.costUsd += spent;
@@ -993,6 +1019,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             .join('\n\n'),
           ...(cp.input.sourceIds?.length && { mentionedSources: cp.input.sourceIds }),
           memory: injectMemory,
+          // Scopes and context links hold inside a flow too, read again before every step.
+          ...(deps.scopes && {
+            scope: () =>
+              (deps.scopes as ScopeResolver).effective({
+                notebookId: cp.input.notebookId,
+                threadId: cp.input.threadId,
+              }),
+          }),
+          ...(deps.links && {
+            linked: async () =>
+              (await (deps.links as NonNullable<typeof deps.links>).forTurn(cp.input.threadId)).notebooks,
+          }),
           emit: (e) => emit(e),
           call: flowCall,
           tool: flowTool,
@@ -1047,7 +1085,16 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         // A later round follows tool calls: read again so nothing is stale.
         if (cp.rounds > 0) historyRead = null;
         const all = await messages();
-        const chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
+        let chain: ModelConfig[];
+        try {
+          chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
+        } catch (err) {
+          // The thread's model runs on a GPU node that is stopped (its models are not
+          // offered while it is): say that, with Start node, not "No model is ready".
+          const asked = cp.input.explicitModel ?? cp.input.threadModelUnready ?? null;
+          if (err instanceof NoRouteError && asked?.startsWith('node/')) throw nodeStopped(asked);
+          throw err;
+        }
         cp.chain = chain.map((m) => m.id);
         const tools: ToolDef[] = deps.tools.list().map((t) => ({
           name: t.name,
@@ -1099,18 +1146,22 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         );
         // ---- end Engines ----
         const req: ModelRequest = {
+          // What stays the same from turn to turn comes first, so providers' prompt
+          // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
+          // across turns: this turn's passages ride on the question, not the system prompt.
           system: [
             base,
             memory,
             engine?.instructions,
             engine?.history ? engine.note : cp.compaction?.note,
-            sources,
-            summariesBlock(cp.linked?.summaries ?? []),
             cp.input.instructions,
           ]
             .filter(Boolean)
             .join('\n\n'),
-          messages: history,
+          messages: withTurnContext(
+            history,
+            [sources, summariesBlock(cp.linked?.summaries ?? [])].filter(Boolean).join('\n\n'),
+          ),
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
           ...(tools.length && { tools }),
         };
@@ -1186,11 +1237,15 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                   tier: spec?.tier ?? 'gated',
                   title: stepTitle(c.tool, c.args),
                 });
+              } else if (c.type === 'warning') {
+                await deltas.flush();
+                await emit({ type: 'warning', code: c.code, message: c.message });
               } else if (c.type === 'finish') {
                 cp.usage.input += c.usage.inputTokens;
                 cp.usage.output += c.usage.outputTokens;
                 cp.usage.cached += c.usage.cachedTokens ?? 0;
-                cp.usage.costUsd += cost(current, c.usage);
+                cp.usage.costUsd += cost(current, c.usage, c.costUsd);
+                noteServed(cp, c);
               }
               break;
             }
@@ -1379,6 +1434,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       await deps.repo.patchThread(cp.input.threadId, {});
     },
   };
+}
+
+/** A turn for a GPU node's model that no route can answer while the node is stopped. */
+export function nodeStopped(modelId: string): AncileError {
+  return new AncileError({
+    code: 'compute.node_stopped',
+    title: 'Your GPU node is stopped',
+    hint: `Start node to wake it (usually a minute or two), then try again. It serves ${modelId.replace(/^node\//, '')}.`,
+    status: 409,
+    errorClass: 'permanent',
+    context: { model_id: modelId },
+  });
 }
 
 function describeFailure(

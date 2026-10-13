@@ -42,6 +42,7 @@ import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
 import { PlanLimits } from '../usage/PlanLimits';
 import { startClaudeCodeSignIn } from './api';
 import { FolderMissingNotice } from './FolderMissing';
+import { CcLeanToggle } from './LeanToggle';
 import { continueAsBranch, liveWords, tokensShort, useClaudeCodeLive } from './live';
 import { type CcNotice, EFFORTS, type Effort, isEffort, patchCc, useCcThread } from './store';
 import { folderName } from './ThreadMarker';
@@ -272,6 +273,7 @@ export function CcPickers({
           </DM.Portal>
         </DM.Root>
       )}
+      {st.other ? null : <CcLeanToggle threadId={threadId} />}
     </>
   );
 }

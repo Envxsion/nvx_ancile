@@ -8,7 +8,9 @@
  *           |  can do no harm, and listen to it only for the few
  *           |  things it may ask: its height, and offers to copy or
  *           |  download something.
- *  How      |  <iframe sandbox="allow-scripts" srcdoc>: an opaque
+ *  How      |  <iframe sandbox="allow-scripts"> on the frame host
+ *           |  (lib/frameHost.ts), which writes the document it is
+ *           |  posted: an opaque
  *           |  origin (never allow-same-origin), no top navigation,
  *           |  no popups, no forms. The document (document.ts) carries
  *           |  the CSP. Messages are accepted only from this frame's
@@ -20,7 +22,8 @@
  */
 
 import { ARTIFACT_CHANNEL, ArtifactFrameMessage, type ArtifactType } from '@nvx/contracts';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FRAME_HOST_URL, feedFrame } from '../lib/frameHost';
 import { buildArtifactDocument, type FrameTheme, newNonce, type Runtime } from './document';
 import { compileComponent, mermaidRuntime, reactRuntime } from './runtime';
 
@@ -129,9 +132,17 @@ export function ArtifactFrame({
   offerRef.current = onOffer;
   errorRef.current = onError;
 
+  // Before the frame host can load: it says ready, and gets this document once.
+  const doc = prepared.state === 'ready' ? prepared.doc : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new frame per nonce
+  useLayoutEffect(() => {
+    if (doc === null || !ref.current) return;
+    return feedFrame(ref.current, doc);
+  }, [doc, nonce]);
+
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      // Only this frame's own window, and only an opaque origin (a sandboxed srcdoc says "null").
+      // Only this frame's own window, and only an opaque origin (a sandboxed frame says "null").
       if (!ref.current || e.source !== ref.current.contentWindow || e.origin !== 'null') return;
       const data = e.data as { channel?: unknown } | null;
       if (!data || typeof data !== 'object' || data.channel !== ARTIFACT_CHANNEL) return;
@@ -180,7 +191,7 @@ export function ArtifactFrame({
           sandbox={ARTIFACT_SANDBOX}
           allow={ARTIFACT_ALLOW}
           referrerPolicy="no-referrer"
-          srcDoc={prepared.doc}
+          src={FRAME_HOST_URL}
           style={fit && height ? { height } : undefined}
           data-network={allowNetwork ? 'on' : 'off'}
         />

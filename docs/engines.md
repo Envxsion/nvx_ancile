@@ -42,6 +42,11 @@ The budget is the model's context window, less a reserve for the answer (its max
 
 A thread with no other engine's turns keeps the conductor's own history exactly as before. Only the instructions (below) are added.
 
+### Keeping providers' prompt caches warm
+
+Anthropic, OpenAI, vLLM (prefix caching) and Ollama (its KV cache) bill or compute less for the part of a prompt that starts the same as the previous one. So every gateway prompt puts what stays the same first: the system prompt (with today's date, never the time), memory, instructions and any summary, then the earlier turns. This turn's retrieved passages and linked summaries go last, ahead of the question they were found for, not in the system prompt (`conductor/context.ts`, `withTurnContext`). Measured on a four-turn notebook thread with Ollama, the cached part of each prompt went from about 11% to about 47%; on Claude Code as a model, from nothing to about 60%.
+
+
 The answer records what it was given in `provenance.engine_context` (`EngineContextReport`): the window, the reserve, the tokens sent, the summary used, how many messages went as they are, how many tool steps were digested, which messages were recalled and how many were left out, and (since track E) `full_tokens`, about what the whole path would have been sent as it is. Pro's Engine insights count the difference as tokens saved. TODO(phase-3): plain gateway chats in one engine record no `engine_context`, so their savings are not counted yet.
 
 ### Claude Code
@@ -52,7 +57,7 @@ Claude Code's session holds its own history, so NVX Ancile never sends it again.
 - at most about 2,000 tokens, newest first, each message at most about 1,600 characters, tool steps as one-line digests;
 - when the notebook's sources changed since the thread's last Claude Code turn, one line saying so, in the same digest: "Notebook: 2 sources added since your last turn: Login runbook, Incident report (1 removed: Auth spec)" (at most eight titles, then "and N more"). NVX Ancile remembers the list each time a turn is sent (`core.engine_source_marks`, one row per thread); the first turn only remembers. A session that is told nothing else gets this line alone, introduced as what changed in the notebook.
 
-The thread shows your words only; the digest goes to Claude Code alone. When a turn sends some of the thread to Claude Code, the run's first event after `model` is one `context.shared` event (`notice`: "This thread's context will be sent to Claude Code"), and the send answers with `context_notice` set, so the composer can show the line once.
+The thread shows your words only; the digest goes to Claude Code alone. When a turn sends some of the thread to Claude Code, the run's first event after `model` is one `context.shared` event (`notice`: "This thread's context will be sent to Claude Code", or "A note on the sources that changed will be sent to Claude Code" when that note is all it sends; `turns` and `source_notes` say what went), and the send answers with `context_notice` set, so the composer can show the line once.
 
 If Claude Code went on past its latest message in another branch, the turn forks the session there, as any branch does. If the branch has no Claude Code message at all (a branch started with another model), the turn starts a new session given the branch so far as its digest.
 

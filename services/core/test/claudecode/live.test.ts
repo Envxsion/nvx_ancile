@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AncileError,
+  type ClaudeCodeBinding,
   type RunEvent,
   type SearchHit,
   SendClaudeCodeRequest,
@@ -867,6 +868,57 @@ describe('permissions', () => {
     await run;
   });
 
+  it('a thread rule web:* settles the searches and fetches waiting, and covers later ones', async () => {
+    const { run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'WebFetch', { url: 'https://ai.g2.com/reviews', prompt: 'x' }, 'tu1');
+      b.ask(h, 'r2', 'WebSearch', { query: 'tutoring centre' }, 'tu2');
+      b.ask(h, 'r3', 'WebFetch', { url: 'https://aiera.blog/', prompt: 'x' }, 'tu3');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 3);
+    const search = (await perms.pendingApprovals()).find((x) => x.tool === 'WebSearch') as ApprovalRecord;
+    expect(search).toMatchObject({ action: 'web.search', resource: 'web:search/tutoring centre' });
+    expect(search.suggestions).toEqual(['web:search/tutoring centre', 'web:search', 'web:*']);
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route(
+      '/',
+      permissionRoutes({
+        store: perms,
+        events,
+        worker: { resume: async () => true },
+        userId: USER,
+        scopeRefs: async (ap) => ({ threadId: ap.thread_id, notebookId: 'nbk_1', workspaceId: WS }),
+        onResolved: (ap, status, reason, updated) => live.resolved(ap, status, reason, updated),
+        editable: (ap) => live.editable(ap),
+        recheck: (ap, args) => live.recheck(ap, args),
+        decideAgain: async (ap) => (live.editable(ap) ? live.recheck(ap, ap.args) : null),
+      }),
+    );
+    const res = await app.request(`/approvals/${search.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approve', scope: 'thread', pattern: 'web:*' }),
+    });
+    expect(res.status).toBe(200);
+    // All three answered: the one you decided, and the two the rule now covers.
+    await until(() => bridge.replies.length >= 3);
+    expect(await perms.pendingApprovals()).toEqual([]);
+    for (const id of ['r1', 'r2', 'r3'])
+      expect(bridge.replies.find((r) => r.request_id === id)?.r.behavior).toBe('allow');
+    // Later searches and fetches in this thread run without asking.
+    bridge.ask('h1', 'r4', 'WebSearch', { query: 'maths tutors near me' }, 'tu4');
+    bridge.ask('h1', 'r5', 'WebFetch', { url: 'https://example.org/a/b?c=1', prompt: 'x' }, 'tu5');
+    await until(() => bridge.replies.length >= 5);
+    expect(bridge.replies.slice(3).map((r) => [r.request_id, r.r.behavior])).toEqual([
+      ['r4', 'allow'],
+      ['r5', 'allow'],
+    ]);
+    expect(await perms.pendingApprovals()).toEqual([]);
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
   it('refuses edited arguments for a tool that cannot take them, and edits a policy denies', async () => {
     const other = await perms.createApproval({
       runId: 'run_x',
@@ -1539,5 +1591,156 @@ describe('the command list after a turn', () => {
       ancile_action: 'open_mcp' as const,
     };
     expect(dedupeCommands([plain, ours])).toEqual([ours]);
+  });
+});
+
+describe('idle sessions', () => {
+  const settled = async (id: string) =>
+    runs.save({ ...((await runs.get(id)) as RunRecord), status: 'succeeded' }, { status: 'queued' });
+
+  it('closes an idle session so its folder is let go, and resumes it on the next turn', async () => {
+    live.stop();
+    live = makeLive({ idleCloseMs: 40 });
+    bridge.script = textAnswer(S, 'a2', 'One');
+    const first = await live.send('thr_1', { text: 'One', idempotency_key: 'key-idle-0001' });
+    expect(await execute(first.run_id)).toEqual({ kind: 'done' });
+    await settled(first.run_id);
+    expect(bridge.closed).toEqual([]);
+    await until(() => bridge.closed.length === 1);
+    expect(bridge.closed).toEqual(['h1']);
+    expect((await live.state('thr_1')).state).toBe('idle');
+
+    bridge.script = textAnswer(S, 'a3', 'Two');
+    const second = await live.send('thr_1', { text: 'Two', idempotency_key: 'key-idle-0002' });
+    expect(await execute(second.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.map((o) => o.resume)).toEqual([S, S]);
+  });
+
+  it('keeps a session open while a turn is running', async () => {
+    live.stop();
+    live = makeLive({ idleCloseMs: 60 });
+    bridge.script = textAnswer(S, 'a2', 'One');
+    const a = await live.send('thr_1', { text: 'One', idempotency_key: 'key-idle-0003' });
+    expect(await execute(a.run_id)).toEqual({ kind: 'done' });
+    await settled(a.run_id);
+    // A new turn starts before the idle close: the timer is cleared.
+    bridge.script = (b, h, text, uuid) => {
+      setTimeout(() => void textAnswer(S, 'a3', 'Two')(b, h, text, uuid), 150);
+    };
+    const b = await live.send('thr_1', { text: 'Two', idempotency_key: 'key-idle-0004' });
+    expect(await execute(b.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened).toHaveLength(1);
+  });
+});
+
+describe('a resumed session that writes the prompt under its own uuid', () => {
+  it("takes the echoed prompt as the person's message, never a second one, and never shows the context block", async () => {
+    const answer = textAnswer(S, 'a2', 'Hello world');
+    bridge.script = (b, h, text, uuid) => {
+      // Claude Code ignores the uuid it was given and echoes the prompt (context block and all).
+      b.msg(h, {
+        type: 'user',
+        uuid: 'own-prompt-uuid',
+        session_id: S,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: `<ancile-context>\nWhat other models said.\n</ancile-context>\n\n${text}`,
+        },
+      });
+      return answer(b, h, text, uuid);
+    };
+    const sent = await live.send('thr_1', {
+      text: 'Thanks, now add a test',
+      idempotency_key: 'key-echo-0001',
+    });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const msgs = await threads.messages('thr_1');
+    expect(msgs.filter((m) => m.role === 'user')).toHaveLength(2);
+    const user = await threads.getMessage(sent.user_message_id);
+    expect(user?.parts).toEqual([{ type: 'text', text: 'Thanks, now add a test' }]);
+    expect(user?.provenance?.claude_code).toMatchObject({ uuid: 'own-prompt-uuid' });
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+  });
+});
+
+describe("lean sessions (only the project's own Claude Code settings)", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ancile-cc-lean-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const finish = async (runId: string) => {
+    expect(await execute(runId)).toEqual({ kind: 'done' });
+    await runs.save({ ...((await runs.get(runId)) as RunRecord), status: 'succeeded' }, { status: 'queued' });
+  };
+
+  it('starts a thread made in NVX Ancile lean, says what it saved, and keeps it on resume', async () => {
+    const recorded: number[] = [];
+    live.stop();
+    live = makeLive({
+      service: {
+        ...service,
+        notebookForFolder: async () => null,
+        folderExcluded: async () => false,
+        fullFirstTurn: async () => 162_000,
+        recordFullFirstTurn: async (n) => {
+          recorded.push(n);
+        },
+      },
+    });
+    const made = await live.createThread({ cwd: dir });
+    expect((await threads.getThread(made.thread_id))?.settings.claude_code).toMatchObject({
+      started_in: 'ancile',
+    });
+
+    const NEW = 'sess-lean-0001';
+    bridge.script = textAnswer(NEW, 'n1', 'Hello');
+    const sent = await live.send(made.thread_id, { text: 'Start here', idempotency_key: 'key-lean-0001' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp.lean).toBe(true);
+    await finish(sent.run_id);
+    expect(bridge.opened[0]?.setting_sources).toEqual(['project']);
+    const answer = await threads.getMessage(sent.assistant_message_id);
+    expect((answer?.provenance?.claude_code as { setup?: unknown } | undefined)?.setup).toEqual({
+      lean: true,
+      first_turn: true,
+      full_first_turn_tokens: 162_000,
+    });
+    // Binding the new session keeps the marker, so the next turn (a resume) is lean too.
+    expect((await threads.getThread(made.thread_id))?.settings.claude_code).toMatchObject({
+      session_id: NEW,
+      started_in: 'ancile',
+    });
+    live.stop();
+    live = makeLive();
+    const opened = bridge.opened.length;
+    bridge.script = textAnswer(NEW, 'n2', 'Again');
+    const next = await live.send(made.thread_id, { text: 'Go on', idempotency_key: 'key-lean-0002' });
+    expect(await execute(next.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened[opened]).toMatchObject({ resume: NEW, setting_sources: ['project'] });
+    // Only a first turn that loaded the whole setup is remembered.
+    expect(recorded).toEqual([]);
+  });
+
+  it('loads the whole setup for an imported thread until lean is turned on', async () => {
+    // thr_1 was imported (no started_in): the person's whole setup, as in their terminal.
+    bridge.script = textAnswer(S, 'a2', 'Hello');
+    const sent = await live.send('thr_1', { text: 'Hi', idempotency_key: 'key-lean-0003' });
+    await finish(sent.run_id);
+    expect(bridge.opened[0]?.setting_sources).toBeUndefined();
+    expect((await runs.get(sent.run_id))?.checkpoint).not.toHaveProperty('lean');
+
+    // Turned on (PATCH /threads/:id with claude_code_lean): the open session reopens lean.
+    const t = await threads.getThread('thr_1');
+    await threads.patchThread('thr_1', {
+      settings: { claude_code: { ...(t?.settings.claude_code as ClaudeCodeBinding), lean: true } },
+    });
+    bridge.script = textAnswer(S, 'a3', 'Lean now');
+    const again = await live.send('thr_1', { text: 'And now', idempotency_key: 'key-lean-0004' });
+    expect(await execute(again.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.at(-1)).toMatchObject({ resume: S, setting_sources: ['project'] });
   });
 });

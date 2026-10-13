@@ -177,6 +177,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     tokens: z.number().int().nonnegative(),
     /** The session was started afresh from NVX Ancile's compaction summary. */
     seeded_from_summary: z.boolean(),
+    /** Notes on the notebook's sources sent with the turn (sources added or removed). */
+    source_notes: z.number().int().nonnegative().optional(),
   }),
   z.object({ ...base, type: z.literal('warning'), code: z.string(), message: z.string() }),
   z.object({
@@ -229,6 +231,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     tokens_out: z.number().int(),
     cost_usd: z.number(),
     error: z.string().optional(),
+    /** Which model stood in when the step's own could not answer, and why. */
+    note: z.string().optional(),
   }),
   z.object({
     ...base,
@@ -285,6 +289,18 @@ export const RunEvent = z.discriminatedUnion('type', [
     type: z.literal('plan.changed'),
     plan_id: z.string(),
     status: z.enum(['proposed', 'approved', 'rejected', 'superseded']),
+  }),
+  /**
+   * A call ran that fits a step of the approved plan (by itself, by your
+   * scope or a grant): `step` is the step's index, for "1 of 3 steps".
+   */
+  z.object({
+    ...base,
+    type: z.literal('plan.step_ran'),
+    plan_id: z.string(),
+    step: z.number().int().min(0),
+    action: z.string(),
+    call_id: z.string().optional(),
   }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;

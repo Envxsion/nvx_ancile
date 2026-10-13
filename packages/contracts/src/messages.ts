@@ -4,6 +4,7 @@
  * makes switching model mid-thread lossless (DESIGN.md §8.6).
  */
 import { z } from 'zod';
+import { ServedBy } from './openrouter';
 
 export const Role = z.enum(['system', 'user', 'assistant', 'tool']);
 
@@ -27,7 +28,13 @@ export const ImagePart = z.object({
   mime: z.string(),
   /** Generated caption, used for models without vision. */
   caption: z.string().optional(),
+  /** A stored image (core.images, docs/images.md); its url is then /api/v1/images/<id>. */
+  image_id: z.string().optional(),
+  alt: z.string().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
 });
+export type ImagePart = z.infer<typeof ImagePart>;
 export const ToolCallPart = z.object({
   type: z.literal('tool_call'),
   call_id: z.string(),
@@ -95,6 +102,8 @@ export const Usage = z.object({
   output_tokens: z.number().int().nonnegative(),
   cached_tokens: z.number().int().nonnegative().default(0),
   cost_usd: z.number().nonnegative(),
+  /** OpenRouter only: which provider (and, under openrouter/auto, which model) answered. */
+  served: ServedBy.optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 

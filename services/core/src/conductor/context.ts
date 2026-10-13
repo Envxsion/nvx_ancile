@@ -43,6 +43,35 @@ export function historyFor(
     );
 }
 
+/**
+ * This turn's context (retrieved passages, linked summaries) on the question
+ * being answered, ahead of its words. Kept out of the system prompt so the
+ * prompt's start (system prompt, then earlier turns) is the same from turn to
+ * turn and providers' prompt caches hold; the passages change every turn.
+ *
+ * Eval note: with passages placed after the history, a 7B model once
+ * re-answered the previous question. The block is therefore labelled as
+ * reference material for the latest question, and the question itself is
+ * always the last thing the model reads (test/conductor/cache-prefix.test.ts).
+ */
+export const REFERENCE_HEADER =
+  'Reference material for the latest question only (it is not a question to answer):';
+export const LATEST_QUESTION = 'The latest question, to answer now:';
+
+export function withTurnContext(history: ModelMessage[], block: string): ModelMessage[] {
+  if (!block) return history;
+  const i = history.findLastIndex((m) => m.role === 'user');
+  const q = history[i];
+  if (!q) return history;
+  const lead = `${REFERENCE_HEADER}\n\n${block}\n\n---\n\n${LATEST_QUESTION}\n\n`;
+  const next: ModelMessage = {
+    ...q,
+    content: `${lead}${q.content}`,
+    ...(q.parts && { parts: [{ type: 'text', text: lead }, ...q.parts] }),
+  };
+  return [...history.slice(0, i), next, ...history.slice(i + 1)];
+}
+
 export function withPartial(history: ModelMessage[], parts: Part[]): ModelMessage[] {
   return parts.length ? [...history, { role: 'assistant', content: textOf(parts), parts }] : history;
 }
@@ -55,10 +84,12 @@ export async function systemPrompt(opts: {
   now?: Date;
 }): Promise<string> {
   const template = await loadPrompt(opts.promptsDir, 'system.base', BUILTIN_SYSTEM);
-  const now = (opts.now ?? new Date()).toISOString().replace('T', ' ').slice(0, 16);
+  // The date only: a clock to the minute at the top of the system prompt made
+  // every turn's prompt new to the provider, so no prompt cache ever held.
+  const now = (opts.now ?? new Date()).toISOString().slice(0, 10);
   const base = render(template, {
     user_name: 'the user',
-    now: `${now} UTC`,
+    now: `${now} (UTC)`,
     model_name: opts.model?.display_name ?? 'a language model',
     notebook_title: opts.notebookTitle ?? null,
   });

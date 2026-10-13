@@ -39,6 +39,8 @@ export interface TeamStep {
   text: string;
   reasoning: string;
   error: string | null;
+  /** Which model stood in for the step's own, when one did. */
+  note?: string | null;
 }
 
 export interface TeamDecision {
@@ -140,6 +142,7 @@ export function foldTeam(t: TeamState | undefined, e: FlowEvent): TeamState | un
         tokensOut: e.tokens_out,
         cost: e.cost_usd,
         error: e.error ?? null,
+        note: e.note ?? null,
       }));
       return {
         ...next,
@@ -191,6 +194,7 @@ export function teamFromProvenance(p: FlowProvenance): TeamState {
         text: s.output,
         reasoning: s.reasoning ?? '',
         error: s.error ?? null,
+        note: s.note ?? null,
       };
     });
   const first = steps[0]?.startedAt ?? new Date(0).toISOString();

@@ -15,6 +15,13 @@
  *           |  "Allow once with changes" (scope once, updated_args).
  *           |  Core decides again on the changed call; a refusal
  *           |  shows here and the dialog stays open.
+ *           |  A pattern of my own has an (i) that opens worked
+ *           |  examples in place, and a live check that it covers the
+ *           |  request (Core's own matcher). When more than one request
+ *           |  waits in the thread, they are listed here: each can be
+ *           |  answered in place or opened, or all at once. A remembered
+ *           |  answer settles the others it covers (Core decides each
+ *           |  again), and the dialog moves on to the next one left.
  *  Note     |  The answer goes to POST /approvals/:id; the run picks
  *           |  up in the thread at once. Core enforces the same rules
  *           |  (a critical approval cannot be remembered, a pattern
@@ -22,13 +29,15 @@
  * ------------------------------------------------------------------
  */
 
+import type { Approval } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { Link } from '@tanstack/react-router';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
-import { keys, useNotebooks, useThreads } from '../lib/data';
+import { keys, useApprovals, useNotebooks, useThreads } from '../lib/data';
+import { toPendingApproval } from '../lib/mappers';
 import { queryClient } from '../lib/query';
 import type { PendingApproval } from '../lib/types';
 import { notify } from '../state/notify';
@@ -36,6 +45,7 @@ import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { TierBadge } from '../ui/primitives';
 import { ArgsEditor, sameArgs } from './EditArgs';
+import { describePattern, PATTERN_EXAMPLES, patternCovers } from './patterns';
 import { usePermissionPreset } from './preset';
 
 const SCOPES = [
@@ -52,10 +62,61 @@ const EXPIRY = [
   { id: '604800', label: '1 week' },
 ];
 
-function describePattern(p: string, i: number, total: number): string {
-  if (i === 0) return 'This file only';
-  if (i === total - 1) return 'Anything in the workspace';
-  return p.endsWith('/**') ? `Anything under ${p.replace(/^fs:/, '').replace(/\/\*\*$/, '/')}` : p;
+/**
+ * The requests still waiting, read fresh from Core (a saved answer may have
+ * settled some). In the demo, the cached list less the ones just answered.
+ */
+async function freshPending(demo: boolean, answered: string[]): Promise<PendingApproval[]> {
+  if (demo) {
+    const cached = queryClient.getQueryData<PendingApproval[]>(keys.approvals) ?? [];
+    return cached.filter((a) => !answered.includes(a.id));
+  }
+  return (await api.get<{ items: Approval[] }>('/approvals')).items.map(toPendingApproval);
+}
+
+const errorText = (error: unknown) => ({
+  title: error instanceof ApiCallError ? error.body.error.title : 'Your answer did not reach Core',
+  body:
+    error instanceof ApiCallError
+      ? error.body.error.hint
+      : 'Check that NVX Ancile is running, then answer again.',
+});
+
+const shortTarget = (a: PendingApproval) => {
+  const r = a.resource.replace(/^(web:search\/|http:https?:\/\/|fs:|shell:|mcp:)/, '');
+  return r.length > 60 ? `${r.slice(0, 59)}…` : r;
+};
+
+/** Worked examples for a pattern of your own; each one fills the field. */
+function PatternHelp({ id, onPick }: { id: string; onPick: (pattern: string) => void }) {
+  return (
+    <section id={id} className="pattern-help" aria-label="How patterns work">
+      <p className="pattern-help__lede">
+        A pattern says which later requests this answer covers. Choose an example to fill the field, then
+        adjust it. Core only saves a pattern that covers the request in front of you.
+      </p>
+      <ul className="pattern-help__list">
+        {PATTERN_EXAMPLES.map((x) => (
+          <li key={x.pattern}>
+            <button type="button" className="pattern-help__ex" onClick={() => onPick(x.pattern)}>
+              <span>{x.label}</span>
+              <code data-num>{x.pattern}</code>
+            </button>
+            {x.note ? <span className="pattern-help__note">{x.note}</span> : null}
+          </li>
+        ))}
+      </ul>
+      <p className="pattern-help__more">
+        <strong>Denying instead.</strong> Choose a pattern and a Remember scope, then press Decline and
+        remember: matching requests are refused without asking, and a deny beats an allow of the same reach.
+      </p>
+      <p className="pattern-help__more">
+        <strong>How long it lasts.</strong> Just this once remembers nothing. In this thread covers this
+        thread only; in this notebook, every thread in it; Always, everywhere until you revoke it in Admin,
+        Permissions. Expires ends it sooner. Critical actions are never remembered.
+      </p>
+    </section>
+  );
 }
 
 export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
@@ -91,7 +152,18 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
   const [draft, setDraft] = useState<unknown>(approval.args);
   const [draftValid, setDraftValid] = useState(true);
   const [refusal, setRefusal] = useState<{ title: string; hint: string } | null>(null);
+  const [help, setHelp] = useState(false);
+  const helpId = useId();
+  const checkId = `${helpId}-check`;
   const changed = editing && draftValid && !sameArgs(draft, approval.args);
+  const remembering = !critical && !editing && scope !== 'once';
+  const covers = patternCovers(pattern, approval);
+  // Everything else waiting in this thread (or, outside a thread, everywhere).
+  const others = (useApprovals().data ?? []).filter(
+    (a) => a.id !== approval.id && (a.threadId ?? null) === (approval.threadId ?? null),
+  );
+  const waitingCount = others.length + 1;
+  const allowable = [approval, ...others].filter((a) => a.tier !== 'critical').length;
   useLayer(open);
   // Focus goes back where it was when the dialog opened, not to the page body.
   const returnTo = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
@@ -118,22 +190,13 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
           setRefusal({ title: error.body.error.title, hint: error.body.error.hint });
           return;
         }
-        notify({
-          level: 'error',
-          title: error instanceof ApiCallError ? error.body.error.title : 'Your answer did not reach Core',
-          body:
-            error instanceof ApiCallError
-              ? error.body.error.hint
-              : 'Check that NVX Ancile is running, then answer again.',
-        });
+        notify({ level: 'error', ...errorText(error) });
         return;
       } finally {
         setBusy(false);
       }
-      void queryClient.invalidateQueries({ queryKey: keys.approvals });
     }
-    setOpen(false);
-    setMark('idle');
+    const left = await moveOn([approval.id]);
     notify({
       level: decision === 'approve' ? 'success' : 'info',
       title:
@@ -142,8 +205,104 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
             ? 'Allowed with your changes. The agent is carrying on.'
             : 'Approved. The agent is carrying on.'
           : 'Declined. The agent has been told.',
-      body: remembered
-        ? `${decision === 'approve' ? 'Allowed' : 'Blocked'} ${SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}: ${pattern}`
+      body:
+        [
+          remembered
+            ? `${decision === 'approve' ? 'Allowed' : 'Blocked'} ${SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}: ${pattern}.`
+            : '',
+          left ? `${left} more waiting in this thread.` : '',
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined,
+    });
+  };
+
+  /**
+   * After an answer: read what is still waiting, and go to the next request in
+   * this thread, or close when there is none. Returns how many are left here.
+   */
+  const moveOn = async (answered: string[]): Promise<number> => {
+    const fresh = await freshPending(demo, answered).catch(() => null);
+    if (!fresh) {
+      void queryClient.invalidateQueries({ queryKey: keys.approvals });
+      setOpen(false);
+      setMark('idle');
+      return 0;
+    }
+    const here = fresh.filter((a) => (a.threadId ?? null) === (approval.threadId ?? null));
+    // Focus first, then the list: the focused request is never missing from it.
+    if (here[0]) setOpen(true, here[0].id);
+    else {
+      setOpen(false);
+      setMark('idle');
+    }
+    queryClient.setQueryData(keys.approvals, fresh);
+    return here.length;
+  };
+
+  /** Answer another waiting request in place, just this once. */
+  const decideOther = async (id: string, decision: 'approve' | 'deny') => {
+    if (!demo) {
+      setBusy(true);
+      try {
+        await api.post(`/approvals/${id}`, { decision, scope: 'once' });
+      } catch (error) {
+        notify({ level: 'error', ...errorText(error) });
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
+    const fresh = await freshPending(demo, [id]).catch(() => null);
+    if (fresh) queryClient.setQueryData(keys.approvals, fresh);
+    else void queryClient.invalidateQueries({ queryKey: keys.approvals });
+  };
+
+  /**
+   * Allow or deny every request waiting here. A remembered answer goes first,
+   * on this request, so Core settles the others it covers; the rest are
+   * answered once. Critical requests are never allowed in bulk.
+   */
+  const decideAll = async (decision: 'approve' | 'deny') => {
+    const answered: string[] = [];
+    if (!demo) {
+      setBusy(true);
+      try {
+        if (remembering) {
+          await api.post(`/approvals/${approval.id}`, {
+            decision,
+            scope,
+            pattern,
+            ...(ttl !== '0' && { ttl_seconds: Number(ttl) }),
+          });
+          answered.push(approval.id);
+        }
+        const still = remembering ? await freshPending(false, answered) : [approval, ...others];
+        const ids = still
+          .filter((a) => (a.threadId ?? null) === (approval.threadId ?? null))
+          .filter((a) => decision === 'deny' || a.tier !== 'critical')
+          .map((a) => a.id);
+        if (ids.length) await api.post('/approvals/batch', { approval_ids: ids, decision });
+        answered.push(...ids);
+      } catch (error) {
+        notify({ level: 'error', ...errorText(error) });
+        return;
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      answered.push(
+        approval.id,
+        ...others.filter((a) => decision === 'deny' || a.tier !== 'critical').map((a) => a.id),
+      );
+    }
+    const left = await moveOn(answered);
+    notify({
+      level: decision === 'approve' ? 'success' : 'info',
+      title:
+        decision === 'approve' ? 'Allowed. The agent is carrying on.' : 'Declined. The agent has been told.',
+      body: left
+        ? `${left} critical ${left === 1 ? 'request is' : 'requests are'} still waiting: answer each one.`
         : undefined,
     });
   };
@@ -171,7 +330,14 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
           tabIndex={-1}
         >
           <div className="approval__head">
-            <TierBadge tier={approval.tier} />
+            <span className="approval__badges">
+              <TierBadge tier={approval.tier} />
+              {waitingCount > 1 ? (
+                <span className="approval__count" data-num>
+                  {waitingCount} waiting
+                </span>
+              ) : null}
+            </span>
             <Dialog.Close className="icon-btn icon-btn--sm" aria-label="Decide later">
               <Icon name="close" size={14} />
             </Dialog.Close>
@@ -282,32 +448,75 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                         <RadioGroup.Indicator className="radio__dot" />
                       </RadioGroup.Item>
                       <span className="choice__text">
-                        <span>{describePattern(p, i, approval.suggestions.length)}</span>
+                        <span>{describePattern(p, i, approval.resource)}</span>
                         <span data-num className="mute choice__mono">
                           {p}
                         </span>
                       </span>
                     </label>
                   ))}
-                  {/* biome-ignore lint/a11y/noLabelWithoutControl: the Radix radio inside is the control */}
-                  <label className="choice">
-                    <RadioGroup.Item value="__custom" className="radio">
-                      <RadioGroup.Indicator className="radio__dot" />
-                    </RadioGroup.Item>
-                    <span className="choice__text">
-                      <span>A pattern of my own</span>
-                      {custom ? (
-                        <input
-                          className="input input--mono"
-                          value={pattern}
-                          onChange={(e) => setPattern(e.target.value)}
-                          aria-label="Custom pattern"
-                          spellCheck={false}
-                        />
-                      ) : null}
-                    </span>
-                  </label>
+                  <div className="choice-row">
+                    {/* biome-ignore lint/a11y/noLabelWithoutControl: the Radix radio inside is the control */}
+                    <label className="choice">
+                      <RadioGroup.Item value="__custom" className="radio">
+                        <RadioGroup.Indicator className="radio__dot" />
+                      </RadioGroup.Item>
+                      <span className="choice__text">
+                        <span>A pattern of my own</span>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn--sm choice-row__info"
+                      aria-label="How patterns work"
+                      aria-expanded={help}
+                      aria-controls={helpId}
+                      title="How patterns work"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setHelp((x) => !x);
+                      }}
+                    >
+                      <Icon name="info" size={14} />
+                    </button>
+                  </div>
+                  {custom ? (
+                    <div className="pattern-field">
+                      <input
+                        className="input input--mono"
+                        value={pattern}
+                        onChange={(e) => setPattern(e.target.value)}
+                        aria-label="Custom pattern"
+                        aria-describedby={checkId}
+                        spellCheck={false}
+                      />
+                      <p
+                        id={checkId}
+                        className="pattern-field__check"
+                        data-ok={covers || undefined}
+                        aria-live="polite"
+                      >
+                        <Icon name={covers ? 'check' : 'warn'} size={12} />
+                        <span>
+                          This pattern matches the current request: {covers ? 'yes' : 'no'}
+                          {covers && others.length
+                            ? `. It also matches ${others.filter((o) => patternCovers(pattern, o)).length} of the ${others.length} others waiting.`
+                            : ''}
+                        </span>
+                      </p>
+                    </div>
+                  ) : null}
                 </RadioGroup.Root>
+                {help ? (
+                  <PatternHelp
+                    id={helpId}
+                    onPick={(p) => {
+                      setCustom(true);
+                      setPattern(p);
+                    }}
+                  />
+                ) : null}
               </fieldset>
 
               <div className="approval__row">
@@ -355,7 +564,82 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
             </>
           )}
 
-          <div className="dialog__actions">
+          {others.length ? (
+            <section className="approval__queue" aria-label="Other requests waiting">
+              <h3 className="approval__queue-title">
+                Also waiting in this thread <span data-num>({others.length})</span>
+              </h3>
+              <ul>
+                {others.map((o) => (
+                  <li key={o.id} data-tier={o.tier}>
+                    <button
+                      type="button"
+                      className="approval__queue-open"
+                      onClick={() => setOpen(true, o.id)}
+                      title="Open this request"
+                    >
+                      <span className="approval__queue-tool">{o.tool}</span>
+                      <span data-num className="approval__queue-target">
+                        {shortTarget(o)}
+                      </span>
+                      {remembering && patternCovers(pattern, o) ? (
+                        <span className="approval__queue-match">Covered by your answer</span>
+                      ) : null}
+                    </button>
+                    {o.tier === 'critical' ? (
+                      <span className="approval__queue-note">Critical: open it to answer</span>
+                    ) : (
+                      <span className="approval__queue-acts">
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={busy}
+                          onClick={() => void decideOther(o.id, 'deny')}
+                        >
+                          Decline
+                        </button>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={busy}
+                          onClick={() => void decideOther(o.id, 'approve')}
+                        >
+                          Allow once
+                        </button>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!editing ? (
+                <div className="approval__queue-all">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy}
+                    onClick={() => void decideAll('deny')}
+                  >
+                    Decline all {waitingCount}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy || allowable === 0}
+                    onClick={() => void decideAll('approve')}
+                    title={
+                      remembering
+                        ? 'Remembers your answer on this request first, then allows the rest once'
+                        : 'Allows each of them once'
+                    }
+                  >
+                    Allow all {allowable}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <div className="dialog__actions" data-tour="approval-choices">
             {editable && !editing ? (
               <button
                 type="button"

@@ -32,9 +32,11 @@ Rules for new codes:
 | `provider.unavailable` | 503 | "<Model> is unavailable." / Ancile fell back where it could; check Health for the provider's status. |
 | `provider.refused` | 502 | "<Model> declined to answer." / Another model answered if one was available. Rephrase, or pick a model in the switcher. |
 | `provider.context_overflow` | 413 | "This conversation is too long for <model>." / Compact it, or switch to a model with a larger window. |
+| `model.context_truncated` | (warning) | "This local model only read part of the conversation." / Sent as a `warning` event, once per thread and model, when Ollama reports reading far fewer prompt tokens than were sent. Raise the model's context length in Ollama, or choose a model with a larger window. |
 | `model.chain_exhausted` | 503 | "No model could answer." / Each attempt and its reason are listed. Check your keys and Health. |
 | `model.not_configured` | 422 | "<Model> isn't set up." / Add a key in Settings → Models. |
 | `model.not_chat` | 422 | "<Model> can't answer messages." / It is an embedding or rerank model; pick a chat model in the model switcher. |
+| `model.gone` | 409 | "<model> is no longer available." / It was removed or renamed; pick another model and send again. Raised when a message, edit or regenerate names a model that is no longer in the list. `error.context` has `model_id` and `suggested_model` (the thread's model, else the default route's first), and the Cockpit offers a model picker on the error, preset to it. |
 | `model.exists` | 409 | "<id> is already in your models." / Edit the one you have, or remove it first. |
 | `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |
@@ -49,6 +51,9 @@ Rules for new codes:
 | `local_model.ollama_missing` | 409 | "Ollama is not installed" (or "installed but not running", or "Ollama at <url> is not answering") / Install it from its official page (never done for you), or open it, then try again. `error.context.ollama` and `download_url` say which. |
 | `local_model.no_disk` | 507 | "Not enough disk for <model>." / Says how much it needs and how much is free, and where. Never overridden. |
 | `local_model.too_big` | 422 | "<Model> needs more memory than this computer has." / Says how much it needs; pick a smaller model, or start it anyway (`anyway: true`). |
+| `local_model.quant_unavailable` | 400 | "<Model> is not offered at <precision>." / Choose one of the precisions listed for it (its `quant_tags` in config/local-models.yaml), or the default. |
+| `openrouter.endpoints_unavailable` | 502 | "Could not read this model's providers from OpenRouter." / Check the connection and try again. Only when nothing was saved before: once read, the list is kept for offline use (docs/openrouter.md). Routing never fails on it; it builds without the endpoint exclusions. |
+| `openrouter.model_invalid` | 400 | "That is not an OpenRouter model id." / Use the form author/model, for example qwen/qwen3-coder. |
 | `local_model.embedder_unavailable` | 503 | "The knowledge service is not connected." / Start NVX Ancile with its knowledge service, then try again. |
 | `local_model.download_not_found` | 404 | "That download is not running." / It may have finished before NVX Ancile last restarted. Start it again to carry on. |
 | `local_model.pull_failed` | 502 | "The download of <model> stalled" (or "stopped") / Check your connection, then press Resume: Ollama carries on from what it already has. Shown on the download, not as a response. |
@@ -245,6 +250,7 @@ Validation issues (shown in the editor, not as HTTP errors): `flow.no_input`, `f
 | Code | HTTP | Title / hint |
 |---|---|---|
 | `compute.node_waking` | 503 | "Your GPU node is waking up." / Wait about N s, or use a cloud model. |
+| `compute.node_stopped` | 409 | "Your GPU node is stopped." / Start node to wake it (usually a minute or two), then try again. Shown on the answer, with a Start node button, when the thread's model runs on a stopped node and no route can answer meanwhile. While a woken node's server is still loading its model, the Controller answers `node_waking` with `phase: "loading"`, never the proxy's own 502 or 404 page. |
 | `compute.cost_cap` | 402 | "This month's compute cap is reached." / Raise it in Admin → Compute → Rules, or use cloud models. |
 | `compute.no_capacity` | 502 | "RunPod has no capacity for this GPU here." / Try another region with your volume's datacentre, or another GPU type. |
 | `compute.invalid_transition` | 409 | "The node can't <action> while <state>." / Wait for the current operation to finish. |
@@ -402,6 +408,25 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `interpreter.runtime_unavailable` | 503 | "The Python runtime could not be downloaded." / Check this machine can reach cdn.jsdelivr.net, then run the code again. It is downloaded once. |
 | `interpreter.runtime_mismatch` | 502 | "A downloaded Python runtime file did not match its pinned fingerprint." / It was thrown away and nothing ran. Try again later; report it if it keeps happening. |
 | `interpreter.file_not_allowed` | 404 | "<file> is not part of the Python runtime." / Only the pinned Pyodide files and the allowed packages are served. |
+
+### Images
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `image.too_large` | 413 | "<name> is too large." / Images can be up to 20 MB (remote ones 10 MB). Use a smaller or more compressed copy. |
+| `image.type_not_allowed` | 415 | "<name> is not an image NVX Ancile can show." / Use a PNG, JPEG, WebP or GIF file. SVG is not accepted as an image. |
+| `image.not_found` | 404 | "That image doesn't exist." / It may have been deleted with its thread. Attach or make it again. |
+| `image.too_many` | 400 | "Up to 8 images can go with one message." / Remove some, or send them over more than one message. |
+| `image.model_no_vision` | 422 | "<model> can't see images." / Choose a model that reads images (marked vision in Admin → Models), or send the message without them. |
+| `image.no_provider` | 409 | "No image provider is set up." / Add an OpenAI or OpenRouter key in Settings → API keys, or a local Automatic1111 or Forge address in config/images.yaml. (Given to the model as the tool result.) |
+| `image.provider_unknown` | 400 | "There is no image provider called <id>." / Lists the providers set up. |
+| `image.provider_failed` | 502 (or the provider's status) | "<provider> did not make the image." / What it said; check its key or address, or try another provider. |
+| `image.bad_args` | 400 | "That image_generate call is not valid." / Names the argument and what was expected. |
+| `image.remote_not_allowed` | 403 | "Images from <host> have not been allowed here." / Choose "Load image" on the image first. The choice is remembered for this notebook. |
+| `image.remote_blocked` | 400 | "That image address cannot be loaded." / Why (not http or https, an unusual port, inside your network or this computer); only public addresses are fetched. |
+| `image.remote_failed` | 502 | "The image from <host> could not be loaded." / What happened; open the link in your browser instead, if you trust it. |
+
+Scope refusals for images use the scope codes (`scope.private_notebook`, `scope.data_stays_local`) with titles that name what would have left the machine.
 
 ### Claude Code
 

@@ -10,6 +10,8 @@
 #  card. Both are deliberately on the generous side: a model that only just
 #  fits is slow. via: ollama is fetched with Ollama's own pull; via:
 #  fastembed is the search embedder, fetched by the Knowledge service.
+#  quant_tags lists the same model at other precisions (Ollama tags); the
+#  download dialog offers them with size and memory estimates from params_b.
 # =============================================================================
 version: 1
 models:
@@ -17,6 +19,11 @@ models:
     name: Qwen3 8B
     via: ollama
     source: "qwen3:8b"
+    params_b: 8.2
+    quant_tags:
+      q4_K_M: "qwen3:8b-q4_K_M"
+      q8_0: "qwen3:8b-q8_0"
+      fp16: "qwen3:8b-fp16"
     size_gb: 5.2
     ram_gb: 10
     vram_gb: 7
@@ -32,6 +39,11 @@ models:
     name: Qwen3 4B
     via: ollama
     source: "qwen3:4b"
+    params_b: 4.0
+    quant_tags:
+      q4_K_M: "qwen3:4b-q4_K_M"
+      q8_0: "qwen3:4b-q8_0"
+      fp16: "qwen3:4b-fp16"
     size_gb: 2.6
     ram_gb: 6
     vram_gb: 4
@@ -46,6 +58,11 @@ models:
     name: Qwen3 14B
     via: ollama
     source: "qwen3:14b"
+    params_b: 14.8
+    quant_tags:
+      q4_K_M: "qwen3:14b-q4_K_M"
+      q8_0: "qwen3:14b-q8_0"
+      fp16: "qwen3:14b-fp16"
     size_gb: 9.3
     ram_gb: 18
     vram_gb: 12
@@ -60,6 +77,11 @@ models:
     name: Gemma 3 12B
     via: ollama
     source: "gemma3:12b"
+    params_b: 12.2
+    quant_tags:
+      q4_K_M: "gemma3:12b-it-q4_K_M"
+      q8_0: "gemma3:12b-it-q8_0"
+      fp16: "gemma3:12b-it-fp16"
     size_gb: 8.1
     ram_gb: 16
     vram_gb: 11
@@ -74,6 +96,12 @@ models:
     name: Llama 3.2 3B
     via: ollama
     source: "llama3.2:3b"
+    params_b: 3.2
+    quant_tags:
+      q4_K_M: "llama3.2:3b-instruct-q4_K_M"
+      q5_K_M: "llama3.2:3b-instruct-q5_K_M"
+      q8_0: "llama3.2:3b-instruct-q8_0"
+      fp16: "llama3.2:3b-instruct-fp16"
     size_gb: 2.0
     ram_gb: 5
     vram_gb: 3
@@ -102,6 +130,12 @@ models:
     name: Qwen2.5 Coder 7B
     via: ollama
     source: "qwen2.5-coder:7b"
+    params_b: 7.6
+    quant_tags:
+      q4_K_M: "qwen2.5-coder:7b-instruct-q4_K_M"
+      q5_K_M: "qwen2.5-coder:7b-instruct-q5_K_M"
+      q8_0: "qwen2.5-coder:7b-instruct-q8_0"
+      fp16: "qwen2.5-coder:7b-instruct-fp16"
     size_gb: 4.7
     ram_gb: 9
     vram_gb: 6

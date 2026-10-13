@@ -7,13 +7,16 @@
  *           |  app styles, in that order: identity overrides only the
  *           |  accent and the mark (DESIGN.md §13, ancile.css). Then
  *           |  the preference layer (prefs.css), which every setting
- *           |  drives through attributes on <html>.
+ *           |  drives through attributes on <html>, and the Pro layer
+ *           |  (pro.css: the Pro palette and the gilt kit).
  * ------------------------------------------------------------------
  */
 
+import './lib/strict';
 import '@nvx/aperture/tokens.css';
 import '@nvx/aperture/ancile.css';
 import '@nvx/aperture/prefs.css';
+import '@nvx/aperture/pro.css';
 import './styles/base.css';
 import './styles/shell.css';
 import './styles/thread.css';
@@ -35,6 +38,7 @@ import './styles/auto.css';
 import './styles/code.css';
 import './styles/artifacts.css';
 import './styles/interpreter.css';
+import './styles/images.css';
 
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';

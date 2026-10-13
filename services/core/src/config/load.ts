@@ -19,10 +19,12 @@ import { join } from 'node:path';
 import {
   AutomationsFile,
   FactcheckFile,
+  ImagesFile,
   LocalModelsFile,
   McpFile,
   MemoryFile,
   ModelsFile,
+  OpenRouterFile,
   PanelsFile,
   RetrievalFile,
   RoutingFile,
@@ -42,6 +44,8 @@ const FILES = {
   factcheck: { file: 'factcheck.yaml', schema: FactcheckFile, required: false },
   retrieval: { file: 'retrieval.yaml', schema: RetrievalFile, required: false },
   localModels: { file: 'local-models.yaml', schema: LocalModelsFile, required: false },
+  images: { file: 'images.yaml', schema: ImagesFile, required: false },
+  openrouter: { file: 'openrouter.yaml', schema: OpenRouterFile, required: false },
 } as const;
 
 type Files = typeof FILES;

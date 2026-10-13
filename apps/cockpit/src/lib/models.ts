@@ -95,7 +95,9 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
       body:
         model.status === 'needs_key'
           ? 'Add its key in Settings → Models first.'
-          : 'Turn it on in Settings → Models first.',
+          : model.status === 'not_pulled'
+            ? 'Pull it into Ollama in Settings → Models first.'
+            : 'Turn it on in Settings → Models first.',
     });
     return;
   }

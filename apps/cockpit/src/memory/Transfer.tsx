@@ -251,7 +251,7 @@ function ImportPanel({ onCreated }: { onCreated: (id: string) => void }) {
     try {
       const p = await previewImport(req);
       setPreview(p);
-      setTicked(new Set(p.items.filter((i) => i.status === 'new').map((i) => i.index)));
+      setTicked(new Set(p.items.filter((i) => i.status === 'new' && !i.flag).map((i) => i.index)));
     } catch (e) {
       setPreview(null);
       setProblem(errorText(e));
@@ -493,6 +493,7 @@ function PreviewList({
                   <span className="mute mem-move__section"> · {i.section}</span>
                   {i.status !== 'new' ? <span className="tag">{STATUS_WORDS[i.status]}</span> : null}
                   {i.clipped ? <span className="tag">Cut to 600 characters</span> : null}
+                  {i.flag ? <span className="mem-move__flag">{i.flag}</span> : null}
                 </span>
               </li>
             ))}
@@ -504,7 +505,7 @@ function PreviewList({
           type="button"
           className="btn btn--ghost btn--sm"
           onClick={() =>
-            setTicked(new Set(preview.items.filter((i) => i.status === 'new').map((i) => i.index)))
+            setTicked(new Set(preview.items.filter((i) => i.status === 'new' && !i.flag).map((i) => i.index)))
           }
         >
           Tick new only

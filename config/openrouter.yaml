@@ -1,0 +1,34 @@
+# =============================================================================
+#  OpenRouter (docs/openrouter.md): what NVX Ancile knows about models beyond
+#  what OpenRouter's endpoint list says.
+#  Schema: packages/contracts/src/openrouter.ts → OpenRouterFile
+#  Optional: without this file every endpoint's precision shows as reported,
+#  and whether it is the lab's own shows as "unknown".
+#
+#  precision: the precision the lab itself released, and its native window,
+#  with the page that says so. An endpoint below it is marked as reduced.
+#  model may end in * to cover a family. Add only what a source states.
+#  trusted: providers Best quality tries first for a model, most trusted
+#  first. Your own list; none is shipped.
+# =============================================================================
+version: 1
+endpoints_ttl_minutes: 30
+precision:
+  - model: deepseek/deepseek-chat-v3.1
+    precision: fp8
+    context: 163840
+    source: https://huggingface.co/deepseek-ai/DeepSeek-V3.1
+  - model: deepseek/deepseek-r1*
+    precision: fp8
+    source: https://huggingface.co/deepseek-ai/DeepSeek-R1
+  - model: moonshotai/kimi-k2*
+    precision: fp8
+    source: https://huggingface.co/moonshotai/Kimi-K2-Instruct
+  - model: openai/gpt-oss-*
+    precision: mxfp4
+    source: https://huggingface.co/openai/gpt-oss-120b
+  - model: qwen/qwen3-coder
+    precision: bf16
+    context: 262144
+    source: https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct
+trusted: []

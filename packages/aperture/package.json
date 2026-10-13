@@ -10,6 +10,7 @@
     "./tokens.css": "./src/tokens.css",
     "./ancile.css": "./src/ancile.css",
     "./prefs.css": "./src/prefs.css",
+    "./pro.css": "./src/pro.css",
     "./icons/*": "./src/icons/*"
   },
   "peerDependencies": {

@@ -207,6 +207,7 @@ describe('the live run', () => {
     fallback: null,
     waking: null,
     approvalId: null,
+    approvals: {},
     error: null,
     done: false,
     lastSeq: 0,

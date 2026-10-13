@@ -16,17 +16,26 @@
  *           |                      the caller can show it and decide
  *           |                      (Core does this, with "Use a cloud
  *           |                      model instead")
- *           |  node running      → stream-through proxy, and the node's
+ *           |  node running      → first, until it has once answered,
+ *           |                      its GET /v1/models must list the
+ *           |                      model (vLLM loads for minutes after
+ *           |                      the pod is up); until then 503
+ *           |                      node_waking "loading". Then a
+ *           |                      stream-through proxy, and the node's
  *           |                      last activity is noted for the idle
- *           |                      rule
+ *           |                      rule. A proxy's HTML error page
+ *           |                      (RunPod's 502/404 while the server
+ *           |                      starts) is never passed on as an
+ *           |                      answer: it reads as node_waking.
  *           |  upstream target   → proxied as is (a box on your LAN,
  *           |                      another OpenAI-compatible server)
  * ------------------------------------------------------------------
  */
 
 import { randomUUID } from 'node:crypto';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { type AppEnv, apiError } from '../http';
+import { servedFor } from '../nodes';
 import { FAKE_SCHEME } from '../providers/fake';
 import type { ComputeProvider } from '../providers/types';
 import type { NodeRecord, Store, StoreEvent } from '../store';
@@ -48,6 +57,20 @@ export interface DataPlaneDeps {
 const ACTIVITY_EVERY_MS = 15_000;
 /** The longest a caller may ask us to hold a request open. */
 const MAX_HOLD_S = 600;
+/** How long one readiness probe of a node's /v1/models may take. */
+const PROBE_TIMEOUT_MS = 4_000;
+
+/** The node's model list includes the model the route serves. */
+export function listsModel(body: unknown, served: string): boolean {
+  const data = (body as { data?: { id?: unknown }[] } | null)?.data;
+  return Array.isArray(data) && data.some((m) => m?.id === served);
+}
+
+/** An error page from a proxy in front of the node, not an answer from the model server. */
+export function isProxyPage(res: Response): boolean {
+  const type = res.headers.get('content-type') ?? '';
+  return type.includes('text/html') || (!res.ok && !type.includes('json') && !type.includes('event-stream'));
+}
 
 function routingError(code: string, message: string, extra: Record<string, unknown> = {}) {
   return { error: { code, message, ...extra } };
@@ -72,6 +95,38 @@ export function openaiRoutes(deps: DataPlaneDeps) {
   const f = deps.fetch ?? fetch;
   const now = deps.now ?? (() => new Date());
   const lastActivity = new Map<string, number>();
+  /** Nodes whose model server has answered with the model, by `${node id} ${endpoint}`. */
+  const loaded = new Set<string>();
+
+  /** The node's model server is up and lists the model (one probe, a few seconds at most). */
+  const modelLoaded = async (node: NodeRecord, served: string): Promise<boolean> => {
+    const key = `${node.id} ${node.endpoint_url}`;
+    if (loaded.has(key)) return true;
+    try {
+      const res = await f(`${(node.endpoint_url as string).replace(/\/$/, '')}/models`, {
+        headers: deps.nodeToken ? { authorization: `Bearer ${deps.nodeToken}` } : {},
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      if (!res.ok || isProxyPage(res)) return false;
+      if (!listsModel(await res.json().catch(() => null), served)) return false;
+      loaded.add(key);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const loading = (c: Context<AppEnv>, node: NodeRecord, served: string) => {
+    c.header('retry-after', '5');
+    return c.json(
+      routingError('node_waking', `${node.name} is up; loading ${served}.`, {
+        eta_s: 60,
+        node_id: node.id,
+        phase: 'loading',
+      }),
+      503,
+    );
+  };
 
   const noteActivity = async (node: NodeRecord) => {
     const t = now().getTime();
@@ -219,19 +274,31 @@ export function openaiRoutes(deps: DataPlaneDeps) {
       await deps.store.settleQueued(node.id, 'dispatched');
       void noteActivity(node).catch(() => undefined);
 
+      // The node knows its model by the name it serves ("qwen2.5:7b"), not by the
+      // route's alias ("node/qwen2.5:7b"); vLLM and Ollama answer 404 to the alias.
+      const nodeBody = { ...body, model: servedFor(route.alias) };
       let res: Response;
       const endpoint = node.endpoint_url as string;
       if (endpoint.startsWith(FAKE_SCHEME) && deps.provider?.serve) {
-        res = await deps.provider.serve(node.provider_ref, path, body);
+        res = await deps.provider.serve(node.provider_ref, path, nodeBody);
       } else {
+        // Up is not ready: dispatch only once the model server lists the model.
+        if (!(await modelLoaded(node, nodeBody.model as string)))
+          return loading(c, node, nodeBody.model as string);
         res = await forward(
           endpoint,
           path,
-          body,
+          nodeBody,
           c.req.header('traceparent'),
           c.req.raw.signal,
           deps.nodeToken,
         );
+      }
+      if (isProxyPage(res)) {
+        // The proxy's page, not the model's answer: the server went away or is restarting.
+        await res.body?.cancel().catch(() => undefined);
+        loaded.delete(`${node.id} ${endpoint}`);
+        return loading(c, node, nodeBody.model as string);
       }
       const headers = new Headers(res.headers);
       headers.set('x-controller-node', node.id);

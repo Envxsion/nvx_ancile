@@ -24,6 +24,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgSchema,
   primaryKey,
   real,
@@ -940,4 +941,41 @@ export const contextLinks = core.table(
     uniqueIndex('context_links_pair').on(t.fromKind, t.fromId, t.toKind, t.toId),
     index('context_links_to').on(t.toKind, t.toId),
   ],
+);
+
+// ---- Phase 3 (D): images in threads (0032) ----
+
+/** One use of a stored image in a thread; the bytes live once per sha256 in the data folder (docs/images.md). */
+export const images = core.table(
+  'images',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id').references(() => threads.id, { onDelete: 'cascade' }),
+    sha256: text('sha256').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    source: text('source', { enum: ['generated', 'attached', 'model_output'] }).notNull(),
+    alt: text('alt').notNull().default(''),
+    prompt: text('prompt'),
+    model: text('model'),
+    provider: text('provider'),
+    providerKind: text('provider_kind', { enum: ['cloud', 'local', 'node'] }),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
+    callId: text('call_id'),
+    createdAt: created(),
+  },
+  (t) => [index('images_thread').on(t.threadId), index('images_sha').on(t.sha256)],
+);
+
+/** Hosts whose images the person chose to load, per notebook (or 'thread:<id>'). */
+export const imageRemoteHosts = core.table(
+  'image_remote_hosts',
+  {
+    scopeKey: text('scope_key').notNull(),
+    host: text('host').notNull(),
+    allowedAt: ts('allowed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.scopeKey, t.host] })],
 );

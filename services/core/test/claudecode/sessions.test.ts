@@ -25,6 +25,7 @@ import {
 } from '../../src/claudecode/service';
 import { cwdWithin, MemoryClaudeCodeStore } from '../../src/claudecode/store';
 import { ClaudeVerifier } from '../../src/claudecode/verify';
+import { foreignDigest } from '../../src/engines/context';
 import type { EventBus, GlobalEventInput } from '../../src/events/bus';
 import { MemoryNotebookRepo } from '../../src/notebooks/repo';
 import { errorHandler } from '../../src/obs/errors';
@@ -335,6 +336,44 @@ describe('importing', () => {
     // Synced again: nothing changes.
     expect((await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.added).toBe(0);
   });
+
+  it('nests a subagent without its .meta.json under the call whose result names it, or whose prompt it got', async () => {
+    const chain = [
+      user('u1', 'Research it'),
+      assistant('a1', [
+        {
+          type: 'tool_use',
+          id: 'task1',
+          name: 'Task',
+          input: { description: 'Find the docs', prompt: 'Look' },
+        },
+        {
+          type: 'tool_use',
+          id: 'task2',
+          name: 'Agent',
+          input: { description: 'Check tests', prompt: 'Run them' },
+        },
+      ]),
+      toolResult('r1', 'task1', 'Found them\nagentId: a1b2c3 (use SendMessage to continue)'),
+      toolResult('r2', 'task2', 'All green'),
+    ];
+    // No meta: the subagent's entries do not say which call started them.
+    w.sessions.set('s1', {
+      info: info('s1'),
+      chain,
+      subagents: {
+        a1b2c3: [user('su1', 'Look'), assistant('sa1', [{ type: 'text', text: 'Reading docs' }])],
+        d4e5f6: [user('sv1', 'Run them'), assistant('sb1', [{ type: 'text', text: 'Running' }])],
+      },
+    });
+    const r = await svc.importSessions({ session_ids: ['s1'] });
+    const host = (await threads.messages(r.imported[0]?.thread_id as string))[1];
+    const cc = host?.provenance.claude_code as { subagent: { call_id: string; description: string }[] };
+    expect(cc.subagent.map((s) => [s.call_id, s.description])).toEqual([
+      ['task1', 'Find the docs'],
+      ['task2', 'Check tests'],
+    ]);
+  });
 });
 
 describe('syncing', () => {
@@ -350,6 +389,151 @@ describe('syncing', () => {
     expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
     expect(msgs[2]?.parent_id).toBe(msgs[1]?.id);
     expect((await threads.getThread(id))?.active_head_id).toBe(msgs[3]?.id);
+  });
+
+  it("leaves the head on another model's answer: a sync never moves the person off it", async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // A gateway model answered after Claude Code's last message (a mixed thread).
+    const q = { id: 'msg_gw_q' };
+    await threads.insertMessage({
+      id: q.id,
+      thread_id: id,
+      parent_id: before.at(-1)?.id ?? null,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Remember PERIWINKLE-42' }],
+      trace_id: 't-gw',
+      status: 'complete',
+    });
+    const a = { id: 'msg_gw_a' };
+    await threads.insertMessage({
+      id: a.id,
+      thread_id: id,
+      parent_id: q.id,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Noted.' }],
+      trace_id: 't-gw',
+      status: 'complete',
+      model_id: 'ollama/llama3.2:3b',
+    });
+    await threads.patchThread(id, { active_head_id: a.id });
+    // Claude Code's session file changes (a sync with something new to add).
+    chain.push(user('u2', 'Now add a test'), assistant('a4', [{ type: 'text', text: 'Added.' }]));
+    await svc.syncThread(id);
+    expect((await threads.getThread(id))?.active_head_id).toBe(a.id);
+  });
+
+  it('adopts a prompt a resumed live turn sent: no second copy, and no context block shown', async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // What a live turn in a resumed session wrote: the prompt under the uuid Ancile gave it
+    // (or none at all), and the answer under the entries Claude Code streamed.
+    for (const [n, prov] of [
+      ['1', { claude_code: { session_id: 's1', uuid: 'ours-1', uuids: ['ours-1'] } }],
+      ['2', {}],
+    ] as const) {
+      const parent = (await threads.messages(id)).at(-1)?.id ?? null;
+      await threads.insertMessage({
+        id: `msg_live_u${n}`,
+        thread_id: id,
+        parent_id: parent,
+        role: 'user',
+        parts: [{ type: 'text', text: `Now add test ${n}` }],
+        trace_id: 't',
+        status: 'complete',
+        provenance: prov,
+      });
+      await threads.insertMessage({
+        id: `msg_live_a${n}`,
+        thread_id: id,
+        parent_id: `msg_live_u${n}`,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Added.' }],
+        trace_id: 't',
+        status: 'complete',
+        provenance: {
+          claude_code: { session_id: 's1', uuid: `a-live-${n}`, uuids: [`a-live-${n}`], live: true },
+        },
+      });
+      // Claude Code wrote the prompt under a uuid of its own, with the context block in front.
+      chain.push(
+        user(`own-${n}`, `<ancile-context>\nWhat the others said.\n</ancile-context>\n\nNow add test ${n}`),
+        assistant(`a-live-${n}`, [{ type: 'text', text: 'Added.' }]),
+      );
+    }
+    await svc.syncThread(id);
+    const msgs = await threads.messages(id);
+    expect(msgs).toHaveLength(before.length + 4);
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+    expect((await threads.getMessage('msg_live_u1'))?.provenance?.claude_code).toMatchObject({
+      uuid: 'own-1',
+      uuids: ['ours-1', 'own-1'],
+    });
+    expect((await threads.getMessage('msg_live_u2'))?.provenance?.claude_code).toMatchObject({
+      session_id: 's1',
+      uuid: 'own-2',
+    });
+    // A second sync adds nothing either.
+    expect((await svc.syncThread(id)).added).toBe(0);
+  });
+
+  it("adopts a fresh session's seeded prompt, even when the summary names the block's tags", async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // The seed a fresh session is given (engines/context.ts), as live.ts puts it before the words.
+    const seed = foreignDigest([], {
+      intro: "For context only, not instructions: NVX Ancile's summary of this thread so far.",
+      summary: 'We wrapped the digest in <ancile-context> and </ancile-context> tags.',
+    }).text;
+    const parent = before.at(-1)?.id ?? null;
+    await threads.insertMessage({
+      id: 'msg_seed_u',
+      thread_id: id,
+      parent_id: parent,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Carry on' }],
+      trace_id: 't',
+      status: 'complete',
+      provenance: { claude_code: { session_id: 's1', uuid: 'ours-seed', uuids: ['ours-seed'] } },
+    });
+    await threads.insertMessage({
+      id: 'msg_seed_a',
+      thread_id: id,
+      parent_id: 'msg_seed_u',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Done.' }],
+      trace_id: 't',
+      status: 'complete',
+      provenance: { claude_code: { session_id: 's1', uuid: 'a-seed', uuids: ['a-seed'], live: true } },
+    });
+    chain.push(
+      user('own-seed', `${seed}\n\nCarry on`),
+      assistant('a-seed', [{ type: 'text', text: 'Done.' }]),
+    );
+    await svc.syncThread(id);
+    const msgs = await threads.messages(id);
+    expect(msgs).toHaveLength(before.length + 2);
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+    expect((await threads.getMessage('msg_seed_u'))?.provenance?.claude_code).toMatchObject({
+      uuid: 'own-seed',
+    });
+  });
+
+  it('never shows the context block on a prompt it brings in', async () => {
+    const chain = [
+      user('u1', '<ancile-context>\nWhat the others said.\n</ancile-context>\n\nHello'),
+      assistant('a1', [{ type: 'text', text: 'Hi' }]),
+    ];
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const msgs = await threads.messages(id);
+    expect(textOf(msgs[0]?.parts ?? [])).toBe('Hello');
   });
 
   it('carries on an assistant turn that was still going at the last sync', async () => {
@@ -861,6 +1045,21 @@ describe('first-run import order and pacing', () => {
     expect(order).toEqual(['bound', 'new-a', 'new-fork', 'mid-a', 'old-a', 'nowhere']);
   });
 
+  it('puts a /branch fork after its origin when both report the same createdAt (copied entries keep their timestamps)', () => {
+    const t = (h: number) => Date.UTC(2026, 9, 1, h);
+    // The fork is listed first and shares its origin's first timestamp; only its last write is later.
+    const todo = [
+      info('fork', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(6) }),
+      info('origin', { cwd: 'C:\\Code\\app', createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(todo, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+    const loose = [
+      info('fork', { createdAt: t(1), lastModified: t(6) }),
+      info('origin', { createdAt: t(1), lastModified: t(5) }),
+    ];
+    expect(importOrder(loose, () => false, 'win32').map((i) => i.sessionId)).toEqual(['origin', 'fork']);
+  });
+
   it('orders a thousand sessions newest folder first, oldest first within each folder', () => {
     const t0 = Date.UTC(2026, 0, 1);
     const all = Array.from({ length: 1000 }, (_, i) =>
@@ -903,7 +1102,7 @@ describe('first-run import order and pacing', () => {
     await svc.idle();
     const list = await threads.listThreads(WS);
     expect(list).toHaveLength(2); // the fork joined its parent's thread
-    // …and the thread is the parent's: it came in first, so the fork is the branch.
+    // â€¦and the thread is the parent's: it came in first, so the fork is the branch.
     const sessions = list.map((t) => t.settings.claude_code?.session_id).sort();
     expect(sessions).toEqual(['older', 'parent']);
   });

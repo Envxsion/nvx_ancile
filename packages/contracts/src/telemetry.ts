@@ -119,6 +119,13 @@ export const FEATURES = [
   'memory_export',
   'memory_import',
   'local_model_download',
+  // Images (docs/images.md): where an image came from, and where a generated one was made.
+  'image_generated',
+  'image_attached',
+  'image_model_output',
+  'image_provider_cloud',
+  'image_provider_local',
+  'image_provider_node',
 ] as const;
 export const Feature = z.enum(FEATURES);
 export type Feature = z.infer<typeof Feature>;

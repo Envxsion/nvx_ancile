@@ -209,6 +209,28 @@ describe('the reviewer chain', () => {
     ).rejects.toMatchObject({ code: 'auto.plan_too_broad' });
   });
 
+  it('says which step of the approved plan a call that runs fits, however it was allowed', async () => {
+    const events: RunEventInput[] = [];
+    const a = new AutoReview({ reviewers: [], plans, emit: async (_r, e) => void events.push(e) });
+    const plan = await plans.propose({
+      threadId: 'th1',
+      runId: null,
+      summary: 'Fix the tests',
+      steps: [
+        { action: 'fs.read', resource: 'fs:/workspace/src/**', note: '' },
+        { action: 'shell.exec', resource: 'shell:pnpm test*', note: '' },
+      ],
+    });
+    await a.noteStep(ctx(call(), { callId: 'c1' }));
+    expect(events).toEqual([]); // proposed, not approved
+    await plans.decide(plan.id, 'approved');
+    await a.noteStep(ctx(call(), { callId: 'c1' }));
+    await a.noteStep(ctx(call({ action: 'git.push', resource: 'git:origin' })));
+    expect(events).toEqual([
+      { type: 'plan.step_ran', plan_id: plan.id, step: 1, action: 'shell.exec', call_id: 'c1' },
+    ]);
+  });
+
   it('groups asks in a run and marks runs without asking', async () => {
     const events: RunEventInput[] = [];
     const a = new AutoReview({

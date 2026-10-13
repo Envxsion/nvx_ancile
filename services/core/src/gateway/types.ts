@@ -10,7 +10,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ErrorClass, ModelConfig, Part } from '@nvx/contracts';
+import type { ErrorClass, ModelConfig, Part, RoutingSettings } from '@nvx/contracts';
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -38,16 +38,24 @@ export interface ModelRequest {
    * a model gives that thread's notebook tools). Providers never see it.
    */
   meta?: { threadId?: string; notebookId?: string | null };
+  /** OpenRouter: a flow step's own routing choice; else the thread's, notebook's or model's applies. */
+  routing?: RoutingSettings;
 }
 
 export type StreamChunk =
   | { type: 'text'; delta: string }
   | { type: 'reasoning'; delta: string }
   | { type: 'tool_call'; callId: string; tool: string; args: unknown }
+  /** Something the person should know about this answer (a local model cut the prompt). */
+  | { type: 'warning'; code: string; message: string }
   | {
       type: 'finish';
       finishReason: string;
       usage: { inputTokens: number; outputTokens: number; cachedTokens?: number };
+      /** OpenRouter: the provider (and model) that actually answered. */
+      served?: { provider: string | null; model: string | null };
+      /** What the provider billed, when it says (OpenRouter's usage.cost); else Ancile prices it. */
+      costUsd?: number;
     };
 
 export interface ModelClient {

@@ -112,10 +112,10 @@ export function mapAsk(ask: LabAsk, place: LabPlace, hosted?: HostedLookup): Map
     case 'webfetch':
     case 'websearch':
       return {
-        action: ask.permission === 'websearch' ? 'web.search' : 'http.get',
+        action: ask.permission === 'websearch' ? 'web.search' : 'web.fetch',
         resource:
           ask.permission === 'websearch'
-            ? `web:${str(m.query) ?? first ?? ''}`
+            ? `web:search/${str(m.query) ?? first ?? ''}`
             : `http:${str(m.url) ?? first ?? ''}`,
         tier: 'gated',
         destructive: false,

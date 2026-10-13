@@ -18,6 +18,12 @@
  *           |       once can never leave an allow and a deny behind
  *           |    5. the decision is logged, the run's stream and every
  *           |       tab hear about it, and the run is queued to resume
+ *           |    6. a remembered answer settles the other waiting
+ *           |       requests it covers, each decided again by the gate
+ *           |       on its real arguments (decideAgain), never by the
+ *           |       pattern alone
+ *           |  A site rule (web:*, web:example.com, …) covers searches
+ *           |  and fetches, so its grant's action is web.*.
  *           |  Approving once with changed arguments (updated_args) is
  *           |  for an approval that says args_editable (a live Claude
  *           |  Code session's tool call): the permission is decided
@@ -49,8 +55,8 @@ import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { RunEventLog } from '../runs/events';
 import type { RunWorker } from '../runs/worker';
-import type { DecisionResult } from './decide';
-import { matchResource } from './glob';
+import { type DecisionResult, grantInScope } from './decide';
+import { grantActionFor, isWebPattern, matchAction, matchResource, webPatternNarrows } from './glob';
 import type { ApprovalRecord, GrantPatch, PermissionStore } from './store';
 
 export interface PermissionRouteDeps {
@@ -72,6 +78,12 @@ export interface PermissionRouteDeps {
   editable?: (approval: ApprovalRecord) => boolean;
   /** Decide again on changed arguments (the gate, on the real tool's mapping). */
   recheck?: (approval: ApprovalRecord, args: unknown) => Promise<DecisionResult>;
+  /**
+   * Decide a still-pending approval again, on its real arguments, now (the
+   * gate). Used after a remembered answer is saved: the other requests it
+   * now covers are settled by what this says, never by the pattern alone.
+   */
+  decideAgain?: (approval: ApprovalRecord) => Promise<DecisionResult | null>;
   /** Scope refs for a remembered answer, read from the run's thread. */
   scopeRefs(
     approval: ApprovalRecord,
@@ -107,6 +119,7 @@ const SCOPE_RANK: Record<GrantScope, number> = { thread: 0, notebook: 1, workspa
  */
 export function patternNarrows(granted: string, next: string): boolean {
   if (next === granted) return true;
+  if (isWebPattern(granted) || isWebPattern(next)) return webPatternNarrows(granted, next);
   if (!matchResource(granted, next)) return false;
   return !next.includes('**') || granted.includes('**');
 }
@@ -121,9 +134,11 @@ const literalPrefix = (pattern: string) => pattern.split('*')[0] ?? '';
  */
 export function patternAllowed(
   pattern: string,
-  a: Pick<ApprovalRecord, 'resource' | 'suggestions'>,
+  a: Pick<ApprovalRecord, 'resource' | 'suggestions'> & { action?: string },
 ): boolean {
   if (pattern === a.resource || a.suggestions.includes(pattern)) return true;
+  // A site rule is for searches and fetches only, and may be as wide as web:*.
+  if (isWebPattern(pattern)) return !!a.action?.startsWith('web.');
   const start = literalPrefix(pattern);
   return [a.resource, ...a.suggestions].some((s) => {
     const bound = literalPrefix(s);
@@ -258,7 +273,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
       grant = {
         userId: deps.userId,
         principal: a.principal,
-        actionPattern: a.action,
+        actionPattern: grantActionFor(pattern, a.action),
         resourcePattern: pattern,
         effect: req.decision === 'approve' ? 'allow' : 'deny',
         scope,
@@ -292,11 +307,66 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
       runId: a.run_id,
       traceId: currentContext()?.traceId ?? newTraceId(),
     });
+    await announce(a, status, req.reason ?? null, req.updated_args);
+    if (grant && grantId) await settleCovered(a, grant);
+    return { ...approvalOut({ ...a, status }), grant_id: grantId };
+  };
+
+  /** Tell the run, every tab and whoever is waiting, then let the run go on. */
+  const announce = async (
+    a: ApprovalRecord,
+    status: 'approved' | 'denied',
+    reason: string | null,
+    updatedArgs?: unknown,
+  ) => {
     await deps.events.append(a.run_id, { type: 'approval.resolved', approval_id: a.id, decision: status });
     await deps.bus?.publish({ type: 'approval.resolved', approval_id: a.id }).catch(() => undefined);
-    await deps.onResolved?.(a, status, req.reason ?? null, req.updated_args);
+    await deps.onResolved?.(a, status, reason, updatedArgs);
     await deps.worker.resume(a.run_id);
-    return { ...approvalOut({ ...a, status }), grant_id: grantId };
+  };
+
+  /**
+   * A remembered answer was just saved: every other request still waiting
+   * that it covers (same agent, action and resource, in its scope) is
+   * decided again through the gate, on its real arguments, and settled by
+   * that decision. One the gate still asks about (critical, escalated, a
+   * floor) stays waiting.
+   */
+  const settleCovered = async (
+    from: ApprovalRecord,
+    g: NonNullable<Parameters<PermissionStore['createGrant']>[0]>,
+  ): Promise<void> => {
+    if (!deps.decideAgain) return;
+    for (const p of await store.pendingApprovals()) {
+      if (p.id === from.id || p.status !== 'pending' || p.tier === 'critical') continue;
+      if (p.principal !== g.principal) continue;
+      if (!matchAction(g.actionPattern, p.action) || !matchResource(g.resourcePattern, p.resource)) continue;
+      const refs = await deps.scopeRefs(p);
+      const like = {
+        id: '',
+        principal: g.principal,
+        actionPattern: g.actionPattern,
+        resourcePattern: g.resourcePattern,
+        effect: g.effect,
+        scope: g.scope,
+        scopeRef: g.scopeRef,
+        expiresAt: g.expiresAt,
+        revokedAt: null,
+      };
+      if (!grantInScope(like, refs)) continue;
+      const d = await deps.decideAgain(p).catch(() => null);
+      if (!d || d.outcome === 'ask') continue;
+      const status = d.outcome === 'allow' ? 'approved' : 'denied';
+      const reason = d.outcome === 'deny' ? d.reason : null;
+      const won = await store.resolveApproval(p.id, {
+        status,
+        decidedBy: deps.userId,
+        scope: 'once',
+        pattern: null,
+        reason,
+      });
+      if (won) await announce(p, status, reason);
+    }
   };
 
   /**

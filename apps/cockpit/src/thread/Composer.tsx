@@ -24,7 +24,13 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodeCommand } from '@nvx/contracts';
+import {
+  type ClaudeCodeCommand,
+  IMAGE_LIMITS,
+  IMAGE_MIMES,
+  type ImageProviders,
+  type ImageRecord,
+} from '@nvx/contracts';
 import {
   type ClipboardEvent,
   type CSSProperties,
@@ -39,15 +45,18 @@ import {
 } from 'react';
 import { type AncileExtra, ccMenu, parseTyped } from '../claudecode/live';
 import * as demo from '../fixtures/demo';
+import { attachImage, imageKeys } from '../images/api';
 import { useBinding } from '../keys/dispatch';
 import { api } from '../lib/api';
 import { useModels, useNotebooks, useSources } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
+import { queryClient } from '../lib/query';
 import type { Hue } from '../lib/types';
 import { openBeam } from '../pro/beam';
 import { useRepos } from '../repos/data';
 import { useUploads } from '../sources/uploads';
+import { notify } from '../state/notify';
 import { usePref } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
@@ -70,6 +79,7 @@ const SLASH: Slash[] = [
   { cmd: '/sources', hint: "Open this notebook's sources", run: 'sources' },
   { cmd: '/keys', hint: 'Show keyboard shortcuts', run: 'shortcuts' },
   { cmd: '/beam', hint: 'Ask several models at once, then fuse their answers', run: 'beam' },
+  { cmd: '/image', hint: 'Make an image from a description' },
 ];
 
 /** What the offline test model obeys; listed only while it is the model. */
@@ -115,6 +125,8 @@ export interface SendExtras {
   model: string | null;
   /** A flow @-mentioned for this one message (DESIGN §16.3). */
   flowId: string | null;
+  /** Images attached to this message (docs/images.md). */
+  images?: ImageRecord[];
 }
 
 const MENTION_ICON: Record<Mention['kind'], IconName> = {
@@ -126,6 +138,17 @@ const MENTION_ICON: Record<Mention['kind'], IconName> = {
 };
 
 const serverParent = (parentId: string | null) => parentId ?? '_';
+
+/** An image on its way to the next message: uploading, then ready with its stored record. */
+interface PendingImage {
+  key: string;
+  name: string;
+  preview: string;
+  state: 'sending' | 'ready';
+  record?: ImageRecord;
+}
+
+const isAttachableImage = (f: File) => (IMAGE_MIMES as readonly string[]).includes(f.type);
 
 export const draftKey = (threadId: string, parentId: string | null) =>
   `nvx.ancile.draft:${threadId}:${parentId ?? 'root'}`;
@@ -174,6 +197,7 @@ export function Composer({
   const [dismissedMenu, setDismissedMenu] = useState(false);
   const [focused, setFocused] = useState(false);
   const [sending, setSending] = useState(false);
+  const [images, setImages] = useState<PendingImage[]>([]);
   const ref = useRef<HTMLTextAreaElement>(null);
   const isDemo = useUi((s) => s.demo);
   const openPalette = useUi((s) => s.openPalette);
@@ -490,8 +514,37 @@ export function Composer({
   };
 
   const send = async (override?: string) => {
-    const value = (override ?? text).trim();
+    let value = (override ?? text).trim();
     if (!value || sending || claudeCode?.readOnly) return;
+    if (images.some((i) => i.state === 'sending')) {
+      notify({ level: 'info', title: 'An image is still being attached', body: 'Send again in a moment.' });
+      return;
+    }
+    // "/image <description>": the model makes it with image_generate (docs/images.md).
+    const image = !claudeCode ? /^\/image(?:\s+([\s\S]*))?$/.exec(value) : null;
+    if (image) {
+      const prompt = (image[1] ?? '').trim();
+      if (!prompt) {
+        notify({
+          level: 'info',
+          title: 'Describe the image after /image',
+          body: 'For example: /image a red pump on a white bench',
+        });
+        return;
+      }
+      const providers = await queryClient
+        .fetchQuery({
+          queryKey: imageKeys.providers,
+          queryFn: () => api.get<ImageProviders>('/images/providers'),
+          staleTime: 60_000,
+        })
+        .catch(() => null);
+      if (providers?.empty_hint) {
+        notify({ level: 'info', title: 'Images need a provider', body: providers.empty_hint });
+        return;
+      }
+      value = `Make an image: ${prompt}`;
+    }
     // A command NVX Ancile does itself is never sent to Claude Code.
     if (claudeCode && value.startsWith('/')) {
       const typed = parseTyped(value, claudeCode.commands);
@@ -517,10 +570,14 @@ export function Composer({
         .map((p) => ({ kind: p.kind, id: p.id })),
       model: picked.find((p) => p.kind === 'model')?.id ?? null,
       flowId: picked.find((p) => p.kind === 'flow')?.id ?? null,
+      ...(images.length && {
+        images: images.flatMap((i) => (i.state === 'ready' && i.record ? [i.record] : [])),
+      }),
     };
     const ok = await Promise.resolve(onSend(value, sendExtras)).finally(() => setSending(false));
     if (ok === false) return;
     clearDraft();
+    clearImages();
   };
 
   // Something outside the composer put text back (a queued message) or sent it.
@@ -579,14 +636,52 @@ export function Composer({
     }
   };
 
+  const clearImages = () =>
+    setImages((list) => {
+      for (const i of list) URL.revokeObjectURL(i.preview);
+      return [];
+    });
+
+  /** Images go with the next message of a real thread; anything else into the notebook. */
+  const addImages = (files: File[]) => {
+    const room = Math.max(0, IMAGE_LIMITS.perTurn - images.length);
+    if (files.length > room)
+      notify({
+        level: 'info',
+        title: `Up to ${IMAGE_LIMITS.perTurn} images go with one message`,
+        body: 'Send these, then attach the rest to the next message.',
+      });
+    for (const file of files.slice(0, room)) {
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const pending: PendingImage = {
+        key,
+        name: file.name || 'Pasted image',
+        preview: URL.createObjectURL(file),
+        state: 'sending',
+      };
+      setImages((l) => [...l, pending]);
+      attachImage(threadId, file).then(
+        (record) => setImages((l) => l.map((i) => (i.key === key ? { ...i, state: 'ready', record } : i))),
+        (e: Error & { hint?: string }) => {
+          setImages((l) => l.filter((i) => i.key !== key));
+          URL.revokeObjectURL(pending.preview);
+          notify({ level: 'error', title: e.message, body: e.hint ?? 'Try another image.' });
+        },
+      );
+    }
+  };
+
   const addFiles = (files: FileList | File[]) => {
     const list = Array.from(files);
-    if (list.length === 0 || !notebookId) return;
-    addUploads(notebookId, list);
+    if (list.length === 0) return;
+    const pics = synced ? list.filter(isAttachableImage) : [];
+    const rest = list.filter((f) => !pics.includes(f));
+    if (pics.length) addImages(pics);
+    if (rest.length && notebookId) addUploads(notebookId, rest);
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (e.clipboardData.files.length > 0 && notebookId) {
+    if (e.clipboardData.files.length > 0 && (notebookId || synced)) {
       e.preventDefault();
       addFiles(e.clipboardData.files);
       return;
@@ -621,7 +716,7 @@ export function Composer({
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
-          e.dataTransfer.dropEffect = notebookId ? 'copy' : 'none';
+          e.dataTransfer.dropEffect = notebookId || synced ? 'copy' : 'none';
           setDragging(true);
         }
       }}
@@ -716,6 +811,32 @@ export function Composer({
                     </MenuOption>
                   ))}
         </div>
+      ) : null}
+
+      {images.length > 0 ? (
+        <ul className="composer__images" aria-label="Images going with this message">
+          {images.map((i) => (
+            <li key={i.key} className="composer__image" data-state={i.state}>
+              <img src={i.preview} alt={i.name} />
+              {i.state === 'sending' ? (
+                <span className="composer__image-busy">
+                  <span className="sr-only">Attaching {i.name}</span>
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className="icon-btn icon-btn--xs composer__image-remove"
+                aria-label={`Remove ${i.name}`}
+                onClick={() => {
+                  URL.revokeObjectURL(i.preview);
+                  setImages((l) => l.filter((x) => x.key !== i.key));
+                }}
+              >
+                <Icon name="close" size={10} />
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {picked.length > 0 || uploads.length > 0 ? (
@@ -837,6 +958,24 @@ export function Composer({
             />
           </label>
         </Tip>
+        {synced ? (
+          <Tip label="Attach images to this message">
+            <label className="icon-btn icon-btn--sm composer__attach">
+              <Icon name="image" size={14} />
+              <span className="sr-only">Attach images to this message</span>
+              <input
+                type="file"
+                multiple
+                accept={IMAGE_MIMES.join(',')}
+                className="sr-only"
+                onChange={(e) => {
+                  if (e.target.files) addImages(Array.from(e.target.files));
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </Tip>
+        ) : null}
         {claudeCode ? (
           claudeCode.bar
         ) : (

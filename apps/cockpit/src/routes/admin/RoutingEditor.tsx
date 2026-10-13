@@ -49,6 +49,7 @@ const STATUS_NOTE: Record<NonNullable<ModelView['status']>, string> = {
   ready: 'Ready',
   needs_key: 'Skipped until its key is added',
   disabled: 'Skipped while it is off',
+  not_pulled: 'Skipped until Ollama has it',
 };
 
 function failed(error: unknown, what: string) {

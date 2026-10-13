@@ -57,6 +57,8 @@ export const UsageReport = z.object({
   by_engine: z.array(UsageTotals.extend({ engine: UsageEngine })),
   /** The busiest models by tokens; the rest fold into one "other models" row (model_id null). */
   by_model: z.array(UsageTotals.extend({ model_id: z.string().nullable(), engine: UsageEngine })),
+  /** OpenRouter answers by the provider that served them (GET /usage?provider= narrows the report to one). */
+  by_provider: z.array(UsageTotals.extend({ provider: z.string() })).default([]),
   /** Part of cost_usd that is Claude Code's own estimate at API list prices. */
   estimated_cost_usd: z.number().nonnegative(),
 });

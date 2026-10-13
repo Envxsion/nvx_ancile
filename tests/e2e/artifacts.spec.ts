@@ -9,8 +9,9 @@
  *
  * Proven: zero hits with the network off; zero hits on 127.0.0.1 even with
  * the network allowed (https only); nothing of the parent readable; the
- * frame's origin is opaque. A control request from the page itself does
- * reach the server, so the zero is meaningful.
+ * frame's origin is opaque. A control request from outside the browser
+ * does reach the server, so the zero is meaningful; the Cockpit page itself
+ * cannot (its own policy allows only its origin).
  */
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -57,13 +58,27 @@ test.describe('artifact sandbox', () => {
   test.skip(BACKEND, 'runs on the dev server only');
   test.skip(({ browserName }) => browserName !== 'chromium', 'the sandbox rules are checked in Chromium');
 
-  test('a request from the page itself reaches the stand-in server (control)', async ({ page }) => {
+  test('a request from outside the page reaches the stand-in server (control)', async ({ page }) => {
+    hits.length = 0;
+    await page.request.get(`http://127.0.0.1:${port}/hit?k=control`);
+    expect(hits).toContain('control');
+  });
+
+  test("the Cockpit page itself cannot reach another local port (its own connect-src 'self')", async ({
+    page,
+  }) => {
     hits.length = 0;
     await page.goto('/testbed/artifact.html?port=9');
-    await page.evaluate(async (p) => {
-      await fetch(`http://127.0.0.1:${p}/hit?k=control`, { mode: 'no-cors' });
+    const outcome = await page.evaluate(async (p) => {
+      try {
+        await fetch(`http://127.0.0.1:${p}/hit?k=page`, { mode: 'no-cors' });
+        return 'reached';
+      } catch {
+        return 'blocked';
+      }
     }, port);
-    expect(hits).toContain('control');
+    expect(outcome).toBe('blocked');
+    expect(hits).toEqual([]);
   });
 
   test('with the network off nothing leaves the frame and nothing of the parent is readable', async ({

@@ -17,6 +17,7 @@
  */
 
 import { z } from 'zod';
+import { RoutingSettings } from './openrouter';
 
 /* ---- Context policy (DESIGN §16.2) ---------------------------------------- */
 
@@ -113,6 +114,8 @@ export const ModelParams = z.object({
     .optional(),
   /** For a model on a sleeping GPU node: wait this long for it to wake, else take the fallbacks. */
   wait_for_wake_s: z.number().int().min(0).max(900).optional(),
+  /** OpenRouter models: how this step picks a provider (docs/openrouter.md); unset follows the thread. */
+  routing: RoutingSettings.optional(),
 });
 export type ModelParams = z.infer<typeof ModelParams>;
 
@@ -147,6 +150,8 @@ export const FlowNode = z.discriminatedUnion('kind', [
       min_confidence: z.number().min(0).max(1).default(0.5),
       /** May choose several routes at once (they run in parallel). */
       multi: z.boolean().default(false),
+      /** OpenRouter models: how the router's own call picks a provider. */
+      routing: RoutingSettings.optional(),
     }),
   }),
   z.object({
@@ -423,6 +428,8 @@ export const FlowStepRecord = z.object({
   output: z.string().default(''),
   reasoning: z.string().optional(),
   error: z.string().optional(),
+  /** Something to see about how the step ran, such as which model stood in for its own. */
+  note: z.string().optional(),
   /** Tools the node called, in order, and how each went. */
   tool_calls: z
     .array(

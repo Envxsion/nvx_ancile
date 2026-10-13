@@ -21,6 +21,7 @@ import { type CSSProperties, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { hueVar } from '../lib/format';
 import type { Hue } from '../lib/types';
+import { StepRouting } from '../openrouter/StepRouting';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
@@ -573,6 +574,14 @@ function ModelSettings({
           />
         </Field>
       </div>
+      {m?.openrouter ? (
+        <StepRouting
+          model={m.openrouter}
+          modelId={m.id}
+          value={p.routing}
+          onChange={(routing) => set({ routing })}
+        />
+      ) : null}
       <Field label="Thinking">
         <Segmented
           size="sm"

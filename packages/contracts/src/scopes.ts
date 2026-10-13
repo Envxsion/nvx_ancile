@@ -145,6 +145,7 @@ export const BUILTIN_TOOL_PRESETS: readonly ToolPreset[] = [
       'fs.list',
       'flow.ask',
       'code.run',
+      'image.generate',
       'mcp.**',
       CLAUDE_CODE_BOOKKEEPING,
     ],

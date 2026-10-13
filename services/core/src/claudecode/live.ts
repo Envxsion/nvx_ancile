@@ -46,14 +46,17 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import {
   AncileError,
-  CLAUDE_CODE_CONTEXT_NOTICE,
   type ClaudeCodeCommand,
   type ClaudeCodeFolderRequest,
   type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
+  type ClaudeCodeSetupReport,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
+  claudeCodeContextNotice,
+  claudeCodeLean,
   type EngineContextReport,
+  type ImagePart,
   type Part,
   type RetrievalTrace,
   type SearchHit,
@@ -71,6 +74,7 @@ import { hostedTool } from '../lab/hosted';
 import { notFound } from '../obs/errors';
 import { logFor } from '../obs/logger';
 import { type SpanHandle, startSpan } from '../obs/spans';
+import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import type { FsProbe } from '../permissions/normalize';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
@@ -94,6 +98,7 @@ import { type CliCommand, CommandCatalogue, type CommandList, mergeCommands } fr
 import { ccErrors, limitFromResult } from './errors';
 import type { SessionHolders } from './holders';
 import { type CcProvenance, MAPPER_VERSION, planSync, provenanceOf, type UnknownRaw } from './map';
+import { stripReminders } from './markup';
 import { type Passage, threadToken } from './mcp-server';
 import {
   ANCILE_MCP_SERVER,
@@ -111,6 +116,7 @@ export const CC_MODEL_NAME = 'Claude Code';
 export const BUSY_WINDOW_MS = 60_000;
 /** How long one turn may take before it is stopped. */
 export const TURN_DEADLINE_MS = 60 * 60_000;
+export const IDLE_CLOSE_MS = 3 * 60_000;
 /** Claude Code's command list is read again after this (claudecode/commands.ts). */
 export { COMMANDS_TTL_MS } from './commands';
 
@@ -128,6 +134,8 @@ export interface ClaudeCodeCheckpoint {
   userMessageId: string;
   assistantMessageId: string;
   text: string;
+  /** Images attached to the prompt (core.images ids), sent to Claude Code as image input. */
+  imageIds?: string[];
   /** The uuid the prompt is sent with; Claude Code writes its transcript entry under it. */
   promptUuid: string;
   /** The session the turn resumes (the one forked from, for a fork). */
@@ -153,6 +161,8 @@ export interface ClaudeCodeCheckpoint {
   rebind?: boolean;
   /** Without files: Claude Code's own tools off, in NVX Ancile's empty folder. */
   noFiles?: boolean;
+  /** Lean: only the project's own Claude Code settings load (ClaudeCodeBinding.lean). Kept for resumes. */
+  lean?: boolean;
 }
 
 /**
@@ -223,6 +233,10 @@ export interface LiveServiceView {
   notebookForFolder?(cwd: string): Promise<string | null>;
   /** The folder is in Settings → Claude Code → Excluded folders. */
   folderExcluded?(cwd: string): Promise<boolean>;
+  /** Lean sessions: the input of the latest first turn that loaded the person's whole setup. */
+  fullFirstTurn?(): Promise<number | null>;
+  /** Remember a first turn's input that loaded the whole setup, for the Why panel's comparison. */
+  recordFullFirstTurn?(tokens: number): Promise<void>;
   /** Can Claude Code carry sessions on from here (installed, verified, signed in)? Absent: assume so. */
   availability?(): Promise<'ready' | 'not_installed' | 'signed_out' | 'unverified'>;
   /** Keep the raw text of entries this version cannot show (and warn once per Claude Code version). */
@@ -230,6 +244,11 @@ export interface LiveServiceView {
 }
 
 export interface LiveDeps {
+  /** Images a turn carries (images/service.ts): their parts, and their bytes for Claude Code. */
+  images?: {
+    partsFor(threadId: string, ids: string[]): Promise<ImagePart[]>;
+    bytes(id: string): Promise<{ mime: string; data: string } | null>;
+  };
   workspaceId: string;
   userId: string;
   bridge: LiveBridge;
@@ -255,6 +274,8 @@ export interface LiveDeps {
   now?: () => number;
   turnDeadlineMs?: number;
   stopGraceMs?: number;
+  /** How long an idle session stays open before it is closed (and its folder let go); default 3 minutes. */
+  idleCloseMs?: number;
   /** Does a folder exist (tests)? */
   folderExists?: (cwd: string) => Promise<boolean>;
   /** What is at a path, for a new thread's folder (tests); default: the file system. */
@@ -301,6 +322,8 @@ interface Turn {
   limit: { resetsAt: string | null } | null;
   stopped: boolean;
   sessionId: string | null;
+  /** The uuid Claude Code gave the prompt when it echoed it under one of its own (a resumed session). */
+  promptEntry: string | null;
   seq: number;
   settle: (() => void) | null;
 }
@@ -319,9 +342,13 @@ interface Live {
   permissionMode: string | null;
   /** The appended system note the open handle was started with. */
   note: string | null;
+  /** Whether the open handle was started lean (a change reopens it). */
+  lean?: boolean;
   /** Claude Code's running cost total for the open handle (to tell one turn's share). */
   costSoFar: number;
   turn: Turn | null;
+  /** Closes the open handle once it has been idle a while (live.ts closeWhenIdle). */
+  idleTimer: NodeJS.Timeout | null;
 }
 
 interface WaitingAsk {
@@ -351,6 +378,18 @@ const preview = (raw: unknown): string => {
   return s.length > PREVIEW ? `${s.slice(0, PREVIEW)}…` : s;
 };
 const stripMarker = (u: string) => u.replace(/\+$/, '');
+
+/** A user entry that is the prompt just sent (context block and reminders left out); never a slash command. */
+export function isPromptEcho(e: CcSessionMessage, sent: string): boolean {
+  if (e.type !== 'user' || /^[/!]/.test(sent.trim())) return false;
+  const msg = isObj(e.message) ? e.message : {};
+  const c = msg.content;
+  const blocks =
+    typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c.filter(isObj) : [];
+  if (!blocks.length || blocks.some((b) => b.type !== 'text' && b.type !== 'image')) return false;
+  const text = blocks.map((b) => (b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('\n');
+  return stripReminders(text).trim() === sent.trim();
+}
 
 /**
  * A thread started in NVX Ancile (POST /claude-code/threads) is bound to a
@@ -477,6 +516,7 @@ export class ClaudeCodeLive {
 
   stop(): void {
     this.unsubscribe();
+    for (const l of this.lives.values()) if (l.idleTimer) clearTimeout(l.idleTimer);
     for (const l of this.byHandle.values())
       if (l.handle) void this.deps.bridge.close(l.handle).catch(() => undefined);
     this.byHandle.clear();
@@ -515,6 +555,7 @@ export class ClaudeCodeLive {
         note: null,
         costSoFar: 0,
         turn: null,
+        idleTimer: null,
       };
       this.lives.set(thread.id, l);
     }
@@ -553,6 +594,16 @@ export class ClaudeCodeLive {
   }
 
   /** Is the session's folder still a folder on this computer? */
+  /** The bytes of a turn's images, base64, as Claude Code takes image input. */
+  private async imagesOf(ids: string[]): Promise<{ mime: string; data: string }[]> {
+    const out: { mime: string; data: string }[] = [];
+    for (const id of ids) {
+      const b = await this.deps.images?.bytes(id);
+      if (b) out.push(b);
+    }
+    return out;
+  }
+
   private async folderThere(cwd: string): Promise<boolean> {
     if (this.deps.folderExists) return this.deps.folderExists(cwd);
     return (await (this.deps.folderKind ?? folderKind)(cwd)) === 'dir';
@@ -648,6 +699,8 @@ export class ClaudeCodeLive {
           cwd,
           last_uuid: null,
           synced_at: new Date(this.now()).toISOString(),
+          // Started here: lean by default (only the project's own Claude Code settings load).
+          started_in: 'ancile',
         },
       },
     });
@@ -681,6 +734,12 @@ export class ClaudeCodeLive {
     const info = pending ? null : await this.deps.sessionInfo(cc.session_id).catch(() => null);
     if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
 
+    // Images go with the prompt only when this Core can read them back for Claude Code.
+    const imageParts: ImagePart[] = req.image_ids?.length
+      ? this.deps.images
+        ? await this.deps.images.partsFor(thread.id, req.image_ids)
+        : []
+      : [];
     const msgs = await this.deps.threads.messages(thread.id);
     // parent_id null: from the start of the session (editing its first message). Claude Code
     // cannot fork before its first entry, so a new session starts in the same folder, bound to
@@ -743,7 +802,7 @@ export class ClaudeCodeLive {
       thread_id: thread.id,
       parent_id: parent?.id ?? null,
       role: 'user',
-      parts: [{ type: 'text', text: req.text }],
+      parts: [{ type: 'text', text: req.text }, ...imageParts],
       status: 'complete',
       trace_id: traceId,
       provenance: {
@@ -769,6 +828,7 @@ export class ClaudeCodeLive {
       userMessageId: userId,
       assistantMessageId: assistantId,
       text: req.text,
+      ...(imageParts.length && { imageIds: imageParts.flatMap((p) => (p.image_id ? [p.image_id] : [])) }),
       promptUuid,
       sessionId,
       resumeAt: fork ? resumeAt : null,
@@ -786,6 +846,7 @@ export class ClaudeCodeLive {
       ...((plan || fresh) && { fresh }),
       ...(restart && { rebind: true }),
       ...(noFiles && { noFiles: true }),
+      ...(claudeCodeLean(cc) && { lean: true }),
     };
     try {
       await this.deps.runs.create({
@@ -812,6 +873,8 @@ export class ClaudeCodeLive {
       user_message_id: userId,
       assistant_message_id: assistantId,
       ...(checkpoint.prefix && { context_shared: true }),
+      ...(checkpoint.prefix &&
+        checkpoint.engineContext && { context_notice: claudeCodeContextNotice(checkpoint.engineContext) }),
       ...(branched && { branched }),
     };
     this.sent.set(key, { at: this.now(), result });
@@ -821,7 +884,32 @@ export class ClaudeCodeLive {
 
   /* ---- the session behind a thread -------------------------------------- */
 
+  /**
+   * What the answer's session loaded (provenance.claude_code.setup). A first
+   * turn with the whole setup is remembered, so a lean one can say what it saved.
+   */
+  private async setupReport(cp: ClaudeCodeCheckpoint, usage: Usage | null): Promise<ClaudeCodeSetupReport> {
+    const lean = cp.lean === true;
+    const firstTurn = cp.fresh === true && !cp.fork;
+    if (!firstTurn || cp.noFiles) return { lean, first_turn: firstTurn };
+    const input = usage ? usage.input_tokens + usage.cached_tokens : 0;
+    const svc = this.deps.service;
+    if (!lean) {
+      if (input > 0)
+        await svc
+          .recordFullFirstTurn?.(input)
+          .catch((err: unknown) =>
+            log.warn({ err: (err as Error).message }, "could not remember a first turn's input"),
+          );
+      return { lean, first_turn: true };
+    }
+    const full = (await svc.fullFirstTurn?.().catch(() => null)) ?? null;
+    return { lean, first_turn: true, full_first_turn_tokens: full };
+  }
+
   private async ensureHandle(l: Live, cp: ClaudeCodeCheckpoint): Promise<string> {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
     const want = cp.fork || cp.fresh ? null : cp.sessionId;
     const nb = l.notebookId ? await this.deps.notebook(l.notebookId) : null;
     const base = appendPrompt(nb?.title ?? null);
@@ -839,6 +927,7 @@ export class ClaudeCodeLive {
       want &&
       l.sessionId === want &&
       (l.note === null || l.note === note) &&
+      (l.lean ?? false) === (cp.lean === true) &&
       !(auto && l.effort !== null)
     ) {
       if (cp.model && cp.model !== l.model) {
@@ -864,6 +953,9 @@ export class ClaudeCodeLive {
       ...(effort && { effort }),
       // Without files: none of Claude Code's own tools, and only the person's user settings.
       ...(cp.noFiles && { tools: [], setting_sources: ['user' as const] }),
+      // Lean: only the project's own settings and CLAUDE.md, not the person's user plugins,
+      // MCP servers or user CLAUDE.md. Nothing in their Claude Code setup is changed.
+      ...(cp.lean && !cp.noFiles && { setting_sources: ['project' as const] }),
       permission_mode: 'default',
       append_system_prompt: note,
       ...(this.deps.mcp && {
@@ -881,6 +973,7 @@ export class ClaudeCodeLive {
     l.handle = handle;
     l.sessionId = cp.fork || cp.fresh ? null : cp.sessionId;
     l.note = note;
+    l.lean = cp.lean === true;
     l.state = 'ready';
     l.model = cp.model;
     l.effort = effort;
@@ -890,7 +983,28 @@ export class ClaudeCodeLive {
     return handle;
   }
 
+  /**
+   * An idle session is closed after a short while. Its Claude Code process
+   * works in the thread's folder, and on Windows a folder a process works
+   * in cannot be renamed or moved. The next turn resumes the session.
+   */
+  private closeWhenIdle(l: Live) {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
+    if (!l.handle) return;
+    l.idleTimer = setTimeout(() => {
+      l.idleTimer = null;
+      if (l.turn || !l.handle) return;
+      if ([...this.waiting.values()].some((w) => w.live === l)) return this.closeWhenIdle(l);
+      log.info({ thread_id: l.threadId }, 'closed an idle Claude Code session; the next turn resumes it');
+      void this.closeHandle(l);
+    }, this.deps.idleCloseMs ?? IDLE_CLOSE_MS);
+    l.idleTimer.unref?.();
+  }
+
   private async closeHandle(l: Live) {
+    if (l.idleTimer) clearTimeout(l.idleTimer);
+    l.idleTimer = null;
     const h = l.handle;
     if (!h) return;
     l.handle = null;
@@ -962,10 +1076,11 @@ export class ClaudeCodeLive {
         type: 'context.shared',
         message_id: cp.assistantMessageId,
         engine: 'claude_code',
-        notice: CLAUDE_CODE_CONTEXT_NOTICE,
+        notice: claudeCodeContextNotice(cp.engineContext),
         turns: cp.engineContext.foreign_turns,
         tokens: cp.engineContext.tokens,
         seeded_from_summary: cp.engineContext.seeded_from_summary,
+        source_notes: cp.engineContext.source_notes ?? 0,
       });
 
     const turn: Turn = {
@@ -987,6 +1102,7 @@ export class ClaudeCodeLive {
       limit: null,
       stopped: false,
       sessionId: null,
+      promptEntry: null,
       seq: 1_000,
       settle: null,
     };
@@ -1022,6 +1138,7 @@ export class ClaudeCodeLive {
         await ctx.once(0, 'claude_code_prompt', { promptUuid: cp.promptUuid }, async () => {
           await this.deps.bridge.send(handle, cp.prefix ? `${cp.prefix}\n\n${cp.text}` : cp.text, {
             uuid: cp.promptUuid,
+            ...(cp.imageIds?.length && { images: await this.imagesOf(cp.imageIds) }),
           });
           return true;
         });
@@ -1055,6 +1172,7 @@ export class ClaudeCodeLive {
       this.ownWrites.set(sid, this.now());
       // A question still open when its turn ends is withdrawn, never left for a later turn.
       await this.withdrawWaiting(l, 'turn_ended');
+      this.closeWhenIdle(l);
     }
   }
 
@@ -1137,6 +1255,16 @@ export class ClaudeCodeLive {
       }
     }
 
+    if (turn.promptEntry)
+      await threads.updateMessage(cp.userMessageId, {
+        provenance: {
+          claude_code: {
+            session_id: sessionId,
+            uuid: turn.promptEntry,
+            uuids: [cp.promptUuid, turn.promptEntry],
+          } satisfies CcProvenance,
+        },
+      });
     const mirror = await this.deps.store.mirror(cp.threadId);
     const plan = planSync(turn.entries, mirror, () => `msg_${ulid()}`, cp.userMessageId);
     await this.adoptCommand(cp, plan, sessionId);
@@ -1237,6 +1365,7 @@ export class ClaudeCodeLive {
             ? { input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: turnCost }
             : null;
         main = { parts, usage };
+        const setup = await this.setupReport(cp, p.usage ?? null);
         await threads.updateMessage(cp.assistantMessageId, {
           parts,
           status,
@@ -1246,6 +1375,7 @@ export class ClaudeCodeLive {
             model_name: CC_MODEL_NAME,
             claude_code: {
               ...ccProv,
+              setup,
               ...(turnCost !== null && {
                 cost_estimate: {
                   usd: turnCost,
@@ -1482,6 +1612,11 @@ export class ClaudeCodeLive {
         if (!top || m.isReplay === true || m.uuid === t.cp.promptUuid) return;
         const entry = this.entryOf(m);
         if (!entry) return;
+        // The prompt itself, echoed under a uuid of Claude Code's own: it is the person's message, not a new one.
+        if (!t.promptEntry && !t.entries.length && isPromptEcho(entry, t.cp.text)) {
+          t.promptEntry = entry.uuid;
+          return;
+        }
         t.entries.push(entry);
         const msg = isObj(m.message) ? m.message : {};
         const content = Array.isArray(msg.content) ? msg.content.filter(isObj) : [];
@@ -1637,10 +1772,7 @@ export class ClaudeCodeLive {
       return;
     }
     if (decision.outcome === 'deny') {
-      const why =
-        decision.via === 'policy'
-          ? `A policy blocks this (${decision.policyId ?? 'policy'}).`
-          : decision.reason;
+      const why = refusalForModel(decision);
       await this.reply(l, ask, { behavior: 'deny', message: why });
       return;
     }

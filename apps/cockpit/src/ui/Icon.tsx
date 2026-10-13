@@ -45,6 +45,7 @@ const PATHS = {
   warn: 'M8 2.5l6 10.5H2L8 2.5ZM8 6.5v3M8 11.25h.01',
   alert: 'M8 14a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM8 5v3.5M8 10.75h.01',
   question: 'M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.4M8 11.3h.01',
+  info: 'M8 14a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM8 7.25v3.75M8 5.25h.01',
   keyboard: 'M2 4.5h12v7H2zM4.5 7h.01M7 7h.01M9.5 7h.01M12 7h.01M5 9.5h6',
   panelLeft: 'M2.5 3h11v10h-11zM6 3v10',
   panelRight: 'M2.5 3h11v10h-11zM10 3v10',

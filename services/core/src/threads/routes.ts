@@ -17,6 +17,7 @@
 import {
   AncileError,
   CLIENT_ID_HEADER,
+  type ClaudeCodeBinding,
   CreateThreadRequest,
   EditMessageRequest,
   type Message,
@@ -45,7 +46,14 @@ import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
 import { cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
 import { holderOf, type SendLocks, withSendLock } from './send-lock';
-import { assertChatModel, startTurn, type TurnDeps, usableChatModel } from './service';
+import {
+  assertChatModel,
+  modelGone,
+  startTurn,
+  suggestedModel,
+  type TurnDeps,
+  usableChatModel,
+} from './service';
 
 /** Longest text part a person can send (characters); far beyond any context window. */
 export const MAX_TEXT_PART = 1_000_000;
@@ -74,6 +82,8 @@ export interface ThreadRouteDeps extends TurnDeps {
   notebookExists?: (id: string) => Promise<boolean>;
   /** Deleting a thread keeps its own flows as workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
+  /** After a thread is deleted (its images' files are swept, docs/images.md). */
+  afterDelete?: (threadId: string) => Promise<unknown>;
   /** One sender per thread across windows (send-lock.ts); absent: idempotency and the run index only. */
   sendLocks?: SendLocks;
 }
@@ -210,6 +220,11 @@ export function threadRoutes(deps: ThreadRouteDeps) {
 
   r.get('/threads/:id', async (c) => c.json(threadOut(await thread(c.req.param('id')))));
 
+  const claudeCodeOf = (t: { settings: { claude_code?: ClaudeCodeBinding } }): ClaudeCodeBinding => {
+    if (!t.settings.claude_code) throw badRequest('claude_code_lean: this thread has no Claude Code session');
+    return t.settings.claude_code;
+  };
+
   r.patch('/threads/:id', async (c) => {
     const t = await thread(c.req.param('id'));
     const req = await body(c, PatchThreadRequest);
@@ -217,7 +232,7 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       const m = await repo.getMessage(req.active_head_id);
       if (!m || m.thread_id !== t.id) throw notFound('That message');
     }
-    if (req.model) assertChatModel(deps.registry, req.model);
+    if (req.model) assertChatModel(deps.registry, req.model, t.settings.model);
     if (req.notebook_id && deps.notebookExists && !(await deps.notebookExists(req.notebook_id)))
       throw notFound('That notebook');
     // Flows (Phase 5b): the thread's own flow ('off' for none, null to follow the notebook) and its node overrides.
@@ -226,6 +241,10 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       ...(req.flow_id !== undefined && { flow_id: req.flow_id }),
       ...(req.flow_overrides !== undefined && { flow_overrides: req.flow_overrides }),
       ...(req.flow_overrides_flow !== undefined && { flow_overrides_flow: req.flow_overrides_flow }),
+      // Lean Claude Code sessions: the next turn opens with only the project's own settings.
+      ...(req.claude_code_lean !== undefined && {
+        claude_code: { ...claudeCodeOf(t), lean: req.claude_code_lean },
+      }),
     };
     const next = await repo.patchThread(t.id, {
       ...(req.title !== undefined && { title: req.title, title_source: 'user' as const }),
@@ -243,6 +262,7 @@ export function threadRoutes(deps: ThreadRouteDeps) {
     for (const run of await runs.activeForThread(t.id)) await deps.worker.cancel(run.id);
     await repo.deleteThread(t.id);
     await deps.flowStore?.orphan('thread', t.id);
+    await deps.afterDelete?.(t.id).catch(() => undefined);
     return c.body(null, 204);
   });
 
@@ -346,6 +366,10 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       if (req.route === 'same') flowReplay = replayFrom(m.provenance);
       else routeAgain = { flowId: recorded.flow_id };
     } else if (!req.model) {
+      // The model it asked for is gone (removed, or renamed on its server):
+      // say so by name and let the person pick, rather than answer as another.
+      if (m.requested_model_id && !deps.registry.get(m.requested_model_id))
+        throw modelGone(m.requested_model_id, suggestedModel(deps.registry, t.settings.model));
       model = usableChatModel(deps.registry, m.requested_model_id)
         ? (m.requested_model_id ?? undefined)
         : usableChatModel(deps.registry, t.settings.model)

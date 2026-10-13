@@ -16,6 +16,7 @@
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
 import { ProseWithArtifacts } from '../artifacts/ArtifactCard';
+import { ImageThreadProvider, ThreadImage } from '../images/ThreadImage';
 import { modelName } from '../lib/format';
 import { useRuns } from '../lib/run';
 import type { SubagentView } from '../lib/types';
@@ -23,7 +24,7 @@ import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
 import { markClaims } from './Claims';
-import { REMARK_PLUGINS } from './mdPlugins';
+import { REHYPE_PLUGINS, REMARK_PLUGINS, urlTransform } from './mdPlugins';
 import {
   GROUP_AFTER,
   Prose,
@@ -40,7 +41,15 @@ type Segment =
   | { kind: 'text'; key: string; text: string; base: number }
   | { kind: 'reasoning'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: ToolResult | undefined }
-  | { kind: 'seam'; key: string; from: string; to: string };
+  | { kind: 'seam'; key: string; from: string; to: string }
+  | {
+      kind: 'image';
+      key: string;
+      src: string;
+      alt: string;
+      width: number | undefined;
+      height: number | undefined;
+    };
 
 function segments(parts: Part[]): Segment[] {
   const results = new Map(parts.flatMap((p) => (p.type === 'tool_result' ? [[p.call_id, p] as const] : [])));
@@ -58,6 +67,15 @@ function segments(parts: Part[]): Segment[] {
     else if (p.type === 'tool_call')
       out.push({ kind: 'tool', key: p.call_id, call: p, result: results.get(p.call_id) });
     else if (p.type === 'seam') out.push({ kind: 'seam', key: `s${i}`, from: p.from_model, to: p.to_model });
+    else if (p.type === 'image')
+      out.push({
+        kind: 'image',
+        key: `i${i}`,
+        src: p.url,
+        alt: p.alt ?? p.caption ?? '',
+        width: p.width,
+        height: p.height,
+      });
   });
   return out;
 }
@@ -118,7 +136,10 @@ export function Parts({
   subagents,
   messageId = null,
   threadId = null,
+  approvals,
 }: {
+  /** Approvals still open, by tool call: each waiting step opens its own. */
+  approvals?: Record<string, string> | undefined;
   threadId?: string | null;
   /** The answer these parts belong to: artifacts in it are versioned by it. */
   messageId?: string | null;
@@ -139,6 +160,9 @@ export function Parts({
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
   const calls = new Set(segs.flatMap((s) => (s.kind === 'tool' ? [s.call.call_id] : [])));
   const loose = (subagents ?? []).filter((a) => !a.callId || !calls.has(a.callId));
+  // A step waits when its own call has an open approval; without that map, any open one.
+  const known = !!approvals && Object.keys(approvals).length > 0;
+  const stepWaits = (callId: string) => waiting && (!known || !!approvals?.[callId]);
 
   const one = (s: Segment, i: number) => {
     switch (s.kind) {
@@ -157,6 +181,8 @@ export function Parts({
             controls={false}
             components={MD_COMPONENTS}
             remarkPlugins={REMARK_PLUGINS}
+            rehypePlugins={REHYPE_PLUGINS}
+            urlTransform={urlTransform}
           >
             {linkMarkers(streaming ? s.text : markClaims(s.text, s.base, claims))}
           </ProseWithArtifacts>
@@ -169,12 +195,19 @@ export function Parts({
             key={s.key}
             call={s.call}
             result={s.result}
-            waiting={waiting}
+            waiting={stepWaits(s.call.call_id)}
+            approvalId={approvals?.[s.call.call_id] ?? null}
             folded={folded}
             clock={clocks?.[s.call.call_id]}
             live={streaming}
             subagent={subagents?.find((a) => a.callId === s.call.call_id)}
           />
+        );
+      case 'image':
+        return (
+          <figure key={s.key} className="msg-image">
+            <ThreadImage src={s.src} alt={s.alt} width={s.width} height={s.height} />
+          </figure>
         );
       case 'seam':
         return (
@@ -188,7 +221,7 @@ export function Parts({
   };
 
   return (
-    <>
+    <ImageThreadProvider threadId={threadId}>
       {groupSegments(segs).map((item) => {
         if (item.kind === 'one') return one(item.seg, item.index);
         const steps = item.segs.flatMap((x) =>
@@ -204,6 +237,6 @@ export function Parts({
         // biome-ignore lint/suspicious/noArrayIndexKey: transcripts without a call have only their place
         <SubagentConversation key={`sub-${i}`} s={a} />
       ))}
-    </>
+    </ImageThreadProvider>
   );
 }

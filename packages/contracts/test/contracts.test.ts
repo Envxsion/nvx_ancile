@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { AncileError, ApiError, GlobalEvent, idSchema, license, RunEvent, SendMessageRequest } from '../src';
+import {
+  AncileError,
+  ApiError,
+  ClaudeCodeBinding,
+  claudeCodeLean,
+  claudeCodeSetupLine,
+  GlobalEvent,
+  idSchema,
+  license,
+  PatchThreadRequest,
+  RunEvent,
+  SendMessageRequest,
+} from '../src';
 
 describe('ids', () => {
   it('accepts prefixed ULIDs and rejects the wrong kind', () => {
@@ -66,5 +78,34 @@ describe('licence', () => {
   it('validates claim keys in the family format', () => {
     expect(license.ClaimKey.safeParse('NVX-7K2M-Q9PX-4HTV').success).toBe(true);
     expect(license.ClaimKey.safeParse('NVX-7K2M-Q9PX-4HTU').success).toBe(false); // U excluded
+  });
+});
+
+describe('lean Claude Code sessions', () => {
+  const base = { session_id: 's', cwd: 'C:/app', last_uuid: null, synced_at: '2026-10-13T00:00:00Z' };
+
+  it('defaults lean on for threads started in NVX Ancile and off for imported ones', () => {
+    expect(claudeCodeLean(ClaudeCodeBinding.parse({ ...base, started_in: 'ancile' }))).toBe(true);
+    expect(claudeCodeLean(ClaudeCodeBinding.parse({ ...base, started_in: 'import' }))).toBe(false);
+    expect(claudeCodeLean(ClaudeCodeBinding.parse(base))).toBe(false); // from before the marker: imported
+    expect(claudeCodeLean({ started_in: 'ancile', lean: false })).toBe(false);
+    expect(claudeCodeLean({ started_in: 'import', lean: true })).toBe(true);
+    expect(ClaudeCodeBinding.safeParse({ ...base, started_in: 'elsewhere' }).success).toBe(false);
+  });
+
+  it('takes the toggle on PATCH /threads/:id', () => {
+    expect(PatchThreadRequest.parse({ claude_code_lean: true })).toEqual({ claude_code_lean: true });
+    expect(PatchThreadRequest.safeParse({ claude_code_lean: 'yes' }).success).toBe(false);
+  });
+
+  it('says what a lean first turn saved, or just that it is lean', () => {
+    const r = { lean: true, first_turn: true, full_first_turn_tokens: 162_000 };
+    expect(claudeCodeSetupLine(r, 20_000)).toContain('142,000 fewer');
+    expect(claudeCodeSetupLine({ ...r, full_first_turn_tokens: null }, 20_000)).toMatch(
+      /^Lean session: only/,
+    );
+    expect(claudeCodeSetupLine({ ...r, first_turn: false }, 20_000)).toBeNull();
+    expect(claudeCodeSetupLine({ ...r, lean: false }, 20_000)).toBeNull();
+    expect(claudeCodeSetupLine(r, 20_000)).not.toMatch(/\u2014/);
   });
 });

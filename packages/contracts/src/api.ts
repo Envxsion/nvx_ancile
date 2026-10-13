@@ -169,6 +169,8 @@ export const PatchThreadRequest = z
     flow_overrides: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     /** The flow the overrides are for (required with flow_overrides to take effect). */
     flow_overrides_flow: z.string().nullable().optional(),
+    /** Claude Code threads: load only the project's own Claude Code settings (ClaudeCodeBinding.lean). */
+    claude_code_lean: z.boolean().optional(),
   })
   .strict();
 
@@ -236,12 +238,15 @@ export const EditMessageRequest = z
 
 /* ---- Models (Phase 2) ---------------------------------------------------- */
 
-export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled']);
+/** not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models). */
+export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled']);
 
 export const ModelInfo = z.object({
   id: z.string(),
   display_name: z.string(),
   provider: z.string(),
+  /** The provider's own id ("qwen/qwen3-coder" on OpenRouter); the endpoint explorer asks by it. */
+  provider_model: z.string().optional(),
   family: z.string(),
   via: z.enum(['direct', 'controller']),
   context_window: z.number().int(),

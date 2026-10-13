@@ -42,6 +42,7 @@ export function sizeLabel(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+import { LINK_COMPONENTS } from '../ui/SafeLink';
 import { CodeDiff, CodeView } from './CodeView';
 import { isMarkdownPath } from './lang';
 import type { OpenFile } from './store';
@@ -354,7 +355,13 @@ function Body({
         ) : markdown && look === 'rendered' && !editing ? (
           savedContent.trim() ? (
             <div className="file-ed__md">
-              <Streamdown className="md" mode="static" controls={false} remarkPlugins={REMARK_PLUGINS}>
+              <Streamdown
+                className="md"
+                mode="static"
+                controls={false}
+                components={LINK_COMPONENTS}
+                remarkPlugins={REMARK_PLUGINS}
+              >
                 {savedContent}
               </Streamdown>
             </div>

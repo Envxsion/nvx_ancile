@@ -22,11 +22,13 @@
 import { createHash } from 'node:crypto';
 import type { NodeState } from '@nvx/contracts/controller';
 import { FAKE_SCHEME, type FakeProvider } from './providers/fake';
-import type { ComputeProvider, ProviderNode } from './providers/types';
+import { type ComputeProvider, ProviderError, type ProviderNode } from './providers/types';
 import type { NodeRecord, Store } from './store';
 
 /** Route alias for a model served on a node. */
 export const aliasFor = (model: string) => `node/${model}`;
+/** The model name the node itself serves, from a route alias made by aliasFor. */
+export const servedFor = (alias: string) => (alias.startsWith('node/') ? alias.slice('node/'.length) : alias);
 
 const nodeIdFor = (provider: string, ref: string) =>
   `nod_${createHash('sha256').update(`${provider}:${ref}`).digest('hex').slice(0, 20)}`;
@@ -103,7 +105,32 @@ export async function applyReading(store: Store, node: NodeRecord, seen: Provide
   return true;
 }
 
-/** Re-read every node without an operation in flight. Errors are skipped, not thrown. */
+/**
+ * A pod deleted outside the Controller (in RunPod's console): the provider
+ * no longer has it, so it is terminated here too, with a notice saying why.
+ */
+export async function markGone(store: Store, node: NodeRecord, at: Date): Promise<void> {
+  await store.putNode({
+    ...node,
+    observed_state: 'terminated',
+    endpoint_url: null,
+    healthy: false,
+    runningSince: null,
+    terminatedAt: node.terminatedAt ?? at,
+  });
+  await store.closeInterval(node.id, at);
+  store.events.emit('event', {
+    type: 'notice',
+    level: 'warn',
+    title: `${node.name} was deleted outside NVX Ancile`,
+    body: 'The provider no longer has this pod, so it is marked terminated. Remove it from Admin → Compute, or create it again.',
+  });
+}
+
+/**
+ * Re-read every node without an operation in flight. A node the provider no
+ * longer has is marked terminated; other errors are skipped, not thrown.
+ */
 export async function reconcile(store: Store, provider: ComputeProvider, at = new Date()): Promise<number> {
   let changed = 0;
   for (const node of await store.listNodes()) {
@@ -112,8 +139,12 @@ export async function reconcile(store: Store, provider: ComputeProvider, at = ne
     try {
       const seen = await provider.getNode(node.provider_ref);
       if (await applyReading(store, node, seen, at)) changed++;
-    } catch {
-      // Unreachable provider: leave the record; /selftest and Health report it.
+    } catch (err) {
+      if (err instanceof ProviderError && err.error.code === 'not_found') {
+        await markGone(store, node, at);
+        changed++;
+      }
+      // Otherwise unreachable: leave the record; /selftest and Health report it.
     }
   }
   return changed;

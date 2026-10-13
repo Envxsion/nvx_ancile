@@ -8,47 +8,8 @@
  * labels most often go wrong.
  */
 import { expect, type Page, test } from '@playwright/test';
-import { expectAccessible, mod } from './fixtures';
+import { expectAccessible, mod, DEMO_ROUTES as ROUTES } from './fixtures';
 import { BACKEND } from './playwright.config';
-
-/** The demo data's own ids (apps/cockpit/src/fixtures/demo.ts). */
-const DEMO_THREAD = 'thr_01J9ZK00000000000000000BUF';
-const DEMO_NOTEBOOK = 'nbk_01J9ZK0000000000000000DEPO';
-
-const SETTINGS = [
-  'appearance',
-  'layout',
-  'reading',
-  'composer',
-  'keyboard',
-  'notifications',
-  'accessibility',
-  'advanced',
-];
-const ADMIN = [
-  'health',
-  'compute',
-  'diagnostics',
-  'logs',
-  'traces',
-  'grants',
-  'decisions',
-  'memory',
-  'models',
-  'routing',
-  'plugins',
-  'automations',
-  'license',
-];
-
-const ROUTES = [
-  '/',
-  `/t/${DEMO_THREAD}`,
-  `/n/${DEMO_NOTEBOOK}`,
-  '/flows',
-  ...SETTINGS.map((g) => `/settings/${g}`),
-  ...ADMIN.map((s) => `/admin/${s}`),
-];
 
 async function open(page: Page, route: string) {
   await page.goto(route);
@@ -66,6 +27,36 @@ test.describe('accessibility', () => {
   for (const route of ROUTES)
     test(`${route} has no serious or critical axe violation`, async ({ page }) => {
       await open(page, route);
+      await expectAccessible(page);
+    });
+
+  // The Pro edition: the brighter palette and the gilt kit hold AA too.
+  for (const route of ['/admin/license', '/admin/engine-insights', '/admin/fleet', '/admin/context-packs'])
+    test(`${route} in the Pro edition has no serious or critical axe violation`, async ({ page }) => {
+      const features = ['beam', 'team', 'sync', 'fleet', 'flow_lab', 'insights', 'context_packs'];
+      await page.addInitScript(() => localStorage.setItem('nvx.ancile.pro-awakened', '1'));
+      await page.route('**/api/v1/license/details', (r) =>
+        r.fulfill({
+          json: {
+            status: {
+              tier: 'pro',
+              features,
+              verified: true,
+              offline_grace: false,
+              expires_at: '2030-01-01T00:00:00Z',
+              lapse: null,
+            },
+            build: 'pro',
+            device_id: 'dev_1',
+            key_held: true,
+            checked_at: null,
+            problem: null,
+            features: features.map((id) => ({ id, title: id, body: id, unlocked: true })),
+          },
+        }),
+      );
+      await open(page, route);
+      await expect(page.locator('html')).toHaveAttribute('data-edition', 'pro');
       await expectAccessible(page);
     });
 

@@ -42,6 +42,7 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { currentContext, newTraceId } from '../context';
+import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunStore } from '../runs/engine';
 import type { RunWorker } from '../runs/worker';
@@ -155,7 +156,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   r.get('/flows/templates', (c) => c.json({ items: templates(pickModels()) }));
 
   r.post('/flows', async (c) => {
-    const req = CreateFlowRequest.parse(await c.req.json().catch(() => ({})));
+    const req = await body(c, CreateFlowRequest);
     let graph: FlowGraph;
     if (req.from?.startsWith('tpl_')) {
       const t = templates(pickModels()).find((x) => x.id === req.from);
@@ -189,7 +190,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/validate', async (c) => {
-    const req = ValidateBody.parse(await c.req.json());
+    const req = await body(c, ValidateBody);
     const flow = req.flow_id ? await store.get(req.flow_id) : null;
     return c.json(await validate(req.graph, flow));
   });
@@ -211,7 +212,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/import', async (c) => {
-    const req = ImportBody.parse(await c.req.json());
+    const req = await body(c, ImportBody);
     let raw: unknown;
     try {
       raw = parseYaml(req.yaml);
@@ -235,7 +236,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/try', async (c) => {
-    const req = TryFlowRequest.parse(await c.req.json());
+    const req = await body(c, TryFlowRequest);
     let saved: Flow | undefined;
     if (req.flow_id) saved = await mustGet(req.flow_id);
     if (!req.graph && !saved) throw badRequest('Give a graph, or the id of a saved flow.');
@@ -275,7 +276,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/estimate-context', async (c) => {
-    const req = EstimateContextRequest.parse(await c.req.json());
+    const req = await body(c, EstimateContextRequest);
     let all = [] as Awaited<ReturnType<ThreadRepo['messages']>>;
     let headId: string | null = null;
     if (req.thread_id) {
@@ -327,7 +328,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/decisions/:message_id/:node_id/label', async (c) => {
-    const req = LabelDecisionRequest.parse(await c.req.json());
+    const req = await body(c, LabelDecisionRequest);
     const ok = await store.labelDecision(c.req.param('message_id'), c.req.param('node_id'), req.label);
     if (!ok) throw notFound('That decision');
     return c.json({ ok: true });
@@ -338,7 +339,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   r.get('/flows/:id', async (c) => c.json(await mustGet(c.req.param('id'))));
 
   r.put('/flows/:id', async (c) => {
-    const req = SaveFlowRequest.parse(await c.req.json());
+    const req = await body(c, SaveFlowRequest);
     const f = await store.save(
       c.req.param('id'),
       {
@@ -363,7 +364,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/:id/activate', async (c) => {
-    const req = ActivateFlowRequest.parse(await c.req.json().catch(() => ({})));
+    const req = await body(c, ActivateFlowRequest);
     const f = await mustGet(c.req.param('id'));
     if (req.on) {
       const live = (await store.getLive(f.id)) ?? f;
@@ -384,7 +385,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/:id/publish', async (c) => {
-    const req = PublishFlowRequest.parse(await c.req.json());
+    const req = await body(c, PublishFlowRequest);
     const f = await mustGet(c.req.param('id'));
     if (req.version !== null) {
       const v = await store.getVersion(f.id, req.version);
@@ -407,7 +408,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/:id/restore', async (c) => {
-    const req = RestoreFlowRequest.parse(await c.req.json());
+    const req = await body(c, RestoreFlowRequest);
     const f = await mustGet(c.req.param('id'));
     const v = await store.getVersion(f.id, req.version);
     if (!v) throw notFound('That version');
@@ -465,7 +466,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   });
 
   r.post('/flows/:id/nodes/:node/run', async (c) => {
-    const req = RunNodeRequest.parse(await c.req.json());
+    const req = await body(c, RunNodeRequest);
     const f = await mustGet(c.req.param('id'));
     const graph = req.graph ?? graphOf(f);
     const nodeId = c.req.param('node');
@@ -586,7 +587,7 @@ export function flowRoutes(deps: FlowRouteDeps) {
   /* ---- Answer a past message again through a flow ---------------------------------- */
 
   r.post('/messages/:id/route-again', async (c) => {
-    const req = RouteAgainRequest.parse(await c.req.json().catch(() => ({})));
+    const req = await body(c, RouteAgainRequest);
     const m = await deps.repo.getMessage(c.req.param('id'));
     if (!m || m.deleted_at) throw notFound('That message');
     const t = await deps.repo.getThread(m.thread_id);

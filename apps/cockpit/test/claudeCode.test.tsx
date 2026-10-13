@@ -29,7 +29,13 @@ import {
   useImportProgress,
   useInstallProgress,
 } from '../src/claudecode/api';
-import { ClaudeCodeGroup, NEVER_SEES, SIGN_IN_NOTE, stageOf } from '../src/claudecode/ClaudeCodeGroup';
+import {
+  ClaudeCodeGroup,
+  excludedLabel,
+  NEVER_SEES,
+  SIGN_IN_NOTE,
+  stageOf,
+} from '../src/claudecode/ClaudeCodeGroup';
 import { excludeCopy } from '../src/claudecode/ExcludeFolder';
 import { groupSessions, SessionsBrowser } from '../src/claudecode/SessionsDialog';
 import { ClaudeCodeMarker, CompactionDivider, markerText } from '../src/claudecode/ThreadMarker';
@@ -117,6 +123,15 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 /* ---- Settings → Claude Code ---------------------------------------------- */
+
+describe('excluded folders', () => {
+  it('shows the temporary folder as "Temporary files", never the <temp> token', () => {
+    expect(excludedLabel('<temp>')).toBe('Temporary files');
+    expect(excludedLabel('<temp>/build')).toBe('Temporary files/build');
+    expect(excludedLabel('~/scratch')).toBe('~/scratch');
+    expect(excludedLabel('C:\\<temp>')).toBe('C:\\<temp>');
+  });
+});
 
 describe('the status card offers the step that comes next', () => {
   it('works out the stage from the status', () => {

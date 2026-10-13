@@ -68,6 +68,7 @@ import {
   type CcProvenance,
   digestSubagent,
   MAPPER_VERSION,
+  type MirrorState,
   mergeUnknown,
   type PlanResult,
   placeOf,
@@ -254,6 +255,11 @@ export function importOrder(
   platform: NodeJS.Platform = process.platform,
 ): CcSessionInfo[] {
   const age = (i: CcSessionInfo) => i.createdAt ?? i.lastModified ?? 0;
+  // A fork made with /branch copies the entries it came from, timestamps
+  // included, so it reports the same createdAt as its origin. The one
+  // written to last is the fork: on a tie, the older lastModified goes first.
+  const older = (a: CcSessionInfo, b: CcSessionInfo) =>
+    age(a) - age(b) || (a.lastModified ?? 0) - (b.lastModified ?? 0);
   const updates = todo.filter(isBound).sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
   const families = new Map<string, CcSessionInfo[]>();
   const loose: CcSessionInfo[] = [];
@@ -270,9 +276,9 @@ export function importOrder(
   }
   const newest = (list: CcSessionInfo[]) => Math.max(...list.map((i) => i.lastModified ?? 0));
   const fams = [...families.values()]
-    .map((list) => ({ list: list.sort((a, b) => age(a) - age(b)), newest: newest(list) }))
+    .map((list) => ({ list: list.sort(older), newest: newest(list) }))
     .sort((a, b) => b.newest - a.newest);
-  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort((a, b) => age(a) - age(b))];
+  return [...updates, ...fams.flatMap((f) => f.list), ...loose.sort(older)];
 }
 
 export class ClaudeCodeService {
@@ -326,6 +332,21 @@ export class ClaudeCodeService {
     if (patch.exclude_folders !== undefined) await this.cleanupExcluded();
     if (patch.auto_import === true) this.kick();
     return next;
+  }
+
+  /** Lean sessions: the input of the latest first turn that loaded the person's whole setup. */
+  async fullFirstTurn(): Promise<number | null> {
+    const v = (await this.deps.settings.get(SETTING.claudeCodeFullFirstTurn)) as
+      | { tokens?: unknown }
+      | undefined;
+    return typeof v?.tokens === 'number' && v.tokens > 0 ? v.tokens : null;
+  }
+
+  async recordFullFirstTurn(tokens: number): Promise<void> {
+    await this.deps.settings.set(SETTING.claudeCodeFullFirstTurn, {
+      tokens,
+      at: new Date(this.now()).toISOString(),
+    });
   }
 
   /* ---- excluded folders ------------------------------------------------ */
@@ -932,6 +953,8 @@ export class ClaudeCodeService {
             cwd,
             last_uuid: null,
             synced_at: new Date(this.now()).toISOString(),
+            // Brought in from Claude Code: the person's whole setup loads, as in their terminal.
+            started_in: 'import',
           },
         },
       });
@@ -967,6 +990,7 @@ export class ClaudeCodeService {
     // Old branches first, the active path last: each branch hangs off what is already there.
     for (const chain of chains) {
       plan = planSync(chain, mirror, () => `msg_${ulid()}`, fallbackHead);
+      await this.adoptPrompts(thread.id, sessionId, chain, plan, mirror);
       for (const p of plan.planned) if (p.raws) raws.push(...p.raws);
       const r = await this.writePlan(thread, sessionId, plan, traceId);
       added += r.added;
@@ -990,8 +1014,13 @@ export class ClaudeCodeService {
     // A folder chosen in NVX Ancile (the old one moved), or a thread going on without files,
     // keeps its folder until its next session says otherwise.
     const keepCwd = !!bound && (bound.no_files === true || bound.fresh_next === true);
+    // The session's latest entry becomes the thread's head only while the person is
+    // still on Claude Code's path. A head written by another engine (a gateway model's
+    // answer) stays: moving it back would send the next turn on without that answer.
+    const head = thread.active_head_id ? await threads.getMessage(thread.active_head_id) : undefined;
+    const headElsewhere = !!head && head.role === 'assistant' && !head.provenance?.claude_code;
     await threads.patchThread(thread.id, {
-      ...(primary && plan.head && { active_head_id: plan.head }),
+      ...(primary && plan.head && !headElsewhere && { active_head_id: plan.head }),
       ...(firstRoot && !thread.root_message_id ? { root_message_id: firstRoot } : {}),
       ...(nextTitle && { title: nextTitle }),
       ...(primary && {
@@ -1082,6 +1111,58 @@ export class ClaudeCodeService {
     return t;
   }
 
+  /**
+   * A prompt sent from NVX Ancile into a resumed session: Claude Code may
+   * write it under a uuid of its own (the SDK does not keep the one Ancile
+   * gave it), with NVX Ancile's context block in front. The message the
+   * person sent is that entry, so it takes the entry's uuid instead of a
+   * second copy being added beside it. Matched on the answer that follows
+   * (already written under the person's message) and on the text with the
+   * context block left out.
+   */
+  private async adoptPrompts(
+    threadId: string,
+    sessionId: string,
+    chain: CcSessionMessage[],
+    plan: PlanResult,
+    mirror: MirrorState,
+  ): Promise<void> {
+    const prompts = plan.planned.filter((p) => !p.extends && p.role === 'user' && p.kind === null);
+    if (!prompts.length) return;
+    const msgs = await this.deps.threads.messages(threadId);
+    const byId = new Map(msgs.map((m) => [m.id, m]));
+    const inChain = new Set(chain.map((e) => e?.uuid));
+    const text = (parts: Part[]) =>
+      parts
+        .flatMap((p) => (p.type === 'text' ? [p.text] : []))
+        .join('')
+        .trim();
+    for (const p of prompts) {
+      const uuid = p.uuids[0];
+      const at = chain.findIndex((e) => e?.uuid === uuid);
+      if (!uuid || at < 0) continue;
+      // The first entry after the prompt that is already in the thread: the answer a live turn wrote.
+      let answer: string | undefined;
+      for (const e of chain.slice(at + 1)) {
+        answer = e?.uuid ? mirror.byUuid.get(e.uuid) : undefined;
+        if (answer) break;
+      }
+      const sent = answer ? byId.get(byId.get(answer)?.parent_id ?? '') : undefined;
+      if (sent?.role !== 'user' || text(sent.parts) !== text(p.parts)) continue;
+      const oc = sent.provenance?.claude_code as CcProvenance | undefined;
+      // Already holds an entry of this session: a prompt of its own, not this one.
+      if (oc?.uuids?.some((u) => inChain.has(u))) continue;
+      const uuids = [...(oc?.uuids ?? []), uuid];
+      await this.deps.threads.updateMessage(sent.id, {
+        provenance: { claude_code: { ...oc, session_id: sessionId, uuid, uuids } satisfies CcProvenance },
+      });
+      mirror.byUuid.set(uuid, sent.id);
+      plan.planned = plan.planned.filter((x) => x !== p);
+      for (const x of plan.planned) if (x.parent_id === p.id) x.parent_id = sent.id;
+      if (plan.head === p.id) plan.head = sent.id;
+    }
+  }
+
   /** Write one plan: new messages in chunks, then the messages it extends. */
   private async writePlan(
     thread: ThreadRecord,
@@ -1164,6 +1245,10 @@ export class ClaudeCodeService {
     if (!agents.length) return;
     const msgs = await this.deps.threads.messages(threadId);
     const byCall = new Map<string, { id: string; description: string | null }>();
+    // Without its .meta.json a subagent's entries do not name the call that started it:
+    // the call's result names the agent ("agentId: …"), and its prompt is the subagent's first.
+    const results: { callId: string; text: string }[] = [];
+    const byPrompt = new Map<string, string>();
     const seen = new Map<string, number>();
     for (const m of msgs) {
       for (const p of m.parts as Part[])
@@ -1176,7 +1261,9 @@ export class ClaudeCodeService {
                 ? a.prompt.slice(0, 120)
                 : null;
           byCall.set(p.call_id, { id: m.id, description: d });
-        }
+          if (typeof a.prompt === 'string' && a.prompt.trim()) byPrompt.set(a.prompt.trim(), p.call_id);
+        } else if (p.type === 'tool_result' && typeof p.result === 'string')
+          results.push({ callId: p.call_id, text: p.result });
       const cc = (m.provenance?.claude_code ?? {}) as { subagent?: SubagentDigest[] };
       for (const d of cc.subagent ?? []) seen.set(d.agent_id, d.count);
     }
@@ -1185,6 +1272,18 @@ export class ClaudeCodeService {
       const sub = await this.deps.source.subagentMessages(sessionId, agentId).catch(() => []);
       if (!sub.length || seen.get(agentId) === sub.length) continue;
       const digest = digestSubagent(agentId, sub);
+      if (!digest.call_id || !byCall.has(digest.call_id)) {
+        const named = new RegExp(`\\bagentId:\\s*${agentId.replace(/[^\w-]/g, '')}\\b`);
+        const first = digest.messages.find((x) => x.role === 'user');
+        const prompt = first?.parts
+          .flatMap((x) => (x.type === 'text' ? [x.text] : []))
+          .join('\n')
+          .trim();
+        digest.call_id =
+          results.find((r) => named.test(r.text))?.callId ??
+          (prompt ? byPrompt.get(prompt) : undefined) ??
+          digest.call_id;
+      }
       const host = digest.call_id ? byCall.get(digest.call_id) : undefined;
       if (!host) {
         log.debug(

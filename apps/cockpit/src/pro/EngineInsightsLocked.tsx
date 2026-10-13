@@ -125,8 +125,8 @@ export function EngineInsightsLocked({ build }: { build: 'free' | 'pro' | null }
   const words = proContract.PRO_FEATURE_WORDS.insights;
   return (
     <section className="eil" aria-labelledby="eil-title">
-      <header className="eil__hero">
-        <span className="eil__pill">Pro</span>
+      <header className="eil__hero gilt-frame">
+        <span className="eil__pill gilt-pill">Pro</span>
         <h2 id="eil-title" className="eil__title">
           Engine insights
         </h2>
@@ -135,7 +135,11 @@ export function EngineInsightsLocked({ build }: { build: 'free' | 'pro' | null }
           or local model would do as well.
         </p>
         <div className="eil__cta">
-          <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--primary btn--sm">
+          <Link
+            to="/admin/$section"
+            params={{ section: 'license' }}
+            className="btn btn--primary btn--sm gilt-action"
+          >
             {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
           </Link>
           <span className="mute eil__where">
@@ -148,7 +152,7 @@ export function EngineInsightsLocked({ build }: { build: 'free' | 'pro' | null }
 
       <ul className="eil__grid">
         {ENGINE_INSIGHT_QUESTIONS.map((q) => (
-          <li key={q.title} className="eil__card">
+          <li key={q.title} className="eil__card pro-card gilt-frame">
             <div className="eil__card-head">
               <span className="eil__glyph" aria-hidden="true">
                 <Icon name={q.icon} size={14} />
@@ -164,7 +168,7 @@ export function EngineInsightsLocked({ build }: { build: 'free' | 'pro' | null }
         ))}
       </ul>
 
-      <aside className="eil__suggestion" aria-label="An example suggestion">
+      <aside className="eil__suggestion gilt-frame gilt-frame--quiet" aria-label="An example suggestion">
         <Icon name="sparkle" size={14} />
         <div>
           <p className="eil__suggestion-title">

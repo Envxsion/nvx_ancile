@@ -35,6 +35,12 @@ export interface GatewayOptions {
   computeWaitMs?: number;
   /** The shortest pause between asking a waking node again (ms). */
   computePollMs?: number;
+  /**
+   * When set, a node that says how long it needs (eta_s) is waited for up to
+   * that estimate plus this margin, even past computeWaitMs: a cold GPU node
+   * loading a large model can take longer than the usual wait (ms).
+   */
+  computeEtaMarginMs?: number;
 }
 
 export interface FailedAttempt {
@@ -63,6 +69,7 @@ export class Gateway {
   private readonly probeChars: number;
   private readonly computeWaitMs: number;
   private readonly computePollMs: number;
+  private readonly computeEtaMarginMs: number | null;
 
   constructor(opts: GatewayOptions) {
     this.client = opts.client;
@@ -70,6 +77,7 @@ export class Gateway {
     this.probeChars = opts.refusalProbeChars ?? 160;
     this.computeWaitMs = opts.computeWaitMs ?? 5 * 60_000;
     this.computePollMs = opts.computePollMs ?? 2_000;
+    this.computeEtaMarginMs = opts.computeEtaMarginMs ?? null;
   }
 
   /**
@@ -88,6 +96,8 @@ export class Gateway {
   ): AsyncGenerator<GatewayEvent, { it: AsyncIterator<StreamChunk>; step: IteratorResult<StreamChunk> }> {
     const runId = currentContext()?.runId ?? null;
     const started = Date.now();
+    let limit = computeWaitMs;
+    let asked = 0;
     for (;;) {
       const it = this.client.stream(model, req, signal)[Symbol.asyncIterator]();
       let waking: NodeWaking | null = null;
@@ -104,10 +114,13 @@ export class Gateway {
       await it.return?.().catch(() => undefined);
       const w = waking as NodeWaking | null;
       if (!w) throw new ClassifiedError('transient', `${model.display_name} gave no answer`);
-      if (computeWaitMs <= 0 || Date.now() - started > computeWaitMs)
+      // The node's own estimate, plus a margin, can stretch the wait (never a wait of 0).
+      if (computeWaitMs > 0 && asked === 0 && w.etaS !== null && this.computeEtaMarginMs !== null)
+        limit = Math.max(computeWaitMs, w.etaS * 1000 + this.computeEtaMarginMs);
+      if (computeWaitMs <= 0 || Date.now() - started > limit)
         throw new ClassifiedError(
           'capacity',
-          `${model.display_name}'s node did not wake within ${Math.max(1, Math.round(computeWaitMs / 60_000))} min`,
+          `${model.display_name}'s node did not wake within ${Math.max(1, Math.round(limit / 60_000))} min`,
         );
       yield {
         type: 'compute_waiting',
@@ -117,7 +130,12 @@ export class Gateway {
         canUseCloud: hasNext,
         detail: w.message,
       };
-      const pause = Math.max(this.computePollMs, Math.min(w.retryAfterS, 15) * 1000);
+      // Back off while it wakes: ask often at first, then less, never more than 15 s apart.
+      const pause = Math.min(
+        15_000,
+        Math.max(this.computePollMs * 1.5 ** asked, Math.min(w.retryAfterS, 15) * 1000),
+      );
+      asked += 1;
       if ((await waitOrSkip(pause, signal, runId)) === 'skip')
         throw new ClassifiedError('capacity', 'You chose a cloud model instead of waiting for the node');
       if (signal.aborted) throw signal.reason ?? new Error('aborted');

@@ -43,7 +43,7 @@ One repository opened from two folders gives two notebooks: a git worktree (`app
 
 Some sessions are not yours: the claude-mem plugin, for example, runs automated "observer" sessions in `~/.claude-mem`. Sessions from an excluded folder (or any folder inside it) are never listed, never brought in automatically, and bringing one in by hand says "Sessions from that folder are not brought in".
 
-- Settings → Claude Code → **Excluded folders** lists them (`exclude_folders`). `~` means your home folder. On Windows, case and slash direction do not matter. `~/.claude-mem` is excluded by default.
+- Settings → Claude Code → **Excluded folders** lists them (`exclude_folders`). `~` means your home folder. On Windows, case and slash direction do not matter. `~/.claude-mem` and `<temp>` (the system's temporary folder, where tools and agents run throwaway sessions) are excluded by default; remove `<temp>` from the list to bring those in.
 - **Don't bring in this folder** on a session adds its folder to the list.
 - What already came in from an excluded folder is put away when NVX Ancile starts and whenever the list changes: a thread whose messages all came from Claude Code is archived (never deleted) and no longer synced. A thread you wrote in from NVX Ancile is left exactly as it is. A notebook NVX Ancile made for that folder is archived too once it has no threads left that are not archived.
 
@@ -108,6 +108,7 @@ Type in a Claude Code thread and it carries the session on, in your own installe
 - **Editing the first message.** Claude Code cannot fork before a session's first entry, so editing the first message (a send with `parent_id: null`) starts a new session in the same folder, bound to the same thread. The new first message is a branch at the root; the original session and its messages stay.
 - **The answer's id.** A send answers with the run, your message and the answer it streams into (`assistant_message_id`), so the thread can show the answer at once.
 - **Telemetry.** With Claude Code usage reporting off, sessions run with `DISABLE_TELEMETRY` too.
+- **Lean sessions.** "Load only this project's Claude Code settings" (the setup chip beside the effort picker) opens the session with the Agent SDK's `settingSources: ['project']`: the project's own `.claude/settings.json` and `CLAUDE.md` load, and the person's user plugins, MCP servers and user `CLAUDE.md` do not, which can save well over 100k tokens on a first turn. It is on by default for threads started in NVX Ancile (`claude_code.started_in: 'ancile'`) and off for imported sessions (`'import'`, or no marker), so they behave as in the terminal. `PATCH /threads/:id { claude_code_lean }` changes it; the flag rides in the run's checkpoint, so a resumed turn keeps it, and a change reopens the open session. Nothing in the person's Claude Code files is changed. The Why panel says when an answer's first turn was lean and, once a first turn with the whole setup has been recorded, how many tokens fewer it read.
 
 - **On a machine without Claude Code.** A notebook synced from another computer, or opened after Claude Code was uninstalled or signed out, still opens every Claude Code thread. Nothing fails: the thread reads as it is, and the composer is read-only for Claude Code with one line, "Install Claude Code to continue" or "Sign in to Claude Code to continue" (an install that fails the check: "Check Claude Code to continue"), with the same **Install** and **Sign in** actions as Settings → Claude Code. Choosing another model in the composer's picker works as in any Claude Code thread, and the thread keeps its session for when Claude Code is back. `GET /claude-code/threads/:id/live` has `availability` (`ready`, `not_installed`, `signed_out` or `unverified`); a turn sent to Claude Code anyway is refused with `claude_code.not_installed` or `claude_code.signed_out` and writes nothing; the "/" list is NVX Ancile's own commands only.
 
@@ -137,7 +138,7 @@ Every tool call Claude Code makes is asked about before it runs, on its real arg
 | Edit, Write, MultiEdit, NotebookEdit | `fs.write` | `fs:<path>` | asks; critical outside the session's folder |
 | Bash, PowerShell | `shell.exec` | `shell:<command>` | asks; critical for dangerous commands (`sudo`, `rm`, `curl … \| sh`, per the preset) |
 | WebFetch | `web.fetch` | `http:<url>` | asks |
-| WebSearch | `web.search` | `web:<query>` | asks |
+| WebSearch | `web.search` | `web:search/<query>` | asks (a site rule such as `web:*` covers it, [patterns](permissions.md#patterns)) |
 | `mcp__ancile__search`, `read_source` | `knowledge.search` | `notebook:<id>` | runs |
 | `mcp__ancile__memory_search` | `memory.read` | `memory:all` | runs |
 | `mcp__ancile__<hosted tool>` | the hosted tool's own action | its own resource | its own tier |

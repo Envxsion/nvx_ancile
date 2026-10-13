@@ -132,6 +132,25 @@
     #d2ac6c 100%
   );
   --gilt-glow: 0 0 0 1px rgb(217 184 113 / 0.22), 0 8px 24px -12px rgb(217 184 113 / 0.35);
+  /* The gilt kit (pro.css draws with it). Stops, light to deep; a fill that
+     only ever carries --on-gilt (every stop holds 8.7:1 or more under it);
+     a frame for 1 px gilded edges; a stronger glow for a gilded thing that
+     answers a hand. */
+  --gilt-1: #f3e2b8;
+  --gilt-shine-rgb: 243 226 184;
+  --gilt-2: #d9b871;
+  --gilt-3: #c9a362;
+  --gilt-4: #8a6a33;
+  --gilt-fill: linear-gradient(100deg, #f3e2b8 0%, #e8ce96 35%, #d9b871 70%, #e8ce96 100%);
+  --on-gilt: #1a1306;
+  --gilt-frame: linear-gradient(
+    135deg,
+    rgb(243 226 184 / 0.75),
+    rgb(185 143 78 / 0.35) 42%,
+    rgb(243 226 184 / 0.18) 62%,
+    rgb(201 163 98 / 0.65)
+  );
+  --gilt-glow-strong: 0 0 0 1px rgb(217 184 113 / 0.32), 0 14px 34px -16px rgb(217 184 113 / 0.5);
   --grain-opacity: 0.035;
 }
 
@@ -223,6 +242,22 @@
     rgb(122 90 30 / 0.35)
   );
   --gilt-glow: 0 0 0 1px rgb(122 90 30 / 0.2), 0 8px 24px -12px rgb(122 90 30 / 0.25);
+  /* The fill keeps the bright stops on white (it carries --on-gilt, not
+     white); the frame is deep brass, 4.5:1 or more as a stroke. */
+  --gilt-1: #b98f4e;
+  --gilt-shine-rgb: 255 244 214;
+  --gilt-2: #8f6a26;
+  --gilt-3: #7a5a1e;
+  --gilt-4: #5e4620;
+  --gilt-fill: linear-gradient(100deg, #f3e2b8 0%, #e8ce96 35%, #d9b871 70%, #e8ce96 100%);
+  --on-gilt: #1a1306;
+  --gilt-frame: linear-gradient(
+    135deg,
+    rgb(143 106 38 / 0.8),
+    rgb(185 143 78 / 0.35) 48%,
+    rgb(143 106 38 / 0.65)
+  );
+  --gilt-glow-strong: 0 0 0 1px rgb(122 90 30 / 0.3), 0 14px 32px -16px rgb(122 90 30 / 0.35);
   --grain-opacity: 0.05;
 }
 

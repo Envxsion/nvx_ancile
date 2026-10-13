@@ -121,6 +121,28 @@ To change who answers first, open **Admin → Routing**. Drag a model by its gri
 In **Admin → Models**, each model's **⋯** menu can **Edit** it (its name, context window, chip colour, and for your own server its address and key), turn it on or off, or **Remove** a model you added. Removing asks first, and **Undo** on the notice brings it back, key and all, for ten minutes. Models from config/models.yaml take only their colour and on/off there.`,
       },
       {
+        id: 'openrouter-quality',
+        title: 'Why the same model can feel worse on OpenRouter',
+        summary: 'Providers differ in how much they read and write, and in tools. How NVX Ancile handles it.',
+        keywords:
+          'openrouter provider endpoint routing quantization precision fp8 fp4 context max output tools auto exacto nitro floor cache cost cut off',
+        body: `OpenRouter sends each request to one of several providers that serve the same model. By default it spreads requests by price: cheaper providers get more of them. So two answers from "the same model" may come from two different computers run by two different companies.
+
+Precision matters less than people think. Many labs release their models at FP8 or even FP4, so a provider running FP8 is often running the original. The explorer says when a precision is the lab's own, and says "Unknown" when nobody has told us.
+
+What matters more is what each provider allows. Some read only part of the model's window: "This endpoint can only read 9% of what the model can" means long threads and documents are cut before the model sees them. Some cap the answer: a reasoning model that runs out of room mid-thought looks careless when it was simply stopped. Some cannot use tools at all.
+
+Price sorting also ignores caching. A provider with a lower list price but no cache discount can cost more than one that reads your repeated context at a tenth of the price. **Lowest real cost** ranks by what your own turns would cost, using your cache hit rate and your mix of input and output.
+
+For tool calls OpenRouter runs Auto Exacto, which prefers providers that handle tools well. Sorting by price, or the :floor suffix, turns it off. Setting your own order replaces it too. **Recommended** keeps it.
+
+**Recommended** is the safe default: it leaves out providers too small for the job, asks only providers that support every setting in the request, and sets a sensible answer length. **Best quality** sticks to trusted providers at the lab's own precision. **Pinned** uses only the providers you choose. **Advanced** shows every OpenRouter field.
+
+Every OpenRouter answer records which provider served it, and Why shows it. If an answer stopped at the provider's output limit, Why says "Cut off by this endpoint's output limit" and offers **Retry on an endpoint with more room**. Usage can show your spending by provider.
+
+Open a model's **⋯** menu in Admin → Models and choose **Providers, routing and cost** to see all of this for that model.`,
+      },
+      {
         id: 'offline-model',
         title: 'The try-out models',
         summary: 'Try everything before you add a key. They do not use AI.',
@@ -763,6 +785,8 @@ export function articleById(id: string): { chapter: Chapter; article: Article } 
 
 /** Error codes (docs/errors.md) → the article that explains them. */
 export const ERROR_ARTICLES: Record<string, string> = {
+  'openrouter.endpoints_unavailable': 'openrouter-quality',
+  'openrouter.model_invalid': 'openrouter-quality',
   'factcheck.no_model': 'fact-checking',
   'factcheck.bad_output': 'fact-checking',
   'factcheck.evidence_unavailable': 'fact-checking',

@@ -30,7 +30,7 @@ The first one available answers. A failure moves on to the next, and the trace r
 
 1. **Jev via OpenRouter.** `POST https://openrouter.ai/api/alpha/decisions` with your saved OpenRouter key, model `~typesafe/jev-latest`, falling back to `typesafe/jev-1.13` if the service doesn't know it.
 2. **Jev direct.** `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest`, with the TypeSafe key (Settings → API keys, or `TYPESAFE_API_KEY`).
-3. **A local model.** The first enabled Ollama or local model on the utility chain, with a strict JSON yes/no prompt. A yes counts as 0.92 for fits, not 1.
+3. **A local model.** The first ready Ollama or local model on the utility chain, else the smallest ready local chat model whose name gives its size, up to 14B (an Ollama model you pulled; never a GPU node), with a strict JSON yes/no prompt. It runs on this machine, so it is used whatever a scope allows. A yes counts as 0.92 for fits, not 1.
 4. **Rules only.** Recognises routine steps: file writes, git status, add and commit, tests, builds, linters, listing and searching. Anything else asks.
 
 When nothing may leave the machine (a private notebook, or `data_leaves_machine: false`), only 3 and 4 are asked.
@@ -74,7 +74,7 @@ The response is read as `answers.fits.noul` and `answers.injection.noul` (probab
 - **A step outside the plan.** With an approved plan in force, a call that fits none of its steps still goes to the cache and the reviewer as before; if it would ask, the ask is marked `out_of_plan` (with `plan_id`) on its `approval.batched` event. The Cockpit shows it as one grouped ask, "1 step outside your plan", with the reason and the action, and three answers: Allow once, Add to plan (`POST /auto/plans/:id/steps`, then allow once) and Deny. A floor's ask is never offered "Add to plan": a plan can't lift a floor.
 - **Verdict cache** per session (30 minutes), as above.
 - **Grouped asks.** Asks in one run within two minutes share a `batch_id` (`approval.batched` run event, before `approval.required`). `POST /approvals/batch` answers them all at once.
-- **Quiet markers.** A call that ran by itself leaves an `auto.ran` run event (plan, cache, reviewer or rules) for a small "ran automatically" badge. There is no prompt.
+- **Quiet markers.** A call that ran by itself leaves an `auto.ran` run event (plan, cache, reviewer or rules) for a small "ran automatically" badge. There is no prompt. A call that fits a step of the approved plan, however it was allowed (by itself, your scope or a grant), also leaves `plan.step_ran` with the step's index, which the plan line counts ("1 of 3").
 - **Silence on clean actions.** Reads and other AUTO-tier calls never reach the reviewer.
 
 ## The trace

@@ -284,6 +284,11 @@ export const MemoryImportItem = z.object({
   status: z.enum(['new', 'duplicate', 'repeated']),
   /** The entry was longer than an entry may be, and was cut. */
   clipped: z.boolean(),
+  /**
+   * Why the entry is not ticked by default although it is new: it reads like
+   * instructions to an AI (the same check Auto mode runs on tool input).
+   */
+  flag: z.string().nullable().optional(),
 });
 export type MemoryImportItem = z.infer<typeof MemoryImportItem>;
 

@@ -26,6 +26,7 @@ import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
 import { ModelMenu } from '../../models/EditModel';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
+import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
 import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
@@ -243,7 +244,12 @@ export function LiveDecisions() {
   );
 }
 
-const STATUS_WORDS = { ready: 'Ready', needs_key: 'Needs its key', disabled: 'Off' } as const;
+const STATUS_WORDS = {
+  ready: 'Ready',
+  needs_key: 'Needs its key',
+  disabled: 'Off',
+  not_pulled: 'Not pulled',
+} as const;
 
 export function LiveModels() {
   const models = useModels({ all: true });
@@ -260,6 +266,7 @@ export function LiveModels() {
           provider's model id. A model with no key is skipped by routing, never tried and failed.
         </p>
         <div className="admin__bar-actions">
+          <AdvisorButton />
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => showLocal()}>
             <Icon name="download" size={14} />
             Download a local model

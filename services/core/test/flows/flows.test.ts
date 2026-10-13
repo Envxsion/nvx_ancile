@@ -1,5 +1,5 @@
 /**
- * Flows (DESIGN.md §16, ROADMAP Phase 5b): validation, precedence, the
+ * Flows (DESIGN.md Â§16, ROADMAP Phase 5b): validation, precedence, the
  * executor on every template, context policies, resume after a crash, the
  * cost cap, regenerate "same route" versus "again", and the routes.
  */
@@ -24,6 +24,7 @@ import {
   type ModelCallResult,
 } from '../../src/flows/execute';
 import { validateFlow } from '../../src/flows/validate';
+import { fakeModel } from '../../src/gateway/fake';
 import { type Harness, harness } from '../support/harness';
 
 let h: Harness;
@@ -324,6 +325,32 @@ describe('the executor', () => {
 /* ---- Through a chat turn ----------------------------------------------------------- */
 
 describe('a chat turn through a flow', () => {
+  it('answers when no route can, because its steps name their own models', async () => {
+    const step = { ...fakeModel('step', 'script'), id: 'ollama/step', provider: 'fake' };
+    // No routing chain and no try-out models: only the flow's own step can answer.
+    h = await harness({ offline: false, models: [step] });
+    await h.call('POST', '/flows', {
+      name: 'One local step',
+      scope: 'workspace',
+      activate: true,
+      nodes: [
+        { id: 'input', kind: 'input', position: { x: 0, y: 0 }, params: {} },
+        { id: 'a', kind: 'model', position: { x: 1, y: 0 }, params: { model: step.id, speaks: true } },
+        { id: 'output', kind: 'output', position: { x: 2, y: 0 }, params: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'input', to: 'a' },
+        { id: 'e2', from: 'a', to: 'output' },
+      ],
+    });
+    const t = await h.newThread();
+    const sent = await h.send(t, '/say From the flow.');
+    await h.settle(sent.run_id);
+    const m = await lastAnswer(t);
+    expect(m.status).toBe('complete');
+    expect(flowOf(m).path).toContain('a');
+  });
+
   it('routes a code request to the coder, live, and records why', async () => {
     h = await harness();
     await fromTemplate('tpl_router');
@@ -573,6 +600,17 @@ describe('flow routes', () => {
     const a = r.body.edges.find((e) => e.node_id === 'a');
     const b = r.body.edges.find((e) => e.node_id === 'b');
     expect((a?.total ?? 0) > (b?.total ?? 0)).toBe(true);
+  });
+
+  it('answers a request that does not match the contract with a 400 that names the field, not a 500', async () => {
+    h = await harness();
+    const r = await h.call<{ error: { code: string; title: string } }>('POST', '/flows', {
+      name: 'No scope',
+      nodes: io,
+      edges: [{ id: 'e1', from: 'input', to: 'output' }],
+    });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body.error)).toContain('scope');
   });
 
   it('will not activate a flow with problems', async () => {

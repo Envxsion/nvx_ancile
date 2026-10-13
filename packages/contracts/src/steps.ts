@@ -42,6 +42,7 @@ export type ToolKind =
   | 'monitor'
   | 'mcp'
   | 'python'
+  | 'image'
   | 'other';
 
 const KINDS: Record<string, ToolKind> = {
@@ -76,6 +77,7 @@ const KINDS: Record<string, ToolKind> = {
   toolsearch: 'toolsearch',
   monitor: 'monitor',
   python_run: 'python',
+  image_generate: 'image',
 };
 
 export function toolKind(tool: string): ToolKind {
@@ -210,6 +212,10 @@ export function stepTitle(tool: string, args: unknown): string {
       return 'Watching a process';
     case 'python':
       return 'Running Python';
+    case 'image': {
+      const p = str(a.prompt);
+      return p ? `Making an image of '${firstLine(p, 60)}'` : 'Making an image';
+    }
     case 'mcp': {
       const [, server, ...rest] = tool.split('__');
       return `Using ${rest.join('__') || tool}${server ? ` from ${server}` : ''}`;

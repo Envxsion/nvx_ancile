@@ -19,6 +19,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod layout;
+mod links;
 mod secrets;
 mod supervisor;
 mod tray;
@@ -27,6 +28,7 @@ mod updates;
 
 use std::sync::{Arc, Mutex};
 use supervisor::Supervisor;
+use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -97,6 +99,14 @@ fn navigate(app: &AppHandle, route: &str) {
     }
 }
 
+/// A web or mail link from the Cockpit: the system browser or mail client
+/// opens it, never this window.
+fn open_external(url: &Url) {
+    if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+        log::warn!("could not open a link outside the app: {e}");
+    }
+}
+
 fn init_logging(dir: &std::path::Path) {
     use simplelog::{Config, LevelFilter, WriteLogger};
     if let Ok(file) = std::fs::OpenOptions::new()
@@ -148,6 +158,10 @@ fn main() {
                 layout.data.display()
             );
 
+            // Links: the Cockpit stays here, web and mail links go to the
+            // system, and every other scheme does nothing (links.rs).
+            let core_nav = layout.core_url();
+            let core_new = core_nav.clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("NVX Ancile")
                 .inner_size(1280.0, 820.0)
@@ -155,6 +169,29 @@ fn main() {
                 .center()
                 .theme(Some(tauri::Theme::Dark))
                 .background_color(tauri::webview::Color(8, 9, 10, 255))
+                .on_navigation(move |url| match links::decide(url, &core_nav) {
+                    links::Action::Stay => true,
+                    links::Action::External => {
+                        open_external(url);
+                        false
+                    }
+                    links::Action::Refuse => {
+                        log::warn!("refused a link with the scheme {}", url.scheme());
+                        false
+                    }
+                })
+                .on_new_window(move |url, _features| match links::decide(&url, &core_new) {
+                    // A file Core serves (a source's original): its own window.
+                    links::Action::Stay => NewWindowResponse::Allow,
+                    links::Action::External => {
+                        open_external(&url);
+                        NewWindowResponse::Deny
+                    }
+                    links::Action::Refuse => {
+                        log::warn!("refused a link with the scheme {}", url.scheme());
+                        NewWindowResponse::Deny
+                    }
+                })
                 .initialization_script(format!(
                     "window.__NVX_DESKTOP__ = Object.freeze({{ version: {:?} }});",
                     env!("CARGO_PKG_VERSION")

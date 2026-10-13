@@ -116,7 +116,7 @@ export function traceRoutes(deps: {
       });
     const thread = await deps.turn.repo.getThread(message.thread_id);
     if (!thread) throw notFound('That thread');
-    if (req.model) assertChatModel(deps.turn.registry, req.model);
+    if (req.model) assertChatModel(deps.turn.registry, req.model, thread.settings.model);
     const started = await startTurn(deps.turn, {
       thread,
       user: { existingId: message.parent_id },

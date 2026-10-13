@@ -29,7 +29,7 @@ import { TourOverlay } from '../help/TourOverlay';
 import { installKeys, useBinding } from '../keys/dispatch';
 import { ShortcutsOverlay } from '../keys/ShortcutsOverlay';
 import { useConnection } from '../lib/connection';
-import { useApprovals, useNotebooks, useSetup, useThreads } from '../lib/data';
+import { useApprovals, useNotebooks, useSetup, useThread, useThreads } from '../lib/data';
 import { useGlobalEvents } from '../lib/events';
 import { useRuns } from '../lib/run';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -37,6 +37,7 @@ import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
 import { Palette } from '../palette/Palette';
 import { BeamHost } from '../pro/beam';
+import { EditionSync } from '../pro/edition';
 import { SignInGate, useSignInGate } from '../pro/gate';
 import { ADMIN_SECTIONS } from '../routes/admin/sections';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
@@ -49,15 +50,25 @@ import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Runtime } from './Runtime';
 
+/** A thread's crumbs: its notebook, then its title, from the list or else the open thread itself. */
+export function threadCrumbs(
+  id: string | undefined,
+  listed: { id: string; title: string; notebookId: string | null }[] | undefined,
+  open: { title: string; notebookId: string | null } | undefined,
+  notebooks: { id: string; title: string }[] | undefined,
+): { label: string; to?: string }[] {
+  // A thread opened from a link or Activity may not be in the sidebar's list.
+  const t = listed?.find((x) => x.id === id) ?? open;
+  const nb = notebooks?.find((n) => n.id === t?.notebookId);
+  return [...(nb ? [{ label: nb.title, to: `/n/${nb.id}` }] : []), { label: t?.title || 'Thread' }];
+}
+
 function useCrumbs(pathname: string): { label: string; to?: string }[] {
   const threads = useThreads();
   const notebooks = useNotebooks();
   const [, kind, id] = pathname.split('/');
-  if (kind === 't') {
-    const t = threads.data?.find((x) => x.id === id);
-    const nb = notebooks.data?.find((n) => n.id === t?.notebookId);
-    return [...(nb ? [{ label: nb.title, to: `/n/${nb.id}` }] : []), { label: t?.title ?? 'Thread' }];
-  }
+  const open = useThread(kind === 't' ? id : undefined);
+  if (kind === 't') return threadCrumbs(id, threads.data, open.data, notebooks.data);
   if (kind === 'n') return [{ label: notebooks.data?.find((n) => n.id === id)?.title ?? 'Notebook' }];
   if (kind === 'settings') return [{ label: 'Settings' }];
   if (kind === 'admin')
@@ -167,6 +178,7 @@ export function AppShell() {
     return (
       <>
         <Runtime />
+        <EditionSync />
         <SignInGate />
         <Toaster />
       </>
@@ -177,6 +189,7 @@ export function AppShell() {
     return (
       <>
         <Runtime />
+        <EditionSync />
         <Outlet />
         <Toaster />
       </>
@@ -193,6 +206,7 @@ export function AppShell() {
       style={{ '--rail-w': `${railWidth}px`, '--drawer-w': `${drawerWidth}px` } as CSSProperties}
     >
       <Runtime />
+      <EditionSync />
       <a href="#main" className="skip-link">
         Skip to content
       </a>

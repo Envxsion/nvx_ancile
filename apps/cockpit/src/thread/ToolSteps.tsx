@@ -26,6 +26,7 @@
  */
 
 import {
+  type ActivityState,
   type Part,
   stepCommand,
   stepDescription,
@@ -44,8 +45,10 @@ import {
   useState,
 } from 'react';
 import { Streamdown } from 'streamdown';
+import { useBackgroundShell } from '../activity/api';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
+import { ImageGenBody, imageMeta } from '../images/ImageGenBody';
 import { PythonBody, runMeta } from '../interpreter/PythonBody';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
@@ -53,6 +56,7 @@ import type { StepClock } from '../lib/run';
 import type { SubagentView } from '../lib/types';
 import { DiffView } from '../memory/DiffView';
 import { type DiffLine, diffStats, lineDiff } from '../memory/linediff';
+import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { MD_COMPONENTS } from './Citations';
 import { CodeBlock, CopyCode } from './Code';
@@ -97,6 +101,7 @@ const VERBS: Record<Exclude<Kind, 'other'>, [string, string, string]> = {
   monitor: ['Watched', 'Watching', 'watch'],
   mcp: ['Used', 'Using', 'use'],
   python: ['Ran Python', 'Running Python', 'run Python'],
+  image: ['Made an image', 'Making an image', 'make an image'],
 };
 
 const ICONS: Record<Kind, IconName> = {
@@ -120,6 +125,7 @@ const ICONS: Record<Kind, IconName> = {
   monitor: 'eye',
   mcp: 'link',
   python: 'play',
+  image: 'image',
   other: 'zap',
 };
 
@@ -268,6 +274,16 @@ export function describe(
         meta: runMeta(result),
       };
     }
+    case 'image': {
+      const prompt = s(a.prompt);
+      return {
+        verb,
+        target: prompt ? firstLine(prompt, 80) : 'from a prompt',
+        full: prompt,
+        mono: false,
+        meta: imageMeta(result),
+      };
+    }
     case 'delete':
     case 'patch':
     case 'list':
@@ -353,6 +369,17 @@ export function stepState(result: ToolResult | undefined, waiting: boolean): Ste
   if (result.declined_reason !== undefined) return 'declined';
   return result.ok ? 'ok' : 'failed';
 }
+
+/** A shell started in the background: its launch is not its end. Activity says how it is doing. */
+export function backgroundShellState(base: StepState, shell: ActivityState | 'gone' | null): StepState {
+  if (base !== 'ok') return base;
+  if (shell === 'finished' || shell === 'stopped' || shell === 'gone') return 'ok';
+  if (shell === 'failed') return 'failed';
+  return 'running';
+}
+
+const isBackgroundShell = (call: ToolCall) =>
+  kindOf(call.tool) === 'shell' && (call.args as { run_in_background?: unknown })?.run_in_background === true;
 
 /* ---- Pieces ---------------------------------------------------------------- */
 
@@ -901,6 +928,7 @@ function Body({
   const a = argsOf(call);
   // The lab's own tools keep the plain view their results were written for.
   if (kind === 'python') return <PythonBody call={call} result={result} />;
+  if (kind === 'image') return <ImageGenBody call={call} result={result} />;
   if (plainView(call.tool, kind)) return <GenericBody call={call} result={result} />;
   switch (kind) {
     case 'read':
@@ -1028,18 +1056,12 @@ function Pending({
   );
 }
 
-export function ToolStep({
-  call,
-  result,
-  waiting,
-  folded,
-  subagent,
-  clock,
-  live = false,
-}: {
+interface ToolStepProps {
   call: ToolCall;
   result: ToolResult | undefined;
   waiting: boolean;
+  /** The approval this step waits on: its "Waiting for your decision" opens exactly that one. */
+  approvalId?: string | null;
   subagent?: SubagentView | undefined;
   /** Settings → Reading: tool steps start as one line. */
   folded: boolean;
@@ -1047,24 +1069,55 @@ export function ToolStep({
   clock?: StepClock | undefined;
   /** The answer is still being written. */
   live?: boolean;
-}) {
+}
+
+export function ToolStep(props: ToolStepProps) {
+  return isBackgroundShell(props.call) && props.result?.ok ? (
+    <BackgroundShellStep {...props} />
+  ) : (
+    <ToolStepView {...props} shell={undefined} />
+  );
+}
+
+/** A background shell's step, with its state from Activity. */
+function BackgroundShellStep(props: ToolStepProps) {
+  const shell = useBackgroundShell(props.call.call_id, true);
+  return <ToolStepView {...props} shell={shell} />;
+}
+
+function ToolStepView({
+  call,
+  result,
+  waiting,
+  folded,
+  subagent,
+  clock,
+  live = false,
+  shell,
+  approvalId = null,
+}: ToolStepProps & { shell: ActivityState | 'gone' | null | undefined }) {
   const cwd = useContext(ToolCwd);
-  const state = stepState(result, waiting);
+  const background = shell !== undefined;
+  const state = background
+    ? backgroundShellState(stepState(result, waiting), shell)
+    : stepState(result, waiting);
   const line = describe(call, result, state, cwd);
   const kind = kindOf(call.tool);
   // The call's own words ("Reading the data models") lead; what it ran sits under them.
   const own = stepDescription(call.tool, call.args);
   const under = own ? (stepCommand(call.tool, call.args) ?? oneLiner(line)) : null;
   const detail =
-    state === 'waiting'
-      ? 'Waiting for your decision'
-      : state === 'declined'
-        ? result?.declined_reason || null
-        : state === 'failed' && kind !== 'shell'
-          ? firstLine(resultText(result), 90) || null
-          : null;
+    background && state === 'running'
+      ? 'Running in the background'
+      : state === 'waiting'
+        ? 'Waiting for your decision'
+        : state === 'declined'
+          ? result?.declined_reason || null
+          : state === 'failed' && kind !== 'shell'
+            ? firstLine(resultText(result), 90) || null
+            : null;
   // A Python run is read for its output and figures: it stays open whatever the setting.
-  const openByDefault = !folded || state === 'waiting' || kind === 'python';
+  const openByDefault = !folded || state === 'waiting' || kind === 'python' || kind === 'image';
   const [shown, onToggle] = useOpened(openByDefault);
   return (
     <details
@@ -1105,7 +1158,24 @@ export function ToolStep({
             </span>
           ) : null}
         </span>
-        {detail ? <span className="tool-step__detail">{detail}</span> : null}
+        {state === 'waiting' && approvalId ? (
+          <span className="tool-step__detail">
+            <button
+              type="button"
+              className="link-btn tool-step__ask"
+              onClick={(e) => {
+                // Open the decision, not the step.
+                e.preventDefault();
+                e.stopPropagation();
+                useUi.getState().setApproval(true, approvalId);
+              }}
+            >
+              Waiting for your decision
+            </button>
+          </span>
+        ) : detail ? (
+          <span className="tool-step__detail">{detail}</span>
+        ) : null}
         {line.meta ? (
           <span className="tool-step__meta" data-num>
             {line.meta}

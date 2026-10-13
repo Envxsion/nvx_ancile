@@ -83,6 +83,8 @@ export const SendTurnRequest = z
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).nullable().optional(),
     /** Source ids to ground this turn on. */
     source_ids: z.array(z.string()).max(50).optional(),
+    /** Images attached to this turn (POST /threads/:id/images); the model must see images (docs/images.md). */
+    image_ids: z.array(z.string().max(60)).max(8).optional(),
     /** Claude Code only: fork the session even from its latest message. */
     as_branch: z.boolean().optional(),
     /** Gateway only. */
@@ -116,6 +118,19 @@ export type SendTurnResult = z.infer<typeof SendTurnResult>;
 
 /** The notice text, one line, for the composer and the run event. */
 export const CLAUDE_CODE_CONTEXT_NOTICE = "This thread's context will be sent to Claude Code";
+/** The notice when all that goes is a note on the notebook's sources (no turns, no summary). */
+export const CLAUDE_CODE_SOURCES_NOTICE = 'A note on the sources that changed will be sent to Claude Code';
+
+/** The notice that says what a turn actually sends: the thread's context, or only a note on its sources. */
+export function claudeCodeContextNotice(r: {
+  foreign_turns: number;
+  seeded_from_summary: boolean;
+  source_notes?: number;
+}): string {
+  return r.foreign_turns === 0 && !r.seeded_from_summary && (r.source_notes ?? 0) > 0
+    ? CLAUDE_CODE_SOURCES_NOTICE
+    : CLAUDE_CODE_CONTEXT_NOTICE;
+}
 
 /**
  * The turn "Finish on another model" sends after Claude Code stopped at its
@@ -157,6 +172,8 @@ export const EngineContextReport = z.object({
   foreign_turns: z.number().int().nonnegative().default(0),
   /** Claude Code: the session was started afresh from NVX Ancile's summary. */
   seeded_from_summary: z.boolean().default(false),
+  /** Claude Code: notes on the notebook's sources (added or removed since its last turn) sent with it. */
+  source_notes: z.number().int().nonnegative().optional(),
   /**
    * About how many tokens the whole path would have been, sent as it is
    * (every message, tool output in full, no summary): what context assembly

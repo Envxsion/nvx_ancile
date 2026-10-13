@@ -69,6 +69,28 @@ describe('choosing an engine', () => {
       true,
     );
   });
+
+  it('lets a turn with no route through a local-only scope, for a flow of local steps to answer', () => {
+    const none = {
+      get: () => undefined,
+      chain: () => {
+        throw new Error('no route');
+      },
+    } as never;
+    expect(selectEngine(thread(), null, { registry: none })).toMatchObject({ checkModel: null, local: true });
+    // A model id NVX Ancile does not know is never taken for local.
+    expect(selectEngine(thread(), 'mystery/model', { registry: none }).local).toBe(false);
+  });
+
+  it('counts a GPU node on your network as local, and a rented pod as not', () => {
+    expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'your_network' })).toBe(true);
+    expect(isLocalModel({ provider: 'node', via: 'controller', runs_on: 'rented' })).toBe(false);
+    for (const runs_on of ['rented', 'your_network'] as const) {
+      const m = { id: 'node/qwen', provider: 'node', via: 'controller', runs_on } as ModelConfig;
+      const r = { get: () => m, chain: () => [m] } as never;
+      expect(selectEngine(thread(), 'node/qwen', { registry: r }).local).toBe(runs_on === 'your_network');
+    }
+  });
 });
 
 const fakeEngine = (id: string): Engine & { started: number } => ({
@@ -147,6 +169,8 @@ describe('the scope is checked before anything runs', () => {
 });
 
 class Bridge implements LiveBridge {
+  /** What the session's result says; the default is a normal success. */
+  result: Record<string, unknown> = { subtype: 'success', is_error: false };
   opened: LiveOpenParams[] = [];
   sent: string[] = [];
   replies: LivePermissionReply[] = [];
@@ -191,8 +215,7 @@ class Bridge implements LiveBridge {
         () =>
           this.msg(handle, {
             type: 'result',
-            subtype: 'success',
-            is_error: false,
+            ...this.result,
             usage: { input_tokens: 7, output_tokens: 2, cache_read_input_tokens: 40 },
           }),
         20,
@@ -293,6 +316,31 @@ describe('Claude Code as a model (Mode A)', () => {
     expect(bridge.replies[1]).toMatchObject({ behavior: 'allow' }); // the notebook's search
     expect(handles.size).toBe(0);
     expect(bridge.closed).toEqual(['hA']);
+  });
+
+  it('says what Claude Code said when its result is an error, even one marked success', async () => {
+    const bridge = new Bridge();
+    bridge.result = { subtype: 'success', is_error: true, result: 'API Error: 529 Overloaded' };
+    const client = new ClaudeCodeModelClient({
+      bridge,
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/haiku') as ModelConfig;
+    const run = async () => {
+      for await (const _ of client.stream(
+        model,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ));
+    };
+    await expect(run()).rejects.toThrow('Claude Code could not answer: API Error: 529 Overloaded');
   });
 
   it('turns a conversation into one prompt', () => {

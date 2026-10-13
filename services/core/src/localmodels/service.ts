@@ -31,6 +31,7 @@ import {
   type LocalModelEntry,
   type LocalModelsView,
   ModelConfig,
+  type OllamaQuant,
   type OllamaState,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
@@ -45,7 +46,8 @@ const log = logFor('local-models');
 export interface LocalModelsDeps {
   catalogue: LocalModelEntry[];
   ollamaUrl: string;
-  registry: Pick<ModelRegistry, 'all' | 'custom' | 'saveCustom' | 'setEnabled'>;
+  registry: Pick<ModelRegistry, 'all' | 'custom' | 'saveCustom' | 'setEnabled'> &
+    Partial<Pick<ModelRegistry, 'refreshOllama'>>;
   ollama?: OllamaClient;
   kn?: Pick<KnowledgeClient, 'get' | 'stream'>;
   probe?: HardwareProbe;
@@ -208,8 +210,18 @@ export class LocalModels {
     for (const j of this.jobs.values()) j.ctrl.abort(new Error('stopping'));
   }
 
-  async start(id: string, opts: { anyway?: boolean } = {}): Promise<LocalDownload> {
-    const entry = this.entry(id);
+  async start(id: string, opts: { anyway?: boolean; quant?: OllamaQuant } = {}): Promise<LocalDownload> {
+    const listed = this.entry(id);
+    // Another precision of the same model is another Ollama tag (local-models.yaml quant_tags).
+    const tag = opts.quant ? listed.quant_tags?.[opts.quant] : undefined;
+    if (opts.quant && !tag)
+      throw err(
+        'local_model.quant_unavailable',
+        `${listed.name} is not offered at ${opts.quant}`,
+        'Choose one of the precisions listed for it, or the default.',
+        400,
+      );
+    const entry = tag ? { ...listed, source: tag } : listed;
     const running = this.latest.get(id);
     if (running && ['starting', 'downloading', 'verifying'].includes(running.view.status))
       return structuredClone(running.view);
@@ -373,6 +385,8 @@ export class LocalModels {
   /** Switch the model on in every picker, adding it as an Ollama model if it is new here. */
   private async register(e: LocalModelEntry): Promise<string | null> {
     const reg = this.deps.registry;
+    // Ollama has it now: ask again, so it is ready at once, not when the list is next read.
+    if (e.via !== 'fastembed') await reg.refreshOllama?.().catch(() => undefined);
     const known = reg
       .all()
       .find((x) =>

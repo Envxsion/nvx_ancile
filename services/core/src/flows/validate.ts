@@ -14,12 +14,12 @@
  * ------------------------------------------------------------------
  */
 
-import type { FlowGraph, FlowIssue, FlowNode, ModelConfig } from '@nvx/contracts';
+import type { FlowGraph, FlowIssue, FlowNode, ModelConfig, ModelInfo } from '@nvx/contracts';
 import { buildGraph, canReach, findCycle, flowEdges, modelsOf, paths, reachable } from './graph';
 
 export interface ValidateDeps {
   model(id: string): ModelConfig | undefined;
-  status(m: ModelConfig): 'ready' | 'needs_key' | 'disabled';
+  status(m: ModelConfig): ModelInfo['status'];
   tool(name: string): boolean;
   flowExists(id: string): boolean;
   /** The flow being validated (a subflow may not call itself). */
@@ -150,6 +150,14 @@ export function validateFlow(
         warn('flow.model_unready', `${m.display_name} is switched off in Settings → Models.`, {
           node_id: n.id,
         });
+      else if (s === 'not_pulled')
+        warn(
+          'flow.model_unready',
+          `Ollama does not have ${m.display_name} yet. Pull it in Settings → Models.`,
+          {
+            node_id: n.id,
+          },
+        );
       if (m.via === 'controller')
         warn(
           'flow.gpu_node',

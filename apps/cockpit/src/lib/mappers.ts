@@ -97,8 +97,10 @@ export function toModelView(m: ModelInfo): ModelView {
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
+    ...(m.status === 'not_pulled' && { note: 'Not in Ollama yet: pull it in Settings → Models' }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
     local: isLocalWire(m.provider, m.via, m.base_url ?? null),
+    ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
   };
 }
 
@@ -239,6 +241,8 @@ export interface Provenance {
     unknown?: { count?: unknown; types?: unknown };
     /** Written by a live turn in NVX Ancile, not brought in from the terminal. */
     live?: unknown;
+    /** What the live turn's session loaded (lean or the whole setup), for the Why panel. */
+    setup?: import('@nvx/contracts').ClaudeCodeSetupReport;
   };
 }
 
@@ -391,7 +395,7 @@ export function toMessageView(m: Message): MessageView | null {
     provenance: prov,
     status: m.status === 'pending' || m.status === 'streaming' ? 'streaming' : m.status,
     runId: m.run_id,
-    ...(prov.error && { error: { title: prov.error.title, hint: prov.error.hint } }),
+    ...(prov.error && { error: { title: prov.error.title, hint: prov.error.hint, code: prov.error.code } }),
     ...(prov.lab &&
       m.run_id && {
         lab: { runId: m.run_id, undone: !!prov.lab_undone_at },

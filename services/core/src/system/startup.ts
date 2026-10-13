@@ -42,6 +42,7 @@ import {
 import { chooseNoBackup } from '../db/prepare';
 import type { SchemaState } from '../db/version';
 import { body } from '../http/body';
+import { cockpitPageHeaders } from '../http/csp';
 import { requestGuard } from '../http/guard';
 import { errorHandler } from '../obs/errors';
 import { logFor } from '../obs/logger';
@@ -237,7 +238,7 @@ export function stoppedApp(deps: StoppedDeps) {
   if (deps.cockpitDist) {
     const dist = deps.cockpitDist;
     app.use('/assets/*', serveStatic({ root: dist }));
-    app.use('/*', serveStatic({ root: dist }));
+    app.use('/*', cockpitPageHeaders(), serveStatic({ root: dist }));
     app.get('*', async (c) => {
       try {
         return c.html(await readFile(join(dist, 'index.html'), 'utf8'));

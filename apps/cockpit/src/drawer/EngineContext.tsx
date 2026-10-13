@@ -39,6 +39,7 @@ export function engineContextLines(r: EngineContextReport): string[] {
     );
     if (r.foreign_turns)
       lines.push(`${plural(r.foreign_turns, 'turn')} by other models given to it as a short digest`);
+    if (r.source_notes) lines.push("A note on the notebook's sources that changed since its last turn");
   } else if (r.window) {
     lines.push(
       `About ${n(r.tokens)} tokens of a ${n(r.window)}-token window, with ${n(r.reserve)} kept back for the answer`,

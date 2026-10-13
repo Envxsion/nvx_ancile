@@ -323,6 +323,8 @@ describe('when Claude Code refuses', () => {
     wrap(<CcNotices threadId="thr_1" />);
     // Asked before you send: the live state already knows.
     fireEvent.click(await screen.findByRole('button', { name: 'Point to new folder' }));
+    // The field takes focus, so you can type the path at once.
+    await waitFor(() => expect(screen.getByLabelText(/^New folder/)).toHaveFocus());
     fireEvent.change(screen.getByLabelText(/^New folder/), { target: { value: '/elsewhere' } });
     mocked.post.mockRejectedValueOnce(
       apiErr(
@@ -569,6 +571,41 @@ describe('the status line', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: /xhigh/ }));
     expect(useCcStore.getState().byThread.thr_1?.effort).toBe('xhigh');
     expect(screen.getByRole('button', { name: /Effort: xhigh/ })).toBeInTheDocument();
+  });
+
+  it("the setup chip turns on loading only this project's Claude Code settings", async () => {
+    // An imported thread (no started_in): the whole setup until lean is turned on.
+    seedThread();
+    mocked.patch.mockResolvedValue({});
+    wrap(<CcPickers threadId="thr_1" live={LIVE} commands={COMMANDS} />);
+    const chip = await screen.findByRole('button', { name: /Claude Code settings: your whole setup/ });
+    fireEvent.keyDown(chip, { key: 'Enter' });
+    const item = await screen.findByRole('menuitemcheckbox', {
+      name: /Load only this project's Claude Code settings/,
+    });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+    expect(item).toHaveTextContent(/user plugins, MCP servers and user CLAUDE\.md/);
+    fireEvent.click(item);
+    await waitFor(() =>
+      expect(mocked.patch).toHaveBeenCalledWith('/threads/thr_1', { claude_code_lean: true }),
+    );
+    expect(queryClient.getQueryData<ThreadView>(keys.thread('thr_1'))?.claudeCode?.lean).toBe(true);
+    expect(
+      await screen.findByRole('button', { name: /Claude Code settings: this project's only/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('a thread started in NVX Ancile is lean until turned off', async () => {
+    const t = seedThread();
+    queryClient.setQueryData(keys.thread('thr_1'), {
+      ...t,
+      claudeCode: {
+        ...(t.claudeCode as NonNullable<ThreadView['claudeCode']>),
+        started_in: 'ancile' as const,
+      },
+    });
+    wrap(<CcPickers threadId="thr_1" live={LIVE} commands={COMMANDS} />);
+    expect(await screen.findByRole('button', { name: /this project's only/ })).toBeInTheDocument();
   });
 });
 

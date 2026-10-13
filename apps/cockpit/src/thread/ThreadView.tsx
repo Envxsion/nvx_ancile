@@ -64,6 +64,8 @@ import { BusyNotice } from './BusyNotice';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { MessageList } from './MessageList';
+import { ModelGoneNotice } from './ModelGoneNotice';
+import { stayAtBottomOnShrink } from './stayAtBottom';
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 /** Load the page before when the view is this close to the top of what is loaded (pixels). */
@@ -235,6 +237,16 @@ export function ThreadView({ threadId }: { threadId: string }) {
     if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [streamedLength, messages.length]);
 
+  // A notice above the composer (a moved folder, a limit) makes the list shorter: while you
+  // were at the bottom, stay there, so it never covers the last lines of the answer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list mounts once the thread has loaded
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    return stayAtBottomOnShrink(el, () => following.current);
+    // The list mounts once the thread has loaded.
+  }, [threadId, thread.isPending]);
+
   // For screen readers: the answer as it arrives, by sentence or paragraph
   // (Settings → Accessibility), and always a word when it finishes. Only an
   // answer seen streaming here is read, never an old one on load.
@@ -370,6 +382,14 @@ export function ThreadView({ threadId }: { threadId: string }) {
     if (cc) {
       const sourceIds = extras?.mentions.filter((m) => m.kind === 'source').map((m) => m.id);
       if (ccWorking) {
+        if (extras?.images?.length) {
+          notify({
+            level: 'info',
+            title: 'Images wait for this turn to end',
+            body: 'Send the message with its images once Claude Code has finished.',
+          });
+          return false;
+        }
         if (ccState.queued) {
           notify({
             level: 'info',
@@ -388,6 +408,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
         model: ccState.model,
         effort: ccState.effort,
         sourceIds,
+        ...(extras?.images?.length && { imageIds: extras.images.map((i) => i.id) }),
         asBranch: ccState.forkNext,
         other: ccState.other,
       });
@@ -414,6 +435,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       defaultModel: model?.id ?? null,
       mentions: extras?.mentions,
       flowId: extras?.flowId ?? null,
+      ...(extras?.images?.length && { images: extras.images }),
     });
     if (ok) setAnnounce('Message sent.');
     return ok;
@@ -524,6 +546,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       <div className="thread__composer">
         <div className="thread__measure">
           {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
+          {demo ? null : <ModelGoneNotice threadId={threadId} />}
           {cc ? <CcNotices threadId={threadId} /> : null}
           {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
           {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}

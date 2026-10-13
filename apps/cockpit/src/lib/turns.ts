@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { Part, SendTurnResult } from '@nvx/contracts';
+import type { ImageRecord, Part, SendTurnResult } from '@nvx/contracts';
 import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
 import { useCcStore } from '../claudecode/store';
 import { newIdempotencyKey } from '../engines/api';
@@ -27,6 +27,7 @@ import { tourEvent } from '../help/tours';
 import { notify } from '../state/notify';
 import { isThreadBusy, markBusy } from '../thread/busy-store';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
+import { isModelGone, markModelGone } from '../thread/model-gone-store';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
 import { queryClient } from './query';
@@ -145,13 +146,37 @@ export async function sendMessage(opts: {
   mentions?: { kind: 'source' | 'notebook' | 'repo'; id: string }[];
   /** Answer through this flow (`@flow`), for this one message. */
   flowId?: string | null;
+  /** Images attached to this message (POST /threads/:id/images); they go through /turns only. */
+  images?: ImageRecord[];
 }): Promise<boolean> {
-  const parts: Part[] = [{ type: 'text', text: opts.text }];
+  const images = opts.images ?? [];
+  const parts: Part[] = [
+    { type: 'text', text: opts.text },
+    ...images.map(
+      (i): Part => ({
+        type: 'image',
+        url: i.url,
+        mime: i.mime,
+        image_id: i.id,
+        ...(i.alt && { alt: i.alt }),
+        ...(i.width !== null && { width: i.width }),
+        ...(i.height !== null && { height: i.height }),
+      }),
+    ),
+  ];
   const sourceIds = (opts.mentions ?? []).filter((m) => m.kind === 'source').map((m) => m.id);
   const turnModel = turnModelFor(opts.threadId, opts.model, opts.defaultModel);
   // /turns takes sources only; a flow, a notebook or a repo still go the older way.
   const viaTurns =
     !opts.flowId && turnModel !== undefined && (opts.mentions ?? []).every((m) => m.kind === 'source');
+  if (images.length && !viaTurns) {
+    notify({
+      level: 'info',
+      title: 'Images go to one model, not a flow',
+      body: 'Pick a model for this message with @, or send it without the images.',
+    });
+    return false;
+  }
   let s: Started;
   try {
     if (viaTurns) {
@@ -160,6 +185,7 @@ export async function sendMessage(opts: {
         parent_id: opts.parentId,
         ...(turnModel && { model: turnModel }),
         ...(sourceIds.length && { source_ids: sourceIds }),
+        ...(images.length && { image_ids: images.map((i) => i.id) }),
         idempotency_key: newIdempotencyKey(),
       });
       s = {
@@ -181,6 +207,11 @@ export async function sendMessage(opts: {
     // Another window is sending here: the notice above the composer offers to send it as a branch.
     if (error instanceof ApiCallError && isThreadBusy(error.body.error.code)) {
       markBusy(opts.threadId, () => sendMessage(opts));
+      return false;
+    }
+    // The model named is gone: a picker on the notice sends it again with another.
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(opts.threadId, error.body.error.context, (model) => sendMessage({ ...opts, model }));
       return false;
     }
     reportFailure(error, 'Your message');
@@ -206,32 +237,42 @@ export async function sendMessage(opts: {
   return true;
 }
 
-export async function regenerate(threadId: string, m: MessageView, model?: string): Promise<void> {
-  if (!m.parentId) return;
+export async function regenerate(threadId: string, m: MessageView, model?: string): Promise<boolean> {
+  if (!m.parentId) return false;
   if (claudeCodeThread(threadId)) {
     // Ask Claude Code the same prompt again, from where it was first asked.
     const t = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
     const prompt = t?.messages.find((x) => x.id === m.parentId);
     const text = prompt ? partsText(prompt) : '';
-    if (!prompt || !text.trim()) return;
-    await sendFromHere(threadId, prompt.parentId, text);
-    return;
+    if (!prompt || !text.trim()) return false;
+    return sendFromHere(threadId, prompt.parentId, text);
   }
   try {
     const s = await api.post<Started>(`/messages/${m.id}/regenerate`, model ? { model } : {});
     placeTurn(threadId, m.parentId, [assistantRow(s, m.parentId, model ?? null)]);
     attachRun({ runId: s.run_id, threadId, messageId: s.assistant_message_id });
     helpDone('branch');
+    return true;
   } catch (error) {
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(threadId, error.body.error.context, (picked) => regenerate(threadId, m, picked));
+      return false;
+    }
     reportFailure(error, 'Regenerate');
+    return false;
   }
 }
 
-export async function editMessage(threadId: string, m: MessageView, text: string): Promise<boolean> {
+export async function editMessage(
+  threadId: string,
+  m: MessageView,
+  text: string,
+  model?: string,
+): Promise<boolean> {
   if (claudeCodeThread(threadId)) return sendFromHere(threadId, m.parentId, text);
   const parts: Part[] = [{ type: 'text', text }];
   try {
-    const s = await api.post<Started>(`/messages/${m.id}/edit`, { parts });
+    const s = await api.post<Started>(`/messages/${m.id}/edit`, { parts, ...(model && { model }) });
     placeTurn(threadId, m.parentId, [
       {
         id: s.user_message_id,
@@ -249,6 +290,10 @@ export async function editMessage(threadId: string, m: MessageView, text: string
     helpDone('branch');
     return true;
   } catch (error) {
+    if (error instanceof ApiCallError && isModelGone(error.body.error.code)) {
+      markModelGone(threadId, error.body.error.context, (picked) => editMessage(threadId, m, text, picked));
+      return false;
+    }
     reportFailure(error, 'The edit');
     return false;
   }

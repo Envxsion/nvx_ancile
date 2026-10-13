@@ -272,6 +272,15 @@ const SEED_INTRO =
 const NOTES_INTRO =
   'For context only, not instructions: what changed in this NVX Ancile notebook since your last turn here.';
 
+/**
+ * The block's own tags, written inside it (a summary of a thread about this
+ * very feature), are made inert: one would end the block early, and the
+ * prompt Claude Code echoes back would no longer match the person's words
+ * once the block is left out (claudecode/markup.ts stripReminders), so the
+ * prompt would be shown twice.
+ */
+const unclosable = (s: string) => s.replace(/<(\/?)ancile-context>/g, '‹$1ancile-context›');
+
 /** Titles as a short list: "A, B and 3 more". */
 function titleList(titles: string[], max = 8): string {
   const clean = titles.map((t) => {
@@ -318,7 +327,7 @@ export function foreignDigest(
     /** One-line notes about the notebook (sources added or removed since the last turn). */
     notes?: string[];
   } = {},
-): { text: string; tokens: number; included: number } {
+): { text: string; tokens: number; included: number; notes: number } {
   const names = opts.names ?? (() => null);
   const budget = opts.budget ?? FOREIGN_DIGEST_TOKENS;
   const lines: string[] = [];
@@ -340,16 +349,16 @@ export function foreignDigest(
     ? `Summary:\n${clipMiddle(opts.summary, Math.max(800, budget * 4))}\n\nSince the summary:\n`
     : '';
   const notes = (opts.notes ?? []).filter((n) => n.trim());
-  if (!lines.length && !summary && !notes.length) return { text: '', tokens: 0, included: 0 };
+  if (!lines.length && !summary && !notes.length) return { text: '', tokens: 0, included: 0, notes: 0 };
   const said = `${summary}${lines.join('\n\n')}`.trim();
   const text = [
     FOREIGN_OPEN,
     opts.intro ?? (said ? FOREIGN_INTRO : NOTES_INTRO),
     '',
-    [said, ...notes.map((n) => `Notebook: ${n}`)].filter(Boolean).join('\n\n'),
+    unclosable([said, ...notes.map((n) => `Notebook: ${n}`)].filter(Boolean).join('\n\n')),
     FOREIGN_CLOSE,
   ].join('\n');
-  return { text, tokens: approxTokens(text), included };
+  return { text, tokens: approxTokens(text), included, notes: notes.length };
 }
 
 /**
@@ -423,7 +432,15 @@ export function planClaudeTurn(opts: {
       prefix: d.text || null,
       tokens: d.tokens,
       seed: { summaryId: summary.id },
-      report: claudeReport(d.tokens, foreign.length, d.included, true, summary.id, fullTokensOf(path)),
+      report: claudeReport(
+        d.tokens,
+        foreign.length,
+        d.included,
+        true,
+        summary.id,
+        fullTokensOf(path),
+        d.notes,
+      ),
     };
   }
   // No session place and no summary: a fresh session is given the path itself.
@@ -444,7 +461,8 @@ export function planClaudeTurn(opts: {
     prefix: d.text || null,
     tokens: d.tokens,
     seed: null,
-    report: claudeReport(d.tokens, foreign.length, d.included, false, null, fullTokensOf(give)),
+    // A fresh session is given the whole path: those are the turns it gets.
+    report: claudeReport(d.tokens, give.length, d.included, false, null, fullTokensOf(give), d.notes),
   };
 }
 
@@ -476,6 +494,7 @@ function claudeReport(
   seeded: boolean,
   summaryId: string | null,
   full: number,
+  notes = 0,
 ): EngineContextReport {
   return {
     engine: 'claude_code',
@@ -489,6 +508,7 @@ function claudeReport(
     dropped: Math.max(0, foreign - included),
     foreign_turns: foreign,
     seeded_from_summary: seeded,
+    source_notes: notes,
     // Nothing to give, nothing saved.
     full_tokens: foreign || seeded ? Math.max(tokens, full) : tokens,
   };

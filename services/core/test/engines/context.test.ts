@@ -3,8 +3,14 @@
  * answer, recall of older turns by relevance, and the digest of other
  * engines' turns that goes to Claude Code. Pure functions, no database.
  */
-import type { Part } from '@nvx/contracts';
+import {
+  CLAUDE_CODE_CONTEXT_NOTICE,
+  CLAUDE_CODE_SOURCES_NOTICE,
+  claudeCodeContextNotice,
+  type Part,
+} from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
+import { stripReminders } from '../../src/claudecode/markup';
 import {
   assembleForGateway,
   FOREIGN_OPEN,
@@ -247,6 +253,21 @@ describe('Claude Code turn plan', () => {
     expect(p.seed).toBeNull();
   });
 
+  it('says when all it sends is a note on the sources: no turns, and the notice reads so', () => {
+    const p = planClaudeTurn({
+      messages: mixed(),
+      parentId: 'm2',
+      threadSessionId: 'S',
+      summary: null,
+      seen: () => false,
+      notes: ['1 source added since your last turn: Spec'],
+    });
+    expect(p.prefix).toContain('Notebook: 1 source added');
+    expect(p.report).toMatchObject({ foreign_turns: 0, source_notes: 1 });
+    expect(claudeCodeContextNotice(p.report)).toBe(CLAUDE_CODE_SOURCES_NOTICE);
+    expect(claudeCodeContextNotice({ ...p.report, foreign_turns: 2 })).toBe(CLAUDE_CODE_CONTEXT_NOTICE);
+  });
+
   it('gives a new session (the folder changed) the whole thread so far, its own turns included', () => {
     const all = mixed();
     const p = planClaudeTurn({
@@ -298,5 +319,30 @@ describe('Claude Code turn plan', () => {
       seen: (s, id) => s === 'S' && id === 'sum1',
     });
     expect(again.seed).toBeNull();
+  });
+
+  it("puts a fresh session's seed inside the context block, so the echoed prompt is adopted", () => {
+    const all = mixed();
+    // A summary that itself mentions the block's tags (a thread about this very feature).
+    const summary = {
+      id: 'sum1',
+      uptoMessageId: 'm2',
+      content: 'We wrapped the digest in <ancile-context> and </ancile-context> tags.',
+    };
+    const p = planClaudeTurn({
+      messages: all,
+      parentId: 'm4',
+      threadSessionId: 'S',
+      summary,
+      seen: () => false,
+    });
+    expect(p.seed).toEqual({ summaryId: 'sum1' });
+    const prefix = p.prefix as string;
+    expect(prefix.startsWith(FOREIGN_OPEN)).toBe(true);
+    expect(prefix.trimEnd().endsWith('</ancile-context>')).toBe(true);
+    // What live.ts sends, and what the mapper leaves once the block is taken out: the person's words.
+    const sent = `${prefix}\n\nAnd what about tests?`;
+    expect(stripReminders(sent).trim()).toBe('And what about tests?');
+    expect(prefix).toContain('wrapped the digest in');
   });
 });

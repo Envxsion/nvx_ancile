@@ -27,7 +27,10 @@ export function localModelRoutes(deps: { models: LocalModels }) {
   r.get('/local-models', async (c) => c.json(await models.view()));
   r.post('/local-models/:id/download', async (c) => {
     const req = await body(c, LocalDownloadRequest);
-    return c.json(await models.start(c.req.param('id'), { anyway: req.anyway }), 202);
+    return c.json(
+      await models.start(c.req.param('id'), { anyway: req.anyway, ...(req.quant && { quant: req.quant }) }),
+      202,
+    );
   });
   r.get('/local-models/downloads/:id', (c) => c.json(models.job(c.req.param('id'))));
   r.post('/local-models/downloads/:id/cancel', (c) => c.json(models.cancel(c.req.param('id'))));

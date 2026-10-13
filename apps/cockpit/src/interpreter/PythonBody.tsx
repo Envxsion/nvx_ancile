@@ -16,6 +16,7 @@
 
 import { type Part, PythonRunResult } from '@nvx/contracts';
 import { useEffect, useState } from 'react';
+import { ImageFrame } from '../images/ThreadImage';
 import { API_BASE } from '../lib/api';
 import { CodeBlock } from '../thread/Code';
 import { Icon } from '../ui/Icon';
@@ -97,13 +98,11 @@ export function PythonBody({ call, result }: { call: ToolCall; result: ToolResul
             <div className="pyrun__figures">
               {run.figures.map((f) => (
                 <figure key={f.id} className="pyrun__figure">
-                  <img
+                  <ImageFrame
                     src={`${API_BASE}/interpreter/figures/${encodeURIComponent(f.id)}`}
                     alt={f.alt}
                     width={f.width}
                     height={f.height}
-                    loading="lazy"
-                    decoding="async"
                   />
                   <figcaption>
                     {f.alt}

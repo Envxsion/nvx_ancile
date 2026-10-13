@@ -60,8 +60,8 @@ export interface Batch {
 
 interface AutoState {
   marks: Record<string, AutoMark>;
-  /** Actions that ran under the approved plan, per thread (for "2 of 5 steps"). */
-  planRan: Record<string, string[]>;
+  /** Steps of each approved plan that ran, by plan id (plan.step_ran, for "2 of 5 steps"). */
+  planRan: Record<string, number[]>;
   batches: Record<string, Batch>;
   /** Bumped by plan.changed, per thread: the plan query refetches on it. */
   planTick: Record<string, number>;
@@ -81,11 +81,12 @@ export const useAuto = create<AutoState>((set) => ({
           const marks = e.call_id
             ? { ...s.marks, [e.call_id]: { action: e.action, via: e.via, reviewer: e.reviewer } }
             : s.marks;
-          const planRan =
-            e.via === 'plan'
-              ? { ...s.planRan, [threadId]: [...(s.planRan[threadId] ?? []), e.action] }
-              : s.planRan;
-          return { marks, planRan };
+          return { marks };
+        }
+        case 'plan.step_ran': {
+          const done = s.planRan[e.plan_id] ?? [];
+          if (done.includes(e.step)) return s;
+          return { planRan: { ...s.planRan, [e.plan_id]: [...done, e.step] } };
         }
         case 'approval.batched': {
           const b = s.batches[e.batch_id] ?? { id: e.batch_id, threadId, runId, items: [] };
@@ -151,7 +152,8 @@ export function noteAutoEvent(threadId: string, runId: string, e: RunEvent): voi
     e.type === 'approval.batched' ||
     e.type === 'approval.required' ||
     e.type === 'approval.resolved' ||
-    e.type === 'plan.changed'
+    e.type === 'plan.changed' ||
+    e.type === 'plan.step_ran'
   )
     useAuto.getState().note(threadId, runId, e);
 }

@@ -10,13 +10,16 @@
  *           |  through the gateway. Rules are added by AutoReview.
  *  How      |  Keys are read from the secret store per review, so a
  *           |  key added in Settings → API keys is used at once. The
- *           |  local reviewer uses the first enabled Ollama or local
- *           |  model on the utility chain, and nothing else.
+ *           |  local reviewer uses the first local model on the utility
+ *           |  chain, else the smallest ready local chat model of at
+ *           |  most 14B (an Ollama model you pulled): it never leaves
+ *           |  this machine, so it fits every scope.
  * ------------------------------------------------------------------
  */
 
+import type { ModelConfig } from '@nvx/contracts';
 import type { Gateway } from '../../gateway/gateway';
-import type { ModelRegistry } from '../../gateway/registry';
+import { canChat, type ModelRegistry } from '../../gateway/registry';
 import type { SecretStore } from '../../secrets';
 import {
   JEV_DIRECT_MODELS,
@@ -33,14 +36,40 @@ export const TYPESAFE_KEY_SECRET = 'typesafe.api_key';
 /** The OpenRouter key's secret name (gateway/providers.ts DEFAULT_SECRET). */
 export const OPENROUTER_KEY_SECRET = 'OPENROUTER_API_KEY';
 
-const isLocal = (m: { provider: string; via?: string }) => m.provider === 'ollama' || m.provider === 'local';
+const isLocal = (m: { provider: string; via?: string }) =>
+  (m.provider === 'ollama' || m.provider === 'local') && m.via !== 'controller';
+
+/** Largest local model the reviewer falls back to (billions of parameters). */
+export const REVIEWER_MAX_B = 14;
+
+/** Billions of parameters a model's name gives ("llama3.2:3b", "qwen3-14b"), or null. */
+export function paramsOf(name: string): number | null {
+  const m = /(?:^|[:_/-])(\d+(?:\.\d+)?)b\b/i.exec(name);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * The model the local reviewer asks: the utility chain's first local model,
+ * else the smallest ready local chat model that says its size, up to
+ * REVIEWER_MAX_B. Null when there is none (Auto mode falls back to rules).
+ */
+export function reviewerModel(registry: Pick<ModelRegistry, 'chain' | 'all' | 'status'>): ModelConfig | null {
+  const fromChain = registry.chain('utility').find(isLocal);
+  if (fromChain) return fromChain;
+  const sized = registry
+    .all()
+    .filter((m) => isLocal(m) && canChat(m) && registry.status(m) === 'ready')
+    .map((m) => ({ m, b: paramsOf(m.provider_model) }))
+    .filter((x): x is { m: ModelConfig; b: number } => x.b !== null && x.b <= REVIEWER_MAX_B)
+    .sort((a, b) => a.b - b.b);
+  return sized[0] ? { ...sized[0].m, enabled: true } : null;
+}
 
 export function coreReviewers(deps: {
   secrets: SecretStore;
   gateway: Gateway;
   registry: ModelRegistry;
 }): Reviewer[] {
-  const localChain = () => deps.registry.chain('utility').filter(isLocal);
   return [
     new JevReviewer({
       id: 'jev_openrouter',
@@ -55,10 +84,11 @@ export function coreReviewers(deps: {
       key: () => deps.secrets.get(TYPESAFE_KEY_SECRET),
     }),
     new LocalModelReviewer({
-      available: async () => localChain().length > 0,
+      available: async () => reviewerModel(deps.registry) !== null,
       complete: async (prompt, signal) => {
-        const chain = localChain().slice(0, 1);
-        if (!chain.length) return null;
+        const model = reviewerModel(deps.registry);
+        if (!model) return null;
+        const chain = [model];
         let text = '';
         for await (const ev of deps.gateway.stream(
           chain,

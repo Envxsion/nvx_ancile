@@ -168,23 +168,25 @@ export function ProUpsell({ feature, build }: { feature: ProFeatureId; build: 'f
   const words = proContract.PRO_FEATURE_WORDS[feature];
   return (
     <div className="pro-upsell">
-      <EmptyState
-        icon="seal"
-        title={words.title}
-        body={
-          <>
-            {words.body}{' '}
-            {build === 'pro'
-              ? 'It is part of NVX Ancile Pro: turn Pro on with your key to use it.'
-              : 'It is part of NVX Ancile Pro, which this build does not include. Everything else here is free and complete.'}
-          </>
-        }
-        secondary={
-          <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--ghost btn--sm">
-            {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
-          </Link>
-        }
-      />
+      <div className="pro-upsell__card pro-card gilt-frame gilt-frame--quiet">
+        <EmptyState
+          icon="seal"
+          title={words.title}
+          body={
+            <>
+              {words.body}{' '}
+              {build === 'pro'
+                ? 'It is part of NVX Ancile Pro: turn Pro on with your key to use it.'
+                : 'It is part of NVX Ancile Pro, which this build does not include. Everything else here is free and complete.'}
+            </>
+          }
+          secondary={
+            <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--ghost btn--sm">
+              {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
+            </Link>
+          }
+        />
+      </div>
     </div>
   );
 }

@@ -64,6 +64,11 @@ const SWITCHES: { key: 'auto_install' | 'auto_import' | 'claude_telemetry'; labe
 export type ClaudeCodeStage = 'installing' | 'install' | 'update' | 'sign-in' | 'signed-in';
 
 /** Which single step comes next. */
+/** An excluded folder as you read it: "<temp>" (the system's temporary folder) is "Temporary files". */
+export function excludedLabel(f: string): string {
+  return f.replace(/^<temp>(?=$|[\\/])/, 'Temporary files');
+}
+
 export function stageOf(s: ClaudeCodeStatus): ClaudeCodeStage {
   if (!s.installed) return s.install.state === 'installing' ? 'installing' : 'install';
   if (!s.version_ok) return 'update';
@@ -308,13 +313,13 @@ export function ClaudeCodeGroup() {
                   {s.settings.exclude_folders.map((f) => (
                     <li key={f}>
                       <Icon name="folder" size={13} />
-                      <span className="cc-excluded__path" data-num title={f}>
-                        {f}
+                      <span className="cc-excluded__path" data-num title={excludedLabel(f)}>
+                        {excludedLabel(f)}
                       </span>
                       <button
                         type="button"
                         className="icon-btn icon-btn--xs"
-                        aria-label={`Bring in ${f} again`}
+                        aria-label={`Bring in ${excludedLabel(f)} again`}
                         title="Bring its sessions in again"
                         onClick={() =>
                           patch.mutate({ exclude_folders: s.settings.exclude_folders.filter((x) => x !== f) })

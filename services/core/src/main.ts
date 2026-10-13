@@ -95,6 +95,10 @@ import { restartAdapterFor } from './health/restart';
 import { healthRoutes, recordHealth, systemHealthOf } from './health/routes';
 import { DEFAULT_SUPERVISOR, startSupervisor } from './health/supervisor';
 import { cockpitOrigins } from './http/guard';
+import { imageRoutes } from './images/routes';
+import { ImageService } from './images/service';
+import { ImageStore, PgImageRows } from './images/store';
+import { imageTool } from './images/tool';
 import { attachedFiles } from './interpreter/attached';
 import { interpreterRoutes } from './interpreter/routes';
 import { PyodideRuntime } from './interpreter/runtime';
@@ -115,6 +119,7 @@ import { linkRoutes } from './links/routes';
 import { LinkService, type LinkServiceDeps } from './links/service';
 import { PgLinkStore } from './links/store';
 import { threadSummary } from './links/summary';
+import { OllamaClient } from './localmodels/ollama';
 import { localModelRoutes } from './localmodels/routes';
 import { LocalModels } from './localmodels/service';
 import { logIngestRoutes, logRoutes } from './logs/routes';
@@ -143,6 +148,10 @@ import { traceRoutes } from './obs/routes';
 import { setSpanSink, startSpan } from './obs/spans';
 import { ObsPipeline, PgObsStore, toNewLog } from './obs/store';
 import { startTracing, stopTracing } from './obs/tracing';
+import { fromInfo } from './openrouter/advisor';
+import { EndpointsCache } from './openrouter/endpoints';
+import { openRouterRoutes } from './openrouter/routes';
+import { OpenRouterService } from './openrouter/service';
 import { AutoReview, PgPlanStore } from './permissions/auto';
 import { autoRoutes } from './permissions/auto/routes';
 import { coreReviewers } from './permissions/auto/wire';
@@ -190,7 +199,7 @@ import { PgSendLocks } from './threads/send-lock';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
-import { PgUsageSource } from './usage/report';
+import { PgUsageSource, usageHistory } from './usage/report';
 import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
@@ -356,6 +365,15 @@ async function main() {
     secrets,
     settings,
     offline: env.ANCILE_OFFLINE_MODELS,
+    // An Ollama model Ollama has not pulled is never offered or chosen (it could not answer).
+    ollamaTags: async () => {
+      const ollama = new OllamaClient({ baseUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434' });
+      const tags = await Promise.race([
+        ollama.tags(),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error('slow')), 1_500).unref()),
+      ]);
+      return tags.map((t) => t.name).filter(Boolean);
+    },
   });
   await registry.refresh();
   const endpoints = {
@@ -373,13 +391,39 @@ async function main() {
   setInterval(() => void syncProvider(), 60_000).unref();
   // ---- end Phase 5 ----
   // Engines (docs/engines.md): Claude Code as a model registers its own client here once it is built.
+  // Images (docs/images.md): kept by content in the data folder; vision models read them by id.
+  const imageStore = new ImageStore(resolve(env.ANCILE_DATA_DIR, 'images'), new PgImageRows(sql));
+  // OpenRouter (docs/openrouter.md): endpoint lists, routing presets, served provider, cost.
+  const usageSource = new PgUsageSource(sql);
+  const openRouter = new OpenRouterService({
+    settings,
+    endpoints: new EndpointsCache({ settings, config: () => config.openrouter }),
+    config: () => config.openrouter,
+    models: (id) => registry.get(id),
+    usageHistory: () => usageHistory(usageSource, owner.workspaceId, Date.now()),
+    planUsed: async () => {
+      const p = await planLimits.get({ refresh: false });
+      const used = p.windows.map((w) => w.percent).filter((n): n is number => n !== null);
+      return { known: p.available === true, percent: used.length ? Math.max(...used) : null };
+    },
+  });
   const routingClient = new RoutingClient(
-    new AiSdkClient(secrets, endpoints),
+    new AiSdkClient(
+      secrets,
+      endpoints,
+      async (id) => {
+        const got = await imageStore.get(id);
+        return got ? { bytes: got.bytes, mime: got.record.mime } : null;
+      },
+      (m, req) => openRouter.forCall(m, req),
+    ),
     new FakeProvider({ wordDelayMs: 25 }),
   );
   const gateway = new Gateway({
     client: routingClient,
     breaker: new CircuitBreaker(),
+    // A cold node says how long it needs; wait that long plus two minutes.
+    computeEtaMarginMs: 120_000,
   });
   const chatReady = registry
     .info()
@@ -535,6 +579,21 @@ async function main() {
     pythonTool(interpreter, attachedFiles({ threads, kn, scopes })),
     overrideFor(config.tools?.tools, 'code.run'),
   );
+  // image_generate (docs/images.md): a provider from config/images.yaml, behind the permission gate.
+  const images = new ImageService({
+    store: imageStore,
+    config: () => config.images,
+    secrets,
+    scopes,
+    threads,
+    onImage: (source, kind) => {
+      telemetry.feature(`image_${source}`);
+      if (kind) telemetry.feature(`image_provider_${kind}`);
+    },
+  });
+  await images.providers().catch(() => undefined);
+  tools.register(imageTool(images), overrideFor(config.tools?.tools, 'image.generate'));
+  setInterval(() => void imageStore.sweep().catch(() => undefined), 60 * 60_000).unref();
   // Passages per turn and per source (config/retrieval.yaml), and what became of cited sources (track G).
   const retrievalLimits = {
     k: config.retrieval?.k ?? DEFAULT_LIMITS.k,
@@ -746,6 +805,7 @@ async function main() {
     bus: events,
   });
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
+    images,
     limits: planLimits,
     workspaceId: owner.workspaceId,
     userId: owner.userId,
@@ -758,6 +818,7 @@ async function main() {
     events: runEvents,
     worker: { kick: () => worker.kick() },
     bus: events,
+    idleCloseMs: env.ANCILE_CC_LIVE_IDLE_MS,
     permissions,
     gateFor: (root) =>
       createGate({
@@ -855,6 +916,7 @@ async function main() {
   const familyOf = (id: string | null) => (id ? (registry.get(id)?.family ?? null) : null);
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
   const engines: Engines = new Engines({
+    images,
     registry,
     gateway: new GatewayEngine({
       repo: threads,
@@ -1360,6 +1422,7 @@ async function main() {
         turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
       }),
       threadRoutes({
+        afterDelete: (id) => imageStore.deleteThread(id),
         repo: threads,
         runs: runStore,
         worker,
@@ -1447,6 +1510,30 @@ async function main() {
         onResolved: (a, status, reason, updatedArgs) => relayAnswer(a, status, reason, updatedArgs),
         editable: (a) => claudeLive.editable(a),
         recheck: (a, args) => claudeLive.recheck(a, args),
+        // A saved answer settles the other waiting requests it covers: each is decided again here.
+        decideAgain: async (a) => {
+          if (claudeLive.editable(a)) return claudeLive.recheck(a, a.args);
+          const t = a.thread_id ? await threads.getThread(a.thread_id) : undefined;
+          const spec = tools.get(a.tool);
+          return gate.check({
+            userId: owner.userId,
+            principal: a.principal,
+            action: a.action,
+            resource: a.resource,
+            toolTier: spec?.tier ?? a.tier,
+            destructive: spec?.destructive ?? false,
+            scope: {
+              threadId: a.thread_id,
+              notebookId: t?.notebook_id ?? null,
+              workspaceId: owner.workspaceId,
+            },
+            runId: a.run_id,
+            traceId: newTraceId(),
+            tool: a.tool,
+            args: a.args,
+            ...(a.call_id && { callId: a.call_id }),
+          });
+        },
         scopeRefs: async (a) => {
           const t = a.thread_id ? await threads.getThread(a.thread_id) : undefined;
           return {
@@ -1525,9 +1612,33 @@ async function main() {
         workspaceId: owner.workspaceId,
         sendLocks,
       }),
+      openRouterRoutes({
+        service: openRouter,
+        candidates: async () => {
+          const ready = registry
+            .info()
+            .filter((m) => m.status === 'ready')
+            .map(fromInfo);
+          const local = (await localModels.view().catch(() => null))?.items ?? [];
+          for (const l of local)
+            if (l.kind === 'chat' && !l.model_id)
+              ready.push({
+                id: `ollama/${l.source}`,
+                name: l.name,
+                provider: 'ollama',
+                via: 'direct',
+                context: l.context_window,
+                capabilities: l.capabilities,
+                input: 0,
+                output: 0,
+                suggestion: true,
+              });
+          return ready;
+        },
+      }),
       usageRoutes({
         workspaceId: owner.workspaceId,
-        source: new PgUsageSource(sql),
+        source: usageSource,
         limits: () => planLimits,
       }),
       labRoutes({
@@ -1542,6 +1653,7 @@ async function main() {
       }),
       artifactRoutes({ store: new PgArtifactStore(sql), threads, workspaceId: owner.workspaceId }),
       interpreterRoutes({ runtime: pyodide, service: interpreter, figures: interpreterFigures }),
+      imageRoutes({ images, threads, workspaceId: owner.workspaceId }),
     ],
     ...(env.NODE_ENV === 'production' && existsSync(cockpitDist) && { cockpitDist }),
   });

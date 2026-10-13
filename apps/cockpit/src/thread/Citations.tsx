@@ -25,10 +25,12 @@ import * as HoverCard from '@radix-ui/react-hover-card';
 import { type ComponentProps, createContext, type ReactNode, useContext, useState } from 'react';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
+import { ThreadImage } from '../images/ThreadImage';
 import { useCitationStatus } from '../lib/factcheck';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { SafeLink } from '../ui/SafeLink';
 import { LiveClaim } from './Claims';
 import { MdCode } from './Code';
 
@@ -195,25 +197,9 @@ function Chip({ n }: { n: number }) {
   );
 }
 
+/** Markdown images: local ones inline, remote ones only after a yes (images/ThreadImage.tsx). */
 function SafeImage({ src, alt }: ComponentProps<'img'>) {
-  const [load, setLoad] = useState(false);
-  const url = typeof src === 'string' ? src : '';
-  const local = url.startsWith('data:image/') || url.startsWith('/') || url.startsWith(location.origin);
-  if (local || load) return <img src={url} alt={alt ?? ''} loading="lazy" referrerPolicy="no-referrer" />;
-  let host = 'another site';
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    /* not a URL */
-  }
-  return (
-    <button type="button" className="md-image-blocked" onClick={() => setLoad(true)} title={url}>
-      <Icon name="image" size={14} />
-      <span>
-        An image from <strong>{host}</strong> was not loaded. Load it
-      </span>
-    </button>
-  );
+  return <ThreadImage src={typeof src === 'string' ? src : ''} alt={alt} />;
 }
 
 function Link({ href, children, ...rest }: ComponentProps<'a'>) {
@@ -222,9 +208,9 @@ function Link({ href, children, ...rest }: ComponentProps<'a'>) {
   const claim = href ? /^#claim-([\w-]+)$/.exec(href) : null;
   if (claim) return <LiveClaim id={claim[1] as string}>{children}</LiveClaim>;
   return (
-    <a {...rest} href={href} target="_blank" rel="noopener noreferrer">
+    <SafeLink href={href} {...rest}>
       {children}
-    </a>
+    </SafeLink>
   );
 }
 

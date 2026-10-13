@@ -37,16 +37,32 @@ import {
   type FlowStepRecord,
   FULL_CONTEXT,
   type ModelConfig,
+  type ModelInfo,
   type ModelParams,
   type RuleCondition,
 } from '@nvx/contracts';
 import { z } from 'zod';
+import { servedWindow } from '../gateway/ollama-chat';
 import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
 import type { RunEventInput } from '../runs/events';
 import { assemble, type ContextSources, type Upstream } from './context';
 import { buildGraph, flowEdges, incomingFlowEdges } from './graph';
 
 /* ---- The runtime a flow runs against ------------------------------------------ */
+
+/** A worker's default context: the last few turns and the passages, not the whole branch. */
+export const WORKER_CONTEXT: ContextPolicy = {
+  ...FULL_CONTEXT,
+  conversation: { mode: 'last_n', n: 4 },
+};
+
+/** What a step may send its model: its window, less room for the answer and the prompt's frame. */
+export function stepBudget(
+  m: Pick<ModelConfig, 'provider' | 'via' | 'context_window' | 'max_output'>,
+): number {
+  const window = servedWindow(m);
+  return Math.max(1_024, window - Math.min(m.max_output, Math.floor(window / 4)) - 1_000);
+}
 
 export interface ModelCallResult {
   text: string;
@@ -57,6 +73,8 @@ export interface ModelCallResult {
   costUsd: number;
   /** Tools the model asked to call this round. */
   toolCalls?: { callId: string; tool: string; args: unknown }[];
+  /** The step's own model could not answer and another did (the gateway's fallback). */
+  fellBack?: { from: string; to: string; reason: string };
 }
 
 export type Waitable<T> = { status: 'done'; value: T } | { status: 'waiting' };
@@ -90,7 +108,7 @@ export interface FlowRuntime {
   };
   model(id: string): ModelConfig | undefined;
   /** Whether a model can be called now (absent: assume it can). */
-  status?(m: ModelConfig): 'ready' | 'needs_key' | 'disabled';
+  status?(m: ModelConfig): ModelInfo['status'];
   /** Context for one node: conversation, passages, memory (per model for memory). */
   contextFor(model: ModelConfig | undefined): ContextSources;
   call(
@@ -459,8 +477,13 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       .filter((n) => state.outputs[n.id] !== undefined)
       .map((n) => ({ node: n.id, label: labelOf(n), text: state.outputs[n.id] as string }));
 
-  /** The policy for a node reached by `edge`: the edge's own, a Context node's, or the default. */
-  const policyFor = (id: string, edge?: FlowEdge): ContextPolicy => {
+  /**
+   * The policy for a node reached by `edge`: the edge's own, a Context node's,
+   * or the default. The default for a worker (a step that does not answer, or
+   * a manager's task) is the last few turns plus passages; a manager and the
+   * step that answers keep the whole branch (with its compaction summary).
+   */
+  const policyFor = (id: string, edge?: FlowEdge, worker = false): ContextPolicy => {
     if (edge?.context) return edge.context;
     for (const e of incomingFlowEdges(g, id)) {
       if (!state.fired[e.id]) continue;
@@ -468,7 +491,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       const from = g.nodes.get(e.from);
       if (from?.kind === 'context') return from.params;
     }
-    return FULL_CONTEXT;
+    return worker ? WORKER_CONTEXT : FULL_CONTEXT;
   };
 
   const vars = (): Record<string, string> => ({
@@ -512,7 +535,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
   /** One model call for a node, streamed live and costed. */
   const callModel = async (
     node: FlowNode,
-    params: Pick<ModelParams, 'model' | 'fallbacks' | 'temperature' | 'max_output' | 'cache_s'> & {
+    params: Pick<
+      ModelParams,
+      'model' | 'fallbacks' | 'temperature' | 'max_output' | 'cache_s' | 'routing'
+    > & {
       wait_for_wake_s?: number;
     },
     req: ModelRequest,
@@ -523,6 +549,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       ...req,
       ...(params.temperature !== undefined && { temperature: params.temperature }),
       ...(params.max_output !== undefined && { maxOutputTokens: params.max_output }),
+      ...(params.routing && { routing: params.routing }),
     };
     const key =
       params.cache_s && !full.tools?.length
@@ -568,6 +595,13 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       { ...(params.wait_for_wake_s !== undefined && { waitForWakeS: params.wait_for_wake_s }) },
     );
     flush();
+    if (result.fellBack) {
+      const name = (id: string) => rt.model(id)?.display_name ?? id;
+      notes.set(
+        node.id,
+        `${name(result.fellBack.from)} could not answer (${result.fellBack.reason}), so ${name(result.fellBack.to)} answered instead.`,
+      );
+    }
     if (key) callCache.set(key, { at: now(), result });
     return { ...result, cached: false };
   };
@@ -584,7 +618,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       messages: [{ role: 'user', content: prompt }],
       temperature: 0,
     };
-    const r = await callModel(node, { model, fallbacks: [] }, req, { speak: false });
+    const routing = 'routing' in node.params ? (node.params.routing as ModelParams['routing']) : undefined;
+    const r = await callModel(node, { model, fallbacks: [], ...(routing && { routing }) }, req, {
+      speak: false,
+    });
     const parsed = schema.safeParse(parseJson(r.text));
     if (!parsed.success)
       throw new AncileError({
@@ -622,7 +659,10 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
   > => {
     if (n.params.pinned_output !== undefined) return { output: n.params.pinned_output, status: 'pinned' };
     const model = rt.mock ? rt.mock.models[0] : rt.model(n.params.model);
-    const policy = policyFor(n.id, via.edge);
+    const chosen = policyFor(n.id, via.edge, via.task !== undefined || !speakers.has(n.id));
+    // Never more than the step's own model can read, whatever the policy says.
+    const policy =
+      model && chosen.budget_tokens === undefined ? { ...chosen, budget_tokens: stepBudget(model) } : chosen;
     const upstream = via.upstream ?? (policy.upstream === 'all' ? allOutputs() : upstreamOf(n.id));
     const payload = await assemble({
       policy,
@@ -835,6 +875,9 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
     return { output };
   };
 
+  /** A visible note per node: which model stood in for the step's own. */
+  const notes = new Map<string, string>();
+
   const recordStep = async (
     n: FlowNode,
     started: number,
@@ -858,6 +901,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       cost_usd: Math.round(u.cost * 1e6) / 1e6,
       output: output.slice(0, 20_000),
       ...(error && { error }),
+      ...(notes.has(n.id) && { note: notes.get(n.id) }),
       ...(toolCalls?.length && { tool_calls: toolCalls }),
     });
     state.stepsRun += 1;
@@ -871,6 +915,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       tokens_out: u.tokensOut,
       cost_usd: Math.round(u.cost * 1e6) / 1e6,
       ...(error && { error }),
+      ...(notes.has(n.id) && { note: notes.get(n.id) }),
     });
   };
 

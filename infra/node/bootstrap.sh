@@ -90,8 +90,11 @@ publish_status() {
       tail -n 10 "$LOG_DIR/watchdog.log"
     fi
     if [ -f "$STATE_DIR/failed" ]; then
-      echo '--- vllm.log, last 40 lines'
-      tail -n 40 "$LOG_DIR/vllm.log" 2>/dev/null
+      # The first error is usually the cause; the end shows where it stopped.
+      echo '--- vllm.log, first error lines'
+      grep -m 10 -iE 'error|exception|traceback|out of memory' "$LOG_DIR/vllm.log" 2>/dev/null
+      echo '--- vllm.log, last 80 lines'
+      tail -n 80 "$LOG_DIR/vllm.log" 2>/dev/null
     fi
   } | KEY="$ANCILE_NODE_API_KEY" python3 -c 'import os, sys; sys.stdout.write(sys.stdin.read().replace(os.environ["KEY"], "<node key>"))' \
     > "$STATE_DIR/status/index.txt.tmp" && mv "$STATE_DIR/status/index.txt.tmp" "$STATE_DIR/status/index.txt"
@@ -164,6 +167,12 @@ if [ -n "${ANCILE_TOOL_PARSER:-}" ]; then
   TOOL_ARGS=(--enable-auto-tool-choice --tool-call-parser "$ANCILE_TOOL_PARSER")
 fi
 
+# Defaults for this GPU (small cards need headroom; usage reports cached tokens).
+# shellcheck source=vllm-defaults.sh
+. "$HERE/vllm-defaults.sh"
+DEFAULT_ARGS="$(vllm_default_args "$(gpu_memory_mib)" "$ANCILE_VLLM_ARGS")"
+[ -n "$DEFAULT_ARGS" ] && log info "vllm defaults for this GPU" "\"args\":\"$DEFAULT_ARGS\""
+
 heartbeat starting "loading $ANCILE_SERVED_NAME into GPU memory"
 # shellcheck disable=SC2086
 nohup "$VLLM" serve "$ANCILE_MODEL" \
@@ -171,7 +180,7 @@ nohup "$VLLM" serve "$ANCILE_MODEL" \
   --api-key "$ANCILE_NODE_API_KEY" \
   --served-model-name "$ANCILE_SERVED_NAME" \
   --enable-prefix-caching \
-  "${TOOL_ARGS[@]}" $ANCILE_VLLM_ARGS \
+  "${TOOL_ARGS[@]}" $DEFAULT_ARGS $ANCILE_VLLM_ARGS \
   >>"$LOG_DIR/vllm.log" 2>&1 &
 echo $! > "$STATE_DIR/vllm.pid"
 log info "vllm launched" "\"pid\":$(cat "$STATE_DIR/vllm.pid")"

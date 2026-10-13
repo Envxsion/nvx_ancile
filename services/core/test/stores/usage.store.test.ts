@@ -93,7 +93,8 @@ eachBackend('usage source', (backend) => {
       to: new Date(at('2026-10-13T00:00:00Z')),
     });
     const sorted = rows
-      .map((r) => ({ ...r }))
+      // None of these answers came through OpenRouter, so none names a served provider.
+      .map(({ provider, ...r }) => ({ ...r, ...(provider && { provider }) }))
       .sort((a, b) => `${a.bucket}${a.engine}`.localeCompare(`${b.bucket}${b.engine}`));
     expect(sorted).toEqual([
       {

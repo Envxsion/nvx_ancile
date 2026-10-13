@@ -38,6 +38,8 @@ export interface FlowModel {
   awake: boolean | null;
   nodeName: string | null;
   chat: boolean;
+  /** OpenRouter models: the OpenRouter id, for routing and cost on a step. */
+  openrouter?: string;
 }
 
 export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowModel>; loading: boolean } {
@@ -71,6 +73,7 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         awake: m.via === 'controller' ? node?.observed_state === 'running' : null,
         nodeName: node?.name ?? null,
         chat: !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
+        ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
       };
     });
     // A flow that already names a try-out model still resolves it; only the picker list hides it.
