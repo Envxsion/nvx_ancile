@@ -12,7 +12,13 @@ import { paramOf, pickFor, placeOf, routeMatches } from '../src/help/tourPlace';
 import { TOURS } from '../src/help/tours';
 
 const SRC = resolve(__dirname, '../src');
-const read = (f: string) => readFileSync(f, 'utf8');
+// Files are read once: the checks walk the same import trees many times.
+const files = new Map<string, string>();
+const read = (f: string) => {
+  let text = files.get(f);
+  if (text === undefined) files.set(f, (text = readFileSync(f, 'utf8')));
+  return text;
+};
 
 function resolveImport(from: string, spec: string): string | null {
   const base = resolve(dirname(from), spec);
@@ -22,7 +28,10 @@ function resolveImport(from: string, spec: string): string | null {
 }
 
 /** Every source file reachable from `entry` by relative imports, stopping at `stop`. */
+const closures = new Map<string, Set<string>>();
 function closure(entry: string, stop: Set<string> = new Set()): Set<string> {
+  const cached = stop.size ? undefined : closures.get(entry);
+  if (cached) return cached;
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length) {
@@ -35,6 +44,7 @@ function closure(entry: string, stop: Set<string> = new Set()): Set<string> {
       if (next && !seen.has(next) && !stop.has(next)) queue.push(next);
     }
   }
+  if (!stop.size) closures.set(entry, seen);
   return seen;
 }
 
