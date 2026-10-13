@@ -17,6 +17,7 @@
 import type { FactcheckClaim, Part } from '@nvx/contracts';
 import { ProseWithArtifacts } from '../artifacts/ArtifactCard';
 import { modelName } from '../lib/format';
+import { useRuns } from '../lib/run';
 import type { SubagentView } from '../lib/types';
 import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
@@ -48,7 +49,9 @@ function segments(parts: Part[]): Segment[] {
   let base = 0;
   parts.forEach((p, i) => {
     if (p.type === 'text') {
-      if (p.text) out.push({ kind: 'text', key: `t${i}`, text: p.text, base });
+      // Whitespace between two tool calls (a blank line) is not prose: it would split a run
+      // of steps and leave a blank gap where it was drawn.
+      if (p.text.trim()) out.push({ kind: 'text', key: `t${i}`, text: p.text, base });
       base += p.text.length;
     }
     if (p.type === 'reasoning' && p.text.trim()) out.push({ kind: 'reasoning', key: `r${i}`, text: p.text });
@@ -130,6 +133,8 @@ export function Parts({
   claims?: FactcheckClaim[] | undefined;
 }) {
   const folded = usePrefs((s) => s.prefs.reading.collapseTools);
+  // While the answer is written, each step's start and end, for its timer.
+  const clocks = useRuns((s) => (messageId ? s.turns[messageId]?.calls : undefined));
   const segs = segments(parts);
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
   const calls = new Set(segs.flatMap((s) => (s.kind === 'tool' ? [s.call.call_id] : [])));
@@ -166,6 +171,8 @@ export function Parts({
             result={s.result}
             waiting={waiting}
             folded={folded}
+            clock={clocks?.[s.call.call_id]}
+            live={streaming}
             subagent={subagents?.find((a) => a.callId === s.call.call_id)}
           />
         );

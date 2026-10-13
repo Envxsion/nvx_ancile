@@ -50,6 +50,21 @@ export interface LiveTurn {
   error: { title: string; hint: string } | null;
   done: boolean;
   lastSeq: number;
+  /** When the run's first event came (server time), for the live footer's clock. */
+  startedAt: string | null;
+  /** When each tool step started and finished (server time), for its timer. */
+  calls: Record<string, StepClock>;
+  /** Characters of text and thinking streamed so far: about four to a token. */
+  streamedChars: number;
+  /** Output tokens the engine reported so far, when it reports them before the end. */
+  reportedTokens: number | null;
+  /** What the run is doing between steps (hooks, compaction), from `activity` events. */
+  activity: { phase: 'hooks' | 'compacting'; detail: string | null } | null;
+}
+
+export interface StepClock {
+  start: string;
+  end: string | null;
 }
 
 interface RunsState {
@@ -66,7 +81,7 @@ function appendText(parts: Part[], type: 'text' | 'reasoning', delta: string): P
 }
 
 export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
-  const next = { ...t, lastSeq: Math.max(t.lastSeq, e.seq) };
+  const next = { ...t, lastSeq: Math.max(t.lastSeq, e.seq), startedAt: t.startedAt ?? e.at };
   switch (e.type) {
     case 'run.status':
       return { ...next, status: e.status };
@@ -75,7 +90,13 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
     case 'model':
       return { ...next, modelId: e.model_id, modelName: e.display_name, waking: null };
     case 'text.delta':
-      return { ...next, parts: appendText(t.parts, 'text', e.delta), waking: null };
+      return {
+        ...next,
+        parts: appendText(t.parts, 'text', e.delta),
+        waking: null,
+        activity: null,
+        streamedChars: t.streamedChars + e.delta.length,
+      };
     case 'compute.waiting':
       return {
         ...next,
@@ -89,18 +110,31 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
         },
       };
     case 'reasoning.delta':
-      return { ...next, parts: appendText(t.parts, 'reasoning', e.delta) };
+      return {
+        ...next,
+        parts: appendText(t.parts, 'reasoning', e.delta),
+        activity: null,
+        streamedChars: t.streamedChars + e.delta.length,
+      };
     case 'tool.call':
       if (t.parts.some((p) => p.type === 'tool_call' && p.call_id === e.call_id)) return next;
       return {
         ...next,
         parts: [...t.parts, { type: 'tool_call', call_id: e.call_id, tool: e.tool, args: e.args_preview }],
+        calls: { ...t.calls, [e.call_id]: { start: e.at, end: null } },
+        activity: null,
       };
+    case 'activity':
+      return { ...next, activity: e.phase ? { phase: e.phase, detail: e.detail ?? null } : null };
+    case 'usage':
+      return { ...next, reportedTokens: e.usage.output_tokens };
     case 'tool.result': {
       if (t.parts.some((p) => p.type === 'tool_result' && p.call_id === e.call_id)) return next;
       const declined = /^Declined/.test(e.preview);
+      const clock = t.calls[e.call_id];
       return {
         ...next,
+        calls: { ...t.calls, [e.call_id]: { start: clock?.start ?? e.at, end: e.at } },
         parts: [
           ...t.parts,
           {
@@ -149,6 +183,11 @@ export const useRuns = create<RunsState>((set) => ({
                 error: null,
                 done: false,
                 lastSeq: 0,
+                startedAt: null,
+                calls: {},
+                streamedChars: 0,
+                reportedTokens: null,
+                activity: null,
               },
             },
           },

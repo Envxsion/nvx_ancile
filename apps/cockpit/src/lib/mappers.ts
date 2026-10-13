@@ -412,15 +412,26 @@ export function toMessageViews(messages: Message[]): MessageView[] {
   // since NVX Ancile's summary is the record there (docs/engines.md).
   const mixed = isMixedThread(messages);
   for (const m of messages) {
-    const onlyResults = m.parts.length > 0 && m.parts.every((p) => p.type === 'tool_result');
-    if (m.role === 'tool' || (m.role === 'user' && onlyResults)) {
-      const host = out.findLast((v) => v.role === 'assistant' && !v.folded && !v.cc);
+    const onlyResults =
+      m.parts.some((p) => p.type === 'tool_result') &&
+      m.parts.every((p) => p.type === 'tool_result' || (p.type === 'text' && !p.text.trim()));
+    const ids = new Set(m.parts.flatMap((p) => (p.type === 'tool_result' ? [p.call_id] : [])));
+    const holds = (v: MessageView) =>
+      v.role === 'assistant' &&
+      !v.folded &&
+      !v.cc &&
+      !!v.parts?.some((p) => p.type === 'tool_call' && ids.has(p.call_id));
+    // Claude Code can put a step's result in a message of its own (a hook ran between the call
+    // and its result): it joins the answer that made the call instead of drawing an empty answer.
+    const strayResults = m.role === 'assistant' && onlyResults && out.some(holds);
+    if (m.role === 'tool' || (m.role === 'user' && onlyResults) || strayResults) {
+      const host = out.findLast(holds) ?? out.findLast((v) => v.role === 'assistant' && !v.folded && !v.cc);
       const subagents = subagentsOf((m.provenance as Provenance).claude_code?.subagent);
       if (host) {
         host.parts = [...(host.parts ?? []), ...m.parts.filter((p) => p.type === 'tool_result')];
         if (subagents.length) host.subagents = [...(host.subagents ?? []), ...subagents];
       }
-      const v = m.role === 'user' ? toMessageView(m) : null;
+      const v = m.role !== 'tool' ? toMessageView(m) : null;
       if (v) out.push({ ...v, parts: [], subagents: undefined, folded: true });
       continue;
     }

@@ -14,19 +14,42 @@
  *           |  the body for that kind draws the rest. Anything else
  *           |  keeps the plain Input and Result view. Long agentic
  *           |  turns fold into one "Worked through N steps" group.
+ *           |  A call that carries its own description (Bash's and
+ *           |  Task's `description`, the plan item in progress) shows
+ *           |  it as the title, with the raw command muted under it
+ *           |  (contracts steps.ts, the same words for every engine).
+ *           |  A live step counts its seconds; an opened step always
+ *           |  shows its input and its result, or why there is none.
  *  Note     |  Paths are shown relative to the session's folder
  *           |  (ToolCwd), with the full path in the tooltip.
  * ------------------------------------------------------------------
  */
 
-import type { Part } from '@nvx/contracts';
-import { createContext, type ReactNode, type SyntheticEvent, useContext, useMemo, useState } from 'react';
+import {
+  type Part,
+  stepCommand,
+  stepDescription,
+  type ToolKind,
+  toolKind,
+  type WebHit,
+  webHits,
+} from '@nvx/contracts';
+import {
+  createContext,
+  type ReactNode,
+  type SyntheticEvent,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { Streamdown } from 'streamdown';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
 import { PythonBody, runMeta } from '../interpreter/PythonBody';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
+import type { StepClock } from '../lib/run';
 import type { SubagentView } from '../lib/types';
 import { DiffView } from '../memory/DiffView';
 import { type DiffLine, diffStats, lineDiff } from '../memory/linediff';
@@ -45,60 +68,11 @@ export const ToolCwd = createContext<string | null>(null);
 
 /* ---- Words ----------------------------------------------------------------- */
 
-type Kind =
-  | 'read'
-  | 'write'
-  | 'edit'
-  | 'multiedit'
-  | 'notebook'
-  | 'delete'
-  | 'patch'
-  | 'shell'
-  | 'grep'
-  | 'glob'
-  | 'list'
-  | 'fetch'
-  | 'search'
-  | 'agent'
-  | 'todo'
-  | 'skill'
-  | 'toolsearch'
-  | 'monitor'
-  | 'mcp'
-  | 'python'
-  | 'other';
+type Kind = ToolKind;
 
-const KINDS: Record<string, Kind> = {
-  read: 'read',
-  fs_read: 'read',
-  write: 'write',
-  fs_write: 'write',
-  edit: 'edit',
-  multiedit: 'multiedit',
-  notebookedit: 'notebook',
-  fs_delete: 'delete',
-  apply_patch: 'patch',
-  bash: 'shell',
-  powershell: 'shell',
-  grep: 'grep',
-  glob: 'glob',
-  ls: 'list',
-  list: 'list',
-  fs_list: 'list',
-  webfetch: 'fetch',
-  websearch: 'search',
-  agent: 'agent',
-  task: 'agent',
-  todowrite: 'todo',
-  skill: 'skill',
-  toolsearch: 'toolsearch',
-  monitor: 'monitor',
-  python_run: 'python',
-};
-
+/** What kind of step a tool is (contracts steps.ts, shared with Core). */
 export function kindOf(tool: string): Kind {
-  if (tool.startsWith('mcp__')) return 'mcp';
-  return KINDS[tool.toLowerCase()] ?? 'other';
+  return toolKind(tool);
 }
 
 /** past, progressive, bare: "Read", "Reading", "read" */
@@ -588,7 +562,17 @@ function WriteBody({ a, result }: { a: Args; result: ToolResult | undefined }) {
   );
 }
 
-function ShellBody({ tool, a, result }: { tool: string; a: Args; result: ToolResult | undefined }) {
+function ShellBody({
+  tool,
+  a,
+  result,
+  waiting = false,
+}: {
+  tool: string;
+  a: Args;
+  result: ToolResult | undefined;
+  waiting?: boolean;
+}) {
   const cmd = s(a.command) ?? s(a.cmd) ?? '';
   const ps = tool.toLowerCase() === 'powershell';
   let out = resultText(result);
@@ -616,7 +600,7 @@ function ShellBody({ tool, a, result }: { tool: string; a: Args; result: ToolRes
           <p className="term__quiet">No output</p>
         )
       ) : (
-        <p className="term__quiet">Running</p>
+        <p className="term__quiet">{waiting ? 'Waiting for your decision' : 'No output yet'}</p>
       )}
     </div>
   );
@@ -693,49 +677,85 @@ function LinkChip({ url, title }: { url: string; title?: string | null }) {
   );
 }
 
-/** Links a web search found: Claude Code lists them as JSON after "Links:". */
-export function searchLinks(text: string): { url: string; title: string | null }[] {
-  const seen = new Set<string>();
-  const out: { url: string; title: string | null }[] = [];
-  for (const m of text.matchAll(/\{"title":"((?:[^"\\]|\\.)*)","url":"((?:[^"\\]|\\.)*)"\}/g)) {
-    const url = m[2] as string;
-    if (!seen.has(url)) {
-      seen.add(url);
-      out.push({ url, title: (m[1] as string).replace(/\\"/g, '"') });
+/** The words of a search result once its header and its list of links are taken out. */
+function searchProse(text: string): string {
+  const t = text.trim();
+  if (/^[[{]/.test(t))
+    try {
+      JSON.parse(t);
+      return '';
+    } catch {
+      /* not JSON: read it as text */
     }
-  }
-  if (!out.length)
-    for (const m of text.matchAll(/https?:\/\/[^\s"')\]>]+/g)) {
-      if (!seen.has(m[0])) {
-        seen.add(m[0]);
-        out.push({ url: m[0], title: null });
-      }
-    }
-  return out.slice(0, 8);
+  return t
+    .replace(/^Web search results for query:.*$/m, '')
+    .replace(/^Links:\s*\[.*\]\s*$/m, '')
+    .split('\n')
+    .filter((l) => !/^\{"(title|type)":/.test(l.trim()))
+    .join('\n')
+    .trim();
+}
+
+function SearchHits({ hits }: { hits: WebHit[] }) {
+  return (
+    <ul className="web-hits" aria-label="Search results">
+      {hits.map((h) => {
+        const href = safeUrl(h.url);
+        if (!href) return null;
+        return (
+          <li key={h.url}>
+            <a href={href} target="_blank" rel="noopener noreferrer" title={href}>
+              {h.title ?? host(href)}
+            </a>
+            <span className="web-hits__host">{host(href)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function WebBody({ kind, a, result }: { kind: Kind; a: Args; result: ToolResult | undefined }) {
+  const [raw, setRaw] = useState(false);
   const text = resultText(result);
   const url = s(a.url);
-  const links = kind === 'search' ? searchLinks(text) : [];
-  const prose = kind === 'search' ? text.replace(/^Links:\s*\[.*\]\s*$/m, '').trim() : text;
+  const query = s(a.query);
+  const hits = kind === 'search' && result?.ok ? webHits(result.result) : [];
+  const prose = kind === 'search' ? searchProse(text) : text;
   return (
     <>
-      {url || links.length ? (
+      {query ? (
+        <p className="tstep__note">
+          Query: <span data-mono>{query}</span>
+        </p>
+      ) : null}
+      {url ? (
         <div className="link-chips">
-          {url ? <LinkChip url={url} /> : null}
-          {links.map((l) => (
-            <LinkChip key={l.url} url={l.url} title={l.title} />
-          ))}
+          <LinkChip url={url} />
         </div>
       ) : null}
       {s(a.prompt) ? <p className="tstep__note">Asked: {s(a.prompt)}</p> : null}
       {result && !result.ok ? (
         <Failure result={result} />
-      ) : prose ? (
-        <Sub label="What came back">
-          <Clamped text={prose} />
-        </Sub>
+      ) : result && raw ? (
+        <ResultText text={text || '(empty)'} />
+      ) : (
+        <>
+          {hits.length ? <SearchHits hits={hits} /> : null}
+          {result && kind === 'search' && !hits.length && !prose ? (
+            <p className="tstep__note">No results came back.</p>
+          ) : null}
+          {prose ? (
+            <Sub label="What came back">
+              <Clamped text={prose} />
+            </Sub>
+          ) : null}
+        </>
+      )}
+      {result?.ok && kind === 'search' ? (
+        <button type="button" className="link-btn tool-step__more" onClick={() => setRaw((x) => !x)}>
+          {raw ? 'Show the list' : 'Show raw'}
+        </button>
       ) : null}
     </>
   );
@@ -854,24 +874,34 @@ function GenericBody({ call, result }: { call: ToolCall; result: ToolResult | un
   );
 }
 
+/**
+ * The lab's own lower-case tools keep the plain Input and Result view their
+ * results were written for, except the ones read the same way everywhere
+ * (a shell, an edit, a search, a web page).
+ */
+function plainView(tool: string, kind: Kind): boolean {
+  const lab = tool === tool.toLowerCase() && kind !== 'mcp';
+  return lab && !['shell', 'edit', 'grep', 'glob', 'search', 'fetch'].includes(kind);
+}
+
 function Body({
   call,
   result,
   subagent,
   cwd,
+  waiting,
 }: {
   call: ToolCall;
   result: ToolResult | undefined;
   subagent?: SubagentView | undefined;
   cwd: string | null;
+  waiting: boolean;
 }) {
   const kind = kindOf(call.tool);
   const a = argsOf(call);
   // The lab's own tools keep the plain view their results were written for.
   if (kind === 'python') return <PythonBody call={call} result={result} />;
-  const lab = call.tool === call.tool.toLowerCase() && kind !== 'mcp';
-  if (lab && kind !== 'shell' && kind !== 'edit' && kind !== 'grep' && kind !== 'glob')
-    return <GenericBody call={call} result={result} />;
+  if (plainView(call.tool, kind)) return <GenericBody call={call} result={result} />;
   switch (kind) {
     case 'read':
       return <ReadBody a={a} result={result} />;
@@ -882,7 +912,7 @@ function Body({
     case 'write':
       return <WriteBody a={a} result={result} />;
     case 'shell':
-      return <ShellBody tool={call.tool} a={a} result={result} />;
+      return <ShellBody tool={call.tool} a={a} result={result} waiting={waiting} />;
     case 'grep':
     case 'glob':
     case 'list':
@@ -922,12 +952,90 @@ const STATUS_WORD: Record<StepState, string> = {
   declined: 'Declined',
 };
 
+/** Seconds as a person reads them: "3s", "1m 27s", "1h 4m". */
+export function elapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}m ${sec % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/** The time now, moving once a second while `active`. */
+export function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+/** A live step's seconds: counting while it runs, its duration once it is done. */
+function StepTimer({ clock, running }: { clock: StepClock; running: boolean }) {
+  const now = useNow(running && !clock.end);
+  const start = Date.parse(clock.start);
+  const end = clock.end ? Date.parse(clock.end) : now;
+  if (!Number.isFinite(start)) return null;
+  return (
+    <span className="tool-step__time" data-num title={running ? 'Running for' : 'Took'}>
+      {elapsed(end - start)}
+    </span>
+  );
+}
+
+/** Steps whose body shows nothing of the input until the result is in: they show it meanwhile. */
+const INPUT_WHILE_PENDING = new Set<Kind>([
+  'read',
+  'grep',
+  'glob',
+  'list',
+  'skill',
+  'toolsearch',
+  'monitor',
+  'delete',
+  'patch',
+]);
+
+/** What an opened step without a result says, with its input where the body would not show it. */
+function Pending({
+  call,
+  kind,
+  state,
+  live,
+}: {
+  call: ToolCall;
+  kind: Kind;
+  state: StepState;
+  live: boolean;
+}) {
+  const args = JSON.stringify(call.args ?? {}, null, 2);
+  const word =
+    state === 'waiting'
+      ? 'Waiting for your decision.'
+      : live
+        ? 'No result yet.'
+        : 'No result was recorded for this step.';
+  return (
+    <>
+      {INPUT_WHILE_PENDING.has(kind) && !plainView(call.tool, kind) && args !== '{}' ? (
+        <CodeBlock code={args} lang="json" title="Input" clamp={16} />
+      ) : null}
+      {kind === 'shell' ? null : <p className="tstep__note tstep__pending">{word}</p>}
+    </>
+  );
+}
+
 export function ToolStep({
   call,
   result,
   waiting,
   folded,
   subagent,
+  clock,
+  live = false,
 }: {
   call: ToolCall;
   result: ToolResult | undefined;
@@ -935,11 +1043,18 @@ export function ToolStep({
   subagent?: SubagentView | undefined;
   /** Settings → Reading: tool steps start as one line. */
   folded: boolean;
+  /** When the step started and ended, while its answer is being written. */
+  clock?: StepClock | undefined;
+  /** The answer is still being written. */
+  live?: boolean;
 }) {
   const cwd = useContext(ToolCwd);
   const state = stepState(result, waiting);
   const line = describe(call, result, state, cwd);
   const kind = kindOf(call.tool);
+  // The call's own words ("Reading the data models") lead; what it ran sits under them.
+  const own = stepDescription(call.tool, call.args);
+  const under = own ? (stepCommand(call.tool, call.args) ?? oneLiner(line)) : null;
   const detail =
     state === 'waiting'
       ? 'Waiting for your decision'
@@ -956,22 +1071,37 @@ export function ToolStep({
       className="tool-step"
       data-state={state}
       data-kind={kind}
+      data-described={own ? true : undefined}
       open={openByDefault || undefined}
       onToggle={onToggle}
     >
-      <summary title={line.full ?? undefined}>
+      <summary title={line.full ?? under ?? undefined}>
         <Icon name={ICONS[kind]} size={13} className="tool-step__icon" />
-        <span className="tool-step__label">
-          <span className="tool-step__verb">{line.verb}</span>{' '}
-          {line.badge ? <span className="tool-step__badge">{line.badge}</span> : null}{' '}
-          {line.target ? (
-            <span className="tool-step__target" data-mono={line.mono || undefined}>
-              {line.target}
+        <span className="tool-step__text">
+          {own ? (
+            <span className="tool-step__label">
+              <span className="tool-step__title">{own}</span>
+              {line.badge ? <span className="tool-step__badge">{line.badge}</span> : null}
             </span>
-          ) : null}{' '}
-          {line.where ? (
-            <span className="tool-step__where">
-              in <span data-mono>{line.where}</span>
+          ) : (
+            <span className="tool-step__label">
+              <span className="tool-step__verb">{line.verb}</span>{' '}
+              {line.badge ? <span className="tool-step__badge">{line.badge}</span> : null}{' '}
+              {line.target ? (
+                <span className="tool-step__target" data-mono={line.mono || undefined}>
+                  {line.target}
+                </span>
+              ) : null}{' '}
+              {line.where ? (
+                <span className="tool-step__where">
+                  in <span data-mono>{line.where}</span>
+                </span>
+              ) : null}
+            </span>
+          )}
+          {under ? (
+            <span className="tool-step__cmd" data-mono={kind === 'shell' || kind === 'monitor' || undefined}>
+              {under}
             </span>
           ) : null}
         </span>
@@ -981,6 +1111,7 @@ export function ToolStep({
             {line.meta}
           </span>
         ) : null}
+        {clock ? <StepTimer clock={clock} running={!result && live} /> : null}
         <AutoRanBadge callId={call.call_id} />
         <span className="tool-step__status" title={STATUS_WORD[state]}>
           <Icon name={STATUS_ICON[state]} size={12} />
@@ -988,7 +1119,12 @@ export function ToolStep({
         </span>
       </summary>
       <div className="tool-step__body">
-        {shown ? <Body call={call} result={result} subagent={subagent} cwd={cwd} /> : null}
+        {shown ? (
+          <>
+            <Body call={call} result={result} subagent={subagent} cwd={cwd} waiting={state === 'waiting'} />
+            {result ? null : <Pending call={call} kind={kind} state={state} live={live} />}
+          </>
+        ) : null}
       </div>
     </details>
   );
@@ -1012,7 +1148,10 @@ export function ToolGroup({
   const failed = steps.filter((st) => st.result && !st.result.ok).length;
   const agents = steps.every((st) => kindOf(st.call.tool) === 'agent');
   const last = steps[steps.length - 1];
-  const lastLine = last ? oneLiner(describe(last.call, last.result, stepState(last.result, false), cwd)) : '';
+  const lastLine = last
+    ? (stepDescription(last.call.tool, last.call.args) ??
+      oneLiner(describe(last.call, last.result, stepState(last.result, false), cwd)))
+    : '';
   const n = steps.length;
   const title = agents
     ? `${live ? 'Asking' : 'Asked'} ${n} subagents`
