@@ -1304,6 +1304,22 @@ li[data-done] .checklist__step {
 .setting__reset {
   animation: tip-in var(--d-micro) var(--ease-out);
 }
+.setting__reset[data-hidden] {
+  visibility: hidden;
+  animation: none;
+}
+/* Settings → Reading: a sample answer under the real reading tokens. */
+.reading-preview {
+  margin: 4px 20px 8px;
+  padding: 16px 18px;
+  border-radius: var(--r-md);
+  background: rgb(var(--void-rgb) / 0.35);
+  box-shadow: var(--vault);
+  overflow-x: auto;
+}
+.reading-preview .msg__body > * + * {
+  margin-top: 12px;
+}
 /* The accent at work: primary action, focus, live. Real tokens, so it
    changes with the swatch underneath. */
 .accent-preview {
@@ -2488,6 +2504,12 @@ button.grounding:hover {
 }
 .md-image-blocked:hover {
   background: var(--chalk);
+}
+/* A link with a scheme NVX Ancile will not open: text, dotted, with a reason on hover. */
+.md-link-refused {
+  color: var(--fg-3);
+  text-decoration: underline dotted;
+  cursor: help;
 }
 
 /* ---- Settings → API keys ------------------------------------------------ */

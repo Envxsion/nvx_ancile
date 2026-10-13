@@ -55,6 +55,10 @@ The last one happens when an older version starts on data a newer one updated: a
 
 An `ancile://activate?key=NVX-XXXX-XXXX-XXXX` link (from your nvx.sh account) opens Admin → Licence with the key filled in. It never activates by itself: you press the button.
 
+## Links
+
+A web link (`http`, `https`) or an email link (`mailto`) in the Cockpit opens in your system browser or mail client, never inside the app window. Links to NVX Ancile pages open in the app. Any other scheme (`file`, `javascript`, a custom protocol) does nothing. The shell enforces this in Rust (`src-tauri/src/links.rs`, through the webview's navigation and new-window handlers, opening links with `tauri-plugin-opener` from Rust); the Cockpit still has no native APIs, and the content security policy is unchanged.
+
 ## Keyboard
 
 Inside the desktop app there is no browser around NVX Ancile, so every shortcut reaches it, including ones a browser keeps for itself (Ctrl+N, Ctrl+T, Ctrl+W).

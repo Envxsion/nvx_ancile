@@ -639,7 +639,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
             </section>
           ) : null}
 
-          <div className="dialog__actions">
+          <div className="dialog__actions" data-tour="approval-choices">
             {editable && !editing ? (
               <button
                 type="button"

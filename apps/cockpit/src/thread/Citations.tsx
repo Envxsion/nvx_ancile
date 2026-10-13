@@ -30,6 +30,7 @@ import { useCitationStatus } from '../lib/factcheck';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { SafeLink } from '../ui/SafeLink';
 import { LiveClaim } from './Claims';
 import { MdCode } from './Code';
 
@@ -207,9 +208,9 @@ function Link({ href, children, ...rest }: ComponentProps<'a'>) {
   const claim = href ? /^#claim-([\w-]+)$/.exec(href) : null;
   if (claim) return <LiveClaim id={claim[1] as string}>{children}</LiveClaim>;
   return (
-    <a {...rest} href={href} target="_blank" rel="noopener noreferrer">
+    <SafeLink href={href} {...rest}>
       {children}
-    </a>
+    </SafeLink>
   );
 }
 

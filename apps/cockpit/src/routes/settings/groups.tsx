@@ -15,6 +15,7 @@ import { ACCENTS, type Preferences } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { type CSSProperties, useContext, useState } from 'react';
 import { usePrefs } from '../../state/prefs';
+import { CodeBlock } from '../../thread/Code';
 import { Range, Segmented, Switch } from '../../ui/controls';
 import { Kbd } from '../../ui/primitives';
 import { Block, matches, Row, SearchContext, useSet } from './rows';
@@ -413,12 +414,38 @@ export function LayoutGroup() {
   );
 }
 
+/**
+ * A short answer drawn with the thread's own classes, so every Text control
+ * above changes something you can see without leaving Settings.
+ */
+const PREVIEW_CODE = ['total = sum(entries) - duplicates', 'print(total)  # 1240'].join('\n');
+
+function ReadingPreview() {
+  return (
+    <div className="reading-preview" aria-label="Preview of an answer" role="group">
+      <div className="msg" data-role="assistant">
+        <div className="msg__body">
+          <div className="md">
+            <p>
+              Your sources agree on the date, but the second report counts the late entries twice. The figure
+              that holds up is <strong>1,240</strong>, not 1,310.
+            </p>
+            <p>Line spacing and width change how long lines feel to read; code keeps its own size.</p>
+          </div>
+          <CodeBlock code={PREVIEW_CODE} lang="python" clamp={0} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ReadingGroup() {
   const r = usePrefGroup('reading');
   const set = useSet('reading');
   return (
     <>
-      <Block title="Text" lede="How answers read.">
+      <Block title="Text" lede="How answers read. The preview changes as you do.">
+        <ReadingPreview />
         <Row group="reading" k="size" label="Text size" keywords="font size bigger">
           <Range
             label="Text size"

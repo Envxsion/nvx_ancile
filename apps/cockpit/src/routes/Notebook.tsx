@@ -311,7 +311,12 @@ export function NotebookScreen() {
               <Icon name="branch" size={14} />
               Flow
             </Link>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => setAdding(true)}
+              data-tour="add-sources"
+            >
               <Icon name="plus" size={14} />
               Add sources
             </button>

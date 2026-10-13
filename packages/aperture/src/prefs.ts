@@ -81,13 +81,24 @@ export function resolveLook(l: Look): ResolvedLook {
   };
 }
 
+let stored = '';
+
+/**
+ * Write only what changed. A slider sends a value per pixel dragged, and
+ * rewriting all sixteen attributes each time made the browser restyle the
+ * whole document sixteen times over: text size stuttered while you dragged.
+ */
 export function applyLook(l: Look): void {
   const r = resolveLook(l);
   const root = document.documentElement;
-  for (const [k, v] of Object.entries(r.attrs)) root.dataset[k] = v;
-  for (const [k, v] of Object.entries(r.vars)) root.style.setProperty(k, v);
+  for (const [k, v] of Object.entries(r.attrs)) if (root.dataset[k] !== v) root.dataset[k] = v;
+  for (const [k, v] of Object.entries(r.vars))
+    if (root.style.getPropertyValue(k) !== v) root.style.setProperty(k, v);
+  const json = JSON.stringify(r);
+  if (json === stored) return;
+  stored = json;
   try {
-    localStorage.setItem(LOOK_KEY, JSON.stringify(r));
+    localStorage.setItem(LOOK_KEY, json);
   } catch {
     /* private mode: this tab only */
   }

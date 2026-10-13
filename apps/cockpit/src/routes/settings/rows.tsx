@@ -49,10 +49,10 @@ export function Row({
   stack?: boolean;
 }) {
   const q = useContext(SearchContext);
-  const prefs = usePrefs((s) => s.prefs);
+  // Only this row's own value: a slider elsewhere does not redraw every row.
+  const changed = usePrefs((s) => isChanged(group, k, s.prefs));
   const reset = usePrefs((s) => s.reset);
   if (!matches(q, label, desc, keywords, group)) return null;
-  const changed = isChanged(group, k, prefs);
   return (
     <div className="setting" data-stack={stack || undefined} data-changed={changed || undefined}>
       <div className="setting__words">
@@ -69,15 +69,19 @@ export function Row({
       </div>
       <div className="setting__control">
         {children}
-        {changed ? (
-          <button
-            type="button"
-            className="setting__reset link-btn link-btn--quiet"
-            onClick={() => reset(group, k)}
-          >
-            Reset
-          </button>
-        ) : null}
+        {/* Always laid out, shown only when changed: if Reset appeared mid-drag
+            it pushed the slider sideways under the pointer and the value jumped. */}
+        <button
+          type="button"
+          className="setting__reset link-btn link-btn--quiet"
+          data-hidden={changed ? undefined : true}
+          aria-hidden={changed ? undefined : true}
+          tabIndex={changed ? undefined : -1}
+          disabled={!changed}
+          onClick={() => reset(group, k)}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );

@@ -141,6 +141,7 @@ export function FlowsScreen() {
             type="button"
             disabled={missing}
             className="btn btn--primary"
+            data-tour="flows-new"
             onClick={() =>
               setCreating({
                 scope: 'workspace',
