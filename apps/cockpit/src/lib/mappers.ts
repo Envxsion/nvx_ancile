@@ -241,6 +241,8 @@ export interface Provenance {
     unknown?: { count?: unknown; types?: unknown };
     /** Written by a live turn in NVX Ancile, not brought in from the terminal. */
     live?: unknown;
+    /** What the live turn's session loaded (lean or the whole setup), for the Why panel. */
+    setup?: import('@nvx/contracts').ClaudeCodeSetupReport;
   };
 }
 

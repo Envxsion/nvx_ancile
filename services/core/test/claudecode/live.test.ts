@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AncileError,
+  type ClaudeCodeBinding,
   type RunEvent,
   type SearchHit,
   SendClaudeCodeRequest,
@@ -1532,5 +1533,86 @@ describe('a resumed session that writes the prompt under its own uuid', () => {
     expect(user?.parts).toEqual([{ type: 'text', text: 'Thanks, now add a test' }]);
     expect(user?.provenance?.claude_code).toMatchObject({ uuid: 'own-prompt-uuid' });
     expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+  });
+});
+
+describe("lean sessions (only the project's own Claude Code settings)", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ancile-cc-lean-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const finish = async (runId: string) => {
+    expect(await execute(runId)).toEqual({ kind: 'done' });
+    await runs.save({ ...((await runs.get(runId)) as RunRecord), status: 'succeeded' }, { status: 'queued' });
+  };
+
+  it('starts a thread made in NVX Ancile lean, says what it saved, and keeps it on resume', async () => {
+    const recorded: number[] = [];
+    live.stop();
+    live = makeLive({
+      service: {
+        ...service,
+        notebookForFolder: async () => null,
+        folderExcluded: async () => false,
+        fullFirstTurn: async () => 162_000,
+        recordFullFirstTurn: async (n) => {
+          recorded.push(n);
+        },
+      },
+    });
+    const made = await live.createThread({ cwd: dir });
+    expect((await threads.getThread(made.thread_id))?.settings.claude_code).toMatchObject({
+      started_in: 'ancile',
+    });
+
+    const NEW = 'sess-lean-0001';
+    bridge.script = textAnswer(NEW, 'n1', 'Hello');
+    const sent = await live.send(made.thread_id, { text: 'Start here', idempotency_key: 'key-lean-0001' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp.lean).toBe(true);
+    await finish(sent.run_id);
+    expect(bridge.opened[0]?.setting_sources).toEqual(['project']);
+    const answer = await threads.getMessage(sent.assistant_message_id);
+    expect((answer?.provenance?.claude_code as { setup?: unknown } | undefined)?.setup).toEqual({
+      lean: true,
+      first_turn: true,
+      full_first_turn_tokens: 162_000,
+    });
+    // Binding the new session keeps the marker, so the next turn (a resume) is lean too.
+    expect((await threads.getThread(made.thread_id))?.settings.claude_code).toMatchObject({
+      session_id: NEW,
+      started_in: 'ancile',
+    });
+    live.stop();
+    live = makeLive();
+    const opened = bridge.opened.length;
+    bridge.script = textAnswer(NEW, 'n2', 'Again');
+    const next = await live.send(made.thread_id, { text: 'Go on', idempotency_key: 'key-lean-0002' });
+    expect(await execute(next.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened[opened]).toMatchObject({ resume: NEW, setting_sources: ['project'] });
+    // Only a first turn that loaded the whole setup is remembered.
+    expect(recorded).toEqual([]);
+  });
+
+  it('loads the whole setup for an imported thread until lean is turned on', async () => {
+    // thr_1 was imported (no started_in): the person's whole setup, as in their terminal.
+    bridge.script = textAnswer(S, 'a2', 'Hello');
+    const sent = await live.send('thr_1', { text: 'Hi', idempotency_key: 'key-lean-0003' });
+    await finish(sent.run_id);
+    expect(bridge.opened[0]?.setting_sources).toBeUndefined();
+    expect((await runs.get(sent.run_id))?.checkpoint).not.toHaveProperty('lean');
+
+    // Turned on (PATCH /threads/:id with claude_code_lean): the open session reopens lean.
+    const t = await threads.getThread('thr_1');
+    await threads.patchThread('thr_1', {
+      settings: { claude_code: { ...(t?.settings.claude_code as ClaudeCodeBinding), lean: true } },
+    });
+    bridge.script = textAnswer(S, 'a3', 'Lean now');
+    const again = await live.send('thr_1', { text: 'And now', idempotency_key: 'key-lean-0004' });
+    expect(await execute(again.run_id)).toEqual({ kind: 'done' });
+    expect(bridge.opened.at(-1)).toMatchObject({ resume: S, setting_sources: ['project'] });
   });
 });

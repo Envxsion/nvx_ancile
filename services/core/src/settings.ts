@@ -68,4 +68,6 @@ export const SETTING = {
   routingChains: 'routing.chains',
   /** ClaudeCodeSettings: Settings → Claude Code (docs/claude-code.md). */
   claudeCode: 'claude_code',
+  /** { tokens, at }: the input of the latest Claude Code first turn that loaded the whole setup (lean comparison). */
+  claudeCodeFullFirstTurn: 'claude_code.full_first_turn',
 } as const;

@@ -17,6 +17,7 @@
 import {
   AncileError,
   CLIENT_ID_HEADER,
+  type ClaudeCodeBinding,
   CreateThreadRequest,
   EditMessageRequest,
   type Message,
@@ -219,6 +220,11 @@ export function threadRoutes(deps: ThreadRouteDeps) {
 
   r.get('/threads/:id', async (c) => c.json(threadOut(await thread(c.req.param('id')))));
 
+  const claudeCodeOf = (t: { settings: { claude_code?: ClaudeCodeBinding } }): ClaudeCodeBinding => {
+    if (!t.settings.claude_code) throw badRequest('claude_code_lean: this thread has no Claude Code session');
+    return t.settings.claude_code;
+  };
+
   r.patch('/threads/:id', async (c) => {
     const t = await thread(c.req.param('id'));
     const req = await body(c, PatchThreadRequest);
@@ -235,6 +241,10 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       ...(req.flow_id !== undefined && { flow_id: req.flow_id }),
       ...(req.flow_overrides !== undefined && { flow_overrides: req.flow_overrides }),
       ...(req.flow_overrides_flow !== undefined && { flow_overrides_flow: req.flow_overrides_flow }),
+      // Lean Claude Code sessions: the next turn opens with only the project's own settings.
+      ...(req.claude_code_lean !== undefined && {
+        claude_code: { ...claudeCodeOf(t), lean: req.claude_code_lean },
+      }),
     };
     const next = await repo.patchThread(t.id, {
       ...(req.title !== undefined && { title: req.title, title_source: 'user' as const }),

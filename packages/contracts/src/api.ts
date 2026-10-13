@@ -169,6 +169,8 @@ export const PatchThreadRequest = z
     flow_overrides: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     /** The flow the overrides are for (required with flow_overrides to take effect). */
     flow_overrides_flow: z.string().nullable().optional(),
+    /** Claude Code threads: load only the project's own Claude Code settings (ClaudeCodeBinding.lean). */
+    claude_code_lean: z.boolean().optional(),
   })
   .strict();
 

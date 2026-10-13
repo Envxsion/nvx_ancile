@@ -50,9 +50,11 @@ import {
   type ClaudeCodeFolderRequest,
   type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
+  type ClaudeCodeSetupReport,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
   claudeCodeContextNotice,
+  claudeCodeLean,
   type EngineContextReport,
   type ImagePart,
   type Part,
@@ -157,6 +159,8 @@ export interface ClaudeCodeCheckpoint {
   rebind?: boolean;
   /** Without files: Claude Code's own tools off, in NVX Ancile's empty folder. */
   noFiles?: boolean;
+  /** Lean: only the project's own Claude Code settings load (ClaudeCodeBinding.lean). Kept for resumes. */
+  lean?: boolean;
 }
 
 /**
@@ -227,6 +231,10 @@ export interface LiveServiceView {
   notebookForFolder?(cwd: string): Promise<string | null>;
   /** The folder is in Settings → Claude Code → Excluded folders. */
   folderExcluded?(cwd: string): Promise<boolean>;
+  /** Lean sessions: the input of the latest first turn that loaded the person's whole setup. */
+  fullFirstTurn?(): Promise<number | null>;
+  /** Remember a first turn's input that loaded the whole setup, for the Why panel's comparison. */
+  recordFullFirstTurn?(tokens: number): Promise<void>;
   /** Can Claude Code carry sessions on from here (installed, verified, signed in)? Absent: assume so. */
   availability?(): Promise<'ready' | 'not_installed' | 'signed_out' | 'unverified'>;
   /** Keep the raw text of entries this version cannot show (and warn once per Claude Code version). */
@@ -332,6 +340,8 @@ interface Live {
   permissionMode: string | null;
   /** The appended system note the open handle was started with. */
   note: string | null;
+  /** Whether the open handle was started lean (a change reopens it). */
+  lean?: boolean;
   /** Claude Code's running cost total for the open handle (to tell one turn's share). */
   costSoFar: number;
   turn: Turn | null;
@@ -664,6 +674,8 @@ export class ClaudeCodeLive {
           cwd,
           last_uuid: null,
           synced_at: new Date(this.now()).toISOString(),
+          // Started here: lean by default (only the project's own Claude Code settings load).
+          started_in: 'ancile',
         },
       },
     });
@@ -809,6 +821,7 @@ export class ClaudeCodeLive {
       ...((plan || fresh) && { fresh }),
       ...(restart && { rebind: true }),
       ...(noFiles && { noFiles: true }),
+      ...(claudeCodeLean(cc) && { lean: true }),
     };
     try {
       await this.deps.runs.create({
@@ -846,6 +859,29 @@ export class ClaudeCodeLive {
 
   /* ---- the session behind a thread -------------------------------------- */
 
+  /**
+   * What the answer's session loaded (provenance.claude_code.setup). A first
+   * turn with the whole setup is remembered, so a lean one can say what it saved.
+   */
+  private async setupReport(cp: ClaudeCodeCheckpoint, usage: Usage | null): Promise<ClaudeCodeSetupReport> {
+    const lean = cp.lean === true;
+    const firstTurn = cp.fresh === true && !cp.fork;
+    if (!firstTurn || cp.noFiles) return { lean, first_turn: firstTurn };
+    const input = usage ? usage.input_tokens + usage.cached_tokens : 0;
+    const svc = this.deps.service;
+    if (!lean) {
+      if (input > 0)
+        await svc
+          .recordFullFirstTurn?.(input)
+          .catch((err: unknown) =>
+            log.warn({ err: (err as Error).message }, "could not remember a first turn's input"),
+          );
+      return { lean, first_turn: true };
+    }
+    const full = (await svc.fullFirstTurn?.().catch(() => null)) ?? null;
+    return { lean, first_turn: true, full_first_turn_tokens: full };
+  }
+
   private async ensureHandle(l: Live, cp: ClaudeCodeCheckpoint): Promise<string> {
     if (l.idleTimer) clearTimeout(l.idleTimer);
     l.idleTimer = null;
@@ -866,6 +902,7 @@ export class ClaudeCodeLive {
       want &&
       l.sessionId === want &&
       (l.note === null || l.note === note) &&
+      (l.lean ?? false) === (cp.lean === true) &&
       !(auto && l.effort !== null)
     ) {
       if (cp.model && cp.model !== l.model) {
@@ -891,6 +928,9 @@ export class ClaudeCodeLive {
       ...(effort && { effort }),
       // Without files: none of Claude Code's own tools, and only the person's user settings.
       ...(cp.noFiles && { tools: [], setting_sources: ['user' as const] }),
+      // Lean: only the project's own settings and CLAUDE.md, not the person's user plugins,
+      // MCP servers or user CLAUDE.md. Nothing in their Claude Code setup is changed.
+      ...(cp.lean && !cp.noFiles && { setting_sources: ['project' as const] }),
       permission_mode: 'default',
       append_system_prompt: note,
       ...(this.deps.mcp && {
@@ -908,6 +948,7 @@ export class ClaudeCodeLive {
     l.handle = handle;
     l.sessionId = cp.fork || cp.fresh ? null : cp.sessionId;
     l.note = note;
+    l.lean = cp.lean === true;
     l.state = 'ready';
     l.model = cp.model;
     l.effort = effort;
@@ -1299,6 +1340,7 @@ export class ClaudeCodeLive {
             ? { input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: turnCost }
             : null;
         main = { parts, usage };
+        const setup = await this.setupReport(cp, p.usage ?? null);
         await threads.updateMessage(cp.assistantMessageId, {
           parts,
           status,
@@ -1308,6 +1350,7 @@ export class ClaudeCodeLive {
             model_name: CC_MODEL_NAME,
             claude_code: {
               ...ccProv,
+              setup,
               ...(turnCost !== null && {
                 cost_estimate: {
                   usd: turnCost,

@@ -159,8 +159,54 @@ export const ClaudeCodeBinding = z.object({
    * far (the folder was pointed somewhere new, or files were turned off).
    */
   fresh_next: z.boolean().optional(),
+  /**
+   * Where the thread began: `ancile` for a new session started in NVX
+   * Ancile (a new thread in a folder), `import` for a session brought in
+   * from Claude Code. Absent on threads from before this was kept, which
+   * read as imported.
+   */
+  started_in: z.enum(['ancile', 'import']).optional(),
+  /**
+   * Lean sessions: load only the project's own Claude Code settings
+   * (its .claude/settings.json and CLAUDE.md), not the person's user
+   * plugins, MCP servers or user CLAUDE.md. Saves tokens on every turn.
+   * Absent: on for threads started in NVX Ancile, off for imported ones
+   * (see claudeCodeLean). Never changes the person's Claude Code files.
+   */
+  lean: z.boolean().optional(),
 });
 export type ClaudeCodeBinding = z.infer<typeof ClaudeCodeBinding>;
+
+/** Whether a thread's Claude Code turns load only the project's settings (ClaudeCodeBinding.lean). */
+export const claudeCodeLean = (
+  b: Pick<ClaudeCodeBinding, 'lean' | 'started_in'> | null | undefined,
+): boolean => b?.lean ?? b?.started_in === 'ancile';
+
+/**
+ * What a live Claude Code answer loaded: provenance.claude_code.setup.
+ * `first_turn`: the turn started a new session, so its input is the
+ * setup's full cost. `full_first_turn_tokens`: the input of the latest
+ * first turn that loaded the person's whole setup, when one was recorded.
+ */
+export const ClaudeCodeSetupReport = z.object({
+  lean: z.boolean(),
+  first_turn: z.boolean(),
+  full_first_turn_tokens: z.number().int().nonnegative().nullable().optional(),
+});
+export type ClaudeCodeSetupReport = z.infer<typeof ClaudeCodeSetupReport>;
+
+/**
+ * The Why panel's line on a lean first turn, or null when there is
+ * nothing to say. `input`: the turn's input tokens (cached included).
+ */
+export function claudeCodeSetupLine(r: ClaudeCodeSetupReport, input: number | null): string | null {
+  if (!r.lean || !r.first_turn) return null;
+  const n = (v: number) => v.toLocaleString('en-GB');
+  const full = r.full_first_turn_tokens ?? null;
+  if (full !== null && input !== null && full > input)
+    return `Lean session: only this project's Claude Code settings loaded. The first turn read ${n(input)} tokens, ${n(full - input)} fewer than a session with your whole setup (${n(full)}).`;
+  return "Lean session: only this project's Claude Code settings loaded, not your user plugins, MCP servers or user CLAUDE.md.";
+}
 
 /**
  * POST /claude-code/projects/exclude: "Don't bring in this folder". The

@@ -334,6 +334,21 @@ export class ClaudeCodeService {
     return next;
   }
 
+  /** Lean sessions: the input of the latest first turn that loaded the person's whole setup. */
+  async fullFirstTurn(): Promise<number | null> {
+    const v = (await this.deps.settings.get(SETTING.claudeCodeFullFirstTurn)) as
+      | { tokens?: unknown }
+      | undefined;
+    return typeof v?.tokens === 'number' && v.tokens > 0 ? v.tokens : null;
+  }
+
+  async recordFullFirstTurn(tokens: number): Promise<void> {
+    await this.deps.settings.set(SETTING.claudeCodeFullFirstTurn, {
+      tokens,
+      at: new Date(this.now()).toISOString(),
+    });
+  }
+
   /* ---- excluded folders ------------------------------------------------ */
 
   /** Does a session in `cwd` belong to an excluded folder? */
@@ -938,6 +953,8 @@ export class ClaudeCodeService {
             cwd,
             last_uuid: null,
             synced_at: new Date(this.now()).toISOString(),
+            // Brought in from Claude Code: the person's whole setup loads, as in their terminal.
+            started_in: 'import',
           },
         },
       });

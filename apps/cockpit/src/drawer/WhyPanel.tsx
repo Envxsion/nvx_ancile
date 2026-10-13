@@ -17,7 +17,14 @@
  * ------------------------------------------------------------------
  */
 
-import type { AnswerRoute, EngineContextReport, Explain, FlowProvenance } from '@nvx/contracts';
+import {
+  type AnswerRoute,
+  ClaudeCodeSetupReport,
+  claudeCodeSetupLine,
+  type EngineContextReport,
+  type Explain,
+  type FlowProvenance,
+} from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useThread } from '../lib/data';
 import { startFactcheck, useExplain } from '../lib/factcheck';
@@ -296,6 +303,7 @@ function Live({
   route,
   notebookId,
   engineContext,
+  setup,
 }: {
   messageId: string;
   flow?: FlowProvenance | undefined;
@@ -303,6 +311,8 @@ function Live({
   notebookId: string | null;
   /** What the answer's engine was given (docs/engines.md), from the message itself. */
   engineContext?: EngineContextReport | undefined;
+  /** What a live Claude Code turn's session loaded (lean or the whole setup). */
+  setup?: ClaudeCodeSetupReport | undefined;
 }) {
   const q = useExplain(messageId);
   if (q.isPending) return <Skeleton lines={6} label="Gathering why" />;
@@ -371,6 +381,7 @@ function Live({
       </Section>
 
       {engineContext ? <EngineContextSection report={engineContext} threadId={x.thread_id} /> : null}
+      <LeanLine setup={setup} usage={x.usage} />
       <ScopeLine scope={x.scope} />
 
       <Section title="Memory it was given">
@@ -529,6 +540,28 @@ function MemoryEntries({ path, keys, dropped }: { path: string; keys: string[]; 
   );
 }
 
+/** A lean Claude Code first turn: what loading only the project's settings saved. */
+function LeanLine({
+  setup,
+  usage,
+}: {
+  setup?: ClaudeCodeSetupReport | undefined;
+  usage: { input_tokens: number; cached_tokens?: number } | null | undefined;
+}) {
+  const parsed = ClaudeCodeSetupReport.safeParse(setup);
+  if (!parsed.success) return null;
+  const line = claudeCodeSetupLine(
+    parsed.data,
+    usage ? usage.input_tokens + (usage.cached_tokens ?? 0) : null,
+  );
+  if (!line) return null;
+  return (
+    <p className="why__lean mute">
+      <Icon name="settings" size={13} /> {line}
+    </p>
+  );
+}
+
 export function WhyPanel() {
   const demo = useUi((s) => s.demo);
   const params = useParams({ strict: false }) as { threadId?: string };
@@ -556,6 +589,7 @@ export function WhyPanel() {
       route={m.provenance?.route}
       notebookId={thread.data?.notebookId ?? null}
       engineContext={m.provenance?.engine_context}
+      setup={m.provenance?.claude_code?.setup}
     />
   );
 }
