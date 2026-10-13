@@ -248,12 +248,7 @@ export function SourcesPanel() {
             </>
           ) : null}
         </span>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={() => setAdding(true)}
-          data-tour="add-sources"
-        >
+        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>
           <Icon name="plus" size={14} />
           Add
         </button>
