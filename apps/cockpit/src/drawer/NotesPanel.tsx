@@ -21,6 +21,7 @@ import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
+import { LINK_COMPONENTS } from '../ui/SafeLink';
 import { useContextNotebook } from './SourcesPanel';
 
 function NoteEditor({ note, notebookId, onClose }: { note: Note; notebookId: string; onClose: () => void }) {
@@ -78,7 +79,12 @@ function NoteEditor({ note, notebookId, onClose }: { note: Note; notebookId: str
         </p>
       ) : null}
       {preview ? (
-        <Streamdown className="md note-editor__preview" controls={false} mode="static">
+        <Streamdown
+          className="md note-editor__preview"
+          controls={false}
+          mode="static"
+          components={LINK_COMPONENTS}
+        >
           {body || '*Nothing written yet.*'}
         </Streamdown>
       ) : (

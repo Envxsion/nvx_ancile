@@ -1,7 +1,7 @@
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { classifyLink } from '../src/lib/links';
-import { SafeLink } from '../src/thread/Citations';
+import { SafeLink } from '../src/ui/SafeLink';
 
 const ORIGIN = 'http://127.0.0.1:8787';
 // Built up so the linter does not mistake the fixture for a real script link.

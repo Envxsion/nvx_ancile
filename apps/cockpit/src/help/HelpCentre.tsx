@@ -21,6 +21,7 @@ import { useBinding, useLayer } from '../keys/dispatch';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { Kbd } from '../ui/primitives';
+import { LINK_COMPONENTS } from '../ui/SafeLink';
 import { ARTICLES, type Article, articleById, CHAPTERS, searchHelp } from './articles';
 import { useHelp } from './store';
 import { TOURS } from './tours';
@@ -53,7 +54,7 @@ function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: strin
           <span className="mute">· {tour.steps.length} steps</span>
         </button>
       ) : null}
-      <Streamdown className="md help__body" controls={false} mode="static">
+      <Streamdown className="md help__body" controls={false} mode="static" components={LINK_COMPONENTS}>
         {article.body}
       </Streamdown>
       <nav className="help__pager" aria-label="More articles">
