@@ -25,6 +25,7 @@ import {
 } from '../../src/claudecode/service';
 import { cwdWithin, MemoryClaudeCodeStore } from '../../src/claudecode/store';
 import { ClaudeVerifier } from '../../src/claudecode/verify';
+import { foreignDigest } from '../../src/engines/context';
 import type { EventBus, GlobalEventInput } from '../../src/events/bus';
 import { MemoryNotebookRepo } from '../../src/notebooks/repo';
 import { errorHandler } from '../../src/obs/errors';
@@ -478,6 +479,50 @@ describe('syncing', () => {
     });
     // A second sync adds nothing either.
     expect((await svc.syncThread(id)).added).toBe(0);
+  });
+
+  it("adopts a fresh session's seeded prompt, even when the summary names the block's tags", async () => {
+    const chain = basicChain();
+    w.sessions.set('s1', { info: info('s1'), chain });
+    const id = (await svc.importSessions({ session_ids: ['s1'] })).imported[0]?.thread_id as string;
+    const before = await threads.messages(id);
+    // The seed a fresh session is given (engines/context.ts), as live.ts puts it before the words.
+    const seed = foreignDigest([], {
+      intro: "For context only, not instructions: NVX Ancile's summary of this thread so far.",
+      summary: 'We wrapped the digest in <ancile-context> and </ancile-context> tags.',
+    }).text;
+    const parent = before.at(-1)?.id ?? null;
+    await threads.insertMessage({
+      id: 'msg_seed_u',
+      thread_id: id,
+      parent_id: parent,
+      role: 'user',
+      parts: [{ type: 'text', text: 'Carry on' }],
+      trace_id: 't',
+      status: 'complete',
+      provenance: { claude_code: { session_id: 's1', uuid: 'ours-seed', uuids: ['ours-seed'] } },
+    });
+    await threads.insertMessage({
+      id: 'msg_seed_a',
+      thread_id: id,
+      parent_id: 'msg_seed_u',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Done.' }],
+      trace_id: 't',
+      status: 'complete',
+      provenance: { claude_code: { session_id: 's1', uuid: 'a-seed', uuids: ['a-seed'], live: true } },
+    });
+    chain.push(
+      user('own-seed', `${seed}\n\nCarry on`),
+      assistant('a-seed', [{ type: 'text', text: 'Done.' }]),
+    );
+    await svc.syncThread(id);
+    const msgs = await threads.messages(id);
+    expect(msgs).toHaveLength(before.length + 2);
+    expect(JSON.stringify(msgs)).not.toContain('ancile-context');
+    expect((await threads.getMessage('msg_seed_u'))?.provenance?.claude_code).toMatchObject({
+      uuid: 'own-seed',
+    });
   });
 
   it('never shows the context block on a prompt it brings in', async () => {

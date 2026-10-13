@@ -10,6 +10,7 @@ import {
   type Part,
 } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
+import { stripReminders } from '../../src/claudecode/markup';
 import {
   assembleForGateway,
   FOREIGN_OPEN,
@@ -318,5 +319,30 @@ describe('Claude Code turn plan', () => {
       seen: (s, id) => s === 'S' && id === 'sum1',
     });
     expect(again.seed).toBeNull();
+  });
+
+  it("puts a fresh session's seed inside the context block, so the echoed prompt is adopted", () => {
+    const all = mixed();
+    // A summary that itself mentions the block's tags (a thread about this very feature).
+    const summary = {
+      id: 'sum1',
+      uptoMessageId: 'm2',
+      content: 'We wrapped the digest in <ancile-context> and </ancile-context> tags.',
+    };
+    const p = planClaudeTurn({
+      messages: all,
+      parentId: 'm4',
+      threadSessionId: 'S',
+      summary,
+      seen: () => false,
+    });
+    expect(p.seed).toEqual({ summaryId: 'sum1' });
+    const prefix = p.prefix as string;
+    expect(prefix.startsWith(FOREIGN_OPEN)).toBe(true);
+    expect(prefix.trimEnd().endsWith('</ancile-context>')).toBe(true);
+    // What live.ts sends, and what the mapper leaves once the block is taken out: the person's words.
+    const sent = `${prefix}\n\nAnd what about tests?`;
+    expect(stripReminders(sent).trim()).toBe('And what about tests?');
+    expect(prefix).toContain('wrapped the digest in');
   });
 });
