@@ -812,7 +812,36 @@
 }
 
 .msg__live {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0;
+}
+/* What the run is doing now, for how long, and how much came back: one quiet line. */
+.live-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.live-foot__phase {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-3);
+}
+.live-foot__time,
+.live-foot__tokens {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-stretch: 87.5%;
+}
+.live-foot[data-phase='waiting'] .live-foot__phase {
+  color: var(--signal-ink);
 }
 
 .msg__error {

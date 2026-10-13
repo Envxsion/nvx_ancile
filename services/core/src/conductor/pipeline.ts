@@ -39,6 +39,7 @@ import {
   type Part,
   type RetrievalTrace,
   type RunEvent,
+  stepTitle,
   type Usage,
 } from '@nvx/contracts';
 import type { EventBus } from '../events/bus';
@@ -915,6 +916,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             args_preview: argsPreview(args),
             tier: deps.tools.get(tool)?.tier ?? 'gated',
             ...(nodeId && { node_id: nodeId }),
+            title: stepTitle(tool, args),
           });
         }
         // The same step number every time this call is reached, so a restart replays it, never repeats it.
@@ -1233,6 +1235,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                   tool: c.tool,
                   args_preview: argsPreview(c.args),
                   tier: spec?.tier ?? 'gated',
+                  title: stepTitle(c.tool, c.args),
                 });
               } else if (c.type === 'warning') {
                 await deltas.flush();

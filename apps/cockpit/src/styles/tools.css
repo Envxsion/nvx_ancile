@@ -101,6 +101,43 @@ details[open] > summary .cc-chev {
   overflow: hidden;
   white-space: nowrap;
 }
+/* The step's words, and under them (when it described itself) what it ran. */
+.tool-step__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tool-step__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.tool-step__cmd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.tool-step__cmd[data-mono] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-stretch: 87.5%;
+}
+.tool-step__time {
+  flex: none;
+  color: var(--mute-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-stretch: 87.5%;
+}
+.tool-step[data-state='running'] .tool-step__time {
+  color: var(--fg-3);
+}
 .tool-step__verb {
   flex: none;
   color: var(--fg-3);
@@ -821,4 +858,32 @@ details[open] > summary .cc-chev {
 }
 .tool-step__body .mem-diff {
   max-height: 380px;
+}
+
+/* ---- Web search hits ------------------------------------------------------ */
+
+.web-hits {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.web-hits > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.web-hits a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.web-hits__host {
+  flex: none;
+  color: var(--mute);
+  font-size: var(--t-small);
 }

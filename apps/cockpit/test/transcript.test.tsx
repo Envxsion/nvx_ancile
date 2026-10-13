@@ -419,7 +419,9 @@ describe('Claude Code tool steps', () => {
       call('b2', 'Bash', { command: 'pnpm test' }),
       failed('b2', 'Exit code 2\nFAIL one test'),
     ]);
-    expect(label(container)).toEqual(['Ran pnpm -s typecheck', "Couldn't run pnpm test"]);
+    // A command that describes itself leads with its description; the command sits under it.
+    expect(label(container)).toEqual(['Check types', "Couldn't run pnpm test"]);
+    expect(container.querySelector('.tool-step__cmd')?.textContent).toBe('pnpm -s typecheck');
     const [first, second] = [...container.querySelectorAll('.term')];
     expect(first?.querySelector('.term__cmd')?.textContent).toContain('pnpm -s typecheck');
     expect(first?.querySelector('.term__desc')?.textContent).toBe('Check types');
@@ -453,7 +455,9 @@ describe('Claude Code tool steps', () => {
       }),
       ok('t1', 'Todos have been modified'),
     ]);
-    expect(label(container)).toEqual(['Updated the plan']);
+    // The item in progress is the title, as in Claude Code's own terminal.
+    expect(label(container)).toEqual(['Fixing']);
+    expect(container.querySelector('.tool-step__cmd')?.textContent).toBe('Updated the plan');
     expect(container.querySelector('.tool-step__meta')?.textContent).toBe('1 of 3 done');
     const items = [...container.querySelectorAll('.todo > li')];
     expect(items.map((li) => li.getAttribute('data-status'))).toEqual([
@@ -519,7 +523,7 @@ describe('Claude Code tool steps', () => {
     ]).flat();
     const { container } = parts(four);
     expect(container.querySelector('.tool-group')).toBeNull();
-    expect(label(container)[0]).toBe('Asked a subagent Look at part 0');
+    expect(label(container)[0]).toBe('Look at part 0');
   });
 });
 

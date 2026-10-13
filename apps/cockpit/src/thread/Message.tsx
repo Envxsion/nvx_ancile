@@ -36,6 +36,7 @@ import { Cite, Claim, ClaimsProvider } from './Claims';
 import { FactcheckChip } from './Factcheck';
 import { regenerateRoute } from './flowActions';
 import { LabChanges } from './LabChanges';
+import { LiveFooter } from './LiveFooter';
 import { MemoryTray } from './MemoryTray';
 import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
@@ -180,7 +181,12 @@ function ProvenanceMarks({ m }: { m: MessageView }) {
 }
 
 /** What an answer cost, without rounding a real cost down to "$0.000". */
-export function costText(usdCost: number): string {
+/**
+ * The cost line. Claude Code bills the plan it is signed into, so a zero
+ * there means "not metered here", never "free": it says so instead of $0.000.
+ */
+export function costText(usdCost: number, modelId?: string | null): string {
+  if (usdCost === 0 && modelId?.startsWith('claude-code/')) return 'Included in your Claude plan';
   if (usdCost > 0 && usdCost < 0.001) return 'under $0.001';
   return usd(usdCost, usdCost < 0.1 ? 3 : 2);
 }
@@ -467,17 +473,12 @@ export const Message = memo(function Message({
         </div>
       ) : null}
 
-      {streaming && !waiting ? (
-        <div className="msg__live">
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => void stopMessage(m.id, threadId)}
-          >
-            <Icon name="close" size={12} />
-            Stop
-          </button>
-        </div>
+      {streaming ? (
+        <LiveFooter
+          messageId={m.id}
+          waiting={waiting}
+          onStop={waiting ? undefined : () => void stopMessage(m.id, threadId)}
+        />
       ) : null}
 
       {m.lab && !streaming ? (
@@ -527,7 +528,7 @@ export const Message = memo(function Message({
           ) : null}
           {m.usage && showCost ? (
             <span className="msg__usage" data-num>
-              {m.usage.tokens.toLocaleString('en-GB')} tokens · {costText(m.usage.costUsd)}
+              {m.usage.tokens.toLocaleString('en-GB')} tokens · {costText(m.usage.costUsd, m.modelId)}
               {m.usage.ms !== undefined ? ` · ${(m.usage.ms / 1000).toFixed(1)} s` : null}
             </span>
           ) : null}

@@ -183,6 +183,9 @@ function resultText(content: unknown, cap: number): string {
         if (!isObj(b)) return '';
         if (b.type === 'text' && typeof b.text === 'string') return b.text;
         if (b.type === 'image') return '[image]';
+        // A web search hit: its title and link (the encrypted page content is for the model only).
+        if (b.type === 'web_search_result')
+          return JSON.stringify({ title: b.title ?? null, url: b.url ?? null });
         return JSON.stringify(b);
       })
       .join('\n');
