@@ -22,10 +22,12 @@
 
 import type { CitationStatus, Part, RetrievalTrace } from '@nvx/contracts';
 import * as HoverCard from '@radix-ui/react-hover-card';
+import { useRouter } from '@tanstack/react-router';
 import { type ComponentProps, createContext, type ReactNode, useContext, useState } from 'react';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { useCitationStatus } from '../lib/factcheck';
+import { classifyLink } from '../lib/links';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -222,7 +224,57 @@ function Link({ href, children, ...rest }: ComponentProps<'a'>) {
   const claim = href ? /^#claim-([\w-]+)$/.exec(href) : null;
   if (claim) return <LiveClaim id={claim[1] as string}>{children}</LiveClaim>;
   return (
-    <a {...rest} href={href} target="_blank" rel="noopener noreferrer">
+    <SafeLink href={href} {...rest}>
+      {children}
+    </SafeLink>
+  );
+}
+
+/**
+ * A link in an answer. NVX Ancile pages open in the app, web and mail links
+ * open outside it (the desktop shell sends them to the system browser), and
+ * any other scheme is plain text that says why it did not open.
+ */
+export function SafeLink({ href, children, ...rest }: ComponentProps<'a'>) {
+  const router = useRouter({ warn: false });
+  const link = classifyLink(href, location.origin);
+  if (link.kind === 'refused')
+    return (
+      <span className="md-link-refused" title="This link was not opened: only web and email links open.">
+        {children}
+      </span>
+    );
+  if (link.kind === 'anchor')
+    return (
+      <a {...rest} href={link.href}>
+        {children}
+      </a>
+    );
+  if (link.kind === 'internal')
+    return (
+      <a
+        {...rest}
+        href={link.to}
+        onClick={(e) => {
+          if (
+            !router ||
+            e.defaultPrevented ||
+            e.button !== 0 ||
+            e.metaKey ||
+            e.ctrlKey ||
+            e.shiftKey ||
+            e.altKey
+          )
+            return;
+          e.preventDefault();
+          void router.navigate({ href: link.to });
+        }}
+      >
+        {children}
+      </a>
+    );
+  return (
+    <a {...rest} href={link.href} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   );

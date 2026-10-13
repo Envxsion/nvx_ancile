@@ -35,6 +35,9 @@ rand = "0.8"
 base64 = "0.22"
 # Plain-HTTP readiness probes to 127.0.0.1; no TLS stack needed.
 ureq = { version = "2", default-features = false }
+# Opens web and mail links from the Cockpit in the system browser, called
+# from Rust only (links.rs): the Cockpit gets none of its commands.
+tauri-plugin-opener = "2"
 
 [target.'cfg(windows)'.dependencies]
 # A job object that kills every sidecar (and its children) with the app.

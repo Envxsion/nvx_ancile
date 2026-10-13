@@ -2489,6 +2489,12 @@ button.grounding:hover {
 .md-image-blocked:hover {
   background: var(--chalk);
 }
+/* A link with a scheme NVX Ancile will not open: text, dotted, with a reason on hover. */
+.md-link-refused {
+  color: var(--fg-3);
+  text-decoration: underline dotted;
+  cursor: help;
+}
 
 /* ---- Settings → API keys ------------------------------------------------ */
 .credential__status {
