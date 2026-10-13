@@ -30,7 +30,13 @@ Allow the assistant to write a file?
 
 Suggestions go from narrowest to widest, and the narrowest is pre-selected. After you approve `/workspace/notes/2026/**` for this notebook, later writes under that folder in this notebook don't ask.
 
-If the model makes several calls that need approval in one step, they appear in one dialog with a toggle for each.
+**A pattern of my own** takes any pattern from the [grammar below](#patterns). The (i) beside it opens worked examples inside the dialog (choosing one fills the field), and a line under the field says whether the pattern matches the request in front of you. Core uses the same matcher, and only saves a pattern that matches the request and is no wider than the tool allows.
+
+### Several requests at once
+
+When more than one request is waiting in a thread (Claude Code often fetches two pages and runs a search together), the dialog shows how many ("3 waiting") and lists the others. Each can be allowed once, declined, or opened in full from the list. **Allow all** and **Decline all** answer the lot; with a remembered pattern, Allow all saves your answer on the request in front of you first, then allows the rest once. Critical requests are never allowed in bulk.
+
+Saving a remembered answer settles the other waiting requests it covers. Core does not take the pattern's word for it: each one is decided again by the gate, on its real arguments, so a policy, a floor or a critical tier still asks. In the thread, every "Waiting for your decision" step opens its own request.
 
 ## How a decision is made
 
@@ -55,12 +61,47 @@ Approvals raised by unattended automations expire after `ANCILE_APPROVAL_TTL_AUT
 | Resource | URI | Pattern example |
 |---|---|---|
 | File | `fs:/workspace/a/b.md` | `fs:/workspace/a/**` |
-| HTTP | `http:GET https://api.github.com/repos/x/y` | `http:GET https://api.github.com/**` |
+| Fetch a page | `http:https://api.github.com/repos/x/y` | `http:https://api.github.com/**` or `web:api.github.com` |
+| Web search | `web:search/<query>` | `web:search` |
 | Shell | `shell:git status` | `shell:git status*` |
 | MCP tool | `mcp:github/create_issue` | `mcp:github/*` |
 | Compute | `compute:node/nod_01J9…` | `compute:node/*` |
 
-`*` matches one path segment and `**` any number. Actions match the same way: `fs.*`, `mcp.github.*`.
+`*` matches one path segment and `**` any number. Actions match the same way: `fs.*`, `mcp.github.*`. A remembered answer covers the action it was asked for, except site rules (below).
+
+**Shell.** A wildcard matches any text, slashes included, but never `;` `&` `|` `` ` `` `$` `<` `>` or a line break. So `shell:git status*` covers `git status --short` and never `git status; rm notes.md`. Commands that look dangerous are critical anyway, and critical is never remembered.
+
+**Site rules** (`web:…`) are for searching and fetching only. One rule covers both web searches (`web.search`) and page fetches (`web.fetch`), so its grant's action is `web.*`; it never covers a network write (`http.post`, …) or a shell command.
+
+| Pattern | Covers |
+|---|---|
+| `web:*` | every web search and every website |
+| `web:search` | every web search, no fetches |
+| `web:fetch` | every fetch, any website, no searches |
+| `web:example.com` | pages on example.com only (not www.example.com) |
+| `web:*.example.com` | example.com and every subdomain (docs.example.com, a.b.example.com) |
+| `web:example.com/docs/**` | /docs and everything below it on example.com (the query string is ignored) |
+| `web:search/<query>` | that one search, word for word |
+
+A host is matched exactly and lowercase; `example.com:8080` matches that port only. Before October 2026 a search was `web:<query>`; old exact-search grants still match that one search.
+
+### Worked examples
+
+| To allow | Pattern |
+|---|---|
+| All web searches | `web:search` |
+| All fetches | `web:fetch` |
+| All websites, and searches | `web:*` |
+| One site | `web:example.com` |
+| A site and its subdomains | `web:*.example.com` |
+| A path on a site | `web:example.com/docs/**` |
+| All files under a folder | `fs:/workspace/notes/**` |
+| One command and its options | `shell:git status*` |
+| An MCP server's tools | `mcp:github/*` |
+
+To **deny** instead, choose the pattern and a Remember scope, then press Decline and remember: matching requests are refused without asking, and a deny beats an allow that is just as specific. **Remember** sets where it applies (just this once, this thread, this notebook, or always) and **Expires** ends it sooner. Every example is checked against the matcher in `apps/cockpit/test/approvalPatterns.test.tsx`.
+
+Remembered answers never get past a hard floor: a policy `forbid`, a scope, an MCP tool that changed, a critical tier, and in Auto mode the floors (a key or password in the call, a lot of data inside a web address, …) are all checked before grants.
 
 ## Presets
 

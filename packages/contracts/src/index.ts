@@ -14,6 +14,7 @@ export * from './events';
 export * from './factcheck';
 export * from './files';
 export * from './flows';
+export * from './grant-patterns';
 export * from './ids';
 export * from './images';
 export * from './interpreter';

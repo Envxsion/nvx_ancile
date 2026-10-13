@@ -9,7 +9,8 @@
  *           |  approval can cover the obvious follow-ups without the
  *           |  user writing a glob.
  *  Note     |  Never suggests wider than the workspace root for files,
- *           |  or wider than one host for URLs.
+ *           |  or wider than one host for URLs. A web search offers
+ *           |  the site rules web:search and web:* (glob.ts).
  * ------------------------------------------------------------------
  */
 
@@ -40,6 +41,9 @@ export function suggestPatterns(resource: string, opts: { workspaceRoot: string;
     } catch {
       /* not a URL: only the exact resource */
     }
+  } else if (s === 'web') {
+    // A web search: every search, then every search and every website.
+    out.push('web:search', 'web:*');
   } else if (s === 'mcp') {
     const server = rest.split('/')[0];
     if (server) out.push(`mcp:${server}/*`);

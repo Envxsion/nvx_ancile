@@ -201,7 +201,10 @@ export const Message = memo(function Message({
   waiting = false,
   liveModelName,
   approvalId = null,
+  approvals,
 }: {
+  /** Every approval this answer waits on, by tool call. */
+  approvals?: Record<string, string> | undefined;
   m: MessageView;
   threadId: string;
   selected: boolean;
@@ -216,6 +219,7 @@ export const Message = memo(function Message({
 }) {
   const model = modelById(m.modelId);
   const setApproval = useUi((s) => s.setApproval);
+  const waitingCount = approvals ? Object.keys(approvals).length : 0;
   // Pending (queued, not started yet) reads as writing: it shows the dots and
   // Stop, never "paused until you decide", which is only for approvals.
   const streaming = m.status === 'streaming' || m.status === 'pending';
@@ -396,6 +400,7 @@ export const Message = memo(function Message({
                 parts={shownParts}
                 streaming={streaming}
                 waiting={waiting}
+                approvals={approvals}
                 claims={claims}
                 holdText={streaming && whole}
                 subagents={m.subagents}
@@ -447,13 +452,17 @@ export const Message = memo(function Message({
       {waiting ? (
         <div className="msg__waiting">
           <Icon name="shield" size={14} />
-          <span>Paused until you decide.</span>
+          <span>
+            {waitingCount > 1
+              ? `Paused until you decide. ${waitingCount} requests are waiting.`
+              : 'Paused until you decide.'}
+          </span>
           <button
             type="button"
             className="btn btn--primary btn--sm"
             onClick={() => setApproval(true, approvalId)}
           >
-            Review the request
+            {waitingCount > 1 ? `Review ${waitingCount} requests` : 'Review the request'}
           </button>
         </div>
       ) : null}

@@ -1510,6 +1510,30 @@ async function main() {
         onResolved: (a, status, reason, updatedArgs) => relayAnswer(a, status, reason, updatedArgs),
         editable: (a) => claudeLive.editable(a),
         recheck: (a, args) => claudeLive.recheck(a, args),
+        // A saved answer settles the other waiting requests it covers: each is decided again here.
+        decideAgain: async (a) => {
+          if (claudeLive.editable(a)) return claudeLive.recheck(a, a.args);
+          const t = a.thread_id ? await threads.getThread(a.thread_id) : undefined;
+          const spec = tools.get(a.tool);
+          return gate.check({
+            userId: owner.userId,
+            principal: a.principal,
+            action: a.action,
+            resource: a.resource,
+            toolTier: spec?.tier ?? a.tier,
+            destructive: spec?.destructive ?? false,
+            scope: {
+              threadId: a.thread_id,
+              notebookId: t?.notebook_id ?? null,
+              workspaceId: owner.workspaceId,
+            },
+            runId: a.run_id,
+            traceId: newTraceId(),
+            tool: a.tool,
+            args: a.args,
+            ...(a.call_id && { callId: a.call_id }),
+          });
+        },
         scopeRefs: async (a) => {
           const t = a.thread_id ? await threads.getThread(a.thread_id) : undefined;
           return {

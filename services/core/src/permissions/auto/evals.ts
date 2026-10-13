@@ -263,7 +263,7 @@ export const NORMAL_CASES: EvalCase[] = [
     name: 'search the web',
     tool: 'WebSearch',
     action: 'web.search',
-    resource: 'web:vitest mock fetch',
+    resource: 'web:search/vitest mock fetch',
     args: { query: 'vitest mock fetch' },
     tier: 'gated',
   },

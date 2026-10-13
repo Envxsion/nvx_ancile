@@ -45,8 +45,10 @@ export interface LiveTurn {
     detail: string | null;
     since: string;
   } | null;
-  /** Waiting on this approval. */
+  /** Waiting on this approval (the latest still open). */
   approvalId: string | null;
+  /** Every approval still open, by the tool call it is for: each step opens its own. */
+  approvals: Record<string, string>;
   error: { title: string; hint: string } | null;
   done: boolean;
   lastSeq: number;
@@ -114,9 +116,22 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
       };
     }
     case 'approval.required':
-      return { ...next, approvalId: e.approval_id };
-    case 'approval.resolved':
-      return { ...next, approvalId: null };
+      return {
+        ...next,
+        approvalId: e.approval_id,
+        approvals: { ...t.approvals, [e.call_id || e.approval_id]: e.approval_id },
+      };
+    case 'approval.resolved': {
+      const approvals = Object.fromEntries(
+        Object.entries(t.approvals).filter(([, id]) => id !== e.approval_id),
+      );
+      const left = Object.values(approvals);
+      return {
+        ...next,
+        approvals,
+        approvalId: t.approvalId === e.approval_id ? (left.at(-1) ?? null) : t.approvalId,
+      };
+    }
     case 'fallback':
       return { ...next, fallback: { from: e.from_model, to: e.to_model, reason: e.reason }, waking: null };
     case 'error':
@@ -146,6 +161,7 @@ export const useRuns = create<RunsState>((set) => ({
                 fallback: null,
                 waking: null,
                 approvalId: null,
+                approvals: {},
                 error: null,
                 done: false,
                 lastSeq: 0,

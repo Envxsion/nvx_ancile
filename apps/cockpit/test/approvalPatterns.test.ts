@@ -3,16 +3,16 @@
  * covers, by its kind: a file or folder, a command, an address, a server.
  */
 import { describe, expect, it } from 'vitest';
-import { describePattern } from '../src/approvals/ApprovalDialog';
+import { describePattern } from '../src/approvals/patterns';
 
-const words = (ps: string[]) => ps.map((p, i) => describePattern(p, i, ps.length));
+const words = (ps: string[]) => ps.map((p, i) => describePattern(p, i, ps[0] ?? ''));
 
 describe('describePattern', () => {
   it('a file, its folders and the workspace', () => {
     expect(words(['fs:/workspace/src/a.ts', 'fs:/workspace/src/**', 'fs:/workspace/**'])).toEqual([
       'This file only',
       'Anything under /workspace/src/',
-      'Anything in the workspace',
+      'Anything under /workspace/',
     ]);
   });
 
