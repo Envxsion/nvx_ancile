@@ -163,6 +163,9 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
     case 'limits':
       void qc.invalidateQueries({ queryKey: ['usage', 'plan-limits'] });
       break;
+    case 'mcp':
+      void qc.invalidateQueries({ queryKey: ['claude-code', 'mcp-servers'] });
+      break;
     default:
       break;
   }

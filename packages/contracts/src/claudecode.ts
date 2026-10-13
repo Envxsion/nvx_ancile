@@ -483,3 +483,34 @@ export const ImportProgress = z
   })
   .strict();
 export type ImportProgress = z.infer<typeof ImportProgress>;
+
+/**
+ * Where one of Claude Code's own MCP servers is set up: a claude.ai
+ * connector, your Claude Code config (user, project or local), a plugin,
+ * or somewhere else (managed, enterprise).
+ */
+export const ClaudeCodeMcpSource = z.enum(['claudeai', 'user', 'project', 'local', 'plugin', 'other']);
+export type ClaudeCodeMcpSource = z.infer<typeof ClaudeCodeMcpSource>;
+
+/** One of Claude Code's MCP servers, read-only: its name, where it is set up and how it is. Never its config. */
+export const ClaudeCodeMcpServer = z.object({
+  /** As Claude Code names it ("claude.ai Vercel", "plugin:design:linear", "supabase"). */
+  name: z.string(),
+  source: ClaudeCodeMcpSource,
+  /** connected, failed, needs-auth, pending or disabled; null when only its config was read. */
+  status: z.enum(['connected', 'failed', 'needs-auth', 'pending', 'disabled']).nullable(),
+  /** Tools it offers, when Claude Code said. */
+  tools: z.number().int().nonnegative().nullable(),
+});
+export type ClaudeCodeMcpServer = z.infer<typeof ClaudeCodeMcpServer>;
+
+/** GET /claude-code/mcp-servers[?refresh=1]. */
+export const ClaudeCodeMcpServers = z.object({
+  servers: z.array(ClaudeCodeMcpServer),
+  /** status: Claude Code itself said (a session's report); config: only names from its config files. */
+  from: z.enum(['status', 'config']).nullable(),
+  updated_at: z.string().nullable(),
+  /** Claude Code is installed and verified, so it can be asked. */
+  can_refresh: z.boolean(),
+});
+export type ClaudeCodeMcpServers = z.infer<typeof ClaudeCodeMcpServers>;

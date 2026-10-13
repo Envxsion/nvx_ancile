@@ -407,8 +407,8 @@ export const GlobalEvent = z.discriminatedUnion('type', [
   z.object({
     ...base,
     type: z.literal('claude_code.changed'),
-    /** What moved: install progress, sign-in, the session list, a thread synced, or the plan limits. */
-    what: z.enum(['install', 'auth', 'sessions', 'thread', 'limits']),
+    /** What moved: install progress, sign-in, the session list, a thread synced, the plan limits, or its MCP servers. */
+    what: z.enum(['install', 'auth', 'sessions', 'thread', 'limits', 'mcp']),
     thread_id: z.string().optional(),
     detail: z.string().optional(),
     /** A background import's progress (with `detail` "importing:<done>/<total>"); null once it ends. */
