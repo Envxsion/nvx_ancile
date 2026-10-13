@@ -30,6 +30,7 @@ import { shortResource } from '../lib/mappers';
 import type { SubagentView } from '../lib/types';
 import { DiffView } from '../memory/DiffView';
 import { type DiffLine, diffStats, lineDiff } from '../memory/linediff';
+import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { MD_COMPONENTS } from './Citations';
 import { CodeBlock, CopyCode } from './Code';
@@ -928,10 +929,13 @@ export function ToolStep({
   waiting,
   folded,
   subagent,
+  approvalId = null,
 }: {
   call: ToolCall;
   result: ToolResult | undefined;
   waiting: boolean;
+  /** The approval this step waits on: its "Waiting for your decision" opens exactly that one. */
+  approvalId?: string | null;
   subagent?: SubagentView | undefined;
   /** Settings → Reading: tool steps start as one line. */
   folded: boolean;
@@ -975,7 +979,24 @@ export function ToolStep({
             </span>
           ) : null}
         </span>
-        {detail ? <span className="tool-step__detail">{detail}</span> : null}
+        {state === 'waiting' && approvalId ? (
+          <span className="tool-step__detail">
+            <button
+              type="button"
+              className="link-btn tool-step__ask"
+              onClick={(e) => {
+                // Open the decision, not the step.
+                e.preventDefault();
+                e.stopPropagation();
+                useUi.getState().setApproval(true, approvalId);
+              }}
+            >
+              Waiting for your decision
+            </button>
+          </span>
+        ) : detail ? (
+          <span className="tool-step__detail">{detail}</span>
+        ) : null}
         {line.meta ? (
           <span className="tool-step__meta" data-num>
             {line.meta}

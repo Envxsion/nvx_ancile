@@ -115,7 +115,10 @@ export function Parts({
   subagents,
   messageId = null,
   threadId = null,
+  approvals,
 }: {
+  /** Approvals still open, by tool call: each waiting step opens its own. */
+  approvals?: Record<string, string> | undefined;
   threadId?: string | null;
   /** The answer these parts belong to: artifacts in it are versioned by it. */
   messageId?: string | null;
@@ -134,6 +137,9 @@ export function Parts({
   const lastText = segs.findLastIndex((s) => s.kind === 'text');
   const calls = new Set(segs.flatMap((s) => (s.kind === 'tool' ? [s.call.call_id] : [])));
   const loose = (subagents ?? []).filter((a) => !a.callId || !calls.has(a.callId));
+  // A step waits when its own call has an open approval; without that map, any open one.
+  const known = !!approvals && Object.keys(approvals).length > 0;
+  const stepWaits = (callId: string) => waiting && (!known || !!approvals?.[callId]);
 
   const one = (s: Segment, i: number) => {
     switch (s.kind) {
@@ -164,7 +170,8 @@ export function Parts({
             key={s.key}
             call={s.call}
             result={s.result}
-            waiting={waiting}
+            waiting={stepWaits(s.call.call_id)}
+            approvalId={approvals?.[s.call.call_id] ?? null}
             folded={folded}
             subagent={subagents?.find((a) => a.callId === s.call.call_id)}
           />

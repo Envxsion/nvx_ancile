@@ -80,6 +80,7 @@ export function MessageList({
                       waiting={waiting}
                       liveModelName={live?.modelName ?? null}
                       approvalId={live?.approvalId ?? null}
+                      approvals={live?.approvals}
                     />
                   )}
                 </LazyRow>
