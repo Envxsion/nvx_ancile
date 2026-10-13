@@ -46,7 +46,7 @@ import {
   scoreOutcome,
   toStored,
 } from './pipeline';
-import { extractClaims, type Gathered, gatherEvidence, type StepDeps, verifyClaim } from './steps';
+import { extractClaims, type Gathered, gatherEvidence, noJudge, type StepDeps, verifyClaim } from './steps';
 import type { FactcheckRecord, FactcheckStore } from './store';
 
 const log = logFor('factcheck');
@@ -82,12 +82,10 @@ export function scoreConfig(cfg: z.infer<typeof FactcheckFile> | undefined): Sco
 }
 
 function failure(err: unknown): { code: string; title: string; hint: string } | null {
-  if (err instanceof NoRouteError)
-    return {
-      code: 'factcheck.no_model',
-      title: 'No model is ready to fact-check',
-      hint: 'Add a provider key in Settings → Models, or start Ancile with the offline test model.',
-    };
+  if (err instanceof NoRouteError) {
+    const e = noJudge(err.taskClass);
+    return { code: e.code, title: e.title, hint: e.hint };
+  }
   if (err instanceof ChainFailedError)
     return {
       code: 'model.chain_exhausted',

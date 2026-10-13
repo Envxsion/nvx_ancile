@@ -220,7 +220,7 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 |---|---|---|
 | `factcheck.not_answer` | 409 | "Only a finished answer can be fact-checked." / Wait for the answer to finish, then fact-check it. |
 | `factcheck.none` | 404 | "This answer has not been fact-checked." / Press F on the answer, or choose Fact-check under it. |
-| `factcheck.no_model` | 422 | "No model is ready to fact-check." / Add a provider key in Settings → Models, or start Ancile with the offline test model. |
+| `factcheck.no_model` | 422 | "No model is ready to fact-check." / Says what was tried: the models set for the step (none ready), Claude Code (not installed or not verified) and a small Ollama model you pulled (none of 14B or less). Add a provider key in Settings → Models, set up Claude Code in Settings → Claude Code, or pull a small model with Ollama. Only raised when all three are missing: Claude Code's quickest model, then the local model, judge when no model is set (docs/factcheck.md). |
 | `factcheck.bad_output` | 502 | "No model returned a usable fact-check." / Try again, or add a stronger model for the utility and fact-check tasks. Every model in the chain answered, but not in the shape asked for. |
 | `factcheck.evidence_unavailable` | 503 | "Your sources could not be searched." / Knowledge did not answer; check it in Admin → Health, then fact-check again. |
 | `factcheck.message_gone` | 404 | "The answer was deleted." / There is nothing left to check. |

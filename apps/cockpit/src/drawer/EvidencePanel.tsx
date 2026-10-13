@@ -173,11 +173,16 @@ export function EvidencePanel() {
               Judged by <strong>{modelName(f.verifier_model_id)}</strong>
               {f.verifier_model_id !== m.modelId ? ', a different model from the one that answered.' : '.'}
             </>
+          ) : f.status === 'failed' ? (
+            // A check that stopped never reached a judge; "no claim needed one" would contradict it.
+            'It stopped before a model judged the claims.'
+          ) : f.claims.length ? (
+            'No claim needed a judge: none could be checked against your sources.'
           ) : (
-            'No claim needed a judge.'
+            'There were no claims to judge.'
           )}{' '}
           <button type="button" className="link-btn" onClick={() => void startFactcheck(m.id)}>
-            Check again
+            {f.status === 'failed' ? 'Try again' : 'Check again'}
           </button>
         </p>
       </header>

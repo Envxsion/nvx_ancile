@@ -24,6 +24,8 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
 3. **Verify independently.** A verifier model **from a different family** than the one that answered judges each claim against the evidence alone: *supported*, *contradicted* or *insufficient*, with exact quotes. If only one family is available, the check still runs and says so.
 4. **Score.**
 
+**When no model is set for a step.** With no provider key (so no model on the utility or `factcheck.verify` chain is ready), the fact-check does not give up at once. It asks, in order: Claude Code's quickest model (`claude-code/haiku`, when Claude Code is installed and verified; one lean call each, with no tools, none of your Claude Code settings and a 90-second limit, so it counts against your Claude plan like any Claude Code use), then the smallest Ollama model you pulled of 14B or less. Only when none of these is there does it stop with `factcheck.no_model`, and the message lists each thing it tried.
+
 ## The confidence score
 
 For each claim:

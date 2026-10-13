@@ -54,7 +54,12 @@ export function paramsOf(name: string): number | null {
  * REVIEWER_MAX_B. Null when there is none (Auto mode falls back to rules).
  */
 export function reviewerModel(registry: Pick<ModelRegistry, 'chain' | 'all' | 'status'>): ModelConfig | null {
-  const fromChain = registry.chain('utility').find(isLocal);
+  let fromChain: ModelConfig | undefined;
+  try {
+    fromChain = registry.chain('utility').find(isLocal);
+  } catch {
+    // No utility model at all (NoRouteError): look for a local one below.
+  }
   if (fromChain) return fromChain;
   const sized = registry
     .all()

@@ -19,17 +19,31 @@
  *           |            inside the untrusted wrapper with a fresh nonce.
  *           |  A model whose output is not the JSON asked for is
  *           |  skipped for the next one in its chain.
+ *           |  judges    when no model is set for a step (no provider
+ *           |            key), Claude Code's quickest model answers
+ *           |            (one lean call: no tools, none of your settings,
+ *           |            a short time limit), then the smallest Ollama
+ *           |            model you pulled. With none of them, the error
+ *           |            says each thing that was tried.
  * ------------------------------------------------------------------
  */
 
 import { randomBytes } from 'node:crypto';
-import { AncileError, type EvidenceResponse, type ModelConfig } from '@nvx/contracts';
+import {
+  AncileError,
+  CLAUDE_CODE_MODEL_PREFIX,
+  CLAUDE_CODE_PROVIDER,
+  type EvidenceResponse,
+  type ModelConfig,
+} from '@nvx/contracts';
 import { z } from 'zod';
 import { loadPrompt, render } from '../conductor/prompt';
 import type { Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
+import { NoRouteError } from '../gateway/router';
 import type { ModelRequest } from '../gateway/types';
 import type { KnowledgeClient } from '../knowledge/client';
+import { REVIEWER_MAX_B, reviewerModel } from '../permissions/auto/wire';
 import type { ClaimEvidence, ExtractedClaim } from './pipeline';
 import type { Stance, VerifierVerdict } from './score';
 
@@ -39,6 +53,54 @@ const EVIDENCE_CHARS = 1_200;
 
 const SYSTEM =
   'You are a careful fact-checker inside NVX Ancile. Reply with one JSON object only, no prose and no code fence.';
+
+/* ---- Judges ------------------------------------------------------------------ */
+
+/** Claude Code's model a fact-check falls back to: the quickest. */
+export const CLAUDE_CODE_JUDGE = `${CLAUDE_CODE_MODEL_PREFIX}haiku`;
+/** One Claude Code judge call gets this long before the next judge is tried. */
+export const CLAUDE_CODE_JUDGE_TIMEOUT_MS = 90_000;
+
+type JudgeRegistry = Pick<ModelRegistry, 'chain' | 'all' | 'status'>;
+
+/** The error when no judge can be found, saying each thing that was tried. */
+export function noJudge(taskClass: string): AncileError {
+  return new AncileError({
+    code: 'factcheck.no_model',
+    title: 'No model is ready to fact-check',
+    hint:
+      `Tried the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is ready), ` +
+      'Claude Code (not installed or not verified) and a small Ollama model you pulled ' +
+      `(none of ${REVIEWER_MAX_B}B or less). Add a provider key in Settings → Models, set up Claude Code ` +
+      'in Settings → Claude Code, or pull a small model with Ollama.',
+    status: 422,
+    errorClass: 'permanent',
+  });
+}
+
+/**
+ * The models that may judge a step: the chain set for it, else Claude
+ * Code's quickest model and then the smallest pulled local model. Throws
+ * factcheck.no_model, naming what was tried, when there is none.
+ */
+export function judgeChain(
+  registry: JudgeRegistry,
+  taskClass: string,
+  opts: { generatorFamily?: string } = {},
+): ModelConfig[] {
+  try {
+    return registry.chain(taskClass, null, opts);
+  } catch (err) {
+    if (!(err instanceof NoRouteError)) throw err;
+  }
+  const out: ModelConfig[] = [];
+  const cc = registry.all().find((m) => m.id === CLAUDE_CODE_JUDGE && registry.status(m) === 'ready');
+  if (cc) out.push({ ...cc, enabled: true });
+  const local = reviewerModel(registry);
+  if (local) out.push(local);
+  if (!out.length) throw noJudge(taskClass);
+  return out;
+}
 
 /* ---- Structured calls ------------------------------------------------------ */
 
@@ -89,13 +151,23 @@ export async function structured<T>(
   schema: z.ZodType<T>,
   signal: AbortSignal,
 ): Promise<{ value: T; modelId: string }> {
+  const req: ModelRequest = { system: SYSTEM, messages: [{ role: 'user', content: prompt }], temperature: 0 };
   for (let i = 0; i < chain.length; i++) {
-    const out = await complete(
-      deps.gateway,
-      chain.slice(i),
-      { system: SYSTEM, messages: [{ role: 'user', content: prompt }], temperature: 0 },
-      signal,
-    );
+    const model = chain[i] as ModelConfig;
+    // Claude Code as a judge gets a short time limit; the next judge is tried if it fails or runs over.
+    const cc = model.provider === CLAUDE_CODE_PROVIDER;
+    let out: Completion;
+    try {
+      out = await complete(
+        deps.gateway,
+        cc ? [model] : chain.slice(i),
+        req,
+        cc ? AbortSignal.any([signal, AbortSignal.timeout(CLAUDE_CODE_JUDGE_TIMEOUT_MS)]) : signal,
+      );
+    } catch (err) {
+      if (!cc || signal.aborted || i === chain.length - 1) throw err;
+      continue;
+    }
     const parsed = schema.safeParse(parseJsonObject(out.text));
     if (parsed.success) return { value: parsed.data, modelId: out.modelId };
     // The model that answered gave the wrong shape: try the one after it.
@@ -225,7 +297,7 @@ export async function extractClaims(
     slot,
     () => input.answer,
   );
-  const chain = deps.registry.chain('utility');
+  const chain = judgeChain(deps.registry, 'utility');
   const { value, modelId } = await structured(deps, chain, prompt, RawClaims, signal);
   return { claims: validateClaims(input.answer, value.claims), modelId };
 }
@@ -359,9 +431,11 @@ export async function verifyClaim(
     loadPrompt(deps.promptsDir, 'system.untrusted-wrapper', WRAPPER_FALLBACK),
   ]);
   const prompt = render(template, { claim: input.claim, evidence: evidenceBlock(input.evidence, wrapper) });
-  const chain = deps.registry.chain('factcheck.verify', null, {
-    generatorFamily: input.generatorFamily ?? undefined,
-  });
+  const chain = judgeChain(
+    deps.registry,
+    'factcheck.verify',
+    input.generatorFamily ? { generatorFamily: input.generatorFamily } : {},
+  );
   const { value, modelId } = await structured(deps, chain, prompt, RawVerdict, signal);
 
   const evidence = input.evidence.map(strip);

@@ -207,7 +207,9 @@ export function internalRoutes(deps?: InternalDeps) {
     if (!deps) throw notImplemented(2, 'The internal model endpoint');
     const req = await body(c, ChatCompletionRequest);
     const isModelId = !!deps.registry.get(req.model);
-    const taskClass = isModelId || req.model === 'ancile' ? 'chat.default' : req.model;
+    // "task:<class>" names a task class (Knowledge asks this way); a bare class works too.
+    const asked = !isModelId && req.model.startsWith('task:') ? req.model.slice(5) : req.model;
+    const taskClass = isModelId || asked === 'ancile' ? 'chat.default' : asked;
     let chain: ReturnType<ModelRegistry['chain']>;
     try {
       chain = deps.registry.chain(taskClass, isModelId ? req.model : null);
