@@ -70,7 +70,7 @@ test.describe('workspace', () => {
     await page.goto('/settings/appearance');
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export' }).click(),
+      page.getByRole('button', { name: 'Export settings' }).click(),
     ]);
     expect(download.suggestedFilename()).toBe('ancile-settings.json');
     const file = await download.path();

@@ -45,6 +45,7 @@ import { automationRoutes } from './automations/routes';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
+import { ClaudeCodeMcpList } from './claudecode/mcp-list';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { PlanLimits } from './claudecode/plan-limits';
 import { PgPlanSampleStore, PlanSamples } from './claudecode/plan-samples';
@@ -804,6 +805,17 @@ async function main() {
     samples: new PlanSamples(new PgPlanSampleStore(sql)),
     bus: events,
   });
+  // Admin → Plugins: the MCP servers you have in Claude Code, read-only (claudecode/mcp-list.ts).
+  const claudeMcpList = new ClaudeCodeMcpList({
+    settings,
+    bridge: claudeCode.bridge,
+    cli: () => claudeCode.service.cliPath(),
+    env: () => claudeCode.service.cliEnv(),
+    folders: async () => (await claudeCode.service.projects()).map((p) => p.cwd),
+    ignoreHandle: (h) => modeAHandles.has(h),
+    bus: events,
+  });
+  claudeMcpList.watch();
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
     images,
     limits: planLimits,
@@ -1603,6 +1615,7 @@ async function main() {
         live: () => claudeLive,
         sendLocks,
         sameRepo: () => sameRepo,
+        mcpList: () => claudeMcpList,
       }),
       activityRoutes({ activity }),
       engineRoutes({
@@ -1685,6 +1698,7 @@ async function main() {
       userId: owner.userId,
       workspaceId: owner.workspaceId,
       handles: modeAHandles,
+      observe: (m) => planLimits.observe(m),
     }),
   );
   // Claude Code as a model: offered while Claude Code is installed and verified.

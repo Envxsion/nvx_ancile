@@ -35,10 +35,10 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 
 import { api } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
-import { resetWords, toneOf, windowLine } from '../src/usage/api';
+import { paceWords, resetWords, toneOf, windowLine } from '../src/usage/api';
 import { ContextGauge, contextTone, contextWords } from '../src/usage/Meter';
 import { NOT_A_PLAN, PlanLimits } from '../src/usage/PlanLimits';
-import { AncileUsage, UsageGroup } from '../src/usage/UsageView';
+import { AncileUsage, ClaudeCodeMeasured, UsageGroup } from '../src/usage/UsageView';
 
 const mocked = api as unknown as Record<'get' | 'post' | 'put' | 'patch' | 'del', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) =>
@@ -192,6 +192,48 @@ describe('plan limits', () => {
     expect(screen.queryByRole('button', { name: /Refresh/ })).toBeNull();
   });
 
+  it('never shows an empty block: it says what will appear, and points to claude.ai', async () => {
+    mocked.get.mockResolvedValue({
+      ...PLAN,
+      available: null,
+      windows: [],
+      updated_at: null,
+      can_refresh: true,
+    });
+    wrap(<PlanLimits />);
+    expect(await screen.findByText(/has not reported its limits yet/)).toBeInTheDocument();
+    expect(screen.getByText(/current session \(5 hours\) and this week/)).toBeInTheDocument();
+    expect(screen.getByText(/A weekly limit per model/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open usage on claude.ai' })).toHaveAttribute(
+      'href',
+      'https://claude.ai/settings/usage',
+    );
+  });
+
+  it('warns when the pace so far runs out before the reset, and only then', () => {
+    const week = {
+      id: 'seven_day',
+      kind: 'week' as const,
+      label: null,
+      status: null,
+      updated_at: new Date(NOW).toISOString(),
+    };
+    // Half the week gone, 80% used: out well before the reset.
+    const reset = new Date(NOW + 3.5 * 86_400_000).toISOString();
+    expect(paceWords({ ...week, percent: 80, resets_at: reset }, NOW)).toMatch(
+      /^At this pace you'll run out (today|tonight|[A-Z][a-z]+day) ?(morning|afternoon|evening|night)?$/,
+    );
+    // Half the week gone, 40% used: fine.
+    expect(paceWords({ ...week, percent: 40, resets_at: reset }, NOW)).toBeNull();
+    // Too early to tell.
+    const fresh = new Date(NOW + 6.9 * 86_400_000).toISOString();
+    expect(paceWords({ ...week, percent: 30, resets_at: fresh }, NOW)).toBeNull();
+    const session = { ...week, id: 'five_hour', kind: 'session' as const };
+    expect(
+      paceWords({ ...session, percent: 90, resets_at: new Date(NOW + 2.5 * 3600_000).toISOString() }, NOW),
+    ).toMatch(/^At this pace you'll reach it around \d{1,2}:\d{2} [ap]m$/);
+  });
+
   it('words a window the way the CLI does', () => {
     const at = new Date(NOW + 3 * 86_400_000);
     expect(resetWords(at.toISOString(), NOW)).toMatch(/^resets [A-Z][a-z]{2} \d{1,2}:\d{2} [ap]m$/);
@@ -241,6 +283,46 @@ describe('NVX Ancile usage', () => {
       ),
     );
     expect(await screen.findByText('Current session (5 hours)')).toBeInTheDocument();
+  });
+});
+
+describe('Claude Code in NVX Ancile', () => {
+  const totals = (i: number, o: number, c: number, answers: number) => ({
+    input_tokens: i,
+    output_tokens: o,
+    cached_tokens: c,
+    cost_usd: 0,
+    answers,
+  });
+
+  it('says what will appear before Claude Code has answered here', async () => {
+    mocked.get.mockResolvedValue({
+      tz: 'UTC',
+      today: totals(0, 0, 0, 0),
+      week: totals(0, 0, 0, 0),
+      cache_hit_rate: null,
+      days: [],
+      by_thread: [],
+    });
+    wrap(<ClaudeCodeMeasured />);
+    expect(await screen.findByText(/No Claude Code answers in NVX Ancile/)).toBeInTheDocument();
+    expect(screen.getByText(/tokens in, out and from cache/)).toBeInTheDocument();
+  });
+
+  it('shows today, the week, the cache hit rate and the busiest threads', async () => {
+    mocked.get.mockResolvedValue({
+      tz: 'UTC',
+      today: totals(1_000, 200, 3_000, 2),
+      week: totals(4_000, 800, 12_000, 6),
+      cache_hit_rate: 0.75,
+      days: [],
+      by_thread: [{ thread_id: 't1', title: 'Refactor the parser', ...totals(4_000, 800, 12_000, 6) }],
+    });
+    wrap(<ClaudeCodeMeasured />);
+    expect(await screen.findByText('75%')).toBeInTheDocument();
+    expect(screen.getByText('1.0k in · 200 out · 3.0k from cache')).toBeInTheDocument();
+    expect(screen.getByText('Refactor the parser')).toBeInTheDocument();
+    expect(mocked.get).toHaveBeenCalledWith(expect.stringMatching(/^\/claude-code\/usage\?tz=/));
   });
 });
 

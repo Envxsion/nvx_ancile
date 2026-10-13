@@ -36,6 +36,7 @@ import { badRequest } from '../obs/errors';
 import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import { ccErrors } from './errors';
 import type { ClaudeCodeLive } from './live';
+import type { ClaudeCodeMcpList } from './mcp-list';
 import type { SameRepoFinder } from './same-repo';
 import type { ClaudeCodeService } from './service';
 
@@ -48,8 +49,16 @@ export function claudeCodeRoutes(deps: {
   sendLocks?: SendLocks;
   /** One repository in two folders: matches between folder notebooks (same-repo.ts). */
   sameRepo?: () => SameRepoFinder | null;
+  /** Claude Code's own MCP servers, read-only (mcp-list.ts). */
+  mcpList?: () => ClaudeCodeMcpList | null;
 }) {
   const r = new Hono<AppEnv>();
+
+  r.get('/claude-code/mcp-servers', async (c) => {
+    const list = deps.mcpList?.();
+    if (!list) return c.json({ servers: [], from: null, updated_at: null, can_refresh: false });
+    return c.json(await list.get({ refresh: c.req.query('refresh') === '1' }));
+  });
   const svc = deps.service;
   const live = () => {
     const l = deps.live?.();

@@ -20,7 +20,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import type { PlanLimits } from '../claudecode/plan-limits';
 import { badRequest } from '../obs/errors';
-import { buildReport, type UsageSource, usageHistory, validZone, window } from './report';
+import { buildReport, claudeCodeUsage, type UsageSource, usageHistory, validZone, window } from './report';
 
 export function usageRoutes(deps: {
   workspaceId: string;
@@ -47,6 +47,13 @@ export function usageRoutes(deps: {
       provider: c.req.query('provider') || undefined,
     });
     return c.json(buildReport(range.data, tz, w, rows));
+  });
+
+  r.get('/claude-code/usage', async (c) => {
+    const asked = c.req.query('tz');
+    const tz = asked === undefined ? 'UTC' : validZone(asked);
+    if (!tz) throw badRequest('tz: a time zone such as Europe/London');
+    return c.json(await claudeCodeUsage(deps.source, deps.workspaceId, tz, now()));
   });
 
   r.get('/usage/history', async (c) => c.json(await usageHistory(deps.source, deps.workspaceId, now())));

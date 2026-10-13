@@ -107,10 +107,51 @@
   gap: 12px;
   margin-top: 14px;
 }
+.u-plan__pace {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warn);
+  font-size: var(--t-small);
+}
+.u-plan[data-compact] .u-plan__pace {
+  font-size: var(--t-micro);
+}
+.u-plan-note {
+  margin: 12px 0 0;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
 .u-plan-empty {
   display: grid;
   justify-items: start;
   gap: 8px;
+}
+.u-plan-empty ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--fg-2);
+}
+/* Claude Code in NVX Ancile: what was measured here. */
+.u-cc-threads {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.u-cc-threads li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: baseline;
+  font-size: var(--t-small);
+}
+.u-cc-threads a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
 }
 .u-plan-empty p {
   margin: 0;

@@ -9,7 +9,9 @@
  *           |  and config once), see when it was last used, disconnect
  *           |  it. Tools NVX Ancile can use: the MCP servers it connects
  *           |  to (add, edit, test, per-tool settings: McpServers.tsx),
- *           |  then every tool with the tier it asks at.
+ *           |  the servers you have in Claude Code, read-only
+ *           |  (ClaudeCodeMcp.tsx), then every tool with the tier it
+ *           |  asks at.
  * ------------------------------------------------------------------
  */
 
@@ -24,6 +26,7 @@ import { notify } from '../state/notify';
 import { Check } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton, TierBadge } from '../ui/primitives';
+import { ClaudeCodeMcpSection } from './ClaudeCodeMcp';
 import { CopyButton, LoadFailed, reportFailure } from './common';
 import { McpServersSection } from './McpServers';
 
@@ -146,6 +149,8 @@ export function PluginsScreen() {
       </section>
 
       <McpServersSection />
+
+      <ClaudeCodeMcpSection />
 
       <section className="plug-section">
         <h2 className="admin__h">Tools the assistant can use</h2>

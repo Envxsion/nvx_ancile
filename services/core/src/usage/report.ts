@@ -13,15 +13,25 @@
  *           |  grouped query over the partial index on created_at
  *           |  (migration 0016), in memory for tests. build() fills
  *           |  the empty buckets and folds the long tail of models.
- *           |  The engine is the answer's: Claude Code (its provenance
- *           |  or a claude_code run), the lab (an agent run), the model
- *           |  gateway (chat and flows), else other.
+ *           |  The engine is the answer's: Claude Code (its provenance,
+ *           |  a claude_code run, or a claude-code/<model> answer), the
+ *           |  lab (an agent run), the model gateway (chat and flows),
+ *           |  else other. claudeCodeUsage() is Settings → Usage's
+ *           |  Claude Code block: today, the last 7 days by day, the
+ *           |  cache hit rate and the busiest threads.
  *  Note     |  Claude Code's cost is its own estimate at API list
  *           |  prices; the report says how much of the total that is.
  * ------------------------------------------------------------------
  */
 
-import type { UsageEngine, UsageRange, UsageReport, UsageTotals } from '@nvx/contracts';
+import {
+  CLAUDE_CODE_MODEL_PREFIX,
+  type ClaudeCodeUsage,
+  type UsageEngine,
+  type UsageRange,
+  type UsageReport,
+  type UsageTotals,
+} from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import type { MessageRecord } from '../threads/repo';
 
@@ -51,11 +61,21 @@ export interface UsageQuery {
   provider?: string | undefined;
 }
 
+/** One thread's Claude Code usage over a range. */
+export interface ThreadUsageRow extends UsageTotals {
+  thread_id: string;
+  title: string | null;
+}
+
 export interface UsageSource {
   rows(q: UsageQuery): Promise<UsageRow[]>;
+  /** The busiest threads by Claude Code tokens over the range. */
+  claudeCodeThreads?(q: UsageQuery, limit: number): Promise<ThreadUsageRow[]>;
 }
 
 export const TOP_MODELS = 6;
+/** Claude Code as a model answers as claude-code/<model>. */
+const CC_LIKE = `${CLAUDE_CODE_MODEL_PREFIX}%`;
 const DAY_MS = 86_400_000;
 
 /* ---- time zones ------------------------------------------------------------ */
@@ -227,7 +247,8 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** The engine an answer belongs to. */
 export function engineOf(provenance: unknown, runKind: string | null, modelId: string | null): UsageEngine {
   const p = isObj(provenance) ? provenance : {};
-  if ('claude_code' in p || runKind === 'claude_code') return 'claude_code';
+  if ('claude_code' in p || runKind === 'claude_code' || modelId?.startsWith(CLAUDE_CODE_MODEL_PREFIX))
+    return 'claude_code';
   if ('lab' in p || runKind === 'agent') return 'lab';
   if (runKind === 'chat_turn' || runKind === 'flow_try' || modelId) return 'gateway';
   return 'other';
@@ -256,7 +277,8 @@ export class PgUsageSource implements UsageSource {
         select
           to_char(m.created_at at time zone ${q.tz}, ${fmt}) as bucket,
           case
-            when m.provenance ? 'claude_code' or r.kind = 'claude_code' then 'claude_code'
+            when m.provenance ? 'claude_code' or r.kind = 'claude_code'
+              or m.model_id like ${CC_LIKE} then 'claude_code'
             when m.provenance ? 'lab' or r.kind = 'agent' then 'lab'
             when r.kind in ('chat_turn', 'flow_try') or m.model_id is not null then 'gateway'
             else 'other'
@@ -296,6 +318,47 @@ export class PgUsageSource implements UsageSource {
       answers: r.answers,
     }));
   }
+
+  async claudeCodeThreads(q: UsageQuery, limit: number): Promise<ThreadUsageRow[]> {
+    const rows = await this.sql<
+      {
+        thread_id: string;
+        title: string | null;
+        input_tokens: string;
+        output_tokens: string;
+        cached_tokens: string;
+        cost_usd: string | number;
+        answers: number;
+      }[]
+    >`
+      select m.thread_id, t.title,
+        sum(coalesce((m.usage->>'input_tokens')::bigint, 0))::text as input_tokens,
+        sum(coalesce((m.usage->>'output_tokens')::bigint, 0))::text as output_tokens,
+        sum(coalesce((m.usage->>'cached_tokens')::bigint, 0))::text as cached_tokens,
+        sum(coalesce((m.usage->>'cost_usd')::numeric, 0))::float8 as cost_usd,
+        count(*)::int as answers
+      from core.messages m
+      join core.threads t on t.id = m.thread_id
+      left join core.runs r on r.id = m.run_id
+      where m.usage is not null
+        and m.created_at >= ${q.from}
+        and m.created_at < ${q.to}
+        and t.workspace_id = ${q.workspaceId}
+        and (m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE})
+      group by m.thread_id, t.title
+      order by sum(coalesce((m.usage->>'input_tokens')::bigint, 0)
+        + coalesce((m.usage->>'output_tokens')::bigint, 0)) desc
+      limit ${limit}`;
+    return rows.map((r) => ({
+      thread_id: r.thread_id,
+      title: r.title,
+      input_tokens: Number(r.input_tokens),
+      output_tokens: Number(r.output_tokens),
+      cached_tokens: Number(r.cached_tokens),
+      cost_usd: Number(r.cost_usd),
+      answers: r.answers,
+    }));
+  }
 }
 
 /** For tests: the same grouping over in-memory messages. */
@@ -305,8 +368,33 @@ export class MemoryUsageSource implements UsageSource {
       messages(): Iterable<MessageRecord>;
       workspaceOf(threadId: string): string | null;
       runKind(runId: string): string | null;
+      titleOf?(threadId: string): string | null;
     },
   ) {}
+
+  async claudeCodeThreads(q: UsageQuery, limit: number): Promise<ThreadUsageRow[]> {
+    const by = new Map<string, ThreadUsageRow>();
+    for (const m of this.deps.messages()) {
+      if (!m.usage) continue;
+      const at = Date.parse(m.created_at);
+      if (at < q.from.getTime() || at >= q.to.getTime()) continue;
+      if (this.deps.workspaceOf(m.thread_id) !== q.workspaceId) continue;
+      if (engineOf(m.provenance, m.run_id ? this.deps.runKind(m.run_id) : null, m.model_id) !== 'claude_code')
+        continue;
+      const r = by.get(m.thread_id) ?? {
+        thread_id: m.thread_id,
+        title: this.deps.titleOf?.(m.thread_id) ?? null,
+        ...zero(),
+      };
+      r.input_tokens += m.usage.input_tokens;
+      r.output_tokens += m.usage.output_tokens;
+      r.cached_tokens += m.usage.cached_tokens ?? 0;
+      r.cost_usd += m.usage.cost_usd;
+      r.answers += 1;
+      by.set(m.thread_id, r);
+    }
+    return [...by.values()].sort((a, b) => tokens(b) - tokens(a)).slice(0, limit);
+  }
 
   async rows(q: UsageQuery): Promise<UsageRow[]> {
     const by = new Map<string, UsageRow>();
@@ -388,5 +476,56 @@ export async function usageHistory(
       cache_hit_rate: r.input_tokens ? Math.min(1, r.cached_tokens / r.input_tokens) : 0,
       input_share: r.input_tokens + r.output_tokens ? r.input_tokens / (r.input_tokens + r.output_tokens) : 0,
     })),
+  };
+}
+
+/* ---- Claude Code's part ---------------------------------------------------------- */
+
+/** Threads listed in the Claude Code block. */
+export const CLAUDE_CODE_TOP_THREADS = 8;
+
+/**
+ * What NVX Ancile measured of Claude Code: today, the last 7 days by day,
+ * how much of what it read came from its prompt cache, and its busiest
+ * threads. Measured from its answers here, never the plan's own figures.
+ */
+export async function claudeCodeUsage(
+  source: UsageSource,
+  workspaceId: string,
+  tz: string,
+  now: number,
+): Promise<ClaudeCodeUsage> {
+  const w = window('week', tz, now);
+  const q: UsageQuery = { workspaceId, tz, bucket: 'day', from: w.from, to: w.to };
+  const [rows, threads] = await Promise.all([
+    source.rows(q),
+    source.claudeCodeThreads ? source.claudeCodeThreads(q, CLAUDE_CODE_TOP_THREADS) : Promise.resolve([]),
+  ]);
+  const todayKey = w.keys.at(-1);
+  const today = zero();
+  const week = zero();
+  const days = new Map(
+    w.keys.map((k) => [k, { start: k, input_tokens: 0, output_tokens: 0, cached_tokens: 0 }]),
+  );
+  for (const r of rows) {
+    if (r.engine !== 'claude_code') continue;
+    add(week, r);
+    if (r.bucket === todayKey) add(today, r);
+    const d = days.get(r.bucket);
+    if (d) {
+      d.input_tokens += r.input_tokens;
+      d.output_tokens += r.output_tokens;
+      d.cached_tokens += r.cached_tokens;
+    }
+  }
+  const read = week.input_tokens + week.cached_tokens;
+  const rounded = (t: UsageTotals) => ({ ...t, cost_usd: money(t.cost_usd) });
+  return {
+    tz,
+    today: rounded(today),
+    week: rounded(week),
+    cache_hit_rate: read > 0 ? Math.round((week.cached_tokens / read) * 1000) / 1000 : null,
+    days: [...days.values()],
+    by_thread: threads.map((t) => ({ ...t, cost_usd: money(t.cost_usd) })),
   };
 }

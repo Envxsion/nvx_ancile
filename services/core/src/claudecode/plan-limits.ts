@@ -13,9 +13,13 @@
  *           |  op, the SDK's experimental usage report, asked at most
  *           |  every few minutes: on an open session's handle after a
  *           |  turn, or from a session that sends nothing when Settings
- *           |  → Usage asks. When that report is missing or changed,
- *           |  the event figures stand. The latest figures are kept in
- *           |  settings, so they survive a restart.
+ *           |  → Usage is opened with no figures (or old ones) or asks.
+ *           |  The report's own rows (rate_limits.limits, what
+ *           |  claude.ai lists) win; else its known windows. Codenamed
+ *           |  windows it also carries are never shown. When the report
+ *           |  is missing or changed, the event figures stand. The
+ *           |  latest figures are kept in settings, so they survive a
+ *           |  restart.
  *  Note     |  Only the plan's kind and the windows are kept: never an
  *           |  account, an email or an organisation.
  * ------------------------------------------------------------------
@@ -36,6 +40,11 @@ export const PLAN_LIMITS_KEY = 'claude_code.plan_limits';
 export const USAGE_MIN_INTERVAL_MS = 3 * 60_000;
 /** Even a forced refresh waits this long after the last ask. */
 export const USAGE_FORCE_INTERVAL_MS = 20_000;
+/** With no figures yet, opening Settings → Usage waits this long for the first report. */
+export const FIRST_ASK_WAIT_MS = 15_000;
+
+/** The report's windows NVX Ancile knows; any other key (a codename) is not shown. */
+const KNOWN_WINDOWS = new Set(['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']);
 
 /** What the bridge's `usage` op answers (services/claude-bridge/src/usage.ts). */
 export interface BridgePlanUsage {
@@ -43,6 +52,14 @@ export interface BridgePlanUsage {
   subscription_type: string | null;
   windows: Record<string, { utilization: number | null; resets_at: string | null }>;
   model_scoped: { label: string; utilization: number | null; resets_at: string | null }[];
+  /** The server's rows (bridges from before this field send none). */
+  rows?: {
+    kind: string;
+    group: string | null;
+    utilization: number | null;
+    resets_at: string | null;
+    label: string | null;
+  }[];
 }
 
 type Stored = Omit<ClaudeCodePlanLimits, 'can_refresh'>;
@@ -101,11 +118,49 @@ export function windowFromEvent(info: unknown, at: string): PlanWindow | null {
   };
 }
 
-/** The usage report's windows. */
+const modelId = (label: string) =>
+  `model:${label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .slice(0, 30)}`;
+
+/** The server's rows as windows: session, the whole week, and a week per model. Other kinds are not shown. */
+function windowsFromRows(rows: NonNullable<BridgePlanUsage['rows']>, at: string): PlanWindow[] {
+  const out: PlanWindow[] = [];
+  for (const r of rows) {
+    if (!isObj(r) || typeof r.kind !== 'string') continue;
+    const label = typeof r.label === 'string' && r.label ? r.label : null;
+    const id =
+      r.kind === 'session'
+        ? 'five_hour'
+        : r.kind === 'weekly_all'
+          ? 'seven_day'
+          : r.kind === 'weekly_scoped' && label
+            ? modelId(label)
+            : null;
+    if (!id || out.some((x) => x.id === id)) continue;
+    out.push({
+      id,
+      kind: windowKind(id),
+      label: id.startsWith('model:') ? label : null,
+      percent: typeof r.utilization === 'number' ? clampPct(r.utilization) : null,
+      resets_at: typeof r.resets_at === 'string' ? r.resets_at : null,
+      status: null,
+      updated_at: at,
+    });
+  }
+  return out;
+}
+
+/** The usage report's windows: its rows when it sends them, else the windows NVX Ancile knows. */
 export function windowsFromUsage(u: BridgePlanUsage, at: string): PlanWindow[] {
+  if (Array.isArray(u.rows) && u.rows.length) {
+    const fromRows = windowsFromRows(u.rows, at);
+    if (fromRows.length) return fromRows;
+  }
   const out: PlanWindow[] = [];
   for (const [id, w] of Object.entries(isObj(u.windows) ? u.windows : {})) {
-    if (!isObj(w) || id === 'seven_day_oauth_apps') continue;
+    if (!isObj(w) || !KNOWN_WINDOWS.has(id)) continue;
     const p = typeof w.utilization === 'number' ? clampPct(w.utilization) : null;
     out.push({
       id,
@@ -119,10 +174,7 @@ export function windowsFromUsage(u: BridgePlanUsage, at: string): PlanWindow[] {
   }
   for (const w of Array.isArray(u.model_scoped) ? u.model_scoped : []) {
     if (!isObj(w) || typeof w.label !== 'string') continue;
-    const id = `model:${w.label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .slice(0, 30)}`;
+    const id = modelId(w.label);
     if (out.some((x) => x.id === id)) continue;
     out.push({
       id,
@@ -176,6 +228,12 @@ export class PlanLimits {
       .catch((err: unknown) => log.warn({ err: (err as Error).message }, 'plan limits not saved'));
     if (next.updated_at) await this.deps.samples?.record(next.windows, next.updated_at);
     await this.deps.bus?.publish({ type: 'claude_code.changed', what: 'limits' }).catch(() => undefined);
+  }
+
+  /** The report replaces the windows; an event's status for the same window is kept. */
+  private replace(cur: Stored, ws: PlanWindow[]): PlanWindow[] {
+    const old = new Map(cur.windows.map((w) => [w.id, w]));
+    return sortWindows(ws.map((w) => ({ ...w, status: w.status ?? old.get(w.id)?.status ?? null })));
   }
 
   private merge(cur: Stored, ws: PlanWindow[]): PlanWindow[] {
@@ -246,6 +304,14 @@ export class PlanLimits {
           ),
         };
       canRefresh = this.ready.ok;
+      // Nothing yet, or old figures: ask on the way (rate-limited), waiting briefly for a first answer.
+      const cur = await this.load();
+      const old = !cur.updated_at || this.now() - Date.parse(cur.updated_at) >= USAGE_MIN_INTERVAL_MS;
+      if (canRefresh && old && this.now() - this.lastAsk >= USAGE_MIN_INTERVAL_MS) {
+        const asking = this.ask(this.deps.openHandle()).catch(() => undefined);
+        if (!cur.windows.length)
+          await Promise.race([asking, new Promise((r) => setTimeout(r, FIRST_ASK_WAIT_MS).unref?.())]);
+      }
     }
     return { ...(await this.load()), can_refresh: canRefresh };
   }
@@ -289,9 +355,10 @@ export class PlanLimits {
       await this.save({
         available: u.rate_limits_available ?? (ws.length ? true : cur.available),
         plan: typeof u.subscription_type === 'string' ? u.subscription_type.slice(0, 24) : cur.plan,
-        windows: this.merge(cur, ws),
+        // An empty report (no rows the server sent) leaves what the events said.
+        windows: ws.length ? this.replace(cur, ws) : cur.windows,
         updated_at: at,
-        source: 'usage',
+        source: ws.length ? 'usage' : cur.source,
       });
     } catch (err) {
       // The report is experimental: the figures from rate_limit_event stand.

@@ -33,9 +33,63 @@ describe('plan usage', () => {
         seven_day_sonnet: { utilization: 100, resets_at: null },
       },
       model_scoped: [{ label: 'Opus', utilization: 7, resets_at: null }],
+      rows: [],
       session_cost_usd: 1.25,
     });
     expect(JSON.stringify(u)).not.toMatch(/example\.com|Org/);
+  });
+
+  it("keeps the server's usage rows, with a scoped row's model label and nothing else", () => {
+    const u = readPlanUsage({
+      rate_limits_available: true,
+      rate_limits: {
+        limits: [
+          {
+            kind: 'session',
+            group: 'session',
+            percent: 14,
+            resets_at: '2026-10-13T04:40:00.335678+00:00',
+            severity: 'normal',
+            is_active: false,
+            scope: null,
+          },
+          {
+            kind: 'weekly_all',
+            group: 'weekly',
+            percent: 41,
+            resets_at: '2026-10-18T10:00:00+00:00',
+            scope: null,
+          },
+          {
+            kind: 'weekly_scoped',
+            group: 'weekly',
+            percent: 0,
+            resets_at: null,
+            scope: { model: { display_name: 'Fable', id: null }, surface: null },
+          },
+          { kind: 'Bad Kind', percent: 5 },
+          'nope',
+        ],
+      },
+    });
+    expect(u.rows).toEqual([
+      {
+        kind: 'session',
+        group: 'session',
+        utilization: 14,
+        resets_at: '2026-10-13T04:40:00.335Z',
+        label: null,
+      },
+      {
+        kind: 'weekly_all',
+        group: 'weekly',
+        utilization: 41,
+        resets_at: '2026-10-18T10:00:00.000Z',
+        label: null,
+      },
+      { kind: 'weekly_scoped', group: 'weekly', utilization: 0, resets_at: null, label: 'Fable' },
+    ]);
+    expect(u.windows).toEqual({});
   });
 
   it('reads an API key sign-in, and survives any shape at all', () => {
@@ -46,6 +100,7 @@ describe('plan usage', () => {
       subscription_type: null,
       windows: {},
       model_scoped: [],
+      rows: [],
       session_cost_usd: null,
     });
     for (const odd of [null, 42, 'x', [], { rate_limits: [1, 2] }, { rate_limits: { five_hour: 'full' } }])

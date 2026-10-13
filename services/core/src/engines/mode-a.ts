@@ -162,6 +162,8 @@ export interface ModeADeps {
   workspaceId: string;
   /** Handles this client drives; the live layer leaves their events alone. */
   handles: Set<string>;
+  /** Plan figures Claude Code reports while it answers (plan-limits.ts observe). */
+  observe?: (m: Record<string, unknown>) => Promise<void>;
 }
 
 type Item = { kind: 'message'; m: Record<string, unknown> } | { kind: 'end'; error?: string };
@@ -239,6 +241,10 @@ export class ClaudeCodeModelClient implements ModelClient {
           throw new ClassifiedError('transient', next.error ?? 'Claude Code stopped');
         }
         const m = next.m;
+        if (m.type === 'rate_limit_event') {
+          void d.observe?.(m).catch(() => undefined);
+          continue;
+        }
         if (m.type === 'stream_event' && isObj(m.event) && m.parent_tool_use_id == null) {
           const ev = m.event;
           if (ev.type === 'content_block_delta' && isObj(ev.delta)) {

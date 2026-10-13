@@ -66,6 +66,15 @@ describe('internal chat completions', () => {
     expect(json.choices[0]?.finish_reason).toBe('stop');
   });
 
+  it('takes a task class as task:<class>, the way Knowledge asks', async () => {
+    h = await harness();
+    const res = await post('/openai/chat/completions', {
+      model: 'task:utility',
+      messages: [{ role: 'user', content: '/say enriched' }],
+    });
+    expect(res.status).toBe(200);
+  });
+
   it('streams OpenAI chunks, tool calls included, and ends with [DONE]', async () => {
     h = await harness();
     const res = await post('/openai/chat/completions', {

@@ -35,7 +35,22 @@ export interface PlanUsageOut {
   windows: Record<string, PlanWindowOut>;
   /** Per-model weekly windows, with the server's label. */
   model_scoped: (PlanWindowOut & { label: string })[];
+  /**
+   * The server's own usage rows (rate_limits.limits), as claude.ai lists
+   * them: kind (session, weekly_all, weekly_scoped, …), group, percent,
+   * reset and the model's label for a scoped row. Empty when not sent.
+   */
+  rows: PlanRowOut[];
   session_cost_usd: number | null;
+}
+
+export interface PlanRowOut {
+  kind: string;
+  group: string | null;
+  utilization: number | null;
+  resets_at: string | null;
+  /** A scoped row's model (or surface) label. */
+  label: string | null;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -62,12 +77,14 @@ export function readPlanUsage(raw: unknown): PlanUsageOut {
     subscription_type: short(r.subscription_type, 24),
     windows: {},
     model_scoped: [],
+    rows: [],
     session_cost_usd: isObj(r.session) ? num(r.session.total_cost_usd) : null,
   };
   const limits = isObj(r.rate_limits) ? r.rate_limits : null;
   if (!limits) return out;
   for (const [id, w] of Object.entries(limits)) {
-    if (id === 'model_scoped' || id === 'extra_usage' || !WINDOW_ID.test(id) || !isObj(w)) continue;
+    if (id === 'model_scoped' || id === 'extra_usage' || id === 'limits' || !WINDOW_ID.test(id) || !isObj(w))
+      continue;
     if (!('utilization' in w) && !('resets_at' in w)) continue;
     out.windows[id] = { utilization: pct(w.utilization), resets_at: iso(w.resets_at) };
   }
@@ -77,6 +94,21 @@ export function readPlanUsage(raw: unknown): PlanUsageOut {
       const label = short(w.display_name);
       if (label)
         out.model_scoped.push({ label, utilization: pct(w.utilization), resets_at: iso(w.resets_at) });
+    }
+  if (Array.isArray(limits.limits))
+    for (const w of limits.limits.slice(0, 12)) {
+      if (!isObj(w) || typeof w.kind !== 'string' || !WINDOW_ID.test(w.kind)) continue;
+      const scope = isObj(w.scope) ? w.scope : null;
+      const label =
+        (scope && isObj(scope.model) ? short(scope.model.display_name) : null) ??
+        (scope && isObj(scope.surface) ? short(scope.surface.display_name) : null);
+      out.rows.push({
+        kind: w.kind,
+        group: typeof w.group === 'string' && WINDOW_ID.test(w.group) ? w.group : null,
+        utilization: pct(w.percent),
+        resets_at: iso(w.resets_at),
+        label,
+      });
     }
   return out;
 }

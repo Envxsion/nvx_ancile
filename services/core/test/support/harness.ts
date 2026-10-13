@@ -451,6 +451,7 @@ export async function harness(opts: HarnessOptions = {}) {
           messages: () => repo.msgs.values(),
           workspaceOf: (id) => repo.threads.get(id)?.workspace_id ?? null,
           runKind: (id) => runs.runs.get(id)?.kind ?? null,
+          titleOf: (id) => repo.threads.get(id)?.title ?? null,
         }),
         ...(opts.now && { now: opts.now }),
       }),

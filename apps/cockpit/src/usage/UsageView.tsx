@@ -5,10 +5,14 @@
  *  ID       |  cockpit
  * ------------------------------------------------------------------
  *  Purpose  |  Where you see what you have used: Claude Code's plan
- *           |  limits first (as its own /usage shows them), then NVX
- *           |  Ancile's totals across every engine, today or over the
- *           |  last 7 or 30 days, by engine and by model.
- *  How      |  usePlanLimits and useUsageReport. The bars are plain
+ *           |  limits first (as its own /usage shows them), then what
+ *           |  NVX Ancile measured of Claude Code here (tokens in, out
+ *           |  and from cache today and over 7 days, the cache hit
+ *           |  rate, the busiest threads), then NVX Ancile's totals
+ *           |  across every engine, today or over the last 7 or 30
+ *           |  days, by engine and by model. No block is ever blank: an
+ *           |  empty one says what will appear.
+ *  How      |  usePlanLimits, useClaudeCodeUsage and useUsageReport. The bars are plain
  *           |  SVG, stacked by engine in the engines' own hues. GPU
  *           |  compute comes from the Controller's month (Admin →
  *           |  Compute). Pro's Insights, when unlocked, goes deeper.
@@ -24,7 +28,7 @@ import { useComputeStatus, useCosts } from '../compute/data';
 import { useProFeature } from '../pro/slot';
 import { matches, SearchContext } from '../routes/settings/rows';
 import { Segmented } from '../ui/controls';
-import { costWords, ENGINE_WORDS, modelWords, tokensWords, useUsageReport } from './api';
+import { costWords, ENGINE_WORDS, modelWords, tokensWords, useClaudeCodeUsage, useUsageReport } from './api';
 import { PlanLimits } from './PlanLimits';
 
 const RANGES: { value: UsageRange; label: string }[] = [
@@ -195,6 +199,73 @@ export function AncileUsage({ report }: { report: UsageReport }) {
   );
 }
 
+const inOut = (t: { input_tokens: number; output_tokens: number; cached_tokens: number }) =>
+  `${tokensWords(t.input_tokens)} in · ${tokensWords(t.output_tokens)} out · ${tokensWords(t.cached_tokens)} from cache`;
+
+/** What NVX Ancile measured of Claude Code on this computer: its own count, not the plan's. */
+export function ClaudeCodeMeasured() {
+  const q = useClaudeCodeUsage();
+  if (q.isPending) return <p className="u-quiet">Adding up Claude Code's usage…</p>;
+  if (!q.data)
+    return <p className="u-quiet">Claude Code's usage could not be read. Try again in a moment.</p>;
+  const u = q.data;
+  if (u.week.answers === 0)
+    return (
+      <div className="u-plan-empty">
+        <p>No Claude Code answers in NVX Ancile in the last 7 days.</p>
+        <p className="u-quiet">
+          Once Claude Code answers in a thread, this shows its tokens in, out and from cache today and over
+          the week, how much its prompt cache saved, and its busiest threads.
+        </p>
+      </div>
+    );
+  return (
+    <div className="u-ancile">
+      <dl className="u-totals">
+        <div>
+          <dt>Today</dt>
+          <dd data-num>
+            {tokensWords(u.today.input_tokens + u.today.output_tokens + u.today.cached_tokens)}
+          </dd>
+          <dd className="u-quiet" data-num>
+            {inOut(u.today)}
+          </dd>
+        </div>
+        <div>
+          <dt>Last 7 days</dt>
+          <dd data-num>{tokensWords(u.week.input_tokens + u.week.output_tokens + u.week.cached_tokens)}</dd>
+          <dd className="u-quiet" data-num>
+            {inOut(u.week)}
+          </dd>
+        </div>
+        <div>
+          <dt>From cache</dt>
+          <dd data-num>{u.cache_hit_rate === null ? 'n/a' : `${Math.round(u.cache_hit_rate * 100)}%`}</dd>
+          <dd className="u-quiet">of what it read this week</dd>
+        </div>
+      </dl>
+      {u.by_thread.length ? (
+        <section aria-label="Busiest Claude Code threads">
+          <h3 className="u-h3">Busiest threads this week</h3>
+          <ul className="u-cc-threads">
+            {u.by_thread.map((t) => (
+              <li key={t.thread_id}>
+                <Link to="/t/$threadId" params={{ threadId: t.thread_id }}>
+                  {t.title || 'Untitled thread'}
+                </Link>
+                <span data-num>{tokensWords(t.input_tokens + t.output_tokens + t.cached_tokens)}</span>
+                <span className="u-quiet" data-num>
+                  {t.answers.toLocaleString('en-GB')} {t.answers === 1 ? 'answer' : 'answers'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function ComputeMonth() {
   const status = useComputeStatus();
   const on = !!status.data?.configured && !!status.data.reachable;
@@ -223,7 +294,7 @@ export function UsageGroup() {
   const report = useUsageReport(range, { provider });
   const providers = all.data?.by_provider.map((p) => p.provider) ?? [];
   const insights = useProFeature('insights');
-  if (!matches(q, 'Usage', 'plan limits session week tokens cost context Claude Code')) return null;
+  if (!matches(q, 'Usage', 'plan limits session week tokens cost context cache threads pace Claude Code')) return null;
   return (
     <div className="u-view">
       <section className="setting-block" aria-labelledby="u-plan-title">
@@ -235,6 +306,19 @@ export function UsageGroup() {
         </header>
         <div className="u-card m-raised">
           <PlanLimits />
+        </div>
+      </section>
+
+      <section className="setting-block" aria-labelledby="u-cc-title">
+        <header className="setting-block__head">
+          <h2 id="u-cc-title">Claude Code in NVX Ancile</h2>
+          <p className="mute">
+            What NVX Ancile measured from Claude Code's answers on this computer. Use elsewhere (the terminal,
+            claude.ai) is not counted here.
+          </p>
+        </header>
+        <div className="u-card m-raised">
+          <ClaudeCodeMeasured />
         </div>
       </section>
 
