@@ -138,7 +138,7 @@ export function mapTool(name: string, input: unknown, ctx: MapContext): MappedTo
   if (name === 'WebSearch')
     return {
       action: 'web.search',
-      resource: `web:${str(args.query) ?? ''}`,
+      resource: `web:search/${str(args.query) ?? ''}`,
       tier: 'gated',
       destructive: false,
     };

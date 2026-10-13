@@ -13,6 +13,7 @@ export * from './events';
 export * from './factcheck';
 export * from './files';
 export * from './flows';
+export * from './grant-patterns';
 export * from './ids';
 export * from './interpreter';
 export * from './knowledge';

@@ -137,7 +137,7 @@ Every tool call Claude Code makes is asked about before it runs, on its real arg
 | Edit, Write, MultiEdit, NotebookEdit | `fs.write` | `fs:<path>` | asks; critical outside the session's folder |
 | Bash, PowerShell | `shell.exec` | `shell:<command>` | asks; critical for dangerous commands (`sudo`, `rm`, `curl … \| sh`, per the preset) |
 | WebFetch | `web.fetch` | `http:<url>` | asks |
-| WebSearch | `web.search` | `web:<query>` | asks |
+| WebSearch | `web.search` | `web:search/<query>` | asks (a site rule such as `web:*` covers it, [patterns](permissions.md#patterns)) |
 | `mcp__ancile__search`, `read_source` | `knowledge.search` | `notebook:<id>` | runs |
 | `mcp__ancile__memory_search` | `memory.read` | `memory:all` | runs |
 | `mcp__ancile__<hosted tool>` | the hosted tool's own action | its own resource | its own tier |

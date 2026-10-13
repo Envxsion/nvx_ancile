@@ -790,6 +790,57 @@ describe('permissions', () => {
     await run;
   });
 
+  it('a thread rule web:* settles the searches and fetches waiting, and covers later ones', async () => {
+    const { run } = await start((b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S });
+      b.ask(h, 'r1', 'WebFetch', { url: 'https://ai.g2.com/reviews', prompt: 'x' }, 'tu1');
+      b.ask(h, 'r2', 'WebSearch', { query: 'tutoring centre' }, 'tu2');
+      b.ask(h, 'r3', 'WebFetch', { url: 'https://aiera.blog/', prompt: 'x' }, 'tu3');
+    });
+    await until(async () => (await perms.pendingApprovals()).length === 3);
+    const search = (await perms.pendingApprovals()).find((x) => x.tool === 'WebSearch') as ApprovalRecord;
+    expect(search).toMatchObject({ action: 'web.search', resource: 'web:search/tutoring centre' });
+    expect(search.suggestions).toEqual(['web:search/tutoring centre', 'web:search', 'web:*']);
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    app.route(
+      '/',
+      permissionRoutes({
+        store: perms,
+        events,
+        worker: { resume: async () => true },
+        userId: USER,
+        scopeRefs: async (ap) => ({ threadId: ap.thread_id, notebookId: 'nbk_1', workspaceId: WS }),
+        onResolved: (ap, status, reason, updated) => live.resolved(ap, status, reason, updated),
+        editable: (ap) => live.editable(ap),
+        recheck: (ap, args) => live.recheck(ap, args),
+        decideAgain: async (ap) => (live.editable(ap) ? live.recheck(ap, ap.args) : null),
+      }),
+    );
+    const res = await app.request(`/approvals/${search.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approve', scope: 'thread', pattern: 'web:*' }),
+    });
+    expect(res.status).toBe(200);
+    // All three answered: the one you decided, and the two the rule now covers.
+    await until(() => bridge.replies.length >= 3);
+    expect(await perms.pendingApprovals()).toEqual([]);
+    for (const id of ['r1', 'r2', 'r3'])
+      expect(bridge.replies.find((r) => r.request_id === id)?.r.behavior).toBe('allow');
+    // Later searches and fetches in this thread run without asking.
+    bridge.ask('h1', 'r4', 'WebSearch', { query: 'maths tutors near me' }, 'tu4');
+    bridge.ask('h1', 'r5', 'WebFetch', { url: 'https://example.org/a/b?c=1', prompt: 'x' }, 'tu5');
+    await until(() => bridge.replies.length >= 5);
+    expect(bridge.replies.slice(3).map((r) => [r.request_id, r.r.behavior])).toEqual([
+      ['r4', 'allow'],
+      ['r5', 'allow'],
+    ]);
+    expect(await perms.pendingApprovals()).toEqual([]);
+    end(bridge, 'h1', '', undefined);
+    await run;
+  });
+
   it('refuses edited arguments for a tool that cannot take them, and edits a policy denies', async () => {
     const other = await perms.createApproval({
       runId: 'run_x',
