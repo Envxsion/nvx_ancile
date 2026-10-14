@@ -3,12 +3,14 @@
 # Purpose  | Prepares a Linux cloud session (Claude Code on the web) to build and
 #          | test NVX Ancile: the pro submodule, Node and Python dependencies,
 #          | and a Postgres with pgvector for the store tests.
-# How      | Set the environment's setup script to: bash scripts/cloud/setup.sh
-#          | and its variables to the two TEST URLs printed at the end.
+# How      | Run first in every session: bash scripts/cloud/setup.sh. The
+#          | environment's own setup box only installs tools and Postgres.
 # Note     | The desktop installer, WebView2 and live engines are tested locally,
 #          | never here. Safe to run twice.
-set -euo pipefail
+set -uo pipefail
 cd "$(dirname "$0")/../.."
+S=$(command -v sudo || true)
+asPG() { if [ "$(id -u)" = 0 ] && [ -z "$S" ]; then su postgres -c "$*"; else $S -u postgres sh -c "$*"; fi; }
 
 echo "== pro submodule"
 git submodule update --init --recursive pro || echo "!! pro did not clone: install the Claude GitHub app on nvx_ancile_pro"
@@ -41,14 +43,16 @@ uv sync --project services/knowledge --frozen
 echo "== Postgres with pgvector"
 PGV=$(ls /usr/lib/postgresql 2>/dev/null | sort -n | tail -1 || true)
 if [ -n "$PGV" ] && [ ! -f "/usr/share/postgresql/$PGV/extension/vector.control" ]; then
-  (sudo apt-get update -qq && sudo apt-get install -y -qq "postgresql-$PGV-pgvector") || {
+  ($S apt-get update -qq && $S apt-get install -y -qq "postgresql-$PGV-pgvector") || {
     tmp=$(mktemp -d) && git clone --depth 1 --branch v0.8.1 https://github.com/pgvector/pgvector "$tmp" \
-      && make -C "$tmp" && sudo make -C "$tmp" install
+      && make -C "$tmp" && $S make -C "$tmp" install
   }
 fi
-sudo service postgresql start || sudo pg_ctlcluster "$PGV" main start
-sudo -u postgres psql -qc "do \$\$ begin create role ancile login superuser password 'ancile'; exception when duplicate_object then null; end \$\$;"
-sudo -u postgres psql -qtc "select 1 from pg_database where datname='ancile'" | grep -q 1 || sudo -u postgres createdb -O ancile ancile
+$S service postgresql start 2>/dev/null || $S pg_ctlcluster "$PGV" main start 2>/dev/null || true
+asPG "psql -q" <<'SQL'
+do $$ begin create role ancile login superuser password 'ancile'; exception when duplicate_object then null; end $$;
+SQL
+asPG "createdb -O ancile ancile" 2>/dev/null || true
 psql postgres://ancile:ancile@127.0.0.1:5432/ancile -q -f infra/db/init.sql
 
 echo

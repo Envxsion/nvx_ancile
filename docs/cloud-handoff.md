@@ -4,7 +4,7 @@ This file briefs a Claude Code cloud session working on NVX Ancile. Each session
 
 ## Before you start
 - Read `CLAUDE.md`. `DESIGN.md` and `ROADMAP.md` live only on the owner's machine and are **not** in this repo. Use `docs/` as the reference instead. If you change behaviour that DESIGN.md would describe, write a short note in `docs/design-notes/<your-branch>.md`. The owner folds these notes into DESIGN.md.
-- Setup: `bash scripts/cloud/setup.sh`. Tests need `CORE_TEST_DATABASE_URL` and `PRO_TEST_DATABASE_URL` (the script prints them).
+- **First thing in every session:** run `bash scripts/cloud/setup.sh` and check it ends with "Ready". It fetches `pro`, installs the commit hook, installs dependencies and prepares Postgres. If a step fails, fix the cause and rerun; don't skip it. Tests need `CORE_TEST_DATABASE_URL` and `PRO_TEST_DATABASE_URL` (the script prints them).
 - Commands:
   - `pnpm typecheck`
   - `pnpm lint`
