@@ -55,76 +55,82 @@
    alarm      fail colour and a shake
    --------------------------------------------------------------------------- */
 
-svg.ancile-mark {
+/* Each part is its own <svg> box, stacked: turning, breathing and beating
+   run on the compositor, so the mark never freezes while the app is busy.
+   Distances are in % of the part (the 34-unit grid): 2.2 units = 6.47%. */
+.ancile-mark {
   --mark-tone: var(--signal);
+  position: relative;
   display: block;
-  overflow: visible;
+  flex: none;
   color: var(--mark-tone);
   transition: color 600ms var(--ease);
 }
 
-[data-theme='light'] svg.ancile-mark {
+[data-theme='light'] .ancile-mark {
   --mark-tone: var(--signal-ink);
 }
 
-svg.ancile-mark path {
-  stroke: currentColor;
-}
-
-svg.ancile-mark .core {
-  fill: currentColor;
-}
-
-svg.ancile-mark .half,
-svg.ancile-mark .inner,
-svg.ancile-mark .core {
-  transform-box: view-box;
-  transform-origin: 17px 17px;
+.ancile-mark__part {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform-origin: 50% 50%;
   transition: translate 500ms var(--ease);
 }
 
-svg.ancile-mark .inner {
+.ancile-mark path {
+  stroke: currentColor;
+}
+
+.ancile-mark .core circle {
+  fill: currentColor;
+}
+
+.ancile-mark .inner {
   animation: ancile-spin 16s linear infinite;
 }
 
-svg.ancile-mark[data-state='thinking'] .inner {
+.ancile-mark[data-state='thinking'] .inner {
   animation-duration: 2.2s;
 }
-svg.ancile-mark[data-state='thinking'] .half-l {
+.ancile-mark[data-state='thinking'] .half-l {
   animation: ancile-breathe-l 2.4s var(--ease) infinite;
 }
-svg.ancile-mark[data-state='thinking'] .half-r {
+.ancile-mark[data-state='thinking'] .half-r {
   animation: ancile-breathe-r 2.4s var(--ease) infinite;
 }
 
-svg.ancile-mark[data-state='streaming'] .core {
+.ancile-mark[data-state='streaming'] .core {
   animation: ancile-beat 1.1s var(--ease) infinite;
 }
-svg.ancile-mark[data-state='streaming'] .inner {
+.ancile-mark[data-state='streaming'] .inner {
   animation-duration: 5s;
 }
 
-svg.ancile-mark[data-state='ask'] .half-l {
-  translate: 2.2px 0;
+.ancile-mark[data-state='ask'] .half-l {
+  translate: 6.47% 0;
 }
-svg.ancile-mark[data-state='ask'] .half-r {
-  translate: -2.2px 0;
+.ancile-mark[data-state='ask'] .half-r {
+  translate: -6.47% 0;
 }
-svg.ancile-mark[data-state='ask'] .core {
+.ancile-mark[data-state='ask'] .core {
   animation: pulse 1.6s var(--ease) infinite;
 }
 
-svg.ancile-mark[data-state='offline'] {
+.ancile-mark[data-state='offline'] {
   --mark-tone: var(--mute-3) !important;
 }
-svg.ancile-mark[data-state='offline'] .inner {
+.ancile-mark[data-state='offline'] .inner {
   animation-play-state: paused;
 }
 
-svg.ancile-mark[data-state='alarm'] {
+.ancile-mark[data-state='alarm'] {
   --mark-tone: var(--fail) !important;
 }
-svg.ancile-mark[data-state='alarm'] .half {
+.ancile-mark[data-state='alarm'] .half {
   animation: ancile-shake 0.5s var(--ease-shake) 2;
 }
 
@@ -148,7 +154,7 @@ svg.ancile-mark[data-state='alarm'] .half {
     translate: 0 0;
   }
   50% {
-    translate: -0.8px 0;
+    translate: -2.35% 0;
   }
 }
 @keyframes ancile-breathe-r {
@@ -157,16 +163,16 @@ svg.ancile-mark[data-state='alarm'] .half {
     translate: 0 0;
   }
   50% {
-    translate: 0.8px 0;
+    translate: 2.35% 0;
   }
 }
 @keyframes ancile-shake {
   20%,
   60% {
-    translate: -1px 0;
+    translate: -2.94% 0;
   }
   40%,
   80% {
-    translate: 1px 0;
+    translate: 2.94% 0;
   }
 }

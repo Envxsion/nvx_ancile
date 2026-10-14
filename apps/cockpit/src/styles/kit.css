@@ -54,9 +54,9 @@ html[data-resizing] .shell {
 .titlebar__brand:hover {
   background: var(--chalk);
 }
-[data-mark-anim='status'] svg.ancile-mark .inner,
-[data-mark-anim='status'] svg.ancile-mark .half,
-[data-mark-anim='status'] svg.ancile-mark .core {
+[data-mark-anim='status'] .ancile-mark .inner,
+[data-mark-anim='status'] .ancile-mark .half,
+[data-mark-anim='status'] .ancile-mark .core {
   animation: none !important;
 }
 .titlebar__state {
