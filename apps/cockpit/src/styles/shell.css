@@ -149,6 +149,15 @@
   background: var(--chalk);
   color: var(--fg);
 }
+.rail__places {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  padding: 0 0 8px;
+}
+.rail__place {
+  color: var(--fg-2);
+}
 .rail__scroll {
   flex: 1;
   min-height: 0;

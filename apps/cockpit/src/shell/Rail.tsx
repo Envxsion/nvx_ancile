@@ -325,6 +325,59 @@ function Section({
   );
 }
 
+/**
+ * The places that are not a notebook or a thread: one row each, lit while
+ * you are on them, with the shortcut in the tooltip.
+ */
+export const RAIL_PLACES = [
+  { id: 'flows', label: 'Flows', icon: 'branch', binding: 'go.flows' },
+  { id: 'automations', label: 'Automations', icon: 'clock', binding: 'go.automations' },
+] as const;
+
+export function railPlaceActive(id: (typeof RAIL_PLACES)[number]['id'], pathname: string): boolean {
+  if (id === 'flows')
+    return pathname === '/flows' || pathname.startsWith('/flows/') || pathname.endsWith('/flow');
+  return pathname === '/admin/automations';
+}
+
+export function RailPlaces({ pathname }: { pathname: string }) {
+  return (
+    <ul className="rail__places" aria-label="Places">
+      {RAIL_PLACES.map((p) => {
+        const active = railPlaceActive(p.id, pathname);
+        return (
+          <li key={p.id}>
+            <Tip label={p.label} binding={p.binding} side="right">
+              {p.id === 'flows' ? (
+                <Link
+                  to="/flows"
+                  className="rail__item rail__place"
+                  data-active={active || undefined}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon name={p.icon} size={14} />
+                  <span className="rail__label">{p.label}</span>
+                </Link>
+              ) : (
+                <Link
+                  to="/admin/$section"
+                  params={{ section: 'automations' }}
+                  className="rail__item rail__place"
+                  data-active={active || undefined}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon name={p.icon} size={14} />
+                  <span className="rail__label">{p.label}</span>
+                </Link>
+              )}
+            </Tip>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function Rail() {
   const open = useUi((s) => s.railOpen);
   const toggle = useUi((s) => s.toggleRail);
@@ -533,6 +586,8 @@ export function Rail() {
           </button>
         </Tip>
       </div>
+
+      <RailPlaces pathname={pathname} />
 
       <label className="rail__filter">
         <Icon name="filter" size={13} />

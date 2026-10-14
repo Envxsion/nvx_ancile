@@ -21,6 +21,8 @@ Ancile is built to be driven from the keyboard. Every action has a shortcut, the
 | `g i` | Notification centre |
 | `g a` | Admin |
 | `g l` | Logs |
+| `g w` | Flows |
+| `g u` | Automations |
 | `Mod Shift L` | Cycle theme: system, dark, light |
 
 ### Lists
@@ -113,9 +115,10 @@ Single-key shortcuts never fire while you're typing. Leave the composer with `Es
 ```
 ┌ titlebar ─ mark · NVX Ancile · notebook / thread ·························· Mod K ┐
 ├ rail ──────┬──────────── thread (72 characters wide, centred) ───────┬ drawer ─────┤
-│ notebooks  │ TL;DR                                                    │ Sources     │
-│ threads    │ messages, hover actions                                  │ Tree · Why  │
-│            │ composer                                                 │ Evidence    │
+│ flows      │ TL;DR                                                    │ Sources     │
+│ automations│ messages, hover actions                                  │ Tree · Why  │
+│ notebooks  │ composer                                                 │ Evidence    │
+│ threads    │                                                          │             │
 ├────────────┴──────────────────────────────────────────────────────────┴─────────────┤
 └ status ─ model · context 62% · node ready $0.42/h · approvals 1 · health ● · NAV ───┘
 ```

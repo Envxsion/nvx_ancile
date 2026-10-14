@@ -172,6 +172,8 @@ export function AppShell() {
   useBinding('thread.new', () => navigate({ to: '/' }));
   useBinding('go.admin', () => navigate({ to: '/admin/$section', params: { section: 'health' } }));
   useBinding('go.logs', () => navigate({ to: '/admin/$section', params: { section: 'logs' } }));
+  useBinding('go.flows', () => navigate({ to: '/flows' }));
+  useBinding('go.automations', () => navigate({ to: '/admin/$section', params: { section: 'automations' } }));
   const signInNeeded = useSignInGate((s) => s.needed);
 
   if (signInNeeded) {

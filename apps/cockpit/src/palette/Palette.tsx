@@ -414,8 +414,17 @@ export function Palette() {
       id: 'flows',
       label: 'Open flows',
       icon: 'branch',
+      binding: 'go.flows',
       words: 'routing router graph canvas pipeline team models',
       run: go('/flows'),
+    },
+    {
+      id: 'automations',
+      label: 'Open automations',
+      icon: 'clock',
+      binding: 'go.automations',
+      words: 'schedule cron jobs backup cleanup reminders',
+      run: go('/admin/$section', { section: 'automations' }),
     },
     {
       id: 'memory',

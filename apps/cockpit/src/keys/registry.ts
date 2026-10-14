@@ -104,6 +104,8 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'go.tree', keys: 'g b', label: 'Branch tree, full screen', group: 'Go to', scope: 'global' },
   { id: 'go.admin', keys: 'g a', label: 'Admin', group: 'Go to', scope: 'global' },
   { id: 'go.logs', keys: 'g l', label: 'Logs', group: 'Go to', scope: 'global' },
+  { id: 'go.flows', keys: 'g w', label: 'Flows', group: 'Go to', scope: 'global' },
+  { id: 'go.automations', keys: 'g u', label: 'Automations', group: 'Go to', scope: 'global' },
 
   { id: 'list.down', keys: 'j', label: 'Next item', group: 'Lists', scope: 'list' },
   { id: 'list.up', keys: 'k', label: 'Previous item', group: 'Lists', scope: 'list' },
