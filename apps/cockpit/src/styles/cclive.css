@@ -94,7 +94,7 @@
   background: var(--chalk);
   color: var(--fg);
 }
-@media (max-width: 560px) {
+@container thread (max-width: 560px) {
   .cc-live__meta {
     display: none;
   }
@@ -151,9 +151,9 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: 200px;
-  height: 26px;
-  padding: 0 8px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--r-pill);
   background: transparent;
@@ -188,11 +188,6 @@
 .cc-pick__desc {
   color: var(--mute);
   font-size: var(--t-micro);
-}
-@media (max-width: 560px) {
-  .cc-pick {
-    max-width: 120px;
-  }
 }
 
 /* The one notice that needs you, above the composer. */
@@ -259,7 +254,7 @@
 .cc-queued__when {
   flex: none;
 }
-@media (max-width: 560px) {
+@container thread (max-width: 560px) {
   .cc-notice {
     flex-wrap: wrap;
   }
@@ -303,7 +298,7 @@
 .composer__tag[data-tone='mute'] {
   color: var(--mute);
 }
-@media (max-width: 560px) {
+@container thread (max-width: 560px) {
   .composer__arghint,
   .composer__tag {
     display: none;

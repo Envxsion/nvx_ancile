@@ -341,6 +341,8 @@ export function ThreadView({ threadId }: { threadId: string }) {
             commands: ccCommands.data ?? [],
             act: ccAct,
             bar: <CcPickers threadId={threadId} live={ccLive.data} commands={ccCommands.data} />,
+            // Model, effort and settings; only the model while another model answers.
+            chips: ccState.other ? 1 : 3,
             working: ccWorking,
             onStop: () => void interruptClaudeCode(threadId),
             // Claude Code not here (or signed out): read-only for it; another model can still answer.

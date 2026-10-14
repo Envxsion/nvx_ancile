@@ -427,19 +427,39 @@ const isBackgroundShell = (call: ToolCall) =>
 const HEAD_CHARS = 4000;
 const LINE_CHARS = 90;
 const ESC = String.fromCharCode(27);
-const ANSI = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
+const BEL = String.fromCharCode(7);
+const ANSI = new RegExp(
+  // CSI (colours, cursor moves) and OSC (titles, links) sequences.
+  `${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)?`,
+  'g',
+);
+/** Box drawing and block elements (U+2500 to U+259F) and braille spinners (U+2800 to U+28FF):
+ *  frames a terminal draws, not words. */
+const FRAME = /[─-▟⠀-⣿]+/g;
+/** A rule drawn with text: three or more of the same ASCII dash, equals, underscore, star,
+ *  tilde or hash, or two or more typographic dashes (words never run two em dashes together). */
+const RULE = /([-=_*~#])\1{2,}|[‐-―−]{2,}/g;
 
-/** Terminal colour codes and other control characters out, runs of space as one. */
-function plainText(line: string): string {
+/**
+ * One line of command output as plain words: colour codes, control
+ * characters, box drawing and text rules out, runs of space as one, and
+ * what is left of a frame (a table's bars) off the ends.
+ */
+export function plainLine(line: string): string {
   let out = '';
   for (const ch of line.replace(ANSI, '')) out += ch < ' ' || ch === '\u007f' ? ' ' : ch;
-  return out.replace(/\s+/g, ' ').trim();
+  return out
+    .replace(FRAME, ' ')
+    .replace(RULE, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s|]+|[\s|]+$/g, '')
+    .trim();
 }
 
 /** The first line with words in it, plain and short. `prose` drops markdown's marks. */
 export function oneLine(text: string, prose = false): string | null {
   for (const raw of text.slice(0, HEAD_CHARS).split('\n')) {
-    let line = plainText(raw);
+    let line = plainLine(raw);
     if (prose)
       line = line
         .replace(/^(#{1,6}|>|[-*+]|\d+[.)])\s+/, '')

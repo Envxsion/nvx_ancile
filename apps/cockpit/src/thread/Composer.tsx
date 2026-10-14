@@ -61,7 +61,8 @@ import { notify } from '../state/notify';
 import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
-import { HueChip, Kbd, Tip } from '../ui/primitives';
+import { BarLabel, HueChip, Kbd, Tip } from '../ui/primitives';
+import { shortModelName, useComposerBar } from './composerBar';
 import { FlowChip } from './FlowChip';
 import { useFlowList, useResolvedFlow } from './flowActions';
 import { ModelChoiceDialog, useModelChoice } from './ModelChoice';
@@ -109,6 +110,8 @@ export interface ClaudeCodeComposer {
   act: (command: ClaudeCodeCommand, arg: string | null) => void;
   /** The model and effort pickers, in place of the model and flow chips. */
   bar: ReactNode;
+  /** How many chips `bar` holds, so the bar can fit them (composerBar.ts). */
+  chips?: number;
   /** A turn is running: Send queues, and an empty composer offers Stop. */
   working: boolean;
   onStop: () => void;
@@ -200,6 +203,7 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const [images, setImages] = useState<PendingImage[]>([]);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const isDemo = useUi((s) => s.demo);
   const openPalette = useUi((s) => s.openPalette);
   const openDrawer = useUi((s) => s.openDrawer);
@@ -729,12 +733,20 @@ export function Composer({
 
   const canSend = !!text.trim() && !sending && !busy && !claudeCode?.readOnly;
   const modelPick = picked.find((p) => p.kind === 'model');
+  // Chips fit the width: whole labels, short ones, then icons with a tooltip.
+  const chips = claudeCode ? (claudeCode.chips ?? 3) : 1 + (synced ? 1 : 0) + (scope ? 1 : 0);
+  const bar = useComposerBar(root, chips);
+  const sendKeys = sendOnEnter ? 'enter' : isMac ? 'meta+enter' : 'ctrl+enter';
+  const modelName = modelPick?.label ?? model?.name ?? null;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a drop target for files; the textarea and buttons inside are the controls
     <div
+      ref={root}
       className="composer m-glass-thick"
       data-tour="composer"
+      data-bar={bar.fit}
+      data-working={claudeCode?.working || busy || undefined}
       data-dragging={dragging || undefined}
       data-focused={focused || undefined}
       onDragOver={(e) => {
@@ -1054,12 +1066,15 @@ export function Composer({
                 }
                 onClick={() => openPalette('models')}
               >
-                {modelPick ? (
-                  <HueChip hue={modelPick.hue ?? model?.hue ?? 'chalk'}>{modelPick.label}</HueChip>
-                ) : model ? (
-                  <HueChip hue={model.hue}>{model.name}</HueChip>
+                {modelName ? (
+                  <HueChip hue={modelPick?.hue ?? model?.hue ?? 'chalk'}>
+                    <BarLabel full={modelName} short={shortModelName(modelName)} />
+                  </HueChip>
                 ) : (
-                  'Choose a model'
+                  <>
+                    <Icon name="model" size={12} />
+                    <BarLabel full="Choose a model" short="Model" />
+                  </>
                 )}
               </button>
             </Tip>
@@ -1067,16 +1082,20 @@ export function Composer({
             {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
           </>
         )}
-        <span className="composer__hint mute" aria-live="polite">
+        <span className="composer__hint mute" aria-live="polite" data-room={bar.hint || undefined}>
           {uploading ? (
-            'Adding files. You can send now; they join the answer once read.'
-          ) : sendOnEnter ? (
+            bar.hint ? (
+              'Adding files. You can send now; they join the answer once read.'
+            ) : (
+              'Adding files'
+            )
+          ) : !bar.hint ? null : sendOnEnter ? (
             <>
-              <Kbd keys="enter" /> to send, <Kbd keys="shift+enter" /> for a new line
+              <Kbd keys="enter" /> to send, <Kbd keys="shift+enter" /> new line
             </>
           ) : (
             <>
-              <Kbd keys={isMac ? 'meta+enter' : 'ctrl+enter'} /> to send
+              <Kbd keys={sendKeys} /> to send
             </>
           )}
         </span>
@@ -1093,22 +1112,38 @@ export function Composer({
             </button>
           </Tip>
         ) : (
-          <button
-            type="button"
-            className="send"
-            data-ready={canSend || undefined}
-            onClick={() => void send()}
-            disabled={!canSend}
-            aria-label={
+          <Tip
+            label={
               busy
                 ? 'Wait for the answer to finish'
                 : claudeCode?.working
                   ? 'Queue for after this turn'
-                  : 'Send'
+                  : sendOnEnter && !bar.hint
+                    ? 'Send. Shift+Enter for a new line'
+                    : 'Send'
             }
+            keys={sendKeys}
           >
-            <Icon name="send" size={16} />
-          </button>
+            {/* A disabled button gets no pointer events: the span carries the tooltip. */}
+            <span className="send-wrap">
+              <button
+                type="button"
+                className="send"
+                data-ready={canSend || undefined}
+                onClick={() => void send()}
+                disabled={!canSend}
+                aria-label={
+                  busy
+                    ? 'Wait for the answer to finish'
+                    : claudeCode?.working
+                      ? 'Queue for after this turn'
+                      : 'Send'
+                }
+              >
+                <Icon name="send" size={16} />
+              </button>
+            </span>
+          </Tip>
         )}
       </div>
 

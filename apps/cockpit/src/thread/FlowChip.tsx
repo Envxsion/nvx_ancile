@@ -27,7 +27,8 @@ import { useModels } from '../lib/data';
 import { modelById } from '../lib/format';
 import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
-import { Tip } from '../ui/primitives';
+import { BarLabel, Tip } from '../ui/primitives';
+import { shortModelName } from './composerBar';
 import { flowModels, setThreadFlow, useFlowList, useResolvedFlow } from './flowActions';
 
 const FROM_WORDS: Record<string, string> = {
@@ -190,28 +191,36 @@ export function FlowChip({ threadId, notebookId }: { threadId: string; notebookI
       side="top"
       items={items}
       trigger={
-        <button
-          type="button"
-          className="flow-chip"
-          data-from={paused ? 'paused' : resolved.from}
-          aria-label={
-            flow
-              ? `Flow: ${flow.name}, ${FROM_WORDS[resolved.from]}. Change`
-              : paused
-                ? `${paused.name} is paused in this thread. Change`
-                : 'No flow. Choose one'
-          }
-        >
-          <Icon name="tree" size={12} />
-          <span className="flow-chip__name">{flow ? flow.name : paused ? 'Flow paused' : 'No flow'}</span>
-          {sleeping.length ? (
-            <Tip label={`${sleeping.map((n) => n.name).join(', ')} is asleep; the first answer waits for it`}>
-              <span className="flow-chip__wake">
-                <Icon name="clock" size={11} />
-              </span>
-            </Tip>
-          ) : null}
-        </button>
+        <Tip label={flow ? `Flow: ${flow.name}` : paused ? `${paused.name} is paused` : 'No flow'}>
+          <button
+            type="button"
+            className="flow-chip"
+            data-from={paused ? 'paused' : resolved.from}
+            aria-label={
+              flow
+                ? `Flow: ${flow.name}, ${FROM_WORDS[resolved.from]}. Change`
+                : paused
+                  ? `${paused.name} is paused in this thread. Change`
+                  : 'No flow. Choose one'
+            }
+          >
+            <Icon name="tree" size={12} />
+            <BarLabel
+              className="flow-chip__name"
+              full={flow ? flow.name : paused ? 'Flow paused' : 'No flow'}
+              short={flow ? shortModelName(flow.name) : paused ? 'Paused' : 'Flow'}
+            />
+            {sleeping.length ? (
+              <Tip
+                label={`${sleeping.map((n) => n.name).join(', ')} is asleep; the first answer waits for it`}
+              >
+                <span className="flow-chip__wake">
+                  <Icon name="clock" size={11} />
+                </span>
+              </Tip>
+            ) : null}
+          </button>
+        </Tip>
       }
     />
   );

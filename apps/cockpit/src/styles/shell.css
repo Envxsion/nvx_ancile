@@ -13,7 +13,10 @@
   --gap: 6px;
   display: grid;
   height: 100dvh;
-  grid-template-columns: var(--rail-col, var(--rail-w)) minmax(0, 1fr) var(--drawer-col, 0px);
+  /* Side columns keep their saved width while there is room, then give way
+     to the thread: never more than about a quarter (rail) or a third
+     (drawer) of the window, so the middle reflows as the window shrinks. */
+  grid-template-columns: var(--rail-col, min(var(--rail-w), 26vw)) minmax(0, 1fr) var(--drawer-col, 0px);
   grid-template-rows: 44px minmax(0, 1fr) 30px;
   grid-template-areas:
     'title title title'
@@ -27,7 +30,7 @@
   --rail-col: 0px;
 }
 .shell[data-drawer='true'] {
-  --drawer-col: var(--drawer-w);
+  --drawer-col: min(var(--drawer-w), 34vw);
 }
 
 /* --- Titlebar ----------------------------------------------------------- */
