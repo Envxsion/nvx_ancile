@@ -177,11 +177,10 @@ button.act__row:focus-visible {
     transform: scale(1.5);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .act__pulse::after {
-    animation: none;
-    opacity: 0;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .act__pulse::after {
+  animation: none;
+  opacity: 0;
 }
 
 .act__bar {

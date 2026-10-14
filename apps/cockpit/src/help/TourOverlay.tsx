@@ -25,6 +25,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFlows } from '../flows/api';
 import { useNotebooks, useThreads } from '../lib/data';
+import { scrollBehavior } from '../lib/motion';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -160,7 +161,7 @@ function ActiveTour({ def, index }: { def: Tour; index: number }) {
     const look = () => {
       const el = find(target);
       if (el) {
-        el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        el.scrollIntoView?.({ block: 'nearest', behavior: scrollBehavior() });
         setPhase({ key: stepKey, state: 'shown' });
       } else if (Date.now() - started > TARGET_WAIT_MS)
         setPhase({ key: stepKey, state: 'missing', why: step.absent ?? GENERAL_ABSENT });

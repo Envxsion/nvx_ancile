@@ -21,10 +21,11 @@
  */
 
 import type { FlowGraph } from '@nvx/contracts';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { type CSSProperties, memo, useEffect, useMemo, useState } from 'react';
 import { useModels } from '../lib/data';
 import { hueVar, modelById, usd } from '../lib/format';
+import { useReducedMotion } from '../lib/motion';
 import type { MessageView } from '../lib/types';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';

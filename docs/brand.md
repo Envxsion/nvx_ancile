@@ -14,11 +14,11 @@ The source of truth is `packages/aperture/`. It holds `tokens.css` (family), `an
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `--signal` | `#9d86ff` | `#6e52ec` | Fills: primary button, active bar, the mark, live dots |
-| `--signal-ink` | `#b3a1ff` | `#5a3fd6` | Text and hairline strokes in signal; focus ring |
+| `--signal` | `#9d86ff` | `#6d51eb` | Fills: primary button, active bar, the mark, live dots. Never text. |
+| `--signal-ink` | `#b3a1ff` | `#593ed5` | Text and hairline strokes in signal; focus ring |
 | `--signal-mid` | `#7a63e6` | `#5a3fd6` | Pressed states, gradients' far stop |
 | `--signal-dim` | `#2a2160` | `#e4defe` | Tinted backgrounds: selected text and rows, the halo of a live dot |
-| `--on-signal` | `#08090a` | `#ffffff` | Text on a signal fill (6.9:1 dark, 5.2:1 light) |
+| `--on-signal` | `#08090a` | `#ffffff` | Text on a signal fill (6.9:1 dark, 5.2:1 light, 4.5:1 under the button's lit top edge) |
 
 **Signal is for system affordance only:** focus, the primary action, live state, the thing the AI is doing now. It's never decoration and never a status colour. Success, warning and failure have their own tokens (`--ok`, `--warn`, `--fail`). Violet is the only hue Ancile never assigns from the identity ramp, because it would sit beside the signal.
 
@@ -35,7 +35,34 @@ The source of truth is `packages/aperture/`. It holds `tokens.css` (family), `an
 
 Depth comes from the ladder and inset hairlines, not drop shadows. Shadows are reserved for objects that float (popovers, the palette, dialogs).
 
-The **identity ramp** (`--s-coral`, `--s-amber`, `--s-jade`, `--s-cyan`, `--s-azure`, `--s-magenta`, `--s-chalk`) colours models, branches and nodes. It's one luminance band, so no item reads louder than another. Chalk is the colour-blind-safe neutral. On the light ground the ramp is darkened to hold 3:1 as thin strokes.
+The **identity ramp** (`--s-coral`, `--s-amber`, `--s-jade`, `--s-cyan`, `--s-azure`, `--s-magenta`, `--s-chalk`) colours models, branches and nodes. It's one luminance band, so no item reads louder than another. Chalk is the colour-blind-safe neutral. On the light ground the ramp is darkened to hold 3:1 as thin strokes. Where a ramp colour is text (a branch name), it is drawn as `color-mix(in oklab, <hue> var(--ramp-ink), var(--fg))`: unchanged in dark, a fifth of the way to `--fg` in light, which holds 4.5:1.
+
+## Text contrast
+
+Every text token holds 4.5:1 on every ground (`--void` to `--panel`), on glass, and, for the inks, on a chip of its own colour (a 12% wash, the strongest the app lays under its own ink), in both themes and in every ground tint, accent, contrast, gilt mode and edition. `apps/cockpit/test/contrast.test.ts` reads the token CSS and checks all of it. The worst case for each, free edition, standard contrast:
+
+| Token | Dark | Worst ground | Ratio | Light | Worst ground | Ratio |
+|---|---|---|---|---|---|---|
+| `--fg` | `#eff0ea` | lift-3 | 13.94 | `#0e1114` | void-deep | 14.84 |
+| `--fg-2` | `#cfd2d5` | lift-3 | 10.52 | `#2b3137` | void-deep | 10.30 |
+| `--fg-3` | `#b4b8bc` | lift-3 | 8.01 | `#4c545c` | void-deep | 6.03 |
+| `--mute` | `#9aa0a6` | lift-3 | 6.05 | `#535a61` | void-deep | 5.48 |
+| `--mute-2` | `#7c8a96` | lift-3 | 4.51 | `#5a6168` | void-deep | 4.92 |
+| `--placeholder` | fg at 0.52 | lift-3 | 4.79 | fg at 0.60 | void-deep | 4.57 |
+| `--signal-ink` | `#b3a1ff` | lift-3 | 7.20 | `#593ed5` | void-deep | 5.35 |
+| `--ok` | `#7bc96f` | lift-3 | 7.93 | `#1f683c` | void-deep | 5.30 |
+| `--warn` | `#d8a13c` | lift-3 | 6.91 | `#805108` | void-deep | 5.31 |
+| `--fail` | `#d87d63` | lift-3 | 5.35 | `#a62f20` | void-deep | 5.40 |
+| `--gilt` | `#d9b871` | lift-3 | 8.40 | `#785514` | void-deep | 5.29 |
+
+Placeholders are text and are held to the same 4.5:1. `--mute-3` (2.2 to 3.4:1) is for rules, dots, gutters and the offline mark, never for text; quiet text uses `--mute-2`. `--signal` is a fill, never text.
+
+## Materials: glass, grain and gilt
+
+- **Glass** (`.m-glass`, `.m-glass-thick`): a translucent ground (`--glass` at 0.64, `--glass-thick` at 0.8) with a backdrop blur. It is a utility and wins over the solid ground a component sets for when glass is off, but only while glass is in force: Settings → Appearance → Surfaces → Glass, transparency not reduced, effects not Light. Otherwise it steps aside and the component's own solid ground shows.
+- **Grain**: one fixed layer of grey noise over the whole app, blended hard-light at `--grain-opacity` (0.10 dark, 0.08 light). Above mid-grey it lightens, below it darkens, and mid-grey changes nothing, so it shows on the near-black grounds as well as the light ones without veiling either.
+- **Gilt** has three modes. On is the full brass: rich ink, a wash you can see (`--gilt-wash`, 12%), a bright rim (`--gilt-line`) and the glow. Subtle greys the ink and halves the wash and rim, with a hairline for the glow. Off removes the brass. Components draw gilt grounds with `--gilt-wash` and gilt rules with `--gilt-line`, so every mode reaches them.
+- Settings shows a note under Surfaces and Film grain whenever Transparency, the system or Effects overrides them, naming and linking the setting.
 
 ## Type
 
@@ -98,7 +125,7 @@ Gold is the Pro accent and means owned, kept or earned; violet stays Ancile's id
 | `--gilt` (text) | `#e6c784` | lift-3 | 9.79 | `#6b4d14` | void-deep | 6.10 |
 | `--on-signal` on `--signal` | `#08090a` on `#ab97ff` | | 8.16 | `#fff` on `#6043e6` | | 6.10 |
 
-`--on-gilt` (`#1a1306`) on every stop of `--gilt-fill` holds 8.72:1 or more, in both themes and both editions; the light theme's gilt frame stroke holds 4.52:1 on lift-2 (3:1 needed for a non-text edge). The free edition's gilt was already AA (9.61 dark, 6.35 light on lift).
+`--on-gilt` (`#1a1306`) on every stop of `--gilt-fill` holds 8.72:1 or more, in both themes and both editions; the light theme's gilt frame stroke holds 4.52:1 on lift-2 (3:1 needed for a non-text edge). The free edition's gilt was already AA (9.61 dark, 6.76 light on lift).
 
 **The gilt kit**, in both editions:
 

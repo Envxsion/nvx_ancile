@@ -49,10 +49,8 @@
     opacity: 0.45;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cc-live__dot {
-    animation: none !important;
-  }
+:root[data-motion='reduced'] .cc-live__dot {
+  animation: none !important;
 }
 .cc-live__text,
 .cc-live__meta {

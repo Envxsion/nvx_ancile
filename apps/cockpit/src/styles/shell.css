@@ -82,7 +82,7 @@
 }
 .crumbs__sep {
   padding: 0 8px;
-  color: var(--mute-3);
+  color: var(--mute-2);
 }
 .crumbs__link:hover {
   color: var(--fg);
@@ -456,7 +456,8 @@
 .tree__branch {
   font-size: 11px;
   font-weight: 600;
-  color: var(--hue);
+  /* the ramp as text: 4.5:1 in both themes (--ramp-ink, tokens.css) */
+  color: color-mix(in oklab, var(--hue) var(--ramp-ink), var(--fg));
 }
 .tree__preview {
   overflow: hidden;
@@ -558,7 +559,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgb(var(--gilt-rgb) / 0.7);
+  background: var(--gilt);
 }
 .why__entries li.mute::before {
   background: var(--hair-2);
@@ -585,7 +586,7 @@
   z-index: 0;
 }
 .why__retrieval li[data-cited] .why__bar {
-  background: rgb(var(--gilt-rgb) / 0.1);
+  background: var(--gilt-wash);
 }
 .why__retrieval li > :not(.why__bar) {
   position: relative;
@@ -852,8 +853,7 @@
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .rail[data-open='true'] {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .rail[data-open='true'] {
+  animation: none;
 }

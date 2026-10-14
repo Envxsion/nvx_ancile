@@ -417,7 +417,7 @@ button.logline__row:hover {
 .logline__level[data-level='error'],
 .logline__level[data-level='fatal'] {
   color: var(--fail);
-  background: rgb(var(--fail-rgb) / 0.14);
+  background: rgb(var(--fail-rgb) / 0.12);
 }
 .logline[data-level='error'] .logline__msg,
 .logline[data-level='fatal'] .logline__msg {
@@ -1703,7 +1703,7 @@ button.logline__row:hover {
 }
 .edition[data-pro] .edition__seal {
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.12);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
   animation: seal-in 700ms var(--ease-spring) 1;
 }
@@ -1868,25 +1868,22 @@ button.logline__row:hover {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ops,
-  .svc,
-  .auto,
-  .app-card,
-  .mcp,
-  .mcp__tools,
-  .mcp__note,
-  .mcp-pair,
-  .feature,
-  .wf-row,
-  .wf-row__bar,
-  .logline:first-child {
-    animation: none;
-  }
-  .ops-hero__orb::after,
-  .svc__orb {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .ops,
+:root[data-motion='reduced'] .svc,
+:root[data-motion='reduced'] .auto,
+:root[data-motion='reduced'] .app-card,
+:root[data-motion='reduced'] .mcp,
+:root[data-motion='reduced'] .mcp__tools,
+:root[data-motion='reduced'] .mcp__note,
+:root[data-motion='reduced'] .mcp-pair,
+:root[data-motion='reduced'] .feature,
+:root[data-motion='reduced'] .wf-row,
+:root[data-motion='reduced'] .wf-row__bar,
+:root[data-motion='reduced'] .logline:first-child,
+:root[data-motion='reduced'] .ops-hero__orb::after,
+:root[data-motion='reduced'] .svc__orb {
+  animation: none;
 }
 
 /* Polish after the first look */

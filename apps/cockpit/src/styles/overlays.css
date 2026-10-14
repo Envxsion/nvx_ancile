@@ -522,7 +522,7 @@
 .palette__scope {
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  background: rgb(var(--signal-rgb) / 0.14);
+  background: rgb(var(--signal-rgb) / 0.12);
   color: var(--signal-ink);
   font-size: 11.5px;
   font-weight: 600;

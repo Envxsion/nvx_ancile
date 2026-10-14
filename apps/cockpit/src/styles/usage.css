@@ -41,10 +41,9 @@
   background: var(--fg-2);
   opacity: 0.55;
 }
-@media (prefers-reduced-motion: reduce) {
-  .u-meter__fill {
-    transition: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .u-meter__fill {
+  transition: none;
 }
 
 .u-gauge {

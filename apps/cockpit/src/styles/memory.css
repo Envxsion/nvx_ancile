@@ -359,7 +359,7 @@
   font-size: 12.5px;
   line-height: 1.6;
   text-align: right;
-  color: var(--mute-3);
+  color: var(--mute-2);
   user-select: none;
   box-shadow: 1px 0 0 var(--hair);
 }
@@ -510,7 +510,7 @@
 .mem-diff__no {
   padding-right: 8px;
   text-align: right;
-  color: var(--mute-3);
+  color: var(--mute-2);
   user-select: none;
 }
 .mem-diff__sign {
@@ -699,7 +699,7 @@
 }
 .mem-kept[data-status='undone'] .mem-kept__icon,
 .mem-kept[data-status='rejected'] .mem-kept__icon {
-  color: var(--mute-3);
+  color: var(--mute-2);
 }
 .mem-kept[data-status='undone'] .mem-kept__text,
 .mem-kept[data-status='rejected'] .mem-kept__text {
@@ -912,7 +912,7 @@
   height: 32px;
   border-radius: var(--r-md);
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px var(--gilt-hair);
 }
 .mem-move__title {

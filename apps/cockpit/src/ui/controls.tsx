@@ -9,13 +9,15 @@
  *           |  squashes, a plate that slides, digits that roll).
  *  How      |  Plain buttons with ARIA roles, styled in base.css. The
  *           |  segmented plate and the ticker move on Motion springs;
- *           |  reduced motion makes both jump.
+ *           |  reduced motion (the in-app setting, lib/motion.tsx)
+ *           |  makes both jump.
  * ------------------------------------------------------------------
  */
 
 import { spring } from '@nvx/aperture';
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react';
+import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef } from 'react';
+import { useReducedMotion } from '../lib/motion';
 import { Icon } from './Icon';
 
 export function Switch({

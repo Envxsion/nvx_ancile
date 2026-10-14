@@ -35,10 +35,15 @@ export function getThemeChoice(): ThemeChoice {
   }
 }
 
+/**
+ * The swap is a colour cross-fade, never movement, so it plays with reduced
+ * motion too: prefs.css caps --d-theme at 120 ms there (a short fade). It
+ * reads the resolved data-motion, not the OS, like everything else.
+ */
 export function setTheme(choice: ThemeChoice): void {
   const root = document.documentElement;
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reduce) root.setAttribute('data-theme-switching', '');
+  const ms = root.dataset.motion === 'reduced' ? 140 : 520;
+  root.setAttribute('data-theme-switching', '');
   root.dataset.theme = resolve(choice);
   root.dataset.themeChoice = choice;
   try {
@@ -46,7 +51,7 @@ export function setTheme(choice: ThemeChoice): void {
   } catch {
     /* private mode: the choice lasts for this tab only */
   }
-  if (!reduce) window.setTimeout(() => root.removeAttribute('data-theme-switching'), 520);
+  window.setTimeout(() => root.removeAttribute('data-theme-switching'), ms);
 }
 
 /** Follow the OS while the choice is "system". Returns an unsubscribe. */

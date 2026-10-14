@@ -19,12 +19,13 @@
  * ------------------------------------------------------------------
  */
 
-import { spring } from '@nvx/aperture';
+import { fade, spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { relative } from '../lib/format';
+import { useReducedMotion } from '../lib/motion';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
@@ -283,7 +284,7 @@ export function ArtifactPanel() {
             initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
-            transition={spring.snappy}
+            transition={reduce ? fade : spring.snappy}
           >
             <header className="artifact-panel__head">
               <span className="artifact-panel__tile" aria-hidden="true">

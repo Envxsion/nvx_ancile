@@ -44,9 +44,12 @@
   --fg-2: #cfd2d5;
   --fg-3: #b4b8bc;
   --mute: #9aa0a6;
-  --mute-2: #7c8792;
+  --mute-2: #7c8a96;
+  /* Not for text: rules, dots, gutters and the offline mark only (2.7 to
+     3.4:1). Quiet text uses --mute-2, which holds 4.5:1 on every ground. */
   --mute-3: #5c646b;
-  --placeholder: rgb(239 240 234 / 0.3);
+  /* Placeholders are text: 4.5:1 on every ground, like --mute-2 */
+  --placeholder: rgb(239 240 234 / 0.52);
 
   /* Edges and materials, all of the foreground at low alpha */
   --hair: rgb(239 240 234 / 0.1);
@@ -65,8 +68,8 @@
   --ok-rgb: 123 201 111;
   --warn: #d8a13c;
   --warn-rgb: 216 161 60;
-  --fail: #c4614a;
-  --fail-rgb: 196 97 74;
+  --fail: #d87d63;
+  --fail-rgb: 216 125 99;
   --unknown: #5c646b;
 
   /* The identity ramp: models, branches, compute nodes. One luminance band,
@@ -80,6 +83,9 @@
   --s-violet: #9a7bf5;
   --s-magenta: #e56ec4;
   --s-chalk: #dfe4ec;
+  /* The ramp as text (a branch name, a custom context): mixed this far with
+     --fg in oklab. The dark ramp already holds 4.5:1 as text. */
+  --ramp-ink: 100%;
 
   /* Elevation (DESIGN D25). The lift ladder still sets the ground; this
      scale is for anything that sits or moves above it. One light, from
@@ -100,8 +106,8 @@
   /* The inset well: code, inputs, the composer field */
   --vault: inset 0 1px 2px rgb(0 0 0 / 0.5), inset 0 0 0 1px var(--hair);
   --sheen: linear-gradient(180deg, rgb(255 255 255 / 0.025), transparent 40%);
-  --glass: rgb(23 27 34 / 0.72);
-  --glass-thick: rgb(23 27 34 / 0.88);
+  --glass: rgb(23 27 34 / 0.64);
+  --glass-thick: rgb(23 27 34 / 0.8);
   --shadow-pop: var(--elev-3);
   --shadow-modal: var(--elev-4);
   --scrim: rgb(3 4 5 / 0.62);
@@ -132,6 +138,10 @@
     #d2ac6c 100%
   );
   --gilt-glow: 0 0 0 1px rgb(217 184 113 / 0.22), 0 8px 24px -12px rgb(217 184 113 / 0.35);
+  /* A gilt ground (a seal, a kept chip) and a gilt rule (a rim, a point).
+     Subtle and off set their own strengths (prefs.css). */
+  --gilt-wash: rgb(var(--gilt-rgb) / 0.12);
+  --gilt-line: rgb(var(--gilt-rgb) / 0.6);
   /* The gilt kit (pro.css draws with it). Stops, light to deep; a fill that
      only ever carries --on-gilt (every stop holds 8.7:1 or more under it);
      a frame for 1 px gilded edges; a stronger glow for a gilded thing that
@@ -151,7 +161,9 @@
     rgb(201 163 98 / 0.65)
   );
   --gilt-glow-strong: 0 0 0 1px rgb(217 184 113 / 0.32), 0 14px 34px -16px rgb(217 184 113 / 0.5);
-  --grain-opacity: 0.035;
+  /* Grain (prefs.css .grain, hard-light): strong enough to see on the
+     near-black grounds, where the old overlay blend showed nothing. */
+  --grain-opacity: 0.1;
 }
 
 [data-theme='light'] {
@@ -176,8 +188,8 @@
      Both now hold 4.5:1 there (axe-checked in e2e). */
   --mute: #535a61;
   --mute-2: #5a6168;
-  --mute-3: #969da4;
-  --placeholder: rgb(14 17 20 / 0.38);
+  --mute-3: #969da4; /* not for text, as in dark */
+  --placeholder: rgb(14 17 20 / 0.6);
 
   --hair: rgb(14 17 20 / 0.08);
   --hair-2: rgb(14 17 20 / 0.12);
@@ -190,12 +202,14 @@
   --chalk-2: rgb(14 17 20 / 0.08);
   --chalk-3: rgb(14 17 20 / 0.14);
 
-  --ok: #23784a;
-  --ok-rgb: 35 120 74;
-  --warn: #8a5a00;
-  --warn-rgb: 138 90 0;
-  --fail: #b3402a;
-  --fail-rgb: 179 64 42;
+  /* Deep enough to hold 4.5:1 on --void-deep and on a 12% wash of
+     themselves (a status chip) */
+  --ok: #1f683c;
+  --ok-rgb: 31 104 60;
+  --warn: #805108;
+  --warn-rgb: 128 81 8;
+  --fail: #a62f20;
+  --fail-rgb: 166 47 32;
   --unknown: #969da4;
 
   /* The ramp darkened to hold 3:1 as small strokes on white */
@@ -207,6 +221,8 @@
   --s-violet: #6e4fd8;
   --s-magenta: #b23d92;
   --s-chalk: #6f7882;
+  /* As text the light ramp is mixed a fifth of the way to --fg: 4.5:1 */
+  --ramp-ink: 80%;
 
   --hi: inset 0 1px 0 rgb(255 255 255 / 0.9);
   --hi-2: inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.5);
@@ -223,16 +239,17 @@
     0 40px 90px -30px rgb(16 24 32 / 0.35);
   --vault: inset 0 1px 2px rgb(16 24 32 / 0.08), inset 0 0 0 1px var(--hair-2);
   --sheen: linear-gradient(180deg, rgb(255 255 255 / 0.6), transparent 40%);
-  --glass: rgb(255 255 255 / 0.72);
-  --glass-thick: rgb(255 255 255 / 0.88);
+  --glass: rgb(255 255 255 / 0.64);
+  --glass-thick: rgb(255 255 255 / 0.8);
   --shadow-pop: var(--elev-3);
   --shadow-modal: var(--elev-4);
   --scrim: rgb(236 238 240 / 0.72);
   --glow: 0.9;
 
-  /* Deeper brass on white: #d9b871 measures 1.9:1 there, this 6.35:1 */
-  --gilt: #7a5a1e;
-  --gilt-rgb: 122 90 30;
+  /* Deeper brass on white: #d9b871 measures 1.9:1 there, this 6.8:1, and
+     4.5:1 even on --void-deep under its own wash */
+  --gilt: #785514;
+  --gilt-rgb: 120 85 20;
   --gilt-hi: #b98f4e;
   --gilt-lo: #5e4620;
   --gilt-hair: linear-gradient(
@@ -242,6 +259,8 @@
     rgb(122 90 30 / 0.35)
   );
   --gilt-glow: 0 0 0 1px rgb(122 90 30 / 0.2), 0 8px 24px -12px rgb(122 90 30 / 0.25);
+  --gilt-wash: rgb(var(--gilt-rgb) / 0.12);
+  --gilt-line: rgb(var(--gilt-rgb) / 0.6);
   /* The fill keeps the bright stops on white (it carries --on-gilt, not
      white); the frame is deep brass, 4.5:1 or more as a stroke. */
   --gilt-1: #b98f4e;
@@ -258,7 +277,7 @@
     rgb(143 106 38 / 0.65)
   );
   --gilt-glow-strong: 0 0 0 1px rgb(122 90 30 / 0.3), 0 14px 32px -16px rgb(122 90 30 / 0.35);
-  --grain-opacity: 0.05;
+  --grain-opacity: 0.08;
 }
 
 /* ---------------------------------------------------------------------------
@@ -516,13 +535,5 @@ html[data-theme-switching] *::before {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+/* Reduced motion lives in prefs.css, keyed on the resolved data-motion, so
+   the in-app setting and the OS agree and short fades survive. */

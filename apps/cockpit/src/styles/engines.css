@@ -71,7 +71,7 @@
   white-space: nowrap;
 }
 .model-badge[data-kind='claude_code'] {
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px var(--gilt-hair);
   color: var(--fg-2);
 }

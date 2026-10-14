@@ -762,7 +762,7 @@ kbd[data-flash] {
   color: var(--gilt);
   font-size: 11px;
   font-weight: 600;
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
 }
 
 /* --- Segmented: a sliding plate (Segmented.tsx moves it) ---------------- */

@@ -247,22 +247,14 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pro-card,
-  .pro-card:hover,
-  .pro-card:active {
-    transform: none;
-    transition: none;
-  }
-  .gilt-action::after,
-  .pro-awaken {
-    display: none;
-  }
+/* Reduced motion (the resolved data-motion, prefs.css): the card stays put
+   and the sheen and the arrival are not drawn. */
+:root[data-motion='reduced'] .pro-card,
+:root[data-motion='reduced'] .pro-card:hover,
+:root[data-motion='reduced'] .pro-card:active {
+  transform: none;
 }
 :root[data-motion='reduced'] .pro-awaken,
 :root[data-motion='reduced'] .gilt-action::after {
   display: none;
-}
-:root[data-motion='reduced'] .pro-card:hover {
-  transform: none;
 }

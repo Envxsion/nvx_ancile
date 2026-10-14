@@ -529,14 +529,10 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .node-card,
-  .node-card[data-busy],
-  .node-card[data-state='starting'],
-  .node-card[data-state='stopping'],
-  .node-card__chain {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .node-card,
+:root[data-motion='reduced'] .node-card__chain {
+  animation: none;
 }
 
 /* --- Waking your GPU node (in the thread) ------------------------------- */
@@ -600,9 +596,7 @@
     grid-column: 1 / -1;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .waking,
-  .waking__glyph {
-    animation: none;
-  }
+:root[data-motion='reduced'] .waking,
+:root[data-motion='reduced'] .waking__glyph {
+  animation: none;
 }

@@ -21,6 +21,7 @@ import * as demo from '../fixtures/demo';
 import { useThread } from '../lib/data';
 import { startFactcheck, useFactcheck, useProgress } from '../lib/factcheck';
 import { modelName, percent } from '../lib/format';
+import { scrollBehavior } from '../lib/motion';
 import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
 import { FactcheckChip } from '../thread/Factcheck';
@@ -112,7 +113,7 @@ export function EvidencePanel() {
     if (focused)
       ref.current
         ?.querySelector(`[data-claim="${focused}"]`)
-        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        ?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
   }, [focused, fc.data]);
 
   if (isDemo) return <DemoEvidence />;

@@ -57,7 +57,7 @@
   flex: none;
   color: var(--gilt);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
 }
 
 .dialog.add-model {
@@ -436,7 +436,7 @@
 }
 .local-models__pick {
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px var(--gilt-hair);
 }
 .local-models__for,
@@ -500,8 +500,7 @@
     transform: translateX(1400%);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .local-models__bar > span[data-indeterminate] {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .local-models__bar > span[data-indeterminate] {
+  animation: none;
 }

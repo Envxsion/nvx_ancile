@@ -317,12 +317,11 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home__inner,
-  .nbk__measure,
-  .nbk__sources > * {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .home__inner,
+:root[data-motion='reduced'] .nbk__measure,
+:root[data-motion='reduced'] .nbk__sources > * {
+  animation: none;
 }
 
 /* Delete a notebook: what happens to each thing in it, one line each. */

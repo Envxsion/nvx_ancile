@@ -23,7 +23,8 @@
    ========================================================================== */
 
 /* ---- Accents. Ultraviolet is NVX Ancile; the rest are the owner's choice.
-   Fills hold their on-signal text at 4.5:1; inks hold 4.5:1 on the ground. */
+   Fills hold their on-signal text at 4.5:1; inks hold 4.5:1 on every
+   ground and on a 12% wash of their own fill (test/contrast.test.ts). */
 
 :root[data-accent='iris'] {
   --signal: #8ea4ff;
@@ -70,35 +71,35 @@
 :root[data-theme='light'][data-accent='iris'] {
   --signal: #3d5bd9;
   --signal-rgb: 61 91 217;
-  --signal-ink: #3150c7;
+  --signal-ink: #314fc6;
   --signal-mid: #3150c7;
   --signal-dim: #dfe5fd;
 }
 :root[data-theme='light'][data-accent='orchid'] {
   --signal: #9a3fd0;
   --signal-rgb: 154 63 208;
-  --signal-ink: #8a32bf;
+  --signal-ink: #852bb9;
   --signal-mid: #8a32bf;
   --signal-dim: #f2e1fc;
 }
 :root[data-theme='light'][data-accent='rose'] {
   --signal: #c22f63;
   --signal-rgb: 194 47 99;
-  --signal-ink: #b0255a;
+  --signal-ink: #aa1d55;
   --signal-mid: #b0255a;
   --signal-dim: #fde0ea;
 }
 :root[data-theme='light'][data-accent='ember'] {
-  --signal: #c24a1f;
-  --signal-rgb: 194 74 31;
-  --signal-ink: #b0401a;
+  --signal: #c14414;
+  --signal-rgb: 193 68 20;
+  --signal-ink: #a33408;
   --signal-mid: #b0401a;
   --signal-dim: #fde3d8;
 }
 :root[data-theme='light'][data-accent='jade'] {
-  --signal: #13805a;
-  --signal-rgb: 19 128 90;
-  --signal-ink: #0f7350;
+  --signal: #067c57;
+  --signal-rgb: 6 124 87;
+  --signal-ink: #126847;
   --signal-mid: #0f7350;
   --signal-dim: #d6f3e7;
 }
@@ -121,8 +122,8 @@
   --lift-2: #161926;
   --lift-3: #1c2030;
   --panel: #131521;
-  --glass: rgb(22 25 38 / 0.72);
-  --glass-thick: rgb(22 25 38 / 0.88);
+  --glass: rgb(22 25 38 / 0.64);
+  --glass-thick: rgb(22 25 38 / 0.8);
 }
 :root[data-theme='dark'][data-tint='obsidian'] {
   --void: #050505;
@@ -133,8 +134,8 @@
   --lift-2: #141415;
   --lift-3: #1a1a1c;
   --panel: #111112;
-  --glass: rgb(20 20 21 / 0.72);
-  --glass-thick: rgb(20 20 21 / 0.88);
+  --glass: rgb(20 20 21 / 0.64);
+  --glass-thick: rgb(20 20 21 / 0.8);
 }
 
 /* ---- Contrast */
@@ -146,7 +147,7 @@
   --edge-2: rgb(var(--fg-rgb) / 0.45);
   --mute: var(--fg-3);
   --mute-2: var(--fg-3);
-  --placeholder: rgb(var(--fg-rgb) / 0.55);
+  --placeholder: rgb(var(--fg-rgb) / 0.7);
 }
 
 /* ---- Density and corners */
@@ -178,20 +179,82 @@
   text-underline-offset: 2px;
 }
 
-/* ---- Motion. "Reduced" keeps fades of 120 ms or less and drops travel. */
+/* ---- Motion. The one place reduced motion is decided for CSS.
 
+   data-motion is the resolved choice: Settings → Accessibility → Motion,
+   with "System" already read from the OS (lookOf in the Cockpit), so a
+   person who picks Full keeps motion even when the OS asks for less, and
+   the reverse. Component styles key their own extras on the same
+   attribute, never on the media query. The OS query below only stands in
+   before the first look is written (data-motion absent).
+
+   Reduced removes movement and keeps short fades:
+   - every duration token is capped at 120 ms, so fades stay short;
+   - transitions keep only properties that do not move (opacity, colour,
+     shadow, visibility); transforms, sizes, positions and layout jump;
+   - the press and pop scales go flat;
+   - keyframe animations stop at their last frame (spinners, pulses,
+     shimmers and travelling entries), with no delay;
+   - smooth scrolling is off.
+   Motion (the JS library) gets the same choice through MotionConfig in
+   the Cockpit (lib/motion.tsx): it drops transforms and layout moves and
+   keeps opacity. */
+
+:root[data-motion='reduced'] {
+  --d-micro: 120ms;
+  --d-short: 120ms;
+  --d-medium: 120ms;
+  --d-view: 120ms;
+  --d-theme: 120ms;
+  --press: 1;
+  --pop-from: 1;
+}
 :root[data-motion='reduced'] *,
 :root[data-motion='reduced'] *::before,
 :root[data-motion='reduced'] *::after {
+  transition-property:
+    opacity, color, background-color, border-color, outline-color, text-decoration-color, fill, stroke,
+    box-shadow, visibility !important;
   animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
   animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion]) {
+    --d-micro: 120ms;
+    --d-short: 120ms;
+    --d-medium: 120ms;
+    --d-view: 120ms;
+    --d-theme: 120ms;
+    --press: 1;
+    --pop-from: 1;
+  }
+  :root:not([data-motion]) *,
+  :root:not([data-motion]) *::before,
+  :root:not([data-motion]) *::after {
+    transition-property:
+      opacity, color, background-color, border-color, outline-color, text-decoration-color, fill, stroke,
+      box-shadow, visibility !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---------------------------------------------------------------------------
-   Materials. [data-material] on an element picks its recipe; the root's
-   data-material="solid" (or lite mode) turns every glass opaque.
+   Materials. .m-glass and .m-glass-thick on an element pick its recipe.
+
+   Glass is a utility and must beat a component's own ground: .dialog,
+   .palette, .composer and the rest set a solid background for when glass
+   is off, and they load after this file, so a plain .m-glass lost to them
+   and the setting changed nothing. The glass recipe therefore applies only
+   while glass is in force (data-material="glass" and effects not lite) and
+   at a weight no component rule reaches (0,4,0). With Solid, with
+   transparency reduced (resolveLook makes the material solid) or with
+   Light effects it steps aside entirely: the component's own solid ground
+   shows, or --lift-2 where it has none.
    --------------------------------------------------------------------------- */
 
 .m-raised {
@@ -200,45 +263,36 @@
   border-radius: var(--r-lg);
 }
 .m-glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  backdrop-filter: blur(20px) saturate(1.4);
+  background: var(--lift-2);
   box-shadow: var(--elev-3);
 }
 .m-glass-thick {
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: blur(28px) saturate(1.2);
-  backdrop-filter: blur(28px) saturate(1.2);
+  background: var(--lift-2);
   box-shadow: var(--elev-4);
+}
+:root[data-material='glass']:not([data-fx='lite']) .m-glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+:root[data-material='glass']:not([data-fx='lite']) .m-glass-thick {
+  background: var(--glass-thick);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
 }
 .m-vault {
   background: var(--void-deep);
   box-shadow: var(--vault);
 }
-:root[data-material='solid'] .m-glass,
-:root[data-fx='lite'] .m-glass {
-  background: var(--lift-2);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-:root[data-material='solid'] .m-glass-thick,
-:root[data-fx='lite'] .m-glass-thick {
-  background: var(--lift-2);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .m-glass,
-  .m-glass-thick {
-    background: var(--lift-2);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
 
 /* ---------------------------------------------------------------------------
    Grain: one fixed layer over the whole app, never animated, never per
-   component. The family's film grain at the family's strength.
+   component. Grey noise centred on mid-grey, blended hard-light: above
+   mid-grey it screens (light specks, the only ones a near-black ground can
+   show), below it multiplies (dark specks, the only ones a light ground
+   can show), and mid-grey itself changes nothing, so the ground does not
+   drift. Overlay keyed on the ground instead, and on #08090a it showed
+   nothing at all. Strength per theme: --grain-opacity in tokens.css.
    --------------------------------------------------------------------------- */
 
 .grain {
@@ -247,8 +301,8 @@
   z-index: 2147483000;
   pointer-events: none;
   opacity: var(--grain-opacity);
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: hard-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 :root[data-grain='off'] .grain,
 :root[data-fx='lite'] .grain {
@@ -262,8 +316,12 @@
 
 /* ---------------------------------------------------------------------------
    Gilt utilities. Budget: one gilt element per cluster, about 1% of a
-   screen. data-gilt="subtle" mutes the brass towards the ground and drops
-   the glow to a hairline; "off" removes it everywhere.
+   screen. "On" is the full brass: rich ink, a wash you can see (12%), a
+   bright rim and the glow. "Subtle" is a different thing, not a slightly
+   paler one: greyed brass ink, a wash at half strength, a dim rim and a
+   hairline for the glow. "Off" removes the brass everywhere.
+   Components draw gilt grounds with --gilt-wash and gilt rules with
+   --gilt-line, so each mode sets their strength here, once.
    --------------------------------------------------------------------------- */
 
 .gilt-ink {
@@ -289,25 +347,31 @@
   --gilt-rgb: 179 160 124;
   --gilt-hi: #cfc2a6;
   --gilt-lo: #74643f;
+  --gilt-wash: rgb(var(--gilt-rgb) / 0.06);
+  --gilt-line: rgb(var(--gilt-rgb) / 0.3);
   --gilt-hair: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.3), rgb(var(--gilt-rgb) / 0.12));
   --gilt-sheen: linear-gradient(100deg, #8f7d5a 0%, #b3a07c 40%, #cfc2a6 55%, #8f7d5a 100%);
   --gilt-glow: 0 0 0 1px rgb(179 160 124 / 0.16);
   --gilt-frame: linear-gradient(135deg, rgb(var(--gilt-rgb) / 0.4), rgb(var(--gilt-rgb) / 0.16));
   --gilt-glow-strong: 0 0 0 1px rgb(179 160 124 / 0.24);
 }
+/* #7d6a48 measured 4.09:1 on --void-deep; this holds 4.5:1 on every light
+   ground and on its own wash. */
 :root[data-theme='light'][data-gilt='subtle'] {
-  --gilt: #7d6a48;
-  --gilt-rgb: 125 106 72;
+  --gilt: #735e3a;
+  --gilt-rgb: 115 94 58;
   --gilt-hi: #a8966f;
   --gilt-lo: #5f5137;
-  --gilt-sheen: linear-gradient(100deg, #7d6a48 0%, #a8966f 45%, #7d6a48 100%);
-  --gilt-glow: 0 0 0 1px rgb(125 106 72 / 0.16);
+  --gilt-sheen: linear-gradient(100deg, #735e3a 0%, #a8966f 45%, #735e3a 100%);
+  --gilt-glow: 0 0 0 1px rgb(115 94 58 / 0.16);
 }
 :root[data-gilt='off'] {
   --gilt: var(--fg-3);
   --gilt-rgb: var(--fg-rgb);
   --gilt-hi: var(--fg-2);
   --gilt-lo: var(--mute);
+  --gilt-wash: var(--chalk);
+  --gilt-line: var(--hair-2);
   --gilt-hair: linear-gradient(var(--hair-2), var(--hair-2));
   --gilt-sheen: linear-gradient(var(--fg-3), var(--fg-3));
   --gilt-glow: 0 0 0 1px var(--hair-2);

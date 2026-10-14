@@ -24,6 +24,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { API_BASE, api } from '../lib/api';
+import { scrollBehavior } from '../lib/motion';
 import { openStream } from '../lib/sse';
 import { Segmented, Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
@@ -184,7 +185,7 @@ export function LogsScreen({ initialTrace = '' }: { initialTrace?: string }) {
   const showWaiting = () => {
     setFresh((f) => [...waiting, ...f].slice(0, MAX_LINES));
     setWaiting([]);
-    list.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    list.current?.scrollTo({ top: 0, behavior: scrollBehavior() });
   };
 
   return (

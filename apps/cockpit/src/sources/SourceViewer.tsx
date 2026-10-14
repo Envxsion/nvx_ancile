@@ -25,6 +25,7 @@ import type { SourceContent } from '@nvx/contracts';
 import { lazy, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { useSource, useSourceContent } from '../lib/data';
+import { scrollBehavior } from '../lib/motion';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { MD_COMPONENTS } from '../thread/Citations';
@@ -185,7 +186,7 @@ export function SourceViewer({
     if (!blocks.length || !raw) return;
     const el = bodyRef.current?.querySelector<HTMLElement>('[data-cite]');
     if (el) {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
       el.classList.add('viewer__cite--land');
     } else bodyRef.current?.scrollTo({ top: 0 });
   }, [blocks, start, end, raw]);
@@ -212,7 +213,7 @@ export function SourceViewer({
     if (!target) return;
     bodyRef.current
       ?.querySelector(`[data-start="${target.start}"]`)
-      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      ?.scrollIntoView({ block: 'start', behavior: scrollBehavior() });
     setOutline(false);
   };
 

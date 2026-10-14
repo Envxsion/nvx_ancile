@@ -26,6 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { reducedMotionNow } from '../lib/motion';
 import { Icon } from '../ui/Icon';
 
 /** Set once Pro's arrival has been shown on this computer. */
@@ -63,12 +64,8 @@ function stored(key: string): string | null {
   }
 }
 
-function reducedMotion(): boolean {
-  return (
-    document.documentElement.dataset.motion === 'reduced' ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
-}
+/** The in-app Motion setting, resolved against the system once (lib/motion). */
+const reducedMotion = reducedMotionNow;
 
 /** Play Pro's arrival (once per call; the licence screen calls it when a key turns Pro on). */
 export function awakenPro(): void {

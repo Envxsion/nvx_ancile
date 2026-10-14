@@ -17,10 +17,12 @@
  * ------------------------------------------------------------------
  */
 
+import { fade } from '@nvx/aperture';
 import { type ParsedArtifact, splitArtifacts } from '@nvx/contracts';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
 import { type ComponentProps, useEffect, useMemo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
+import { useReducedMotion } from '../lib/motion';
 import { Icon } from '../ui/Icon';
 import { lineCount, TYPE_ICON, TYPE_LABEL } from './meta';
 import { openArtifact, useArtifacts, useThreadArtifacts } from './store';
@@ -63,9 +65,10 @@ export function ArtifactCard({
       data-open={isOpen || undefined}
       onClick={show}
       disabled={writing}
-      initial={reduce ? false : { opacity: 0, y: 4 }}
+      // Reduced motion keeps the fade (shorter) and drops the rise.
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+      transition={reduce ? fade : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
       aria-label={
         writing ? `Writing ${artifact.title}` : `Open ${artifact.title}, ${TYPE_LABEL[artifact.type]}`
       }

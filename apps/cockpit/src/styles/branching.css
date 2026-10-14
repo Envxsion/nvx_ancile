@@ -77,13 +77,8 @@
     stroke-dashoffset: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tedge--active .react-flow__edge-path {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
-}
-:root[data-motion='off'] .tedge--active .react-flow__edge-path {
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .tedge--active .react-flow__edge-path {
   animation: none;
   stroke-dashoffset: 0;
 }

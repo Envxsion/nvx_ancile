@@ -233,12 +233,10 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pdf__page,
-  .pdf__page[data-cited],
-  .pdf__mark--land {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .pdf__page,
+:root[data-motion='reduced'] .pdf__mark--land {
+  animation: none;
 }
 
 /* ---- pdf.js text layer (positions the runs over the canvas) -------------- */

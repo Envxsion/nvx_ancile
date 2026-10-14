@@ -16,6 +16,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 import { api } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
 import { AWAKENED_KEY, awakenPro, EditionSync, editionOf } from '../src/pro/edition';
+import { usePrefs } from '../src/state/prefs';
 
 const details = (build: 'free' | 'pro', tier: 'free' | 'pro') => ({ build, status: { tier } });
 
@@ -55,7 +56,11 @@ describe('the edition', () => {
   });
 
   it('draws nothing for the arrival with reduced motion', () => {
-    document.documentElement.dataset.motion = 'reduced';
+    // The in-app setting, as Settings → Accessibility → Motion sets it.
+    const before = usePrefs.getState().prefs;
+    usePrefs.setState({
+      prefs: { ...before, accessibility: { ...before.accessibility, motion: 'reduced' } },
+    });
     vi.mocked(api.get).mockResolvedValue(details('free', 'free'));
     const { container } = render(
       <QueryClientProvider client={queryClient}>
@@ -64,6 +69,6 @@ describe('the edition', () => {
     );
     act(() => awakenPro());
     expect(container.querySelector('.pro-awaken')).toBeNull();
-    delete document.documentElement.dataset.motion;
+    usePrefs.setState({ prefs: before });
   });
 });
