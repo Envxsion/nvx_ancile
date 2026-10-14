@@ -2,7 +2,7 @@
  * Free disk space: checked before a backup, a migration and a new source,
  * with a message that says how much is needed, how much is free, and where.
  */
-import { join, resolve } from 'node:path';
+import { posix } from 'node:path';
 import { AncileError } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
 import { errorHandler } from '../../src/obs/errors';
@@ -67,9 +67,10 @@ describe('free disk space', () => {
       if (p.endsWith('backups')) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       return { bavail: 10, bsize: 4096 };
     };
-    const data = resolve('/data');
-    expect((await diskSpace(join(data, 'backups'), { statfs, platform: 'linux' })).drive).toBe(data);
-    expect(seen).toEqual([join(data, 'backups'), data]);
+    // The platform is linux, so the paths are POSIX on every computer the test runs on.
+    const data = posix.resolve('/data');
+    expect((await diskSpace(posix.join(data, 'backups'), { statfs, platform: 'linux' })).drive).toBe(data);
+    expect(seen).toEqual([posix.join(data, 'backups'), data]);
     const broken = async () => {
       throw Object.assign(new Error('not supported'), { code: 'ENOSYS' });
     };
