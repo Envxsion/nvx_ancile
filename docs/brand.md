@@ -59,10 +59,10 @@ Placeholders are text and are held to the same 4.5:1. `--mute-3` (2.2 to 3.4:1) 
 
 ## Materials: glass, grain and gilt
 
-- **Glass** (`.m-glass`, `.m-glass-thick`): a translucent ground (`--glass` at 0.64, `--glass-thick` at 0.8) with a backdrop blur. It is a utility and wins over the solid ground a component sets for when glass is off, but only while glass is in force: Settings → Appearance → Surfaces → Glass, transparency not reduced, effects not Light. Otherwise it steps aside and the component's own solid ground shows.
+- **Glass** (`.m-glass`, `.m-glass-thick`): a translucent ground (`--glass` at 0.56, `--glass-thick` at 0.7) lit along its top edge (`--glass-sheen`) with a backdrop blur. Glass is only visible over something to blur, so while it is in force the scrim under a dialog is the light `--glass-scrim` (0.36 dark, 0.4 light), not the 0.62 `--scrim`: at 80% glass over a 62% scrim under 8% of the screen came through, and glass looked solid. It is a utility and wins over the solid ground a component sets for when glass is off, but only while glass is in force: Settings → Appearance → Surfaces → Glass, transparency not reduced, effects not Light. Otherwise it steps aside and the component's own solid ground shows.
 - **Grain**: one fixed layer of grey noise over the whole app, blended hard-light at `--grain-opacity` (0.05 dark, 0.045 light). Off by default (Settings → Appearance → Film grain). Above mid-grey it lightens, below it darkens, and mid-grey changes nothing, so it shows on the near-black grounds as well as the light ones without veiling either.
 - **Gilt** has three modes. On is the full brass: rich ink, a wash you can see (`--gilt-wash`, 12%), a bright rim (`--gilt-line`) and the glow. Subtle greys the ink and halves the wash and rim, with a hairline for the glow. Off removes the brass. Components draw gilt grounds with `--gilt-wash` and gilt rules with `--gilt-line`, so every mode reaches them.
-- Settings shows a note under Surfaces and Film grain whenever Transparency, the system or Effects overrides them, naming and linking the setting.
+- Settings shows a note under Surfaces and Film grain whenever Transparency, the system or Effects overrides them, naming and linking the setting. A window that cannot blur (no `backdrop-filter`) gets the solid material, and Surfaces says so. Effects on Automatic measures slow frames against the display's own frame time, so a 50 Hz or 48 Hz panel is not taken for a struggling machine.
 
 ## Type
 

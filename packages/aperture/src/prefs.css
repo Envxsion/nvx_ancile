@@ -122,8 +122,8 @@
   --lift-2: #161926;
   --lift-3: #1c2030;
   --panel: #131521;
-  --glass: rgb(22 25 38 / 0.64);
-  --glass-thick: rgb(22 25 38 / 0.8);
+  --glass: rgb(22 25 38 / 0.56);
+  --glass-thick: rgb(22 25 38 / 0.7);
 }
 :root[data-theme='dark'][data-tint='obsidian'] {
   --void: #050505;
@@ -134,8 +134,8 @@
   --lift-2: #141415;
   --lift-3: #1a1a1c;
   --panel: #111112;
-  --glass: rgb(20 20 21 / 0.64);
-  --glass-thick: rgb(20 20 21 / 0.8);
+  --glass: rgb(20 20 21 / 0.56);
+  --glass-thick: rgb(20 20 21 / 0.7);
 }
 
 /* ---- Contrast */
@@ -271,14 +271,14 @@
   box-shadow: var(--elev-4);
 }
 :root[data-material='glass']:not([data-fx='lite']) .m-glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
+  background: var(--glass-sheen), var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
 }
 :root[data-material='glass']:not([data-fx='lite']) .m-glass-thick {
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4);
-  backdrop-filter: blur(28px) saturate(1.4);
+  background: var(--glass-sheen), var(--glass-thick);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(28px) saturate(1.5);
 }
 .m-vault {
   background: var(--void-deep);

@@ -124,12 +124,24 @@ export function useSet<G extends PrefGroup>(group: G) {
  * own choice, or their system's; then Effects (Light, or Automatic while
  * the frame governor has it light).
  */
-export type LookOverride = 'transparency' | 'system-transparency' | 'effects' | 'effects-auto';
+export type LookOverride =
+  | 'transparency'
+  | 'system-transparency'
+  | 'unsupported'
+  | 'effects'
+  | 'effects-auto';
 
-export function lookOverride(prefs: Preferences, autoLite: boolean): LookOverride | null {
+export function lookOverride(
+  prefs: Preferences,
+  autoLite: boolean,
+  what: 'glass' | 'grain' = 'glass',
+): LookOverride | null {
   const look = lookOf(prefs, autoLite);
   if (look.transparency === 'reduced')
     return prefs.accessibility.transparency === 'reduced' ? 'transparency' : 'system-transparency';
+  // This window cannot blur (lookOf made the material solid); the grain does not need it.
+  if (what === 'glass' && prefs.appearance.material === 'glass' && look.material === 'solid')
+    return 'unsupported';
   if (look.fx === 'lite') return prefs.advanced.performance === 'lite' ? 'effects' : 'effects-auto';
   return null;
 }
@@ -138,12 +150,12 @@ const TRANSPARENCY_QUERY = '(prefers-reduced-transparency: reduce)';
 const MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 /** lookOverride, live: the prefs, the governor and the OS. */
-export function useLookOverride(): LookOverride | null {
+export function useLookOverride(what: 'glass' | 'grain' = 'glass'): LookOverride | null {
   const prefs = usePrefs((s) => s.prefs);
   const autoLite = usePrefs((s) => s.autoLite);
   // lookOf asks the OS itself; subscribing here redraws the row when it changes.
   useMediaQuery(TRANSPARENCY_QUERY);
-  return lookOverride(prefs, autoLite);
+  return lookOverride(prefs, autoLite, what);
 }
 
 /** The line under a row's words that says why its choice is not in force. */
@@ -161,7 +173,7 @@ function LookNote({ what }: { what: 'glass' | 'grain' }) {
   const chosen = usePrefs((s) =>
     what === 'glass' ? s.prefs.appearance.material === 'glass' : s.prefs.appearance.grain,
   );
-  const why = useLookOverride();
+  const why = useLookOverride(what);
   if (!chosen || !why) return null;
   return (
     <RowNote>
@@ -224,6 +236,13 @@ export function OverrideNote({ what, why }: { what: 'glass' | 'grain'; why: Look
       return (
         <>
           {off} while your system reduces transparency (see {transparency}).
+        </>
+      );
+    case 'unsupported':
+      return (
+        <>
+          Solid here: this window cannot blur what is behind a surface, so glass would only be a see-through
+          tint. Updating Microsoft Edge WebView2, or your browser, brings it back.
         </>
       );
     case 'effects':

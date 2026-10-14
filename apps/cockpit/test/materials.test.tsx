@@ -34,7 +34,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 import { queryClient } from '../src/lib/query';
 import { AccessibilityGroup, AdvancedGroup, AppearanceGroup } from '../src/routes/settings/groups';
 import { lookOverride } from '../src/routes/settings/rows';
-import { lookOf, migratePrefs, usePrefs } from '../src/state/prefs';
+import { frameIsSlow, lookOf, migratePrefs, usePrefs } from '../src/state/prefs';
 import {
   here,
   oklab,
@@ -212,6 +212,68 @@ describe('Settings notes while an override is in force', () => {
     );
     set('advanced', { performance: 'full' });
     expect(noteOf('Effects')).toBeNull();
+  });
+});
+
+describe('glass shows where the window can blur, and says why where it cannot', () => {
+  const realCss = globalThis.CSS;
+  afterEach(() => {
+    globalThis.CSS = realCss;
+  });
+  const noBlur = () => {
+    globalThis.CSS = { supports: () => false } as unknown as typeof CSS;
+  };
+
+  it('a window without backdrop-filter gets the solid material, and Surfaces says why', () => {
+    noBlur();
+    expect(resolveLook(lookOf(prefs({}))).attrs.material).toBe('solid');
+    expect(lookOverride(prefs({}), false)).toBe('unsupported');
+    // Grain needs no blur: nothing overrides it.
+    expect(lookOverride(prefs({ appearance: { grain: true } }), false, 'grain')).toBeNull();
+    // Solid chosen: nothing to explain.
+    expect(lookOverride(prefs({ appearance: { material: 'solid' } }), false)).toBeNull();
+    render(<AppearanceGroup />, { wrapper: Shell });
+    expect(noteOf('Surfaces')).toHaveTextContent('Solid here: this window cannot blur');
+  });
+
+  it('a window that can blur keeps glass, with no note', () => {
+    globalThis.CSS = { supports: (p: string) => p === 'backdrop-filter' } as unknown as typeof CSS;
+    expect(resolveLook(lookOf(prefs({}))).attrs.material).toBe('glass');
+    expect(lookOverride(prefs({}), false)).toBeNull();
+  });
+
+  it.each([
+    { theme: 'dark' as const },
+    { theme: 'light' as const },
+    { theme: 'dark' as const, tint: 'ink' },
+    { theme: 'dark' as const, tint: 'obsidian' },
+  ])('a glass dialog lets the screen behind it show through ($theme $tint)', (look) => {
+    // What reaches the eye of the screen behind: through the scrim, then the glass.
+    // At 80% glass over a 62% scrim it was under 8%: glass looked solid.
+    const t = tokensFor(look);
+    const scrim = parse(t['--glass-scrim'])[3];
+    for (const glass of ['--glass', '--glass-thick'])
+      expect((1 - parse(t[glass])[3]) * (1 - scrim)).toBeGreaterThanOrEqual(0.18);
+    expect(t['--glass-sheen']).toMatch(/linear-gradient/);
+  });
+
+  it('the scrim under glass is the light one, only while glass is in force', () => {
+    const css = stripComments(read('../src/styles/overlays.css'));
+    const rule = topRules(css).find((r) => /\.scrim\b/.test(r.prelude) && /--glass-scrim/.test(r.body));
+    expect(rule?.prelude).toContain("[data-material='glass']");
+    expect(rule?.prelude).toContain(":not([data-fx='lite'])");
+    // It outweighs the palette's own scrim.
+    expect(specificity(rule?.prelude ?? '')[1]).toBeGreaterThan(
+      specificity("[data-theme='light'] .scrim--palette")[1],
+    );
+  });
+
+  it('the frame governor measures against the display: a 50 Hz panel is not "struggling"', () => {
+    expect(frameIsSlow(20.5, 20)).toBe(false); // 50 Hz, every frame on time
+    expect(frameIsSlow(21, 20.8)).toBe(false); // 48 Hz
+    expect(frameIsSlow(17, 16.7)).toBe(false); // 60 Hz
+    expect(frameIsSlow(34, 16.7)).toBe(true); // 60 Hz, dropping every other frame
+    expect(frameIsSlow(45, 20)).toBe(true);
   });
 });
 

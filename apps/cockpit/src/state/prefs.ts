@@ -59,6 +59,17 @@ const prefersReducedMotion = () =>
 const prefersReducedTransparency = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-transparency: reduce)').matches;
 
+/**
+ * Whether this window can blur what is behind an element. Every current
+ * WebView2 and browser can; one that cannot would show glass as a flat
+ * see-through tint, so it gets the solid material and Settings says why.
+ */
+export function backdropSupported(): boolean {
+  const css = typeof CSS === 'undefined' ? undefined : CSS;
+  if (!css || typeof css.supports !== 'function') return true;
+  return css.supports('backdrop-filter', 'blur(1px)') || css.supports('-webkit-backdrop-filter', 'blur(1px)');
+}
+
 export function lookOf(p: Preferences, autoLite = false): Look {
   const a = p.appearance;
   const x = p.accessibility;
@@ -68,7 +79,7 @@ export function lookOf(p: Preferences, autoLite = false): Look {
     accent: a.accent,
     tint: a.tint,
     gilt: a.gilt,
-    material: a.material,
+    material: a.material === 'glass' && !backdropSupported() ? 'solid' : a.material,
     grain: a.grain,
     mark: a.mark,
     font: a.font,
@@ -249,21 +260,30 @@ export function startPrefs(): () => void {
 }
 
 /**
- * The lite governor: while performance is "auto", frames slower than 20 ms
- * for two seconds running turn off blur and grain; a calm minute turns them
- * back on.
+ * The lite governor: while performance is "auto", frames well over this
+ * display's own frame time for two seconds running turn off blur and grain;
+ * a calm minute turns them back on. "Slow" is measured against the
+ * display, not a fixed 20 ms: on a 50 Hz or 48 Hz panel every frame takes
+ * 20 ms or more, and the fixed line kept glass off on them for good.
  */
+export function frameIsSlow(dt: number, frame: number): boolean {
+  return dt > Math.max(20, frame * 1.5);
+}
+
 export function startFrameGovernor(): () => void {
   let raf = 0;
   let last = performance.now();
   let slowSince = 0;
   let calmSince = 0;
+  // This display's frame time: the shortest interval seen lately, eased up slowly.
+  let frame = 1000 / 60;
   const tick = (now: number) => {
     const dt = now - last;
     last = now;
+    if (dt > 4 && dt < 250) frame = dt < frame ? dt : frame + (dt - frame) * 0.002;
     const { autoLite, setAutoLite, prefs } = usePrefs.getState();
     if (prefs.advanced.performance === 'auto' && document.visibilityState === 'visible' && dt < 250) {
-      if (dt > 20) {
+      if (frameIsSlow(dt, frame)) {
         calmSince = 0;
         slowSince ||= now;
         if (!autoLite && now - slowSince > 2000) setAutoLite(true);

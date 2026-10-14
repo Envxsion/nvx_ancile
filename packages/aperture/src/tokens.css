@@ -106,8 +106,19 @@
   /* The inset well: code, inputs, the composer field */
   --vault: inset 0 1px 2px rgb(0 0 0 / 0.5), inset 0 0 0 1px var(--hair);
   --sheen: linear-gradient(180deg, rgb(255 255 255 / 0.025), transparent 40%);
-  --glass: rgb(23 27 34 / 0.64);
-  --glass-thick: rgb(23 27 34 / 0.8);
+  /* Glass: thin enough that the blurred screen shows through (a flat tint
+     at 80% over a 62% scrim let 8% through: it looked solid), lit along
+     its top edge so it reads as a sheet even over a quiet ground, and laid
+     on a lighter scrim (--glass-scrim) so there is a screen to blur. */
+  --glass: rgb(23 27 34 / 0.56);
+  --glass-thick: rgb(23 27 34 / 0.7);
+  --glass-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.07),
+    rgb(255 255 255 / 0.015) 28%,
+    transparent 60%
+  );
+  --glass-scrim: rgb(3 4 5 / 0.36);
   --shadow-pop: var(--elev-3);
   --shadow-modal: var(--elev-4);
   --scrim: rgb(3 4 5 / 0.62);
@@ -239,8 +250,10 @@
     0 40px 90px -30px rgb(16 24 32 / 0.35);
   --vault: inset 0 1px 2px rgb(16 24 32 / 0.08), inset 0 0 0 1px var(--hair-2);
   --sheen: linear-gradient(180deg, rgb(255 255 255 / 0.6), transparent 40%);
-  --glass: rgb(255 255 255 / 0.64);
-  --glass-thick: rgb(255 255 255 / 0.8);
+  --glass: rgb(255 255 255 / 0.56);
+  --glass-thick: rgb(255 255 255 / 0.7);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.55), transparent 45%);
+  --glass-scrim: rgb(236 238 240 / 0.4);
   --shadow-pop: var(--elev-3);
   --shadow-modal: var(--elev-4);
   --scrim: rgb(236 238 240 / 0.72);

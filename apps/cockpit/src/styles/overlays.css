@@ -27,6 +27,11 @@
 .scrim--light {
   background: rgb(var(--void-rgb) / 0.3);
 }
+/* Under glass the scrim is lighter: the dialog's glass needs a screen to
+   blur, and at 62% there was next to nothing left to see through it. */
+:root[data-material='glass']:not([data-fx='lite']) .scrim:not(.scrim--light) {
+  background: var(--glass-scrim);
+}
 
 .dialog {
   position: fixed;
