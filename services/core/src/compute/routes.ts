@@ -43,23 +43,44 @@ export const RUNPOD_KEY_SECRET = 'compute.runpod_api_key';
 export function providerSync(client: ControllerClient, secrets: SecretStore) {
   let running: Promise<void> | null = null;
   let refused: string | null = null;
+  // Why the saved key is not in use yet, for Compute to say (null once it is).
+  let problem: KeyProblem | null = null;
   const once = async () => {
     if (!client.configured) return;
     const key = await secrets.get(RUNPOD_KEY_SECRET);
-    if (!key || key === refused) return;
+    if (!key) {
+      problem = null;
+      return;
+    }
+    if (key === refused) return;
     const now = await client.get<ProviderStatus>('/provider');
-    if (now.connected) return;
+    if (now.connected) {
+      problem = null;
+      return;
+    }
     try {
       await client.send('PUT', '/provider', { kind: 'runpod', api_key: key });
       refused = null;
+      problem = null;
       log.info('the saved RunPod key was given to the Controller');
     } catch (err) {
-      // RunPod said no (a revoked key): asking it every minute would change nothing.
-      if (err instanceof AncileError && err.code === 'provider.auth') refused = key;
+      // Only RunPod turning the key down is a refusal (a revoked key): asking
+      // again every minute would change nothing. RunPod or the Controller not
+      // answering (the network still coming up at launch) is tried again.
+      const auth = err instanceof AncileError && err.code === 'provider.auth';
+      if (auth) refused = key;
+      problem = {
+        refused: auth,
+        title: err instanceof AncileError ? err.title : 'RunPod could not be reached',
+        hint:
+          err instanceof AncileError && err.hint
+            ? err.hint
+            : 'NVX Ancile tries the saved key again every minute.',
+      };
       throw err;
     }
   };
-  return (): Promise<void> => {
+  const sync = (): Promise<void> => {
     running ??= once()
       .catch((err: unknown) => log.debug({ err }, 'the RunPod key was not given to the Controller'))
       .finally(() => {
@@ -67,6 +88,14 @@ export function providerSync(client: ControllerClient, secrets: SecretStore) {
       });
     return running;
   };
+  return Object.assign(sync, { problem: () => problem });
+}
+
+/** Why a saved RunPod key is not connected: refused by RunPod, or not tried yet (no answer). */
+export interface KeyProblem {
+  refused: boolean;
+  title: string;
+  hint: string;
 }
 
 /** Connect RunPod: the Controller checks the key with RunPod first; only then is it saved here. */
@@ -133,6 +162,8 @@ export function computeRoutes(deps: {
   secrets?: SecretStore;
   /** Pro's licence check; absent (tests, older wiring) means no limit. */
   hasFeature?: (f: 'fleet') => boolean;
+  /** The one key sync Core runs (start, each minute, reconnects), so Compute says what it last saw. */
+  sync?: ReturnType<typeof providerSync>;
 }) {
   const r = new Hono<AppEnv>();
   const { client } = deps;
@@ -154,23 +185,28 @@ export function computeRoutes(deps: {
     }
   });
 
-  const sync = deps.secrets ? providerSync(client, deps.secrets) : null;
+  const sync = deps.sync ?? (deps.secrets ? providerSync(client, deps.secrets) : null);
 
   // Which provider manages nodes, and connecting RunPod from the app (the key
   // is checked by the Controller against RunPod before it is saved here).
   r.get('/compute/provider', async (c) => {
     await sync?.();
     const status = await client.get<ProviderStatus>('/provider');
-    return c.json({ ...status, key_saved: !!(await deps.secrets?.get(RUNPOD_KEY_SECRET)) });
+    const key_saved = !!(await deps.secrets?.get(RUNPOD_KEY_SECRET));
+    return c.json({
+      ...status,
+      key_saved,
+      key_problem: key_saved && !status.connected ? (sync?.problem() ?? null) : null,
+    });
   });
   r.put('/compute/provider', async (c) => {
     const { api_key } = await body(c, z.object({ api_key: z.string().trim().min(8).max(400) }));
     const status = await connectRunPod(client, deps.secrets, api_key);
-    return c.json({ ...status, key_saved: !!deps.secrets });
+    return c.json({ ...status, key_saved: !!deps.secrets, key_problem: null });
   });
   r.delete('/compute/provider', async (c) => {
     const status = await disconnectRunPod(client, deps.secrets);
-    return c.json({ ...status, key_saved: false });
+    return c.json({ ...status, key_saved: false, key_problem: null });
   });
 
   r.get('/compute/nodes', async (c) => c.json(await client.get('/nodes')));

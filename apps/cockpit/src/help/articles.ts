@@ -395,7 +395,7 @@ Each card shows the hourly rate, the hours and money spent this month, and the p
 
 Until you connect a provider, two **sample** nodes show how it all works. They start, stop and answer, and cost nothing.
 
-**Connect RunPod** opens **Settings → API keys** at the RunPod row: the one place keys are entered. Paste an API key from RunPod (Settings → API Keys, with read and write access to pods); it is checked with RunPod before anything changes and kept encrypted on this computer. NVX Ancile gives it to the Controller again every time the Controller starts, so you enter it once. To set a pod up yourself, **Add a node** → *Setting the pod up yourself?* has the exact start command and settings to copy.`,
+**Connect RunPod** opens **Settings → API keys** at the RunPod row: the one place keys are entered. Paste an API key from RunPod (Settings → API Keys, with read and write access to pods); it is checked with RunPod before anything changes and kept encrypted on this computer. NVX Ancile gives it to the Controller again every time the Controller starts, so you enter it once. With a key saved, Compute never asks for it again: if RunPod has not answered yet it says so and tries again each minute (or now, with **Try again**), and if RunPod refused the key it says why and leads to changing it. To set a pod up yourself, **Add a node** → *Setting the pod up yourself?* has the exact start command and settings to copy.`,
       },
       {
         id: 'compute-rules',

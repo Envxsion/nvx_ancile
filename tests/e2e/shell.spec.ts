@@ -72,7 +72,7 @@ test.describe('shell', () => {
     test.skip(info.project.name !== 'reduced-motion');
     await page.goto('/');
     const duration = await page.evaluate(() => {
-      const el = document.querySelector('svg.ancile-mark .inner');
+      const el = document.querySelector('.ancile-mark .inner');
       return el ? getComputedStyle(el).animationDuration : '0s';
     });
     expect(parseFloat(duration)).toBeLessThan(0.1);

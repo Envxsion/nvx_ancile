@@ -1637,7 +1637,7 @@ async function main() {
       }),
       stateRoutes(new PgStateStore(sql, owner.userId)),
       notificationRoutes(notifications),
-      computeRoutes({ client: compute, secrets, hasFeature: hasProFeature }),
+      computeRoutes({ client: compute, secrets, hasFeature: hasProFeature, sync: syncProvider }),
       credentialRoutes({
         secrets,
         env: process.env,

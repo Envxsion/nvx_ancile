@@ -34,7 +34,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 import { queryClient } from '../src/lib/query';
 import { AccessibilityGroup, AdvancedGroup, AppearanceGroup } from '../src/routes/settings/groups';
 import { lookOverride } from '../src/routes/settings/rows';
-import { lookOf, usePrefs } from '../src/state/prefs';
+import { frameIsSlow, lookOf, migratePrefs, usePrefs } from '../src/state/prefs';
 import {
   here,
   oklab,
@@ -131,6 +131,12 @@ const set = <G extends 'appearance' | 'accessibility' | 'advanced'>(g: G, patch:
   act(() => usePrefs.getState().set(g, patch as never));
 
 describe('Settings notes while an override is in force', () => {
+  // Grain is off by default; these are about what overrides it once it is on.
+  beforeEach(() => {
+    usePrefs.setState({
+      prefs: { ...DEFAULT_PREFERENCES, appearance: { ...DEFAULT_PREFERENCES.appearance, grain: true } },
+    });
+  });
   it('no notes when nothing overrides', () => {
     render(<AppearanceGroup />, { wrapper: Shell });
     expect(noteOf('Surfaces')).toBeNull();
@@ -206,6 +212,68 @@ describe('Settings notes while an override is in force', () => {
     );
     set('advanced', { performance: 'full' });
     expect(noteOf('Effects')).toBeNull();
+  });
+});
+
+describe('glass shows where the window can blur, and says why where it cannot', () => {
+  const realCss = globalThis.CSS;
+  afterEach(() => {
+    globalThis.CSS = realCss;
+  });
+  const noBlur = () => {
+    globalThis.CSS = { supports: () => false } as unknown as typeof CSS;
+  };
+
+  it('a window without backdrop-filter gets the solid material, and Surfaces says why', () => {
+    noBlur();
+    expect(resolveLook(lookOf(prefs({}))).attrs.material).toBe('solid');
+    expect(lookOverride(prefs({}), false)).toBe('unsupported');
+    // Grain needs no blur: nothing overrides it.
+    expect(lookOverride(prefs({ appearance: { grain: true } }), false, 'grain')).toBeNull();
+    // Solid chosen: nothing to explain.
+    expect(lookOverride(prefs({ appearance: { material: 'solid' } }), false)).toBeNull();
+    render(<AppearanceGroup />, { wrapper: Shell });
+    expect(noteOf('Surfaces')).toHaveTextContent('Solid here: this window cannot blur');
+  });
+
+  it('a window that can blur keeps glass, with no note', () => {
+    globalThis.CSS = { supports: (p: string) => p === 'backdrop-filter' } as unknown as typeof CSS;
+    expect(resolveLook(lookOf(prefs({}))).attrs.material).toBe('glass');
+    expect(lookOverride(prefs({}), false)).toBeNull();
+  });
+
+  it.each([
+    { theme: 'dark' as const },
+    { theme: 'light' as const },
+    { theme: 'dark' as const, tint: 'ink' },
+    { theme: 'dark' as const, tint: 'obsidian' },
+  ])('a glass dialog lets the screen behind it show through ($theme $tint)', (look) => {
+    // What reaches the eye of the screen behind: through the scrim, then the glass.
+    // At 80% glass over a 62% scrim it was under 8%: glass looked solid.
+    const t = tokensFor(look);
+    const scrim = parse(t['--glass-scrim'])[3];
+    for (const glass of ['--glass', '--glass-thick'])
+      expect((1 - parse(t[glass])[3]) * (1 - scrim)).toBeGreaterThanOrEqual(0.18);
+    expect(t['--glass-sheen']).toMatch(/linear-gradient/);
+  });
+
+  it('the scrim under glass is the light one, only while glass is in force', () => {
+    const css = stripComments(read('../src/styles/overlays.css'));
+    const rule = topRules(css).find((r) => /\.scrim\b/.test(r.prelude) && /--glass-scrim/.test(r.body));
+    expect(rule?.prelude).toContain("[data-material='glass']");
+    expect(rule?.prelude).toContain(":not([data-fx='lite'])");
+    // It outweighs the palette's own scrim.
+    expect(specificity(rule?.prelude ?? '')[1]).toBeGreaterThan(
+      specificity("[data-theme='light'] .scrim--palette")[1],
+    );
+  });
+
+  it('the frame governor measures against the display: a 50 Hz panel is not "struggling"', () => {
+    expect(frameIsSlow(20.5, 20)).toBe(false); // 50 Hz, every frame on time
+    expect(frameIsSlow(21, 20.8)).toBe(false); // 48 Hz
+    expect(frameIsSlow(17, 16.7)).toBe(false); // 60 Hz
+    expect(frameIsSlow(34, 16.7)).toBe(true); // 60 Hz, dropping every other frame
+    expect(frameIsSlow(45, 20)).toBe(true);
   });
 });
 
@@ -340,15 +408,27 @@ describe('the grain shows on every ground', () => {
     ['dark', '--lift-3'],
     ['light', '--void-deep'],
     ['light', '--lift'],
-  ] as const)('a speck a fifth off mid-grey moves the %s %s by at least 6 of 255', (theme, ground) => {
+  ] as const)('when on, a speck a fifth off mid-grey moves the %s %s by 3 to 8 of 255', (theme, ground) => {
     const t = tokensFor({ theme, tint: theme === 'dark' ? 'obsidian' : undefined });
     const g = parse(t[ground]);
     const level = (0.2126 * g[0] + 0.7152 * g[1] + 0.0722 * g[2]) / 255;
     const opacity = Number(t['--grain-opacity']);
     const strongest = Math.max(Math.abs(speck(level, 0.7, opacity)), Math.abs(speck(level, 0.3, opacity)));
-    expect(strongest).toBeGreaterThanOrEqual(6);
-    // ...and never so strong that it reads as dirt (a sixth of the way to white or black).
-    expect(strongest).toBeLessThan(255 / 6);
+    expect(strongest).toBeGreaterThanOrEqual(3);
+    // ...and never so strong that it reads as dirt: 10% opacity (about 10 of 255) was too much.
+    expect(strongest).toBeLessThanOrEqual(8);
+  });
+
+  it('is off by default, and goes off once for preferences stored when it was on by default', () => {
+    expect(DEFAULT_PREFERENCES.appearance.grain).toBe(false);
+    expect(resolveLook(lookOf(prefs({}))).attrs.grain).toBe('off');
+    const stored = {
+      prefs: { appearance: { ...DEFAULT_PREFERENCES.appearance, grain: true } },
+      changedAt: 5,
+    };
+    expect(migratePrefs(stored, 1)).toMatchObject({ prefs: { appearance: { grain: false } }, changedAt: 5 });
+    // A choice made since stays as it is.
+    expect(migratePrefs(stored, 2)).toBe(stored);
   });
 });
 

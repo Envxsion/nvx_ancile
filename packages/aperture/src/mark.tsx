@@ -6,16 +6,20 @@
  * ------------------------------------------------------------------
  *  Purpose  |  One mark for every surface: the notched shield of the
  *           |  ancile, two open halves around a small broken ring.
- *  How      |  Inline SVG, animated in CSS on the compositor. State is
- *           |  a data attribute, so the mark can tell you what the AI
- *           |  is doing (thinking, streaming, waiting on you) from the
- *           |  corner of the eye.
+ *  How      |  One <svg> per moving part (the two halves, the ring, the
+ *           |  core), stacked in a span and animated in CSS. Each part
+ *           |  is a box of its own, so its turn, breath or beat runs
+ *           |  on the compositor: a transform on a path inside one SVG
+ *           |  is redrawn on the main thread every frame, and froze
+ *           |  whenever the app was busy (an answer streaming in).
+ *           |  State is a data attribute, so the mark can tell you
+ *           |  what the AI is doing from the corner of the eye.
  *  Note     |  Geometry is exported so icon generation and the app
  *           |  never drift: the mark in the titlebar is the logo.
  * ------------------------------------------------------------------
  */
 
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export type MarkState = 'idle' | 'thinking' | 'streaming' | 'ask' | 'offline' | 'alarm';
 
@@ -41,27 +45,46 @@ export interface AncileMarkProps {
   className?: string;
 }
 
-export function AncileMark({ size = 22, state = 'idle', tone, label, className }: AncileMarkProps) {
-  const style = tone ? ({ '--mark-tone': tone } as CSSProperties) : undefined;
+/** One moving part: the same 34×34 grid as the whole, laid over the others. */
+function Part({ className, children }: { className: string; children: ReactNode }) {
   return (
     <svg
-      className={['ancile-mark', className].filter(Boolean).join(' ')}
+      className={`ancile-mark__part ${className}`}
       viewBox={MARK.viewBox}
-      width={size}
-      height={size}
+      fill="none"
+      strokeWidth={MARK.stroke}
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {children}
+    </svg>
+  );
+}
+
+export function AncileMark({ size = 22, state = 'idle', tone, label, className }: AncileMarkProps) {
+  const style = { width: size, height: size, ...(tone ? { '--mark-tone': tone } : {}) } as CSSProperties;
+  return (
+    <span
+      className={['ancile-mark', className].filter(Boolean).join(' ')}
       data-state={state}
       style={style}
-      role={label ? 'img' : undefined}
-      aria-label={label}
-      aria-hidden={label ? undefined : true}
+      // An image with a name, or hidden beside the wordmark.
+      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     >
-      <g fill="none" strokeWidth={MARK.stroke} strokeLinecap="round">
-        <path className="half half-l" d={MARK.left} opacity={MARK.opacity.left} />
-        <path className="half half-r" d={MARK.right} opacity={MARK.opacity.right} />
-        <path className="inner" d={MARK.inner} opacity={MARK.opacity.inner} />
-      </g>
-      <circle className="core" {...MARK.core} />
-    </svg>
+      <Part className="half half-l">
+        <path d={MARK.left} opacity={MARK.opacity.left} />
+      </Part>
+      <Part className="half half-r">
+        <path d={MARK.right} opacity={MARK.opacity.right} />
+      </Part>
+      <Part className="inner">
+        <path d={MARK.inner} opacity={MARK.opacity.inner} />
+      </Part>
+      <Part className="core">
+        <circle {...MARK.core} />
+      </Part>
+    </span>
   );
 }
 

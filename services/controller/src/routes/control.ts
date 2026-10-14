@@ -39,7 +39,7 @@ export interface ControlDeps extends ExecutorDeps {
   store: Store;
   costCapUsd: number;
   newId?: (prefix: 'opn' | 'rul') => string;
-  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean }>;
+  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean; refused?: boolean }>;
   /** CONTROLLER_NODE_TOKEN: the key every node's vLLM requires, and the Controller sends. */
   nodeToken?: string;
 }
@@ -113,8 +113,14 @@ export function controlRoutes(deps: ControlDeps) {
         'Its provider is set where it is deployed.',
       );
     const r = await deps.connectProvider(parsed.data.api_key);
-    if (!r.ok) return apiError(c, 422, 'provider.auth', 'RunPod did not accept that key', r.detail);
-    const { ok: _ok, ...status } = r;
+    if (!r.ok && r.refused)
+      return apiError(c, 422, 'provider.auth', 'RunPod did not accept that key', r.detail);
+    // RunPod not answering says nothing about the key: Core keeps it and tries again.
+    if (!r.ok)
+      return apiError(c, 503, 'provider.unreachable', 'RunPod could not be reached', r.detail, {
+        retryable: true,
+      });
+    const { ok: _ok, refused: _refused, ...status } = r;
     return c.json(status);
   });
 

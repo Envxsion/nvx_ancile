@@ -18,6 +18,8 @@ const KEY = 'rpa_good_key_000';
 function controller(start: 'fake' | 'none' = 'fake') {
   let kind: string = start;
   const calls: string[] = [];
+  /** RunPod not answering (the network not up yet at launch): the Controller says 503. */
+  const net = { offline: false };
   const client: ControllerClient = {
     configured: true,
     async get<T>(path: string) {
@@ -27,6 +29,14 @@ function controller(start: 'fake' | 'none' = 'fake') {
     async send<T>(method: string, path: string, body?: unknown) {
       calls.push(`${method} ${path}`);
       if (method === 'PUT') {
+        if (net.offline)
+          throw new AncileError({
+            code: 'provider.unreachable',
+            title: 'RunPod could not be reached',
+            hint: 'No response from RunPod.',
+            status: 503,
+            retryable: true,
+          });
         if ((body as { api_key: string }).api_key !== KEY)
           throw new AncileError({
             code: 'provider.auth',
@@ -43,7 +53,7 @@ function controller(start: 'fake' | 'none' = 'fake') {
       return new Response();
     },
   };
-  return { client, calls, restart: () => (kind = start) };
+  return { client, calls, net, restart: () => (kind = start) };
 }
 
 const secretsStore = () => new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64')));
@@ -140,5 +150,36 @@ describe('connecting RunPod from the app', () => {
     const { call } = app(c.client, secrets);
     const r = await call('GET', '/compute/provider');
     expect(await r.json()).toMatchObject({ kind: 'runpod', connected: true, key_saved: true });
+  });
+
+  it('a key saved before the first launch connects even when RunPod did not answer at first', async () => {
+    // The key is already in the store when Core first starts; at that moment
+    // RunPod cannot be reached. That is no refusal: the next try uses it.
+    const c = controller('none');
+    const secrets = secretsStore();
+    await secrets.set(RUNPOD_KEY_SECRET, KEY);
+    const sync = providerSync(c.client, secrets);
+    c.net.offline = true;
+    await sync();
+    expect(sync.problem()).toMatchObject({ refused: false, title: 'RunPod could not be reached' });
+    c.net.offline = false;
+    c.calls.length = 0;
+    await sync();
+    expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+    expect(sync.problem()).toBeNull();
+  });
+
+  it('Compute hears why a saved key is not connected, and never that it is missing', async () => {
+    const c = controller('none');
+    const secrets = secretsStore();
+    await secrets.set(RUNPOD_KEY_SECRET, 'rpa_revoked_000');
+    const { call } = app(c.client, secrets);
+    const r = await call('GET', '/compute/provider');
+    expect(await r.json()).toMatchObject({
+      kind: 'none',
+      connected: false,
+      key_saved: true,
+      key_problem: { refused: true, title: 'RunPod did not accept that key' },
+    });
   });
 });

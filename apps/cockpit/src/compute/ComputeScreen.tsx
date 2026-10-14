@@ -529,6 +529,11 @@ export function ComputeScreen() {
   const sample = Boolean(status.data?.sample);
   // Nothing connected (a real install before Connect RunPod): connecting comes first.
   const unconnected = provider.data ? !provider.data.connected && provider.data.kind === 'none' : false;
+  // A key is saved but RunPod is not connected yet: never ask for a key you
+  // already gave. Say why instead, and try the saved key again.
+  const saved = unconnected && !!provider.data?.key_saved;
+  const problem = saved ? (provider.data?.key_problem ?? null) : null;
+  const retry = () => void provider.refetch().then(() => status.refetch());
   const runpod = status.data?.provider === 'runpod' || provider.data?.kind === 'runpod';
   const list = (nodes.data ?? []).filter((n) => n.observed_state !== 'terminated');
 
@@ -540,7 +545,22 @@ export function ComputeScreen() {
           wakes it when you ask it something.
         </p>
         <div className="compute__bar-actions">
-          {sample || unconnected ? (
+          {saved && !problem?.refused ? (
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={retry}
+              disabled={provider.isFetching}
+            >
+              <Icon name="link" size={14} />
+              Connect with the saved key
+            </button>
+          ) : saved ? (
+            <button type="button" className="btn btn--primary btn--sm" onClick={keyScreen}>
+              <Icon name="key" size={14} />
+              Change the RunPod key
+            </button>
+          ) : sample || unconnected ? (
             <button type="button" className="btn btn--primary btn--sm" onClick={keyScreen}>
               <Icon name="link" size={14} />
               Connect RunPod
@@ -551,7 +571,7 @@ export function ComputeScreen() {
               Add a node
             </button>
           )}
-          {runpod ? (
+          {runpod || saved ? (
             <DropMenu
               items={[
                 {
@@ -594,7 +614,24 @@ export function ComputeScreen() {
         {nodes.isPending ? (
           <Skeleton lines={5} label="Loading nodes" />
         ) : list.length === 0 ? (
-          unconnected ? (
+          saved ? (
+            <EmptyState
+              icon="node"
+              title={problem ? problem.title : 'Connecting RunPod with your saved key'}
+              body={
+                problem
+                  ? problem.refused
+                    ? `${problem.hint} Change the key in Settings → API keys.`
+                    : `${problem.hint} NVX Ancile tries the saved key again every minute.`
+                  : 'Your RunPod key is saved. It is given to the Controller each time NVX Ancile starts.'
+              }
+              action={
+                problem?.refused
+                  ? { label: 'Change the RunPod key', onClick: keyScreen }
+                  : { label: 'Try again', onClick: retry }
+              }
+            />
+          ) : unconnected ? (
             <EmptyState
               icon="node"
               title="No GPU provider connected"

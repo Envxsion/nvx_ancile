@@ -67,7 +67,7 @@ export function providerSwitch(deps: {
   connect: (apiKey: string) => ComputeProvider;
   onConnected?: () => void;
 }) {
-  return async (apiKey: string | null): Promise<ProviderStatus & { ok: boolean }> => {
+  return async (apiKey: string | null): Promise<ProviderStatus & { ok: boolean; refused?: boolean }> => {
     if (!apiKey) {
       const idle = await deps.samples();
       deps.provider.use(idle);
@@ -84,6 +84,7 @@ export function providerSwitch(deps: {
     if (!ping.ok)
       return {
         ok: false,
+        refused: ping.refused === true,
         kind: deps.provider.id,
         connected: !['fake', 'none'].includes(deps.provider.id),
         detail: ping.detail,

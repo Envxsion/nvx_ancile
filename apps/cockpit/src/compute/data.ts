@@ -287,6 +287,12 @@ export interface ProviderInfo {
   connected: boolean;
   detail: string;
   key_saved: boolean;
+  /**
+   * Why a saved key is not connected yet: RunPod refused it, or RunPod (or
+   * the Controller) did not answer and Core tries it again each minute.
+   * Null when there is no saved key, or it is connected.
+   */
+  key_problem?: { refused: boolean; title: string; hint: string } | null;
 }
 
 export function useProvider(enabled = true) {
