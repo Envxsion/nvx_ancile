@@ -24,6 +24,8 @@ export default defineConfig({
       }
     : {},
   test: {
+    // Several suites scan every source file; on Windows under load that can pass 5 s.
+    testTimeout: 15_000,
     environment: 'jsdom',
     include: ['test/**/*.test.{ts,tsx}', ...(hasPro ? ['../../pro/cockpit/test/**/*.test.{ts,tsx}'] : [])],
     setupFiles: ['test/setup.ts'],
