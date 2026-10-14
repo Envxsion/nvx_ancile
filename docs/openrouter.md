@@ -4,6 +4,10 @@ OpenRouter serves each model through several providers. By default it spreads re
 
 Code: `services/core/src/openrouter/` (Core), `apps/cockpit/src/openrouter/` (Cockpit), `packages/contracts/src/openrouter.ts` (shapes). Configuration: `config/openrouter.yaml`.
 
+## Adding OpenRouter models
+
+OpenRouter models are added one at a time, from **Admin → Models → Add a model → OpenRouter** (see [models](models.md#adding-a-model)). `config/models.yaml` ships none, and the catalogue is only ever browsed there, never listed in a picker. A model you add needs your OpenRouter key: until it is saved the model shows as **Needs its key** in Admin → Models and no picker offers it. Saving your first OpenRouter key (in that dialog, in setup or in Settings → API keys) switches on the OpenRouter models you added, and only those.
+
 ## Why the same model can feel worse
 
 - **Precision matters less than expected.** Many labs release at FP8 or FP4, so an FP8 endpoint is often the original. `config/openrouter.yaml` records the lab's own precision with a source link; without an entry the explorer says "Unknown" rather than guess.

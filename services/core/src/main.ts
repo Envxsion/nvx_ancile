@@ -385,6 +385,12 @@ async function main() {
       ]);
       return tags.map((t) => t.name).filter(Boolean);
     },
+    // The chat models Ollama has are listed by themselves: what each can do (tools, vision, its window).
+    ollamaFacts: (name) =>
+      Promise.race([
+        new OllamaClient({ baseUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434' }).facts(name),
+        new Promise<null>((ok) => setTimeout(() => ok(null), 1_500).unref()),
+      ]),
   });
   await registry.refresh();
   const endpoints = {

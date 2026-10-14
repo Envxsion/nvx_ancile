@@ -27,7 +27,7 @@ import { openActivity } from '../activity/api';
 import { syncThread, useClaudeCodeStatus } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { openEditor } from '../editors/store';
-import { useModelGroups } from '../engines/api';
+import { SET_UP_CLAUDE_CODE, useClaudeCodeSetup, useModelGroups } from '../engines/api';
 import { searchHelp } from '../help/articles';
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
@@ -222,6 +222,8 @@ export function Palette() {
   const currentModel = useCurrentModel(threadId)?.id;
   // Claude Code, cloud and local models, with what this thread's scope rules out (docs/engines.md).
   const modelGroups = useModelGroups(threadId, currentModel ?? null);
+  // Why Claude Code cannot answer here, for its separate "Set up Claude Code" row.
+  const ccSetup = useClaudeCodeSetup(threadId);
   const navigate = useNavigate();
   const notebooks = useNotebooks();
   const threads = useThreads();
@@ -742,6 +744,21 @@ export function Palette() {
                     </Command.Group>
                   ))
                 : null}
+              {/* Claude Code that cannot answer is an action here, never a model. */}
+              {show('models') && (scope === 'models' || typed) && ccSetup ? (
+                <Command.Group heading="Claude Code">
+                  <Command.Item
+                    value={`model set up claude code ${ccSetup}`}
+                    onSelect={() =>
+                      run(() => navigate({ to: '/settings/$group', params: { group: 'claude-code' } }))
+                    }
+                  >
+                    <Icon name="terminal" size={15} />
+                    <span className="palette__label">{SET_UP_CLAUDE_CODE}</span>
+                    <span className="mute palette__meta">{ccSetup}</span>
+                  </Command.Item>
+                </Command.Group>
+              ) : null}
 
               {show('notebooks') && (scope === 'notebooks' || typed) ? (
                 <Command.Group heading="Notebooks">

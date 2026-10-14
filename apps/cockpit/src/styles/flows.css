@@ -803,17 +803,13 @@
   text-overflow: ellipsis;
   color: var(--mute);
 }
-.fadd__sleep,
-.fadd__unready {
+.fadd__sleep {
   padding: 0 5px;
   border-radius: var(--r-pill);
   font-size: 10px;
   font-weight: 500;
   color: var(--fg-3);
   background: var(--chalk-2);
-}
-.fadd__unready {
-  color: var(--warn);
 }
 .fadd__empty {
   padding: 18px 12px;

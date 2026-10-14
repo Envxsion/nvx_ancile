@@ -86,9 +86,13 @@ models:
     price: { input_per_mtok: 0, output_per_mtok: 0 }   # billed by the hour on the node; see Compute
     enabled: false
 
-  # Any OpenAI-compatible endpoint works by setting base_url.
+  # Ollama on this computer (OLLAMA_BASE_URL, else http://localhost:11434).
+  # Listed, and routed to, only once Ollama has it pulled; until then it shows
+  # as Not pulled in Admin → Models. Other pulled chat models are found by
+  # themselves as ollama/<name>. Any OpenAI-compatible endpoint works too: set
+  # provider: openai-compatible and its base_url.
   - id: ollama/qwen3-14b
-    provider: openai-compatible
+    provider: ollama
     provider_model: "qwen3:14b"
     display_name: Qwen3 14B (Ollama)
     via: direct
@@ -96,8 +100,7 @@ models:
     context_window: 40960
     max_output: 8192
     capabilities: [tools, json]
-    base_url: http://localhost:11434/v1
-    enabled: false                         # auto-enabled when onboarding detects Ollama
+    enabled: true
 
   - id: local/bge-small-en-v1.5
     provider: local

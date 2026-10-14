@@ -10,7 +10,10 @@
  *           |  without its key is skipped by routing, never tried and
  *           |  failed, so a fresh install with one key just works.
  *  How      |  Config models, plus the offline test models when the
- *           |  dev stack asks for them. Enable overrides (set when a
+ *           |  dev stack asks for them, plus the chat models Ollama has
+ *           |  pulled that nothing else serves (ollama-discovery.ts),
+ *           |  found on the same look that checks which Ollama models
+ *           |  are there. Enable overrides (set when a
  *           |  key passes its test in onboarding) live in settings, so
  *           |  the YAML a person wrote is never rewritten. Chains saved
  *           |  in Admin → Routing live there too and win over the YAML;
@@ -25,6 +28,13 @@ import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { OFFLINE_MODELS } from './fake';
+import {
+  discoveredModel,
+  isChatModel,
+  type OllamaModelFacts,
+  ollamaName,
+  servedByOllama,
+} from './ollama-discovery';
 import { DEFAULT_SECRET } from './providers';
 import { type ChainSpec, resolveChain } from './router';
 import type { ModelClient, ModelRequest, StreamChunk } from './types';
@@ -38,13 +48,18 @@ export interface RegistryOptions {
   offline: boolean;
   /** The models Ollama has pulled (its /api/tags names), or null when it cannot be asked. */
   ollamaTags?: () => Promise<string[] | null>;
+  /**
+   * What Ollama says one pulled model can do (POST /api/show), asked once per
+   * newly pulled name. Absent: discovered models are judged by name, with no
+   * tools and a modest window (gateway/ollama-discovery.ts).
+   */
+  ollamaFacts?: (name: string) => Promise<OllamaModelFacts | null>;
 }
 
 /** How long Ollama's list of pulled models is trusted before refresh() asks again. */
 export const OLLAMA_TAGS_TTL_MS = 30_000;
 
-/** Ollama names a model `name:tag`; `name` alone is `name:latest`. */
-export const ollamaName = (n: string) => (n.includes(':') ? n : `${n}:latest`);
+export { ollamaName } from './ollama-discovery';
 
 /** The secret a model needs, or null when it needs none (Ollama, local, offline). */
 /** Embedding and rerank models are listed for settings, but never answer a chat turn. */
@@ -76,9 +91,20 @@ export class ModelRegistry {
   private savedChains: Record<string, string[]> = {};
   /** Ids of the models you added (Settings → Models), merged in on refresh. */
   private customIds = new Set<string>();
-  /** What Ollama has pulled, when known: a model it does not have cannot answer. */
+  /**
+   * What Ollama has pulled, once it has answered: a model it does not have
+   * cannot answer. Null until it first answers; a later silence keeps the
+   * last answer (a slow probe is not an empty Ollama).
+   */
   private ollamaPulled: Set<string> | null = null;
+  /** The pulled names as Ollama lists them, for discovery. */
+  private ollamaListed: string[] | null = null;
+  /** What Ollama said about each pulled model, by `name:tag`. */
+  private readonly ollamaKnown = new Map<string, OllamaModelFacts>();
   private ollamaAt = 0;
+  /** The models found in Ollama (ollama/<name>), and their ids; replaced on every refresh. */
+  private discovered: ModelConfig[] = [];
+  private discoveredIds = new Set<string>();
 
   constructor(private readonly opts: RegistryOptions) {
     // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
@@ -87,28 +113,82 @@ export class ModelRegistry {
 
   /** Re-read which keys exist and which models were switched on. Cheap; call after any change. */
   async refresh(): Promise<void> {
-    this.secretNames = new Set(await this.opts.secrets.names());
-    this.overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
-    this.hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
-    this.mergeCustom((await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? []);
-    this.savedChains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
+    const secretNames = new Set(await this.opts.secrets.names());
+    const overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
+    const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
+    const custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
+    const chains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
     await this.lookAtOllama();
+    // Applied together, with nothing awaited in between, so chain() never sees half a refresh.
+    this.secretNames = secretNames;
+    this.overrides = overrides;
+    this.hues = hues;
+    this.savedChains = chains;
+    this.mergeCustom(custom);
+    this.syncDiscovered();
   }
 
-  /** Ask Ollama what it has pulled, at most every OLLAMA_TAGS_TTL_MS; unknown when it does not answer. */
+  /** Ask Ollama what it has pulled (and about anything new), at most every OLLAMA_TAGS_TTL_MS. */
   private async lookAtOllama(force = false): Promise<void> {
     const look = this.opts.ollamaTags;
-    if (!look || !this.models.some(isLocalOllama)) return;
+    if (!look) return;
     const now = Date.now();
     if (!force && now - this.ollamaAt < OLLAMA_TAGS_TTL_MS) return;
     this.ollamaAt = now;
     const names = await look().catch(() => null);
-    this.ollamaPulled = names ? new Set(names.map(ollamaName)) : null;
+    if (!names) return;
+    const listed = [...new Set(names.filter(Boolean))];
+    const tags = new Set(listed.map(ollamaName));
+    for (const t of [...this.ollamaKnown.keys()]) if (!tags.has(t)) this.ollamaKnown.delete(t);
+    const ask = this.opts.ollamaFacts;
+    if (ask) {
+      const fresh = listed.filter((n) => !this.ollamaKnown.has(ollamaName(n)));
+      const said = await Promise.all(fresh.map((n) => ask(n).catch(() => null)));
+      fresh.forEach((n, i) => {
+        const f = said[i];
+        if (f) this.ollamaKnown.set(ollamaName(n), f);
+      });
+    }
+    this.ollamaListed = listed;
+    this.ollamaPulled = tags;
   }
 
   /** A pull finished or Ollama came back: ask it again now. */
   async refreshOllama(): Promise<void> {
     await this.lookAtOllama(true);
+    this.syncDiscovered();
+  }
+
+  /**
+   * List Ollama's pulled chat models as ollama/<name>, replacing the previous
+   * set: never an embedding model, and never a name a configured or added
+   * model already serves. A model Ollama no longer has leaves the list.
+   */
+  private syncDiscovered(): void {
+    // By identity: a model you added may have just taken the same id.
+    const previous = new Set(this.discovered);
+    for (let i = this.models.length - 1; i >= 0; i--)
+      if (previous.has(this.models[i] as ModelConfig)) this.models.splice(i, 1);
+    this.discovered = [];
+    this.discoveredIds = new Set();
+    if (!this.ollamaListed) return;
+    const served = new Set(this.models.filter(servedByOllama).map((m) => ollamaName(m.provider_model)));
+    for (const name of this.ollamaListed) {
+      const tag = ollamaName(name);
+      const facts = this.ollamaKnown.get(tag);
+      if (served.has(tag) || !isChatModel(name, facts)) continue;
+      const m = discoveredModel(name, facts);
+      if (!m || this.models.some((x) => x.id === m.id)) continue;
+      served.add(tag);
+      this.models.push(m);
+      this.discovered.push(m);
+      this.discoveredIds.add(m.id);
+    }
+  }
+
+  /** Found in Ollama rather than configured or added: it comes and goes with Ollama's own list. */
+  isDiscovered(id: string): boolean {
+    return this.discoveredIds.has(id);
   }
 
   /** Task classes you can edit in Admin → Routing: the YAML's chat-shaped classes, plus the three every install has. */
@@ -141,14 +221,19 @@ export class ModelRegistry {
     await this.refresh();
   }
 
-  /** Replace the added models with this set; anything that no longer parses is skipped. */
+  /**
+   * Replace the added models with this set; anything that no longer parses is
+   * skipped. An added model wins over one found in Ollama under the same id
+   * (a one-click download saves its catalogue details that way).
+   */
   private mergeCustom(raw: unknown[]): void {
     for (let i = this.models.length - 1; i >= 0; i--)
       if (this.customIds.has(this.models[i]?.id ?? '')) this.models.splice(i, 1);
     this.customIds = new Set();
     for (const r of raw) {
       const p = ModelConfig.safeParse(r);
-      if (!p.success || this.models.some((m) => m.id === p.data.id)) continue;
+      if (!p.success || this.models.some((m) => m.id === p.data.id && !this.discoveredIds.has(m.id)))
+        continue;
       this.models.push(autoLimits(p.data));
       this.customIds.add(p.data.id);
     }
@@ -210,7 +295,8 @@ export class ModelRegistry {
     if (!this.enabled(m)) return 'disabled';
     const secret = secretFor(m);
     if (secret && !this.secretNames.has(secret)) return 'needs_key';
-    if (isLocalOllama(m) && this.ollamaPulled && !this.ollamaPulled.has(ollamaName(m.provider_model)))
+    // Ollama's models answer only once Ollama has said it has them (never, while it has not answered).
+    if (isLocalOllama(m) && this.opts.ollamaTags && !this.ollamaPulled?.has(ollamaName(m.provider_model)))
       return 'not_pulled';
     return 'ready';
   }

@@ -7,7 +7,8 @@
  *  Purpose  |  Admin → Routing: who answers each kind of task, in
  *           |  order, and the way to change it without a file. Drag a
  *           |  model, or use its menu (Move up, Move down, Remove);
- *           |  add any switched-on chat model; reset to the default.
+ *           |  add any chat model that can answer now; reset to the
+ *           |  default. A link that cannot answer stays, marked.
  *  How      |  Every change saves at once (PUT /routing/:task_class)
  *           |  and Core's answer replaces the cached list. Removing a
  *           |  model and resetting both offer Undo, which saves the
@@ -75,7 +76,9 @@ export function RoutingEditor() {
     queryKey: ROUTING_KEY,
     queryFn: () => api.get<RoutingList>('/routing').then((r) => r.items),
   });
-  const models = useModels().data ?? [];
+  // Every model, so a link that cannot answer still shows its name and why; Add model offers only those that can.
+  const models = useModels({ all: true }).data ?? [];
+  const offered = useModels().data ?? [];
   const [confirm, setConfirm] = useState<{ copy: ConfirmCopy; run: () => void } | null>(null);
 
   const save = useMutation({
@@ -128,6 +131,7 @@ export function RoutingEditor() {
             key={r.task_class}
             item={r}
             models={models}
+            offered={offered}
             busy={save.isPending || reset.isPending}
             onSave={(chain) => save.mutate({ taskClass: r.task_class, chain })}
             onReset={() =>
@@ -155,12 +159,16 @@ export function RoutingEditor() {
 function ChainCard({
   item,
   models,
+  offered,
   busy,
   onSave,
   onReset,
 }: {
   item: RoutingChain;
+  /** Every model, for the names and states of the links. */
   models: ModelView[];
+  /** The models Add model offers: those that can answer now. */
+  offered: ModelView[];
   busy: boolean;
   onSave: (chain: string[]) => void;
   onReset: () => void;
@@ -191,16 +199,14 @@ function ChainCard({
     });
   };
 
-  const candidates = models.filter(
-    (m) => m.chat !== false && m.status !== 'disabled' && !order.includes(m.id),
-  );
+  const candidates = offered.filter((m) => !order.includes(m.id));
   const addItems: MenuEntry[] = candidates.length
     ? candidates.map((m) => ({
-        label: m.status === 'needs_key' ? `${m.name} (needs its key)` : m.name,
+        label: m.name,
         icon: 'model',
         onSelect: () => commit(addModel(orderRef.current, m.id)),
       }))
-    : [{ kind: 'label', label: 'Every switched-on model is already here' }];
+    : [{ kind: 'label', label: 'Every model that can answer is already here' }];
 
   return (
     <section className="route-chain" aria-labelledby={`route-${tc}`}>

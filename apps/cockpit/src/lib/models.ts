@@ -30,7 +30,7 @@ import { useUi } from '../state/ui';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
 import { useModelChoice } from '../thread/ModelChoice';
 import { ApiCallError, api } from './api';
-import { keys, useModels, useThread } from './data';
+import { canAnswer, keys, useModels, useThread } from './data';
 import { queryClient } from './query';
 import type { ModelView, ThreadView } from './types';
 
@@ -39,9 +39,6 @@ export function useThreadIdFromRoute(): string | undefined {
     select: (s) => (s.location.pathname.startsWith('/t/') ? s.location.pathname.split('/')[2] : undefined),
   });
 }
-
-const canAnswer = (m: ModelView | undefined) =>
-  !!m && m.chat !== false && (m.status === undefined || m.status === 'ready');
 
 export function useCurrentModel(threadId?: string): ModelView | undefined {
   const models = useModels().data ?? [];
@@ -88,16 +85,17 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
     chooseInClaudeCodeThread(threadId, model);
     return;
   }
+  // Pickers offer only models that can answer; this guards a stale list.
   if (!canAnswer(model)) {
     notify({
       level: 'warn',
       title: `${model.name} can't answer yet`,
       body:
         model.status === 'needs_key'
-          ? 'Add its key in Settings → Models first.'
+          ? 'Add its key in Settings → API keys first.'
           : model.status === 'not_pulled'
-            ? 'Pull it into Ollama in Settings → Models first.'
-            : 'Turn it on in Settings → Models first.',
+            ? 'Download it in Admin → Models, or pull it into Ollama, first.'
+            : 'Turn it on in Admin → Models first.',
     });
     return;
   }

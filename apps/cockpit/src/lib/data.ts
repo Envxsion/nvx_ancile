@@ -190,15 +190,29 @@ export function useThread(id: string | undefined) {
   return useQuery({ ...threadQuery(id ?? 'none'), enabled: Boolean(id) });
 }
 
+/** A model that can answer a message now: a chat model that is ready (demo data has no status). */
+export const canAnswer = (m: ModelView | undefined): boolean =>
+  !!m && m.chat !== false && (m.status === undefined || m.status === 'ready');
+
 /**
- * Every configured model with whether it can answer now. The try-out models
- * leave the list once a real one is ready (unless you keep them); pass
- * `all` where every model must show (Admin → Models, traces).
+ * What every picker offers: only models that can answer now. A model that
+ * needs its key, is switched off or is not in Ollama is never offered; Admin →
+ * Models lists it with what it needs. The test models (no AI) leave once a
+ * real model is ready, unless "Keep test models (no AI) in pickers" is on.
+ */
+export function pickable(models: ModelView[], keepTryout: boolean): ModelView[] {
+  return hideTryout(models.filter(canAnswer), keepTryout);
+}
+
+/**
+ * The models pickers offer (pickable). Pass `all` where every configured
+ * model must show with its state (Admin → Models, Admin → Routing, traces).
+ * Looking a model up by id (modelById) always sees every model.
  */
 export function useModels(opts: { all?: boolean } = {}) {
   const keepTryout = usePrefs((s) => s.prefs.advanced.tryoutModels);
   const all = opts.all === true;
-  const select = useCallback((ms: ModelView[]) => (all ? ms : hideTryout(ms, keepTryout)), [all, keepTryout]);
+  const select = useCallback((ms: ModelView[]) => (all ? ms : pickable(ms, keepTryout)), [all, keepTryout]);
   return useQuery({
     queryKey: keys.models,
     staleTime: 60_000,

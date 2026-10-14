@@ -28,7 +28,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 import { CC_LIVE_KEYS, sendClaudeCode } from '../src/claudecode/live';
 import { NewClaudeCodeThread } from '../src/claudecode/NewThread';
 import { useCcStore } from '../src/claudecode/store';
-import { modelGroups } from '../src/engines/api';
+import { claudeCodeSetup, modelGroups, SET_UP_CLAUDE_CODE } from '../src/engines/api';
 import { ContextNotice } from '../src/engines/ContextNotice';
 import { ModelMenu } from '../src/engines/ModelMenu';
 import { showContextNotice, useContextNotices } from '../src/engines/notice';
@@ -207,8 +207,85 @@ describe('the model picker', () => {
     const by = (id: string) => groups.flatMap((g) => g.items).find((i) => i.id === id);
     expect(by('openai/gpt-5.5')?.disabled).toBe('Cloud models are off for this thread');
     expect(by('ollama/qwen3:14b')?.disabled).toBe('Blocked for this notebook');
-    expect(by('claude-code/opus')?.disabled).toBe('Claude Code is signed out');
     expect(by('controller/qwen3-72b')?.disabled).toBeNull();
+    // Claude Code that cannot answer is not offered as a model; its own row says why.
+    expect(by('claude-code/opus')).toBeUndefined();
+    expect(groups.map((g) => g.kind)).toEqual(['cloud', 'local']);
+  });
+
+  it('lists only models that can answer now: never one that needs its key, is off or is not in Ollama', () => {
+    const groups = modelGroups({
+      models: [
+        ...MODELS,
+        model({
+          id: 'anthropic/claude-opus-5-5',
+          name: 'Claude Opus 5.5',
+          status: 'needs_key',
+          local: false,
+        }),
+        model({ id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', status: 'disabled', local: false }),
+        model({ id: 'ollama/qwen3-14b', name: 'Qwen3 14B (Ollama)', status: 'not_pulled', local: true }),
+        model({
+          id: 'controller/qwen3-72b-off',
+          name: 'Qwen3 72B (your node)',
+          status: 'disabled',
+          via: 'controller',
+        }),
+      ],
+      engines: ENGINES,
+      scope: null,
+      session: null,
+      currentId: null,
+    });
+    const ids = groups.flatMap((g) => g.items.map((i) => i.id));
+    expect(ids).toEqual([
+      'claude-code/opus',
+      'anthropic/claude-sonnet-5-5',
+      'openai/gpt-5.5',
+      'ollama/qwen3:14b',
+      'controller/qwen3-72b',
+    ]);
+  });
+
+  it('Claude Code not installed: no stand-in model, and a separate Set up Claude Code row that opens its settings', async () => {
+    const off = ENGINES.map((e) =>
+      e.kind === 'claude_code'
+        ? { ...e, available: false, reason: 'Claude Code is not installed on this computer' }
+        : e,
+    );
+    const groups = modelGroups({
+      models: MODELS.filter((m) => !m.id.startsWith('claude-code/')),
+      engines: off,
+      scope: null,
+      session: null,
+      currentId: null,
+    });
+    expect(groups.map((g) => g.kind)).toEqual(['cloud', 'local']);
+    expect(groups.flatMap((g) => g.items).some((i) => i.kind === 'claude_code')).toBe(false);
+    expect(claudeCodeSetup(off)).toBe('Claude Code is not installed on this computer');
+    expect(claudeCodeSetup(ENGINES)).toBeNull();
+    expect(claudeCodeSetup(undefined)).toBeNull();
+
+    const onPick = vi.fn();
+    const onSetup = vi.fn();
+    wrap(
+      <ModelMenu
+        open
+        groups={groups}
+        onPick={onPick}
+        setup={{ reason: claudeCodeSetup(off) ?? '', onSelect: onSetup }}
+        trigger={<button type="button">Model</button>}
+      />,
+    );
+    const menu = await screen.findByRole('menu');
+    const row = within(menu).getByText(SET_UP_CLAUDE_CODE).closest('[role="menuitem"]') as HTMLElement;
+    expect(row).not.toHaveAttribute('data-disabled');
+    expect(row).toHaveTextContent('Claude Code is not installed on this computer');
+    // It is an action, not a model: no engine badge, and choosing it never picks a model.
+    expect(within(row).queryByText('Claude Code')).toBeNull();
+    fireEvent.click(row);
+    expect(onSetup).toHaveBeenCalledTimes(1);
+    expect(onPick).not.toHaveBeenCalled();
   });
 
   it("in a Claude Code thread, the Claude Code group is the session's own models", () => {

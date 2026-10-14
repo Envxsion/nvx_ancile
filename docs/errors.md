@@ -42,6 +42,7 @@ Rules for new codes:
 | `model.gone` | 409 | "<model> is no longer available." / It was removed or renamed; pick another model and send again. Raised when a message, edit or regenerate names a model that is no longer in the list. `error.context` has `model_id` and `suggested_model` (the thread's model, else the default route's first), and the Cockpit offers a model picker on the error, preset to it. |
 | `model.exists` | 409 | "<id> is already in your models." / Edit the one you have, or remove it first. |
 | `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
+| `model.from_ollama` | 409 | "<Model> comes from Ollama." / It is listed because Ollama has it pulled (docs/models.md, Ollama). To take it off the list, remove it in Ollama (`ollama rm <name>`); you can still switch it on or off and change its colour. Raised when a model found in Ollama is edited or removed. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |
 | `routing.task_class_unknown` | 404 | "There is no task class called <class>." / Pick one of the task classes listed in Admin → Routing. |
 | `routing.chain_empty` | 400 | "A chain needs at least one model." / Add a model before saving, or reset the chain to its default. |

@@ -7,7 +7,8 @@
  *  Purpose  |  Ask Ollama its version, what models it has, and to pull
  *           |  one, following its progress.
  *  How      |  Ollama's documented HTTP API: GET /api/version, GET
- *           |  /api/tags, POST /api/show, POST /api/pull (streamed
+ *           |  /api/tags, POST /api/show (is it there, and what it can
+ *           |  do), POST /api/pull (streamed
  *           |  JSON lines: status, digest, total, completed; a final
  *           |  {"status":"success"} or an {"error"}). Every call goes
  *           |  through packages/resilience: a short timeout and retries
@@ -25,6 +26,7 @@ import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { ClassifiedError, classifyStatus, guarded } from '@nvx/resilience';
 import { tracedFetch } from '../context';
+import type { OllamaModelFacts } from '../gateway/ollama-discovery';
 
 /** One line of a pull's progress. */
 export interface PullEvent {
@@ -120,6 +122,32 @@ export class OllamaClient {
       size: m.size ?? 0,
       digest: m.digest ?? '',
     }));
+  }
+
+  /**
+   * What Ollama says one model can do (its capabilities, newer Ollama only)
+   * and the context it was trained for; null when it cannot say.
+   */
+  async facts(model: string): Promise<OllamaModelFacts | null> {
+    try {
+      const r = await this.json<{ capabilities?: unknown; model_info?: Record<string, unknown> }>(
+        '/api/show',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model }),
+        },
+      );
+      const caps = Array.isArray(r.capabilities)
+        ? r.capabilities.filter((c): c is string => typeof c === 'string')
+        : [];
+      const context = Object.entries(r.model_info ?? {}).find(
+        ([k, v]) => k.endsWith('.context_length') && typeof v === 'number' && v > 0,
+      )?.[1] as number | undefined;
+      return { capabilities: caps.length ? caps : null, context: context ?? null };
+    } catch {
+      return null;
+    }
   }
 
   /** Ollama knows this model and can load it: the check after a pull. */

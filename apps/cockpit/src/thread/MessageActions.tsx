@@ -235,18 +235,12 @@ export function MessageActions({
       kind: 'label',
       label: flow ? `Answers alone, without ${flow.name}` : 'Answer this again with',
     },
-    ...(models ?? [])
-      .filter((m) => m.chat !== false)
-      .sort((a, b) => Number(b.status === 'ready' || !b.status) - Number(a.status === 'ready' || !a.status))
-      .slice(0, 20)
-      .map((m) => {
-        const ready = !m.status || m.status === 'ready';
-        return {
-          label: ready ? m.name : `${m.name} (needs its key)`,
-          disabled: !ready || demo || !message.parts,
-          onSelect: () => void regenerate(threadId, message, m.id),
-        };
-      }),
+    // Only models that can answer now: useModels() offers no other (lib/data.ts, pickable).
+    ...(models ?? []).slice(0, 20).map((m) => ({
+      label: m.name,
+      disabled: demo || !message.parts,
+      onSelect: () => void regenerate(threadId, message, m.id),
+    })),
   ];
   const flows = useFlowList(!!flow && visible).data;
   const versions = useFlowVersions(flow?.flow_id, !!flow && visible).data;
