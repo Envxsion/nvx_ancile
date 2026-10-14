@@ -1744,3 +1744,81 @@ describe("lean sessions (only the project's own Claude Code settings)", () => {
     expect(bridge.opened.at(-1)).toMatchObject({ resume: S, setting_sources: ['project'] });
   });
 });
+
+describe('a tool result with its call, in a turn from NVX Ancile', () => {
+  it('a notification between a call and its result: one answer holds both, with how long the step took', async () => {
+    const at = (s: number) => new Date(NOW + s * 1000).toISOString();
+    bridge.script = (b, h) => {
+      b.msg(h, { type: 'system', subtype: 'init', session_id: S, model: 'claude-opus-5-5' });
+      b.msg(h, {
+        type: 'assistant',
+        uuid: 'a3',
+        session_id: S,
+        parent_tool_use_id: null,
+        timestamp: at(1),
+        message: {
+          id: 'api-a3',
+          role: 'assistant',
+          model: 'claude-opus-5-5',
+          content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'pnpm build' } }],
+          usage: { input_tokens: 10, output_tokens: 4 },
+        },
+      });
+      b.msg(h, {
+        type: 'user',
+        uuid: 'n1',
+        session_id: S,
+        parent_tool_use_id: null,
+        timestamp: at(2),
+        message: {
+          role: 'user',
+          content:
+            '<task-notification>\n<task-id>t9</task-id>\n<status>completed</status>\n<summary>Lint finished</summary>\n</task-notification>',
+        },
+      });
+      b.msg(h, {
+        type: 'user',
+        uuid: 'r1',
+        session_id: S,
+        parent_tool_use_id: null,
+        timestamp: at(4),
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'built' }] },
+      });
+      b.msg(h, {
+        type: 'assistant',
+        uuid: 'a4',
+        session_id: S,
+        parent_tool_use_id: null,
+        timestamp: at(5),
+        message: {
+          id: 'api-a4',
+          role: 'assistant',
+          model: 'claude-opus-5-5',
+          content: [{ type: 'text', text: 'Built.' }],
+          usage: { input_tokens: 3, output_tokens: 7 },
+        },
+      });
+      b.msg(h, { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.01, session_id: S });
+    };
+    const sent = await live.send('thr_1', { text: 'Build it', idempotency_key: 'key-stray-0001' });
+    expect(await execute(sent.run_id)).toEqual({ kind: 'done' });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    const answer = await threads.getMessage(cp.assistantMessageId);
+    expect(answer?.parts).toEqual([
+      { type: 'tool_call', call_id: 'b1', tool: 'Bash', args: { command: 'pnpm build' } },
+      { type: 'tool_result', call_id: 'b1', ok: true, result: 'built', duration_ms: 3000 },
+    ]);
+    const msgs = await threads.messages('thr_1');
+    const note = msgs.find((m) => m.parent_id === cp.assistantMessageId);
+    expect(note?.provenance?.claude_code).toMatchObject({
+      kind: 'notification',
+      uuids: ['n1', 'r1'],
+      live: true,
+    });
+    const after = msgs.find((m) => m.parent_id === note?.id);
+    expect(after).toMatchObject({ role: 'assistant', parts: [{ type: 'text', text: 'Built.' }] });
+    expect((await threads.getThread('thr_1'))?.active_head_id).toBe(after?.id);
+    // No answer of nothing but results.
+    expect(msgs.filter((m) => m.parts.length && m.parts.every((p) => p.type === 'tool_result'))).toEqual([]);
+  });
+});

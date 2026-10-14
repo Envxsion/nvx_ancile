@@ -49,7 +49,7 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 
 ## How sessions look in a thread
 
-- Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results.
+- Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results. That holds when something came between a call and its result (a background task's notification, a hook's note, a command, a stop, or a sync that ran in between): the result still joins its call, and what came between shows after the answer, where it happened.
 - The answer reads like an editor's timeline. Each tool step is a one-line card saying what it did and to what, and opens onto the detail. Its left rule and icon say what kind of step it is (a command, an MCP tool, a subagent, or any other tool), and its icon carries the same word for screen readers. While it runs it counts its seconds; once done it says how long it took (from Claude Code's transcript times) and, beside it, what came back in one short line: lines read, results found, the first line a command printed, an MCP tool's first fields. A failed step shows its first line of error instead.
   - **Read** shows the file with line numbers; **Edit** and **Write** show a diff; **Bash** (and PowerShell) a terminal block with the command and what it printed; **Grep** and **Glob** a list of matches; **WebFetch** and **WebSearch** their links; **TodoWrite** a checklist.
   - A subagent (the Task or Agent tool) is folded under the call that started it; open it to read its conversation. An MCP tool (`mcp__server__tool`) shows its server, tool and arguments.
@@ -71,7 +71,7 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 
 ### For developers: what the Cockpit receives
 
-Every message from Claude Code has `provenance.claude_code = { session_id, uuid, uuids, kind?, command?, notification?, last_api_id?, subagent? }`. Prompts and answers have no `kind`. The others:
+Every message from Claude Code has `provenance.claude_code = { session_id, uuid, uuids, kind?, command?, notification?, last_api_id?, subagent?, results_moved_to? }`. Prompts and answers have no `kind`. The others:
 
 | `kind` | role | parts | extra fields |
 |---|---|---|---|
@@ -84,9 +84,17 @@ Every message from Claude Code has `provenance.claude_code = { session_id, uuid,
 
 Any message may also carry `unknown: { count, types }`: entries (or content blocks) in it this version cannot show, by the kind Claude Code gave them, never their content. The Cockpit draws one quiet line under it. An answer written by a live turn in NVX Ancile has `live: true`.
 
+A tool result is always in the answer that holds its call. When the conversation moved on between the two (a notification or a hook's note came first), the result's part goes to that answer while its entry's uuid stays in `uuids` of the message where the conversation was (the notification, say), which is that message's place in the session: what came after hangs off it, and going on from it in a branch resumes after the result. Each `tool_result` part carries `duration_ms` when the transcript has both times: from the entry that made the call to the one that brought its result (never negative; absent when either time is missing, or when one entry holds both, as a web search does). An API response is counted in `usage` once, even when its entries end up in two messages.
+
+An answer an older mapping started with nothing but such results keeps its place in the tree (so the thread's head, branches, summaries and drafts that point at it still do) and has `results_moved_to`: the id of the answer its results joined. With nothing else in it, its parts are one empty text part and the Cockpit draws nothing for it.
+
 Titles are "Background task finished: <summary>" (or "failed", "stopped"), "Message from <session>", "Report from an agent" (with `from` naming it) and "Note from Claude Code" for a wrapper NVX Ancile does not know yet. Tool results stay strings, line-number gutters included.
 
-When the mapping changes, `MAPPER_VERSION` (services/core/src/claudecode/map.ts) goes up. The next import pass rebuilds every thread made by an older version, keeping the thread, its title, notebook and place in the list, as long as the thread holds only messages from Claude Code (turns sent from NVX Ancile count: they are Claude Code's too). A thread with anything else written in NVX Ancile is kept as it is; only new messages use the new mapping. Version 3 brought full history: threads imported before it are rebuilt with every branch and everything before each compaction.
+When the mapping changes, `MAPPER_VERSION` (services/core/src/claudecode/map.ts) goes up, and the next sync of each session (the import pass, **Sync**, or the sync after a live turn) brings its thread up to it:
+
+- A thread made before version 3 (full history) is rebuilt with every branch and everything before each compaction, keeping the thread, its title, notebook and place in the list, but only when every message in it came in from the transcript. A thread with a live turn from NVX Ancile (its citations, cost estimate, setup report, and the ids that fact-checks and branches point at) or anything else written in NVX Ancile is never rebuilt; it is repaired in place, as below.
+- From version 3 on a thread is never rebuilt; it is repaired in place, with nothing discarded and no message mapped again: a tool result in an answer that does not hold its call moves to the answer above it on its path that does (see `results_moved_to`); a result with no `duration_ms` gets one from the transcript's times; an answer that counted an API response another answer already counted has that response's tokens taken off (only where its stored tokens are exactly what the older rule counted, so nothing else in its usage changes; a live answer's `cost_usd` stays).
+- Version 4 is the first such repair: results join their calls, steps say how long they took, and a response counted twice is counted once. A thread whose session is no longer on this computer (or whose folder is now excluded) is not synced, so it keeps what the older mapping wrote; the Cockpit still draws such a result with its call.
 
 A live answer also has, when Claude Code reports it, `provenance.claude_code.cost_estimate = { usd, note }`: Claude Code's own estimate at API list prices, the same number goes in the message's `usage.cost_usd`. It is not what your account is billed (a Claude plan is not billed per token at all).
 

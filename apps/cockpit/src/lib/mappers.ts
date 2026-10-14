@@ -407,9 +407,9 @@ export function toMessageView(m: Message): MessageView | null {
 }
 
 /**
- * Messages to draw. A message that is nothing but tool results (Claude Code
- * keeps them in the next turn, some providers in a `tool` message) joins the
- * answer that made the calls, so each step shows how it went. A user message
+ * Messages to draw. A message that is nothing but tool results (some
+ * providers keep them in a `tool` message, or in the next user turn) joins
+ * the answer that made the calls, so each step shows how it went. A message
  * like that stays in the list, folded, so the branch still ends where it ends.
  */
 export function toMessageViews(messages: Message[]): MessageView[] {
@@ -417,19 +417,37 @@ export function toMessageViews(messages: Message[]): MessageView[] {
   // A thread other models answer too: Claude Code's own compaction is a folded terminal entry,
   // since NVX Ancile's summary is the record there (docs/engines.md).
   const mixed = isMixedThread(messages);
+  const blank = (p: Part) => p.type === 'text' && !p.text.trim();
   for (const m of messages) {
+    const cc = (m.provenance as Provenance).claude_code as
+      | (NonNullable<Provenance['claude_code']> & { results_moved_to?: unknown })
+      | undefined;
+    // Core put this answer's results with their calls (Claude Code mapper version 4): with nothing
+    // else in it, it shows nothing, and stays folded as the link its entries hold in the tree.
+    if (
+      m.role === 'assistant' &&
+      cc?.results_moved_to &&
+      !unknownCount(m.provenance as Provenance) &&
+      m.parts.every(blank)
+    ) {
+      const v = toMessageView(m);
+      if (v) out.push({ ...v, parts: [], subagents: undefined, folded: true });
+      continue;
+    }
     const onlyResults =
       m.parts.some((p) => p.type === 'tool_result') &&
-      m.parts.every((p) => p.type === 'tool_result' || (p.type === 'text' && !p.text.trim()));
+      m.parts.every((p) => p.type === 'tool_result' || blank(p));
     const ids = new Set(m.parts.flatMap((p) => (p.type === 'tool_result' ? [p.call_id] : [])));
     const holds = (v: MessageView) =>
       v.role === 'assistant' &&
       !v.folded &&
       !v.cc &&
       !!v.parts?.some((p) => p.type === 'tool_call' && ids.has(p.call_id));
-    // Claude Code can put a step's result in a message of its own (a hook ran between the call
-    // and its result): it joins the answer that made the call instead of drawing an empty answer.
-    const strayResults = m.role === 'assistant' && onlyResults && out.some(holds);
+    // Still needed for Claude Code threads Core has not synced since mapper version 4 (a session
+    // whose file is gone, a folder now excluded, auto-import off and no sync since): an older
+    // mapping could give a step's result an answer of its own (a notification or a hook's note
+    // came between the call and its result). It joins the answer that made the call.
+    const strayResults = m.role === 'assistant' && !!cc && onlyResults && out.some(holds);
     if (m.role === 'tool' || (m.role === 'user' && onlyResults) || strayResults) {
       const host = out.findLast(holds) ?? out.findLast((v) => v.role === 'assistant' && !v.folded && !v.cc);
       const subagents = subagentsOf((m.provenance as Provenance).claude_code?.subagent);
