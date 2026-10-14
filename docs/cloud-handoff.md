@@ -28,12 +28,42 @@ This file briefs a Claude Code cloud session working on NVX Ancile. Each session
 - The Windows installer, WebView2 behaviour and the desktop window.
 - Live Claude Code, Ollama and RunPod runs.
 - Anything needing the owner's data.
-- The 0.1.0 items. They are done locally before the tag.
+- Live checks of the 0.1.0 items and the tag. Their code is batch B0 below.
 
 ## Batches
-Run at most four at once. Waves avoid clashes in shared Cockpit files.
+Run at most five at once. Waves avoid clashes in shared Cockpit files.
 
 **Wave 1**
+- **B0 Fixes before the tag (0.1.0).** Root causes only, each with the edge cases in its test.
+  - C1: saving a RunPod key anywhere connects the Controller. It reconnects on boot when a key exists. One key screen.
+  - U1: Settings → Usage shows live context, explains every empty block, and counts imported Claude Code sessions.
+  - U2: "Included in your Claude plan" wherever a Claude Code cost shows.
+  - A1: every built-in automation reads its switch and options, with real option forms.
+  - A2: memory backup stays off until a remote is set, with remote setup and a "Test push" button in its dialog.
+  - X1: custom CSS stays on this device. The approval and permission UI renders in a protected layer with a visibility check. Confirm the first time CSS is applied, and show a "Custom CSS on" chip.
+  - Y1 (pro): sync skips anything whose scope keeps data on the machine, and removes already-synced copies.
+  - Y3 (pro): split device-only preferences out of the synced preferences.
+  - Y2 (pro, client side only): device approval by an existing device or pairing code, and a signed read of the check value. Write the relay change as a note in `pro/docs/`; the relay lives in another repo.
+  - G1: expired grants get a badge and a filter. Use one name, Permissions, everywhere.
+  - F1: cap parallel Claude Code fact-check judges (a setting, default 1), and say it uses the Claude plan.
+  - N1: Flows and Automations in the rail.
+  - B1 (Beam): a "Compare models" composer button, "Beam this question" on messages, and support in Claude Code threads.
+  - L1: centre the Flow lab empty state.
+  - D1: make grain, glass and gilt visible, and note when Transparency or Effects overrides them.
+  - D2: in-app Reduced motion drives Motion, keeping short fades.
+  - D3: all text tokens at 4.5:1 or better.
+  - D4: an error state with Retry on every panel, and skeletons.
+  - T1 (pro): a change-passphrase form that ends other sessions.
+  - T2 (pro): a public address setting for invite links, an invite code field, resend and withdraw.
+  - T3 (pro): admin reset link and a recovery code.
+  - MD1: list only real models (Ollama-detected, RunPod node, Claude Code, providers with keys). OpenRouter models are added one by one.
+  - S0: honest wording for "Full".
+  - TO1: rename to "Keep test models (no AI) in pickers".
+  - CH1: a hint when Menus is off.
+  - CH2: merge stray Claude Code results in Core's sync, and bump the mapper version.
+  - CH3: tool, MCP and command steps as distinct live cards (a kind rule and icon, a ticking timer, done or failed with duration, a one-line result), plus a "Working now" strip.
+  - D5: read the version from the build.
+  - PR1 (pro, client side): a Pro check per member, so free members never get Pro features. Write a note describing the seat claim the licence server must add.
 - **B1 Speed and feel.**
   - P1: split the app, so Settings, Admin, Setup and Notebook load on demand, with vendor chunks and a CI budget of under 900 KB for the entry chunk.
   - P2: streaming must not re-render the composer or the list.
