@@ -61,6 +61,8 @@ Ancile is built to be driven from the keyboard. Every action has a shortcut, the
 | `Mod .` | Stop generating |
 | `↑` in an empty composer | Edit your last message |
 
+With **Slash and @ menus** off (Settings → Composer), `/` and `@` are plain text. Typing one says so above the composer, "Slash and @ menus are off, so / and @ are plain text.", with **Turn menus on**; Esc puts the line away for that draft.
+
 Single-key shortcuts never fire while you're typing. Leave the composer with `Esc` to use them. This is the vim-like navigate mode, and the status bar shows `NAV` while it's on.
 
 ### Palette prefixes

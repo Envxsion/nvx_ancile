@@ -47,18 +47,18 @@ import { type AncileExtra, ccMenu, parseTyped } from '../claudecode/live';
 import * as demo from '../fixtures/demo';
 import { attachImage, imageKeys } from '../images/api';
 import { useBinding } from '../keys/dispatch';
-import { draftAutosave, useAutomations } from '../ops/builtins';
 import { api } from '../lib/api';
 import { useModels, useNotebooks, useSources } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
 import type { Hue } from '../lib/types';
+import { draftAutosave, useAutomations } from '../ops/builtins';
 import { openBeam } from '../pro/beam';
 import { useRepos } from '../repos/data';
 import { useUploads } from '../sources/uploads';
 import { notify } from '../state/notify';
-import { usePref } from '../state/prefs';
+import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { HueChip, Kbd, Tip } from '../ui/primitives';
@@ -422,6 +422,9 @@ export function Composer({
   }, [text, dismissedMenu, mentions, commands, picked, prefs.menus, prefs.snippets, claudeCode, extras]);
 
   const menuOpen = !!menu && menu.items.length > 0;
+  // With Slash and @ menus off, typing / or @ would do nothing visible: say why, once per draft.
+  const menusOff =
+    !prefs.menus && !dismissedMenu && (/^\/[^\s]*$/.test(text) || /(?:^|\s)@[^\s@]*$/.test(text));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight when the menu changes shape
   useEffect(() => setMenuIndex(0), [menu?.kind, menu?.items.length]);
@@ -604,6 +607,11 @@ export function Composer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menusOff && e.key === 'Escape') {
+      e.preventDefault();
+      setDismissedMenu(true);
+      return;
+    }
     if (menuOpen && menu) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -728,6 +736,21 @@ export function Composer({
       }}
       onDrop={onDrop}
     >
+      {menusOff ? (
+        <p className="composer__menu composer__menu-off m-glass" role="status">
+          <span>Slash and @ menus are off, so / and @ are plain text.</span>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              usePrefs.getState().set('composer', { menus: true });
+              ref.current?.focus();
+            }}
+          >
+            Turn menus on
+          </button>
+        </p>
+      ) : null}
       {menuOpen && menu ? (
         <div
           className="composer__menu m-glass"
