@@ -3,6 +3,7 @@
  * an API key sign-in is told plainly, Ancile's totals come with a chart
  * and a breakdown, and every context meter is the same meter.
  */
+import { readFileSync } from 'node:fs';
 import type { ClaudeCodePlanLimits, UsageReport } from '@nvx/contracts';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -35,10 +36,12 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 
 import { api } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
+import { Block } from '../src/routes/settings/rows';
 import { paceWords, resetWords, toneOf, windowLine } from '../src/usage/api';
 import { ContextGauge, contextTone, contextWords } from '../src/usage/Meter';
 import { NOT_A_PLAN, PlanLimits } from '../src/usage/PlanLimits';
 import { AncileUsage, ClaudeCodeMeasured, UsageGroup } from '../src/usage/UsageView';
+import { here, stripComments } from './tokenCss';
 
 const mocked = api as unknown as Record<'get' | 'post' | 'put' | 'patch' | 'del', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) =>
@@ -286,6 +289,39 @@ describe('NVX Ancile usage', () => {
       ),
     );
     expect(await screen.findByText('Current session (5 hours)')).toBeInTheDocument();
+  });
+});
+
+describe('Settings → Usage on screen', () => {
+  it('no rule that hides a block left empty by search hides a block of Usage', async () => {
+    // Settings hid every block without a setting row: Usage has none, so its
+    // whole page vanished, leaving the heading and the footer.
+    mocked.get.mockImplementation(async (path: string) => {
+      if (path.startsWith('/usage')) return REPORT;
+      if (path === '/claude-code/plan-limits') return PLAN;
+      if (path === '/compute/status') return { configured: false, reachable: false };
+      return null;
+    });
+    const css = stripComments(readFileSync(here('../src/styles/kit.css'), 'utf8'));
+    const hiding = [...css.matchAll(/([^{}]*\.setting-block[^{}]*)\{([^}]*)\}/g)]
+      .filter(([, , body]) => /display:\s*none/.test(body ?? ''))
+      .map(([, sel]) => (sel ?? '').trim());
+    expect(hiding.length).toBeGreaterThan(0);
+    const { container } = wrap(
+      <>
+        <UsageGroup />
+        <Block title="Emptied by a search">{null}</Block>
+      </>,
+    );
+    await screen.findByText('NVX Ancile usage');
+    const usage = [...container.querySelectorAll('.u-view .setting-block')];
+    expect(usage.length).toBe(4);
+    for (const sel of hiding) {
+      const hidden = [...container.querySelectorAll(sel)];
+      for (const block of usage) expect(hidden).not.toContain(block);
+      // The rule still does its job on a block of rows with none left.
+      expect(hidden.length).toBe(1);
+    }
   });
 });
 

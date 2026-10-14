@@ -1248,7 +1248,10 @@ li[data-done] .checklist__step {
   box-shadow: var(--elev-1);
   overflow: hidden;
 }
-.setting-block:not(:has(.setting, .keyrow, .snippets)) {
+/* A block of setting rows whose rows a search filtered out goes with them.
+   Only blocks made of rows (Block sets data-rows): a block of anything else,
+   like Settings → Usage, has no rows to lose and must never vanish. */
+.setting-block[data-rows]:not(:has(.setting, .keyrow, .snippets)) {
   display: none;
 }
 .setting-block__head {

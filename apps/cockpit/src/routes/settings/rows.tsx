@@ -101,7 +101,8 @@ export function Row({
 
 export function Block({ title, children, lede }: { title: string; children: ReactNode; lede?: string }) {
   return (
-    <section className="setting-block">
+    // data-rows: hidden when a search leaves it no rows (kit.css).
+    <section className="setting-block" data-rows>
       <header className="setting-block__head">
         <h2>{title}</h2>
         {lede ? <p className="mute">{lede}</p> : null}
