@@ -134,7 +134,7 @@ export const AdvancedPrefs = z.object({
   developer: z.boolean().default(false),
   performance: z.enum(['auto', 'full', 'lite']).default('auto'),
   hints: z.boolean().default(true),
-  /** Keep the try-out models in the switcher after a real model is ready. */
+  /** Keep the test models (no AI) in the switcher and pickers after a real model is ready. */
   tryoutModels: z.boolean().default(false),
 });
 

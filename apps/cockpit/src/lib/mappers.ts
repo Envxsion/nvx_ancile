@@ -63,14 +63,14 @@ const PROVIDER_NAME: Record<string, string> = {
   ollama: 'Ollama',
   controller: 'Your compute',
   node: 'Your GPU node',
-  fake: 'Try-out',
+  fake: 'Test model',
   local: 'On this computer',
   'openai-compatible': 'Your server',
 };
 
 /**
- * The try-out models (built in, no AI) step out of the switcher and pickers
- * once a real model can answer, unless "Show try-out models" is on.
+ * The test models (built in, no AI) step out of the switcher and pickers
+ * once a real model can answer, unless "Keep test models (no AI) in pickers" is on.
  */
 export function hideTryout<T extends { offline?: boolean; status?: string | undefined; chat?: boolean }>(
   models: T[],

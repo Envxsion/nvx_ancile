@@ -144,10 +144,10 @@ Open a model's **⋯** menu in Admin → Models and choose **Providers, routing 
       },
       {
         id: 'offline-model',
-        title: 'The try-out models',
+        title: 'The test models',
         summary: 'Try everything before you add a key. They do not use AI.',
         keywords: 'test offline fake say fail tool slow directive echo try-out tryout',
-        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Try-out** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
+        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Test model** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
 
 - **/say** *text*: answer with exactly that text
 - **/slow** *text*: write one word every 150 ms
@@ -156,7 +156,7 @@ Open a model's **⋯** menu in Admin → Models and choose **Providers, routing 
 
 Offline echo, the backup, only repeats what you wrote.
 
-Once a real model is ready, the try-out models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Show try-out models**.`,
+Once a real model is ready, the test models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Keep test models (no AI) in pickers**.`,
       },
       {
         id: 'api-keys',

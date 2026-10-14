@@ -715,9 +715,7 @@ export function Palette() {
                           <span className="palette__label">{e.name}</span>
                           <span className="mute palette__meta">
                             {e.disabled ??
-                              (e.model?.offline
-                                ? "Try-out · doesn't use AI"
-                                : (e.note ?? e.model?.provider ?? ''))}
+                              (e.model?.offline ? 'Test model · no AI' : (e.note ?? e.model?.provider ?? ''))}
                           </span>
                           <span className="model-badge" data-kind={e.kind}>
                             {e.badge}

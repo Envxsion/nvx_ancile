@@ -904,12 +904,12 @@ export function AdvancedGroup() {
         <Row
           group="advanced"
           k="tryoutModels"
-          label="Show try-out models"
-          desc="Keep the built-in try-out models in the model switcher after a real model is ready. They don't use AI."
-          keywords="offline test echo model switcher try-out tryout"
+          label="Keep test models (no AI) in pickers"
+          desc="The built-in test models leave the model switcher and the flow pickers once a real model is ready. Turn this on to keep them."
+          keywords="offline test echo model switcher pickers try-out tryout no ai"
         >
           <Switch
-            label="Show try-out models"
+            label="Keep test models (no AI) in pickers"
             checked={v.tryoutModels}
             onChange={(tryoutModels) => set({ tryoutModels })}
           />

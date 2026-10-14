@@ -272,7 +272,7 @@ export class ModelRegistry {
     }
     // The try-out models stand in only while no real model can answer. Once one
     // can, a failing model must fail visibly, never fall back to a model that
-    // does not use AI (docs/models.md, Try-out models). Asked for by name, they still answer.
+    // does not use AI (docs/models.md, Test models). Asked for by name, they still answer.
     const realReady = [...ready.values()].some((m) => m.provider !== 'fake' && canChat(m));
     if (this.opts.offline && !realReady) {
       for (const [tc, spec] of Object.entries(classes)) {

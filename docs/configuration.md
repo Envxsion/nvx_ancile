@@ -255,11 +255,11 @@ They run through the same scheduler and history as the built-in jobs. Schedules 
 ## The offline model, the workspace and the lab
 
 ```bash
-# The try-out models (Offline test model, Offline echo): answer without a key
+# The test models (Offline test model, Offline echo): answer without a key
 # or a network, for trying NVX Ancile out and for tests. They don't use AI.
 # `pnpm start` and the desktop app turn them on. The model switcher and
 # pickers hide them once a real model is ready, unless Settings → Advanced →
-# Show try-out models is on.
+# Keep test models (no AI) in pickers is on.
 ANCILE_OFFLINE_MODELS=1
 
 # Where the file tools and the lab work. Models see it as /workspace.
