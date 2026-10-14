@@ -285,8 +285,9 @@ export function SourceCard({
             <span className="source-card__level-label">
               Questions use
               <Hint id="context-level" title="What a question can use" article="context-levels">
-                Full lets any passage be found and cited. Summary uses only the source's summary. Off keeps it
-                in the notebook but out of answers.
+                Passages: each question finds the passages that match it best, and can cite them; the whole
+                source is never sent at once. Summary uses only the source's summary. Off keeps it in the
+                notebook but out of answers.
               </Hint>
             </span>
             <Segmented
@@ -295,7 +296,7 @@ export function SourceCard({
               value={s.contextLevel}
               onChange={(v) => void setContextLevel(notebookId, s.id, v)}
               options={[
-                { value: 'full', label: 'Full' },
+                { value: 'full', label: 'Passages' },
                 { value: 'insights', label: 'Summary' },
                 { value: 'off', label: 'Off' },
               ]}

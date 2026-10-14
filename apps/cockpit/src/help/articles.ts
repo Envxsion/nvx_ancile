@@ -209,11 +209,11 @@ A source's menu (**⋯**, or right-click) can **Rename** it, which changes its t
       {
         id: 'context-levels',
         title: 'What a question can use',
-        summary: 'Full, summary only, or off, per source.',
-        keywords: 'context level off insights summary full exclude include',
+        summary: 'Passages, summary only, or off, per source.',
+        keywords: 'context level off insights summary full passages exclude include',
         body: `Every source in a notebook has a setting for how much a question may draw from it:
 
-- **Full**: any passage can be found and cited.
+- **Passages**: each question finds the passages that match it best, and can cite them. The whole source is never sent at once, so a question about all of it ("summarise every chapter") reads only what matched; ask about one part at a time, or use Summary.
 - **Summary**: only the source's summary is used. Good for background reading.
 - **Off**: ignored, but kept in the notebook.
 
