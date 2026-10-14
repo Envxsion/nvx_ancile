@@ -305,14 +305,14 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `automation.no_default` | 422 | "Only built-in automations have a default." / Edit this one instead, or delete it. |
 | `automation.builtin` | 422 | "<Automation> is built in and can't be deleted." / Switch it off instead, or reset it to default. |
 | `license.unreachable` | 503 | "nvx.sh could not be reached." / Check your connection; once Pro is on, it keeps working offline until its token expires. |
-| `license.rejected` | 422 | nvx.sh's own words / Check the key (NVX-XXXX-XXXX-XXXX) in your nvx.sh account. |
+| `license.rejected` | 422 | nvx.sh's own words / Check the key (NVX-XXXX-XXXX-XXXX) in your NVX purchase email. |
 | `license.invalid` | 422 | Why the token did not unlock anything: not a token from nvx.sh, issued for another computer, signed by a key this version does not know, for another NVX product, or expired / Turn Pro on here with your key, or update NVX Ancile. In the free build, anything but a key: "Enter your licence key here." / Copy the key (NVX-XXXX-XXXX-XXXX) from your nvx.sh account. Pro then arrives as an update. |
 | `license.free_build` | 422 | No longer used: the free build takes a key, and Pro arrives as an update (docs/desktop.md). |
 | `license.seat_taken` | 409 | "This key is already on as many computers as it allows." / Choose Move it here; the one used least recently goes back to the free edition. `error.context` has `devices` and `max_devices`. |
 | `license.transfer_limit` | 409 | "This key has moved too many times recently." / Wait a few days, or ask nvx.sh support to move it. |
-| `license.not_found` | 404 | "There is no licence with that key." / Copy the key again from your nvx.sh account. |
-| `license.paused` | 410 | "This licence is paused." / Resume it in your nvx.sh account. A paused licence keeps its key; Pro comes back when it is resumed. |
-| `license.expired` | 410 | "This licence has ended." / Renew it in your nvx.sh account, then check again. |
+| `license.not_found` | 404 | "There is no licence with that key." / Copy the key again from your NVX purchase email, or ask support@nvx.sh. |
+| `license.paused` | 410 | "This licence is paused." / Contact NVX support (support@nvx.sh) to resume it. A paused licence keeps its key; Pro comes back when it is resumed. |
+| `license.expired` | 410 | "This licence has ended." / Renew it from the link in your NVX receipt email, then check again. |
 | `license.revoked` | 410 | "This licence was revoked." / Contact nvx.sh support. The key is forgotten on this computer. |
 | `license.released` | 410 | "This computer was released from the licence." / Turn Pro on again with your key to take a seat here. The key is forgotten on this computer. |
 | `license.bad_token` | 401 | "nvx.sh did not accept this licence." / Enter your key again in Admin → Licence. The token is cleared; the key, if held, is kept. |
@@ -342,7 +342,7 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `sync.offline` | 503 | "The sync relay could not be reached." / Sync carries on when the connection is back. Nothing is lost: changes wait here. |
 | `sync.licence_invalid` | 401 | "Sync does not accept the Pro licence on this computer." / Turn Pro on again in Admin → Licence. Sync starts again by itself once it is active; nothing is tried until the licence token changes. |
 | `sync.licence_lapsed` | 402 | From the relay: the licence has lapsed. / Renew Pro. Changes keep downloading and nothing uploads, except taking back what a scope keeps on a computer. Shown in Settings → Sync, not as an error. |
-| `sync.device_pending` | 403 | From the relay: "This computer is waiting to be approved." / Approve it on a computer that syncs (Settings → Sync), or join with a code. With no computer left that syncs, approve it from your nvx.sh account. A waiting computer reads nothing, not even the passphrase check. |
+| `sync.device_pending` | 403 | From the relay: "This computer is waiting to be approved." / Approve it on a computer that syncs (Settings → Sync), or join with a code. With no computer left that syncs, contact NVX support (support@nvx.sh) to approve it. A waiting computer reads nothing, not even the passphrase check. |
 | `sync.device_unknown` | 401 | From the relay: "This computer is not registered for sync." / A computer that syncs declined or removed it. Settings → Sync says so: ask again, or join with a code. |
 | `sync.too_many_pending` | 429 | From the relay: "Too many computers are waiting to be approved." / Approve or decline them on a computer that syncs. A request waits a day at most. |
 | `sync.device_exists` | 409 | From the relay: the device id is registered with another key. / Nothing to do: the computer takes a new id and asks again by itself. |
@@ -365,7 +365,7 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `team.reset_gone` | 410 | "That reset link has been used, has expired or is for another email." / Check the email, or ask an admin for a new link. A reset link works once, for 24 hours; a newer one replaces it. |
 | `team.address_not_allowed` | 400 | "NVX Ancile does not accept changes from <address>." / Set ANCILE_PUBLIC_URL to it, or add it to ANCILE_ALLOWED_ORIGINS, where NVX Ancile starts; restart, then save it here. People could open a link there but not join. `error.context.allowed` lists the addresses it does accept. Signing in through an identity provider from such an address says to open NVX Ancile from its own address. |
 | `team.oidc_off` | 409 | "Sign-in through an identity provider is not set up." / An admin can set it up in Admin → Team. |
-| `team.no_seat_free` | 409 | "Every Pro seat is taken." / Take a seat from someone first, or add seats to your licence in your nvx.sh account. |
+| `team.no_seat_free` | 409 | "Every Pro seat is taken." / Take a seat from someone first, or contact NVX support (support@nvx.sh) to add people to your licence. |
 | `team.owner_seat` | 409 | "The workspace's owner always has a Pro seat." / Give or take seats from other people. |
 
 The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer token is missing, unknown or disconnected. A tool an app has no grant for answers with `isError` and the way to allow it (Admin → Plugins).

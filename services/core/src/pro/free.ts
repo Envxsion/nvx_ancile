@@ -113,21 +113,21 @@ export function refusal(status: number, b: ServerError): AncileError {
     return fail(
       'license.not_found',
       'There is no licence with that key',
-      'Copy the key again from your nvx.sh account.',
+      'Copy the key again from your NVX purchase email, or ask support@nvx.sh.',
       404,
     );
   if (status === 410 && why === 'paused')
     return fail(
       'license.paused',
       'This licence is paused',
-      'Resume it in your nvx.sh account, then try again.',
+      'Contact NVX support (support@nvx.sh) to resume it.',
       410,
     );
   if (status === 410 && why === 'expired')
     return fail(
       'license.expired',
       'This licence has ended',
-      'Renew it in your nvx.sh account, then try again.',
+      'Renew it from the link in your NVX receipt email, then try again.',
       410,
     );
   if (status === 410 && why === 'released')
@@ -149,7 +149,7 @@ export function refusal(status: number, b: ServerError): AncileError {
   return fail(
     'license.rejected',
     nested?.title ?? b.title ?? 'That key was not accepted',
-    nested?.hint ?? b.hint ?? 'Check the key (NVX-XXXX-XXXX-XXXX) in your nvx.sh account.',
+    nested?.hint ?? b.hint ?? 'Check the key (NVX-XXXX-XXXX-XXXX) in your NVX purchase email.',
   );
 }
 
@@ -239,7 +239,7 @@ export function freeModule(host: FreeHost): { build: 'free'; license: ProLicense
           throw fail(
             'license.invalid',
             'Enter your licence key here',
-            'Copy the key (NVX-XXXX-XXXX-XXXX) from your nvx.sh account. Pro then arrives as an update.',
+            'Copy the key (NVX-XXXX-XXXX-XXXX) from your NVX purchase email. Pro then arrives as an update.',
           );
         const r = await call('/activate', {
           key,

@@ -194,7 +194,7 @@ export function LicenceScreen() {
                   ? 'Pro has not been renewed yet. Connect to the internet so it can be checked.'
                   : lapse === 'paused'
                     ? 'This licence is paused, so Pro is off. Your key is kept: Pro comes back when it is resumed.'
-                    : 'This licence has ended, so Pro is off. Renew it in your nvx.sh account, then check again.'}
+                    : 'This licence has ended, so Pro is off. Renew it from the link in your NVX receipt email, then check again.'}
             </p>
           ) : null}
           {ended && offer?.kind !== 'downgrade' ? (
@@ -335,8 +335,8 @@ export function LicenceScreen() {
             />
             <span className="field__hint">
               {freeBuild
-                ? 'From your nvx.sh account. Pro then arrives as an update, and your data stays as it is.'
-                : 'From your nvx.sh account. A signed token pasted from there works too.'}
+                ? 'From your NVX purchase email. Pro then arrives as an update, and your data stays as it is.'
+                : 'From your NVX purchase email. A signed token works too.'}
             </span>
           </label>
           <button

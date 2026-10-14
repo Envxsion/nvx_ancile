@@ -605,7 +605,7 @@ Servers set in \`config/mcp.yaml\` are marked **From config file**: change those
         keywords: 'licence license pro key activate free edition features',
         body: `Everything for working with your own models, sources and memory is in the free edition and stays there. Pro adds GPU pools, asking several models at once, teams, encrypted sync, long research and smart routing.
 
-To turn Pro on, paste the key from your nvx.sh account (NVX-XXXX-XXXX-XXXX) in **Admin → Licence**. The licence is checked on this computer, so Pro keeps working offline. **Move to another computer** frees the key for use elsewhere.`,
+To turn Pro on, paste the key from your NVX purchase email (NVX-XXXX-XXXX-XXXX) in **Admin → Licence**. The licence is checked on this computer, so Pro keeps working offline. **Move to another computer** frees the key for use elsewhere.`,
       },
     ],
   },

@@ -53,7 +53,7 @@ The last one happens when an older version starts on data a newer one updated: a
 
 ## Licence links
 
-An `ancile://activate?key=NVX-XXXX-XXXX-XXXX` link (from your nvx.sh account) opens Admin → Licence with the key filled in. It never activates by itself: you press the button.
+An `ancile://activate?key=NVX-XXXX-XXXX-XXXX` link (from your NVX purchase email) opens Admin → Licence with the key filled in. It never activates by itself: you press the button.
 
 ## Links
 
