@@ -13,6 +13,22 @@ cd "$(dirname "$0")/../.."
 echo "== pro submodule"
 git submodule update --init --recursive pro || echo "!! pro did not clone: install the Claude GitHub app on nvx_ancile_pro"
 
+echo "== Commit identity and message hook"
+# Commits are the owner's: no co-author trailers, no generator links.
+for repo in . pro; do
+  [ -d "$repo/.git" ] || [ -f "$repo/.git" ] || continue
+  git -C "$repo" config user.name Envxsion
+  git -C "$repo" config user.email 74938513+Envxsion@users.noreply.github.com
+  hooks=$(git -C "$repo" rev-parse --git-path hooks)
+  case "$hooks" in /*) ;; *) hooks="$repo/$hooks" ;; esac
+  mkdir -p "$hooks"
+  cat > "$hooks/commit-msg" <<'HOOK'
+#!/bin/sh
+sed -i -E '/^[[:space:]]*Co-Authored-By:/Id; /Generated with \[?Claude/Id; /claude\.(ai|com)/Id' "$1"
+HOOK
+  chmod +x "$hooks/commit-msg"
+done
+
 echo "== Node and pnpm"
 corepack enable >/dev/null 2>&1 || npm i -g corepack
 corepack prepare pnpm@11.3.0 --activate
