@@ -327,6 +327,7 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `beam.not_ready` | 422 | "<Model> cannot answer." / Add its key or switch it on in Settings → Models, or pick another. Nothing was asked. |
 | `beam.no_fuser` | 422 | "No model can fuse the answers." / Add a key in Settings → Models, or turn fusing off. |
 | `beam.busy` | 409 | "An answer is still being written here." / Wait for it to finish, or stop it, then ask again. |
+| `beam.not_a_question` | 422 | "Only a question can be beamed." / Pick the message you asked. Raised when Beam this question names an answer, not a question. |
 | `flowlab.empty_set` | 422 | "This test set has no questions yet." / Add answers from your threads, or write questions, then run it. |
 | `flowlab.not_ready` | 422 | "<Model> cannot answer." / Add its key in Settings → Models, or run with stand-in models. |
 | `sync.unavailable` | 501 | "This build cannot sync." / Update NVX Ancile, then try again. |

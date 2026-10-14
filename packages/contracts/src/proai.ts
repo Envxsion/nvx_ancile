@@ -52,6 +52,12 @@ export const StartBeamRequest = BeamSet.extend({
   notebook_id: z.string().nullable().optional(),
   /** The message this question replies to; absent: the thread's active head. */
   parent_id: z.string().nullable().optional(),
+  /**
+   * A question already in the thread ("Beam this question"): the answers go
+   * under it as its new versions and no message is written; `text` is then
+   * that question's own and parent_id is ignored.
+   */
+  question_id: z.string().optional(),
   /** false: keep the answers side by side and do not fuse them. */
   fuse: z.boolean().default(true),
 }).strict();

@@ -122,6 +122,10 @@ export interface BeamDialogProps {
   /** The message the question replies to; undefined: the thread's latest answer. */
   parentId: string | null | undefined;
   text: string;
+  /** A question already in the thread (Beam this question): shown as asked, sent as question_id. */
+  questionId?: string | null;
+  /** Called once the beam has started. */
+  onStarted?: () => void;
   onClose: () => void;
 }
 

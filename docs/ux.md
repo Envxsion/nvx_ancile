@@ -43,6 +43,7 @@ Ancile is built to be driven from the keyboard. Every action has a shortcut, the
 | `r` | Regenerate |
 | `m` | Change model and regenerate |
 | `b` | Branch from this message |
+| `Shift B` | Beam this question: ask several models at once (Pro); on an answer, the question it answered |
 | `f` | Fact-check |
 | `w` | Why did the AI say this? |
 | `c` | Copy |
@@ -60,6 +61,8 @@ Ancile is built to be driven from the keyboard. Every action has a shortcut, the
 | `@` | Mention a source, notebook, thread, model or memory file |
 | `Mod .` | Stop generating |
 | `↑` in an empty composer | Edit your last message |
+
+**Compare models** (the two-column button beside the attachments, in every thread, a Claude Code thread too) opens Beam with your draft as the question, to ask several models at once (Pro; without it, the dialog says what Beam is). The draft leaves the composer once the beam has started.
 
 With **Slash and @ menus** off (Settings → Composer), `/` and `@` are plain text. Typing one says so above the composer, "Slash and @ menus are off, so / and @ are plain text.", with **Turn menus on**; Esc puts the line away for that draft.
 

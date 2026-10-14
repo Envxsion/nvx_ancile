@@ -519,6 +519,19 @@ export function Composer({
     }
   };
 
+  // Compare models (Beam): the draft is the question; it leaves the composer once the beam has started.
+  // In a Claude Code thread too, where / opens Claude Code's own commands and so has no /beam.
+  const compareModels = () => {
+    const draft = text.trim();
+    openBeam({
+      threadId: realThread ? threadId : null,
+      notebookId,
+      parentId,
+      text: draft,
+      ...(draft && { onStarted: clearDraft }),
+    });
+  };
+
   const send = async (override?: string) => {
     let value = (override ?? text).trim();
     if (!value || sending || claudeCode?.readOnly) return;
@@ -1002,6 +1015,16 @@ export function Composer({
             </label>
           </Tip>
         ) : null}
+        <Tip label="Compare models: ask several at once, side by side">
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm composer__beam"
+            aria-label="Compare models"
+            onClick={compareModels}
+          >
+            <Icon name="compare" size={14} />
+          </button>
+        </Tip>
         {claudeCode ? (
           claudeCode.bar
         ) : (

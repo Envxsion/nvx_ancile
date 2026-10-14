@@ -116,6 +116,7 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'message.regenerate', keys: 'r', label: 'Regenerate', group: 'Thread', scope: 'thread' },
   { id: 'message.lab', keys: 'x', label: 'Run in the lab', group: 'Thread', scope: 'thread' },
   { id: 'message.branch', keys: 'b', label: 'Branch from here', group: 'Thread', scope: 'thread' },
+  { id: 'message.beam', keys: 'shift+b', label: 'Beam this question', group: 'Thread', scope: 'thread' },
   { id: 'message.factcheck', keys: 'f', label: 'Fact-check', group: 'Thread', scope: 'thread' },
   { id: 'message.why', keys: 'w', label: 'Why did it say this?', group: 'Thread', scope: 'thread' },
   { id: 'message.copy', keys: 'c', label: 'Copy', group: 'Thread', scope: 'thread' },
