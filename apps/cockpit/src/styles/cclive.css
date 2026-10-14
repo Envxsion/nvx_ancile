@@ -49,10 +49,8 @@
     opacity: 0.45;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cc-live__dot {
-    animation: none !important;
-  }
+:root[data-motion='reduced'] .cc-live__dot {
+  animation: none !important;
 }
 .cc-live__text,
 .cc-live__meta {
@@ -62,6 +60,15 @@
   text-overflow: ellipsis;
 }
 .cc-live__meta {
+  color: var(--mute);
+}
+/* The step the turn is running now: quiet, and never announced (it changes often). */
+.cc-live__now {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--mute);
 }
 .cc-live__usage {

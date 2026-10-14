@@ -73,6 +73,67 @@ describe('onboarding', () => {
     expect(h.registry.chain('chat.default').map((m) => m.id)).toEqual(['ollama/llama3.2:3b']);
   });
 
+  it('never switches on a configured Ollama model Ollama has not pulled, even one with its own address', async () => {
+    // The shape config/models.yaml used to ship: an OpenAI-compatible entry on Ollama's port.
+    const onPort = {
+      ...fakeModel('qwen3-14b', 'echo'),
+      id: 'ollama/qwen3-14b',
+      provider: 'openai-compatible',
+      provider_model: 'qwen3:14b',
+      display_name: 'Qwen3 14B (Ollama)',
+      base_url: 'http://localhost:11434/v1',
+      enabled: false,
+    };
+    h = await harness({
+      models: [onPort],
+      offline: false,
+      ollamaTags: async () => ['llama3.2:3b'],
+      tester: async () => ({ model: 'llama3.2:3b', available: ['llama3.2:3b'] }),
+    });
+    const r = await h.call<{ enabled: string[] }>('POST', '/setup/providers/test', { provider: 'ollama' });
+    // Only what Ollama has: the model it lists by itself.
+    expect(r.body.enabled).toEqual(['ollama/llama3.2:3b']);
+    const items = (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items;
+    expect(Object.fromEntries(items.map((m) => [m.id, m.status]))).toEqual({
+      'ollama/qwen3-14b': 'disabled',
+      'ollama/llama3.2:3b': 'ready',
+    });
+  });
+
+  it('finds the chat models Ollama has by itself, and Ollama reads set up only once one can answer', async () => {
+    const tags: { now: string[] | null } = { now: null };
+    const configured = {
+      ...fakeModel('qwen3-14b', 'echo'),
+      id: 'ollama/qwen3-14b',
+      provider: 'ollama',
+      provider_model: 'qwen3:14b',
+      enabled: true,
+    };
+    h = await harness({
+      models: [configured],
+      offline: false,
+      ollamaTags: async () => tags.now,
+      tester: async () => ({ model: 'qwen3:8b', available: tags.now ?? [] }),
+    });
+    // Switched on in the file, but Ollama has not answered: not set up, not offered.
+    const before = (await h.call<SetupStatus>('GET', '/setup')).body;
+    expect(before.providers.find((p) => p.id === 'ollama')?.configured).toBe(false);
+    expect(
+      (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items.map((m) => [m.id, m.status]),
+    ).toEqual([['ollama/qwen3-14b', 'not_pulled']]);
+
+    tags.now = ['qwen3:8b', 'nomic-embed-text:latest'];
+    const r = await h.call<{ enabled: string[] }>('POST', '/setup/providers/test', { provider: 'ollama' });
+    expect(r.body.enabled).toEqual(['ollama/qwen3:8b']);
+    const after = (await h.call<SetupStatus>('GET', '/setup')).body;
+    expect(after.providers.find((p) => p.id === 'ollama')?.configured).toBe(true);
+    const items = (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items;
+    expect(items.map((m) => [m.id, m.status, m.provider])).toEqual([
+      ['ollama/qwen3-14b', 'not_pulled', 'ollama'],
+      ['ollama/qwen3:8b', 'ready', 'ollama'],
+    ]);
+  });
+
   it('explains a rejected key and stores nothing', async () => {
     h = await harness({
       models: [claude],

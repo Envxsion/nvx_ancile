@@ -248,7 +248,10 @@ export function ModelLine({ m }: { m: FlowModel }) {
   );
 }
 
-/** Choose a model from every provider, OpenRouter and GPU node, by name, provider or price. */
+/**
+ * Choose a model from every provider, OpenRouter and GPU node, by name,
+ * provider or price: only those that can answer now (Admin → Models sets up the rest).
+ */
 export function ModelPicker({
   value,
   models,
@@ -264,9 +267,10 @@ export function ModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  // The current choice shows whatever its state ("needs a key", "off"); the list offers only models that can answer now.
   const current = models.find((m) => m.id === value);
   const groups = new Map<string, FlowModel[]>();
-  for (const m of models.filter((x) => x.chat)) {
+  for (const m of models.filter((x) => x.chat && x.status === 'ready')) {
     const g = m.via === 'controller' ? 'GPU nodes' : (PROVIDER_NAMES[m.provider] ?? m.provider);
     groups.set(g, [...(groups.get(g) ?? []), m]);
   }

@@ -418,18 +418,17 @@
   overflow: auto;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .artifact-card,
-  .artifact-card__go,
-  .artifact-offer,
-  .artifact-full,
-  .artifact-frame__iframe {
-    animation: none;
-    transition: none;
-  }
-  .artifact-card__pulse,
-  .artifact-card[data-writing] .artifact-card__tile,
-  .artifact-frame__shimmer {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .artifact-card,
+:root[data-motion='reduced'] .artifact-card__go,
+:root[data-motion='reduced'] .artifact-offer,
+:root[data-motion='reduced'] .artifact-full,
+:root[data-motion='reduced'] .artifact-frame__iframe {
+  animation: none;
+  transition: none;
+}
+:root[data-motion='reduced'] .artifact-card__pulse,
+:root[data-motion='reduced'] .artifact-card[data-writing] .artifact-card__tile,
+:root[data-motion='reduced'] .artifact-frame__shimmer {
+  animation: none;
 }

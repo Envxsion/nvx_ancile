@@ -73,7 +73,7 @@ function callJson(call: AutoCall): string {
 }
 
 function planText(plan: AutoPlan | null): string {
-  if (!plan || plan.status !== 'approved') return 'No plan has been approved for this session.';
+  if (plan?.status !== 'approved') return 'No plan has been approved for this session.';
   return [
     plan.summary,
     ...plan.steps.map((s) => `- ${s.action} on ${s.resource}${s.note ? ` (${s.note})` : ''}`),

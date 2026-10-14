@@ -43,10 +43,10 @@ import './styles/images.css';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { RouterProvider } from '@tanstack/react-router';
-import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StartupGate } from './app/StartupScreen';
+import { MotionPrefs } from './lib/motion';
 import { CACHE_BUSTER, persistable, persister, queryClient } from './lib/query';
 import { markRuntime } from './lib/runtime';
 import { router } from './router';
@@ -90,14 +90,15 @@ createRoot(root).render(
         },
       }}
     >
-      <MotionConfig reducedMotion="user">
+      {/* Motion follows Settings → Accessibility → Motion, not only the OS. */}
+      <MotionPrefs>
         <TooltipProvider delayDuration={350} skipDelayDuration={200}>
           {/* Core stopped before opening the database: its start-up screen instead of the app. */}
           <StartupGate>
             <RouterProvider router={router} />
           </StartupGate>
         </TooltipProvider>
-      </MotionConfig>
+      </MotionPrefs>
     </PersistQueryClientProvider>
   </StrictMode>,
 );

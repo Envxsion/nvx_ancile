@@ -26,6 +26,9 @@
  *           |  up in the thread at once. Core enforces the same rules
  *           |  (a critical approval cannot be remembered, a pattern
  *           |  must cover what was asked), so the dialog only guides.
+ *           |  It renders in the protected layer (app/protected.ts):
+ *           |  custom CSS is off while it is open, and its answers
+ *           |  wait until a visibility check finds it uncovered.
  * ------------------------------------------------------------------
  */
 
@@ -34,6 +37,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { Link } from '@tanstack/react-router';
 import { useId, useRef, useState } from 'react';
+import { protectedLayer, useProtect, useVisibilityCheck } from '../app/protected';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
 import { keys, useApprovals, useNotebooks, useThreads } from '../lib/data';
@@ -165,6 +169,11 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
   const waitingCount = others.length + 1;
   const allowable = [approval, ...others].filter((a) => a.tier !== 'critical').length;
   useLayer(open);
+  useProtect(open);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const visible = useVisibilityCheck(contentRef, open);
+  // Nothing can be answered that cannot be seen.
+  const blocked = busy || !visible;
   // Focus goes back where it was when the dialog opened, not to the page body.
   const returnTo = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
 
@@ -309,9 +318,10 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Portal>
+      <Dialog.Portal container={typeof document === 'undefined' ? undefined : protectedLayer()}>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content
+          ref={contentRef}
           className="dialog approval"
           data-tier={approval.tier}
           aria-describedby="approval-desc"
@@ -593,7 +603,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                         <button
                           type="button"
                           className="link-btn"
-                          disabled={busy}
+                          disabled={blocked}
                           onClick={() => void decideOther(o.id, 'deny')}
                         >
                           Decline
@@ -601,7 +611,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                         <button
                           type="button"
                           className="link-btn"
-                          disabled={busy}
+                          disabled={blocked}
                           onClick={() => void decideOther(o.id, 'approve')}
                         >
                           Allow once
@@ -616,7 +626,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm"
-                    disabled={busy}
+                    disabled={blocked}
                     onClick={() => void decideAll('deny')}
                   >
                     Decline all {waitingCount}
@@ -624,7 +634,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm"
-                    disabled={busy || allowable === 0}
+                    disabled={blocked || allowable === 0}
                     onClick={() => void decideAll('approve')}
                     title={
                       remembering
@@ -639,6 +649,11 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
             </section>
           ) : null}
 
+          {visible ? null : (
+            <p className="approval__hidden" role="alert">
+              Something is covering this request, so its answers are paused. Close what is on top of it.
+            </p>
+          )}
           <div className="dialog__actions" data-tour="approval-choices">
             {editable && !editing ? (
               <button
@@ -648,7 +663,7 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                   setEditing(true);
                   setScope('once');
                 }}
-                disabled={busy}
+                disabled={blocked}
               >
                 <Icon name="edit" size={13} />
                 Edit before allowing
@@ -658,7 +673,8 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
               type="button"
               className="btn btn--ghost"
               onClick={() => void decide('deny')}
-              disabled={busy}
+              disabled={blocked}
+              data-protected-action
             >
               {critical || editing || scope === 'once' ? 'Decline' : 'Decline and remember'}
             </button>
@@ -667,7 +683,8 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                 type="button"
                 className="btn btn--primary"
                 onClick={() => void decide('approve', true)}
-                disabled={busy || !changed}
+                disabled={blocked || !changed}
+                data-protected-action
                 title={!draftValid ? 'Fix the JSON first' : !changed ? 'Nothing changed yet' : undefined}
               >
                 Allow once with changes
@@ -677,8 +694,9 @@ export function ApprovalDialog({ approval }: { approval: PendingApproval }) {
                 type="button"
                 className="btn btn--primary"
                 onClick={() => void decide('approve')}
-                disabled={busy}
+                disabled={blocked}
                 data-autofocus
+                data-protected-action
               >
                 {critical || scope === 'once' ? 'Approve once' : 'Approve and remember'}
               </button>

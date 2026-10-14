@@ -43,6 +43,13 @@ export interface ProHost {
   version: string;
   /** The licence clock (never earlier than any time seen before); Date.now when absent. */
   now?: () => number;
+  /** Where the Cockpit is served (ANCILE_PUBLIC_URL). */
+  publicUrl?: string;
+  /**
+   * Every origin Core accepts changes from (requestGuard): a page opened
+   * anywhere else can read but not write. Absent: not known (tests).
+   */
+  allowedOrigins?: readonly string[];
 }
 
 /** Turning Pro on and keeping it on: Admin → Licence talks to this. */
@@ -50,7 +57,12 @@ export interface ProLicense {
   start(): Promise<void>;
   stop(): void;
   status(): license.LicenseStatus;
-  details(): Promise<license.LicenseDetails>;
+  /**
+   * What the licence holds, as the person asking may use it: `who` is the
+   * request's principal (null: nobody signed in). Absent: the install as a
+   * whole (the owner's view).
+   */
+  details(who?: Principal | null): Promise<license.LicenseDetails>;
   activate(key: string, opts?: { transfer?: boolean }): Promise<license.LicenseDetails>;
   refresh(): Promise<license.LicenseDetails>;
   deactivate(): Promise<license.LicenseDetails>;
@@ -80,6 +92,12 @@ export interface Principal {
   name: string;
   /** How they signed in: the free build's single owner, a session, or a service. */
   via: 'owner' | 'session' | 'service';
+  /**
+   * Has a Pro seat: may use the Pro features the licence includes. False
+   * for a team member the owner has not given one; Pro's routes and
+   * checks then refuse them (pro.seat_required). Absent means true.
+   */
+  pro?: boolean;
 }
 
 export interface ProNotice {
@@ -91,21 +109,61 @@ export interface ProNotice {
 }
 
 /**
- * The parts of the workspace sync can carry. Core owns the data; Pro only
- * moves opaque records between devices. A record is the whole current
- * state of one item (last writer wins per record, by hybrid clock).
+ * One changed item. A `local` item belongs to a notebook or thread whose
+ * scope keeps everything on this machine (docs/scopes.md): it comes without
+ * its data, so sync can never carry it.
+ */
+export type ProSyncChange =
+  | { id: string; updatedAt: string; data: unknown; local?: false }
+  | { id: string; updatedAt: string; local: true };
+
+/**
+ * The parts of the workspace sync can carry. Core owns the data and the
+ * scopes; Pro only moves opaque records between devices. A record is the
+ * whole current state of one item (last writer wins per record, by hybrid
+ * clock). Scopes are read at the moment of asking, never from a cache.
  */
 export interface ProSyncSource {
   collections: readonly string[];
-  /** Items changed since an ISO time (null = everything), newest state only. */
-  changes(
-    collection: string,
-    since: string | null,
-  ): Promise<{ id: string; updatedAt: string; data: unknown }[]>;
-  /** Write items that arrived from another device. Returns how many were applied. */
+  /**
+   * Items changed since an ISO time (null = everything), newest state only.
+   * One whose place keeps data on this machine comes as `local`, without
+   * data. `withdrawn` adds places another device withdrew (keys as from
+   * localPlaces): what is in them is treated as local here too.
+   */
+  changes(collection: string, since: string | null, withdrawn?: readonly string[]): Promise<ProSyncChange[]>;
+  /**
+   * Write items that arrived from another device. Returns how many were
+   * applied. A deleted item carries no content: the copy here, if there is
+   * one, is marked deleted.
+   */
   apply(collection: string, items: { id: string; data: unknown; deleted: boolean }[]): Promise<number>;
   /** One item as it is here now (null if absent): kept aside when another device's change replaces it. */
   read(collection: string, id: string): Promise<unknown | null>;
+  /**
+   * The places whose scope keeps everything on this machine now, as
+   * "notebook:<id>" and "thread:<id>". A thread in such a notebook is listed
+   * too, so moving a thread into one changes the list.
+   */
+  localPlaces(): Promise<string[]>;
+  /** Every item in these places (keys from localPlaces), deleted ones included. */
+  itemsIn(places: readonly string[]): Promise<{ collection: string; id: string }[]>;
+  /**
+   * Which of these arriving items belong to a place that keeps data here (or
+   * one of `withdrawn`), by their own data or by the copy here. They are
+   * never applied.
+   */
+  localOnly(
+    collection: string,
+    items: { id: string; data: unknown }[],
+    withdrawn?: readonly string[],
+  ): Promise<Set<string>>;
+  /**
+   * Take away copies another device withdrew (it now keeps them on that
+   * machine only): marked deleted, with their content cleared. Returns how
+   * many were here.
+   */
+  remove(collection: string, ids: string[]): Promise<number>;
 }
 
 /** A message as Pro's answer features see it: its text, never its raw parts. */
@@ -282,8 +340,12 @@ export interface ProServices {
   db: ProDb;
   controller: ProController;
   notify(n: ProNotice): void;
-  /** Read the licence at the moment of use: features are checked when they run, not when they load. */
-  hasFeature(feature: pro.ProFeature): boolean;
+  /**
+   * Read the licence at the moment of use: features are checked when they
+   * run, not when they load. With `who`, also that this person has a Pro
+   * seat (Principal.pro); without, the install as a whole.
+   */
+  hasFeature(feature: pro.ProFeature, who?: Principal | null): boolean;
   /** The workspace's own data, for sync. */
   sync?: ProSyncSource;
   /** Sources, summaries, instructions and scope checks for context packs. */
@@ -299,10 +361,20 @@ export interface ProRoute {
   /** Hono-style path under /api/v1/pro, e.g. "/fleet/groups/:id". */
   path: string;
   feature: pro.ProFeature;
-  /** Lowest role that may call it (team workspaces). Defaults to member for writes, viewer for reads. */
+  /**
+   * Lowest role that may call it (team workspaces). Defaults to member for
+   * writes, viewer for reads. A route may let a viewer write (their own
+   * passphrase): Core leaves the role check under /pro to this.
+   */
   role?: Principal['role'];
   /** Reachable before sign-in (the sign-in routes themselves). */
   public?: boolean;
+  /**
+   * false: a member without a Pro seat may call it too (a team's own
+   * sign-in, member list and each person's account). Default: a seat is
+   * needed (Principal.pro).
+   */
+  seat?: false;
   handler(req: ProRequest): Promise<ProResponse>;
 }
 

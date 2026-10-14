@@ -249,9 +249,12 @@ describe('NVX Ancile usage', () => {
   it('totals, a stacked bar per day, and the breakdowns, with the estimate told apart', () => {
     const { container } = wrap(<AncileUsage report={REPORT} />);
     expect(screen.getByText('15k')).toBeInTheDocument();
-    expect(screen.getByText('$0.31')).toBeInTheDocument();
+    // Claude Code's $0.30 is its estimate of what the Claude plan covers: not added to the total.
+    expect(container.querySelector('.u-totals')).toHaveTextContent('Estimated cost$0.01');
     expect(
-      screen.getByText("$0.30 of it is Claude Code's estimate at API list prices, not your bill"),
+      screen.getByText(
+        'Claude Code is included in your Claude plan (about $0.30 at API list prices, not added here)',
+      ),
     ).toBeInTheDocument();
     const bars = container.querySelectorAll('.u-chart__bar');
     expect([...bars].map((b) => b.getAttribute('data-engine'))).toEqual(['lab', 'gateway', 'claude_code']);
@@ -305,7 +308,8 @@ describe('Claude Code in NVX Ancile', () => {
       by_thread: [],
     });
     wrap(<ClaudeCodeMeasured />);
-    expect(await screen.findByText(/No Claude Code answers in NVX Ancile/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Claude Code answers in the last 7 days/)).toBeInTheDocument();
+    expect(screen.getByText(/in a terminal session brought in here/)).toBeInTheDocument();
     expect(screen.getByText(/tokens in, out and from cache/)).toBeInTheDocument();
   });
 

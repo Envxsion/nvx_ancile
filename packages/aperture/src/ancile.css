@@ -27,10 +27,11 @@
 }
 
 [data-theme='light'] {
-  /* Darker than the dark-ground fill so white button text holds 5.2:1 */
-  --signal: #6e52ec;
-  --signal-rgb: 110 82 236;
-  --signal-ink: #5a3fd6;
+  /* Darker than the dark-ground fill so white button text holds 5.2:1, and
+     4.5:1 under the button's lit top edge */
+  --signal: #6d51eb;
+  --signal-rgb: 109 81 235;
+  --signal-ink: #593ed5;
   --signal-mid: #5a3fd6;
   --signal-dim: #e4defe;
   --on-signal: #ffffff;

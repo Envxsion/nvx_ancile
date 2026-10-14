@@ -1,11 +1,36 @@
 /* ---------------------------------------------------------------------------
-   Tool steps, code, thinking (thread/ToolSteps.tsx, thread/Code.tsx).
-   A calm timeline: one quiet line per step. Each step's icon sits in a
-   16px column on the answer's left edge; an opened step's detail hangs
-   from a hairline under its icon, aligned with the step's words (24px). Colour is for
-   state (failed, waiting, live), never for decoration; a step that went
+   Tool steps, code, thinking (thread/ToolSteps.tsx, thread/Code.tsx) and
+   the "Working now" strip (thread/WorkingNow.tsx).
+   A calm timeline: one quiet card per step, one line high. Each step's
+   icon sits in a 16px column on the answer's left edge; an opened step's
+   detail hangs from a hairline under its icon, aligned with the step's
+   words (24px). Colour is for state (failed, waiting, live), with one
+   deliberate exception: a card's left rule and its icon say its family
+   (a command, an MCP tool, a subagent; any other tool stays grey), in the
+   identity hues mixed down. Never signal (that is live state alone) and
+   never --s-violet (it sits beside signal); the icon and its label say
+   the family too, so colour is never the only sign. A step that went
    fine stays grey. Syntax colours are hue tokens mixed toward the text.
    --------------------------------------------------------------------------- */
+
+/* ---- Families: the card's rule and its icon ------------------------------ */
+
+:is(.tool-step, .working-now__step) {
+  --kind: var(--hair-2);
+  --kind-ink: var(--mute);
+}
+:is(.tool-step, .working-now__step)[data-family='command'] {
+  --kind: color-mix(in srgb, var(--s-cyan) 64%, transparent);
+  --kind-ink: color-mix(in srgb, var(--s-cyan) 62%, var(--mute));
+}
+:is(.tool-step, .working-now__step)[data-family='mcp'] {
+  --kind: color-mix(in srgb, var(--s-magenta) 64%, transparent);
+  --kind-ink: color-mix(in srgb, var(--s-magenta) 62%, var(--mute));
+}
+:is(.tool-step, .working-now__step)[data-family='agent'] {
+  --kind: color-mix(in srgb, var(--s-azure) 64%, transparent);
+  --kind-ink: color-mix(in srgb, var(--s-azure) 62%, var(--mute));
+}
 
 /* ---- The hairline ---------------------------------------------------------- */
 
@@ -26,6 +51,10 @@
   width: 1px;
   background: var(--hair-2);
   pointer-events: none;
+}
+/* A card is a little taller than a bare line: the hairline starts under it. */
+.tool-step[open]::before {
+  top: 30px;
 }
 
 /* Martian is wide and dark beside Archivo: in the thread it is set a step
@@ -64,6 +93,9 @@ details[open] > summary .cc-chev {
 :is(.tool-step, .thinking, .tool-group) + :is(.tool-step, .thinking, .tool-group) {
   margin-top: 2px;
 }
+.tool-step + .tool-step {
+  margin-top: 4px;
+}
 .tool-step > summary {
   display: flex;
   align-items: center;
@@ -75,6 +107,8 @@ details[open] > summary .cc-chev {
   list-style: none;
   cursor: pointer;
   color: var(--fg-3);
+  background: var(--wash);
+  box-shadow: inset 2px 0 0 var(--kind);
   transition: background var(--d-micro) var(--ease);
 }
 .tool-step > summary::-webkit-details-marker {
@@ -86,10 +120,10 @@ details[open] > summary .cc-chev {
 .tool-step__icon {
   flex: none;
   margin: 0 1.5px;
-  color: var(--mute);
+  color: var(--kind-ink);
 }
-.tool-step[open] .tool-step__icon,
-.tool-step > summary:hover .tool-step__icon {
+.tool-step[data-family='tool'][open] .tool-step__icon,
+.tool-step[data-family='tool'] > summary:hover .tool-step__icon {
   color: var(--fg-3);
 }
 .tool-step__label {
@@ -183,6 +217,15 @@ details[open] > summary .cc-chev {
   color: var(--mute);
   font-size: var(--t-small);
 }
+/* What came back from a step that went fine yields first to the step's own words. */
+.tool-step[data-state='ok'] .tool-step__detail {
+  max-width: 34%;
+}
+@media (max-width: 600px) {
+  .tool-step[data-state='ok'] .tool-step__detail {
+    display: none;
+  }
+}
 .tool-step__meta {
   flex: none;
   color: var(--mute-2);
@@ -203,7 +246,9 @@ details[open] > summary .cc-chev {
   color: var(--warn);
 }
 .tool-step[data-state='waiting'] > summary {
-  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.32);
+  box-shadow:
+    inset 2px 0 0 var(--kind),
+    inset 0 0 0 1px rgb(var(--signal-rgb) / 0.32);
 }
 .tool-step[data-state='waiting'] .tool-step__status,
 .tool-step[data-state='running'] .tool-step__status {
@@ -315,6 +360,75 @@ details[open] > summary .cc-chev {
 .msg__body .todo > li::before,
 .msg__body .matches > li::before {
   content: none;
+}
+
+/* ---- Working now (thread/WorkingNow.tsx) --------------------------------- */
+
+/* The live footer's line, with the steps running now listed under it. */
+.live-now {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+/* As wide as the answer (its measure is in the answer's own type size), so
+   the rows line up with the step cards above, overhanging as they do. */
+.working-now {
+  display: grid;
+  gap: 2px;
+  max-width: calc(var(--measure) + 12px);
+  margin: 0 -6px;
+  padding: 0;
+  font-size: var(--read-size);
+  list-style: none;
+}
+.working-now__step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--wash);
+  box-shadow: inset 2px 0 0 var(--kind);
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  animation: working-now-in var(--d-short) var(--ease-out) both;
+}
+.working-now__icon {
+  flex: none;
+  color: var(--kind-ink);
+}
+.working-now__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.working-now__time {
+  flex: none;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-stretch: 87.5%;
+}
+/* A step that waits on you is live state that needs you: signal ink, in words. */
+.working-now__wait {
+  flex: none;
+  color: var(--signal-ink);
+}
+.working-now__more {
+  padding: 0 10px;
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+@keyframes working-now-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
 }
 
 /* ---- Many steps, one line ---------------------------------------------- */
@@ -566,7 +680,7 @@ details[open] > summary .cc-chev {
   min-width: 3.2em;
   padding-right: 14px;
   text-align: right;
-  color: var(--mute-3);
+  color: var(--mute-2);
   user-select: none;
 }
 .code__text {
@@ -746,7 +860,7 @@ details[open] > summary .cc-chev {
 }
 .matches__no {
   flex: none;
-  color: var(--mute-3);
+  color: var(--mute-2);
 }
 .matches__text {
   min-width: 0;
@@ -824,7 +938,7 @@ details[open] > summary .cc-chev {
   box-shadow: inset 0 0 0 1.5px var(--mute-2);
 }
 .todo > li[data-status='completed'] .todo__box {
-  background: rgb(var(--ok-rgb) / 0.14);
+  background: rgb(var(--ok-rgb) / 0.12);
   box-shadow: none;
   color: var(--ok);
 }

@@ -53,11 +53,12 @@ import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
 import type { Hue } from '../lib/types';
+import { draftAutosave, useAutomations } from '../ops/builtins';
 import { openBeam } from '../pro/beam';
 import { useRepos } from '../repos/data';
 import { useUploads } from '../sources/uploads';
 import { notify } from '../state/notify';
-import { usePref } from '../state/prefs';
+import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { HueChip, Kbd, Tip } from '../ui/primitives';
@@ -218,7 +219,9 @@ export function Composer({
     () => (notebookId ? allUploads.filter((u) => u.notebookId === notebookId) : []),
     [allUploads, notebookId],
   );
-  const synced = realThread && !isDemo;
+  // Save drafts (Admin → Automations): off keeps a draft on this device only.
+  const autosave = draftAutosave(useAutomations(realThread && !isDemo).data);
+  const synced = realThread && !isDemo && autosave.on;
   // Which flow answers here, so the model chip can say when it is not the one answering.
   const resolved = useResolvedFlow(synced ? threadId : undefined).data;
   // Before a thread exists (Home, a notebook page): the flow its notebook,
@@ -329,13 +332,13 @@ export function Composer({
         ? setTimeout(() => {
             latest.current.sent = text;
             void api.put(`/drafts/${threadId}/${serverParent(parentId)}`, { text }).catch(() => undefined);
-          }, 1_200)
+          }, autosave.afterMs)
         : undefined;
     return () => {
       clearTimeout(t);
       clearTimeout(remote);
     };
-  }, [text, key, synced, threadId, parentId]);
+  }, [text, key, synced, threadId, parentId, autosave.afterMs]);
 
   // Flush when the composer goes away or the tab hides, so a quick switch
   // never loses the last few words.
@@ -419,6 +422,9 @@ export function Composer({
   }, [text, dismissedMenu, mentions, commands, picked, prefs.menus, prefs.snippets, claudeCode, extras]);
 
   const menuOpen = !!menu && menu.items.length > 0;
+  // With Slash and @ menus off, typing / or @ would do nothing visible: say why, once per draft.
+  const menusOff =
+    !prefs.menus && !dismissedMenu && (/^\/[^\s]*$/.test(text) || /(?:^|\s)@[^\s@]*$/.test(text));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight when the menu changes shape
   useEffect(() => setMenuIndex(0), [menu?.kind, menu?.items.length]);
@@ -513,6 +519,19 @@ export function Composer({
     }
   };
 
+  // Compare models (Beam): the draft is the question; it leaves the composer once the beam has started.
+  // In a Claude Code thread too, where / opens Claude Code's own commands and so has no /beam.
+  const compareModels = () => {
+    const draft = text.trim();
+    openBeam({
+      threadId: realThread ? threadId : null,
+      notebookId,
+      parentId,
+      text: draft,
+      ...(draft && { onStarted: clearDraft }),
+    });
+  };
+
   const send = async (override?: string) => {
     let value = (override ?? text).trim();
     if (!value || sending || claudeCode?.readOnly) return;
@@ -601,6 +620,11 @@ export function Composer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menusOff && e.key === 'Escape') {
+      e.preventDefault();
+      setDismissedMenu(true);
+      return;
+    }
     if (menuOpen && menu) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -725,6 +749,21 @@ export function Composer({
       }}
       onDrop={onDrop}
     >
+      {menusOff ? (
+        <p className="composer__menu composer__menu-off m-glass" role="status">
+          <span>Slash and @ menus are off, so / and @ are plain text.</span>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              usePrefs.getState().set('composer', { menus: true });
+              ref.current?.focus();
+            }}
+          >
+            Turn menus on
+          </button>
+        </p>
+      ) : null}
       {menuOpen && menu ? (
         <div
           className="composer__menu m-glass"
@@ -976,6 +1015,16 @@ export function Composer({
             </label>
           </Tip>
         ) : null}
+        <Tip label="Compare models: ask several at once, side by side">
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm composer__beam"
+            aria-label="Compare models"
+            onClick={compareModels}
+          >
+            <Icon name="compare" size={14} />
+          </button>
+        </Tip>
         {claudeCode ? (
           claudeCode.bar
         ) : (

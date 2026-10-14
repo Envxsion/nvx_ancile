@@ -21,7 +21,7 @@ Signing in is Claude Code's own: press **Sign in** and Claude Code opens its sig
 
 You do not need to be signed in to see and bring in sessions: they are already on your computer. **Sign out** runs `claude auth logout`, and only when you press it.
 
-Claude Code's usage counts against whichever account Claude Code is signed into (your Claude plan, or API billing), exactly as in the terminal. Settings → Usage shows your plan's limits as Claude Code's own `/usage` does (see Usage), and token counts from your sessions; a cost, where Claude Code reports one, is its estimate at API list prices, never your bill.
+Claude Code's usage counts against whichever account Claude Code is signed into (your Claude plan, or API billing), exactly as in the terminal. Settings → Usage shows your plan's limits as Claude Code's own `/usage` does (see Usage), and token counts from your sessions. Wherever a Claude Code cost shows, it reads "Included in your Claude plan" (or where an API sign-in bills it); Claude Code's own estimate at API list prices is never shown as your bill (see What Claude Code costs).
 
 ## Names and notebooks
 
@@ -49,12 +49,13 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 
 ## How sessions look in a thread
 
-- Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results.
-- The answer reads like an editor's timeline. Each tool step is one line saying what it did and to what, and opens onto the detail:
+- Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results. That holds when something came between a call and its result (a background task's notification, a hook's note, a command, a stop, or a sync that ran in between): the result still joins its call, and what came between shows after the answer, where it happened.
+- The answer reads like an editor's timeline. Each tool step is a one-line card saying what it did and to what, and opens onto the detail. Its left rule and icon say what kind of step it is (a command, an MCP tool, a subagent, or any other tool), and its icon carries the same word for screen readers. While it runs it counts its seconds; once done it says how long it took (from Claude Code's transcript times) and, beside it, what came back in one short line: lines read, results found, the first line a command printed, an MCP tool's first fields. A failed step shows its first line of error instead.
   - **Read** shows the file with line numbers; **Edit** and **Write** show a diff; **Bash** (and PowerShell) a terminal block with the command and what it printed; **Grep** and **Glob** a list of matches; **WebFetch** and **WebSearch** their links; **TodoWrite** a checklist.
   - A subagent (the Task or Agent tool) is folded under the call that started it; open it to read its conversation. An MCP tool (`mcp__server__tool`) shows its server, tool and arguments.
   - More than four steps in a row fold into "Worked through N steps" (while it runs, "Working through N steps").
   - Thinking is folded to one line until you open it.
+- While a turn from NVX Ancile runs, the line under the answer reads "Working now" and lists every step running, parallel calls too, each with its kind and its seconds (a step waiting on your decision says "Waiting"). The status line above the composer names the step running ("Running pnpm test and 2 more"). Claude Code's own live state has no steps, so both come from the turn's run.
 - Long messages start folded at about twelve lines; long pastes too.
 - A Claude Code thread shows no NVX Ancile context estimate: the context is Claude Code's, and its own count (with where it compacts) shows in the same meter once its session is open (`GET /claude-code/threads/:id/live`).
 - What Claude Code itself wrote on your side of the conversation is not shown as if you typed it:
@@ -70,7 +71,7 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 
 ### For developers: what the Cockpit receives
 
-Every message from Claude Code has `provenance.claude_code = { session_id, uuid, uuids, kind?, command?, notification?, last_api_id?, subagent? }`. Prompts and answers have no `kind`. The others:
+Every message from Claude Code has `provenance.claude_code = { session_id, uuid, uuids, kind?, command?, notification?, last_api_id?, subagent?, results_moved_to? }`. Prompts and answers have no `kind`. The others:
 
 | `kind` | role | parts | extra fields |
 |---|---|---|---|
@@ -83,9 +84,17 @@ Every message from Claude Code has `provenance.claude_code = { session_id, uuid,
 
 Any message may also carry `unknown: { count, types }`: entries (or content blocks) in it this version cannot show, by the kind Claude Code gave them, never their content. The Cockpit draws one quiet line under it. An answer written by a live turn in NVX Ancile has `live: true`.
 
+A tool result is always in the answer that holds its call. When the conversation moved on between the two (a notification or a hook's note came first), the result's part goes to that answer while its entry's uuid stays in `uuids` of the message where the conversation was (the notification, say), which is that message's place in the session: what came after hangs off it, and going on from it in a branch resumes after the result. Each `tool_result` part carries `duration_ms` when the transcript has both times: from the entry that made the call to the one that brought its result (never negative; absent when either time is missing, or when one entry holds both, as a web search does). An API response is counted in `usage` once, even when its entries end up in two messages.
+
+An answer an older mapping started with nothing but such results keeps its place in the tree (so the thread's head, branches, summaries and drafts that point at it still do) and has `results_moved_to`: the id of the answer its results joined. With nothing else in it, its parts are one empty text part and the Cockpit draws nothing for it.
+
 Titles are "Background task finished: <summary>" (or "failed", "stopped"), "Message from <session>", "Report from an agent" (with `from` naming it) and "Note from Claude Code" for a wrapper NVX Ancile does not know yet. Tool results stay strings, line-number gutters included.
 
-When the mapping changes, `MAPPER_VERSION` (services/core/src/claudecode/map.ts) goes up. The next import pass rebuilds every thread made by an older version, keeping the thread, its title, notebook and place in the list, as long as the thread holds only messages from Claude Code (turns sent from NVX Ancile count: they are Claude Code's too). A thread with anything else written in NVX Ancile is kept as it is; only new messages use the new mapping. Version 3 brought full history: threads imported before it are rebuilt with every branch and everything before each compaction.
+When the mapping changes, `MAPPER_VERSION` (services/core/src/claudecode/map.ts) goes up, and the next sync of each session (the import pass, **Sync**, or the sync after a live turn) brings its thread up to it:
+
+- A thread made before version 3 (full history) is rebuilt with every branch and everything before each compaction, keeping the thread, its title, notebook and place in the list, but only when every message in it came in from the transcript. A thread with a live turn from NVX Ancile (its citations, cost estimate, setup report, and the ids that fact-checks and branches point at) or anything else written in NVX Ancile is never rebuilt; it is repaired in place, as below.
+- From version 3 on a thread is never rebuilt; it is repaired in place, with nothing discarded and no message mapped again: a tool result in an answer that does not hold its call moves to the answer above it on its path that does (see `results_moved_to`); a result with no `duration_ms` gets one from the transcript's times; an answer that counted an API response another answer already counted has that response's tokens taken off (only where its stored tokens are exactly what the older rule counted, so nothing else in its usage changes; a live answer's `cost_usd` stays).
+- Version 4 is the first such repair: results join their calls, steps say how long they took, and a response counted twice is counted once. A thread whose session is no longer on this computer (or whose folder is now excluded) is not synced, so it keeps what the older mapping wrote; the Cockpit still draws such a result with its call.
 
 A live answer also has, when Claude Code reports it, `provenance.claude_code.cost_estimate = { usd, note }`: Claude Code's own estimate at API list prices, the same number goes in the message's `usage.cost_usd`. It is not what your account is billed (a Claude plan is not billed per token at all).
 
@@ -130,7 +139,7 @@ With Claude Code installed and verified, `claude-code/default`, `claude-code/opu
 
 ### Approvals
 
-Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Grants), so Claude Code asks again next time and the grant answers.
+Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Permissions), so Claude Code asks again next time and the grant answers.
 
 | Claude Code tool | Checked as | Resource | Tier |
 |---|---|---|---|
@@ -185,11 +194,16 @@ A command you or a plugin made that shares a built-in's name is yours, and goes 
 
 ### Usage
 
-Settings → Usage (also the status bar's usage segment, and **All usage** in a Claude Code thread's usage popover) shows:
+Settings → Usage (also the status bar's usage segment and context meter, and **All usage** in a Claude Code thread's usage popover) shows:
 
+- **Context now**: how full the thread you last had open is, in the same meter as the status bar, with the line where it compacts. In a Claude Code thread it is Claude Code's own count ("Claude Code's own count: 90k of 200k tokens"), once its session is open; until then it says to send a message there to open it. In any other thread it is NVX Ancile's budget for the branch on screen, split into history, system, memory, sources and room for the reply, with **Compact older messages** once it is filling up. With no thread open yet, a deleted one, or a model that does not say how large its context is, it says so. The last thread is remembered for the session only.
 - **Plan limits**, as Claude Code's own `/usage` shows them: "Current session (5 hours): 42% used, resets at 3:40 pm", "This week: 18% used, resets Mon 9:00 am", and a weekly row per model when your plan has one, each a meter that turns amber from 70% and red from 90%. "Updated 2 min ago" says how fresh they are; **Refresh** asks Claude Code now. When the pace so far would run out before a window resets, a line says when: "At this pace you'll run out Thursday night" (or "around 3:10 pm" for the session). Before Claude Code has reported anything the block says what will appear there, never nothing, and a line links to the usage page on claude.ai, which has the full picture. With an API key (or a cloud provider) it says "Plan limits apply to Claude subscription sign-ins only."
-- **Claude Code in NVX Ancile**: what NVX Ancile measured from Claude Code's answers here (live sessions and `claude-code/<model>` answers): tokens in, out and from cache today and over the last 7 days, how much of what it read came from its prompt cache, and its busiest threads. Use in the terminal or on claude.ai is not counted. Before Claude Code has answered here, it says what will appear.
-- **NVX Ancile usage**: tokens and recorded cost today, or over the last 7 or 30 days, with a bar per hour or day and a split by engine (chat and flows, Claude Code, the lab) and by model. Claude Code's part of the cost is its estimate at API list prices, and says so. GPU compute shows the Controller's month when a node is set up. Pro's Insights goes deeper.
+- **Claude Code in NVX Ancile**: what NVX Ancile measured from Claude Code's answers here (live sessions, `claude-code/<model>` answers, and terminal sessions brought in as threads): tokens in, out and from cache today and over the last 7 days, how much of what it read came from its prompt cache, its busiest threads, and "Includes 6.0k tokens from 2 sessions run in the terminal and brought in". Use on claude.ai, and terminal sessions not brought in, are not counted. Each answer counts once, where it lives now: a copy a later sync replaced, or one in a thread you deleted (the session comes back into a new thread), is left out. Before Claude Code has answered, it says what will appear and opens the sessions list.
+- **NVX Ancile usage**: tokens and recorded cost today, or over the last 7 or 30 days, with a bar per hour or day and a split by engine (chat and flows, Claude Code, the lab) and by model. With nothing yet (or nothing from the chosen OpenRouter provider) it says what the split will show. GPU compute shows the Controller's month when it is set up, and says when no node has run or the Controller is not answering. Pro's Insights goes deeper.
+
+A slow block shows a skeleton; one that could not be read says so with **Try again**.
+
+**What Claude Code costs.** Claude Code bills the account it is signed in to. Signed in with a Claude account, every place a Claude Code cost shows (a message's footer, Why, the usage popover, Settings → Usage, Compare, a flow's steps) reads **Included in your Claude plan**, never "$0.000", and its estimate at API list prices is never added to a total as if it were billed: Settings → Usage says "Claude Code is included in your Claude plan (about $0.30 at API list prices, not added here)", and its row in the split reads "In plan". Signed in with an Anthropic API key, Amazon Bedrock, Google Vertex AI or Microsoft Foundry, the use is billed per token, so it reads "About $0.42, billed to your Anthropic API key" and counts in the total. A flow's `month_spend_usd` fact never counts Claude Code.
 
 Where the plan figures come from:
 
@@ -236,6 +250,8 @@ The SDK is Anthropic's (all rights reserved), so NVX Ancile does not ship it. Th
 Security software sometimes quarantines files it has not seen before. When the SDK, the bridge or Claude Code itself disappears or cannot be opened after it was checked, NVX Ancile says which folder to allow in your antivirus (`claude_code.file_blocked`, docs/errors.md) instead of a general failure. After the computer sleeps, Core checks the bridge still answers and reconnects it if not.
 
 Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Claude Code that NVX Ancile runs.
+
+**Fact-check judges at once** (Settings → Claude Code, 1 to 4, default 1) caps how many fact-check judge calls Claude Code answers together. Each is a session on your Claude plan, so more at once finishes a check sooner and uses your plan's limits faster (docs/factcheck.md).
 
 ## Limits in this release
 

@@ -7,7 +7,10 @@
  *  Purpose  |  List the automations; make, edit and delete your own;
  *           |  change a built-in job's schedule and settings, or reset
  *           |  it to automations.yaml; switch one on or off; run one
- *           |  now.
+ *           |  now; test one that can be tested (memory backup's push).
+ *           |  An event-driven built-in has a switch and settings but
+ *           |  no schedule; one that is not set up cannot be switched
+ *           |  on.
  *  How      |  The contract schemas check the shape; this file checks
  *           |  the rest (the schedule reads and is not too frequent,
  *           |  the notebook, flow and model exist, a built-in's
@@ -32,10 +35,16 @@ import { canChat, type ModelRegistry } from '../gateway/registry';
 import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import { MIN_INTERVAL_MINUTES, scheduleProblem } from './cron';
+import { builtinConfigProblem } from './jobs';
 import type { AutomationRunner } from './runner';
+
+/** A built-in's Test (POST /automations/:id/test): what happened, in a sentence. */
+export type AutomationTest = (body: Record<string, unknown>) => Promise<{ ok: boolean; detail: string }>;
 
 export interface AutomationRouteDeps {
   runner: AutomationRunner;
+  /** Built-ins that can be tested without running them, by id. */
+  tests?: Record<string, AutomationTest>;
   /** Checks for what your own automations point at; each is skipped when absent. */
   notebookExists?: (id: string) => Promise<boolean>;
   flowExists?: (id: string) => Promise<boolean>;
@@ -62,7 +71,7 @@ function eventDriven(view: AutomationView): AncileError {
   return new AncileError({
     code: 'automation.event_driven',
     title: `${view.title} runs as part of another feature`,
-    hint: 'It has no schedule to change or switch off here.',
+    hint: 'It has no schedule to change; switch it off or change its settings instead.',
     status: 422,
     errorClass: 'permanent',
   });
@@ -90,6 +99,12 @@ export function checkOptions(options: AutomationOption[], patch: Record<string, 
     if (!o) throw badRequest(`config.${key}: this automation has no setting called ${key}`);
     if (o.type === 'boolean') {
       if (typeof value !== 'boolean') throw badRequest(`config.${key}: expected true or false`);
+      continue;
+    }
+    if (o.type === 'choice') {
+      const values = (o.choices ?? []).map((c) => c.value);
+      if (typeof value !== 'string' || !values.includes(value))
+        throw badRequest(`config.${key}: expected one of ${values.join(', ')}`);
       continue;
     }
     if (typeof value !== 'number' || !Number.isInteger(value))
@@ -155,7 +170,9 @@ export function automationRoutes(deps: AutomationRouteDeps) {
   r.patch('/automations/:id', async (c) => {
     const req = await body(c, UpdateAutomationRequest);
     const view = await viewOr404(c.req.param('id'));
-    if (view.trigger === 'event') throw eventDriven(view);
+    if (view.trigger === 'event' && req.cron !== undefined) throw eventDriven(view);
+    // Nothing that cannot run is switched on; set it up first.
+    if (req.enabled === true && view.setup) throw notSetUp(view);
     if (req.cron !== undefined) checkCron(req.cron);
     let config: Record<string, unknown> | undefined;
     if (view.origin === 'user') {
@@ -176,6 +193,8 @@ export function automationRoutes(deps: AutomationRouteDeps) {
       if (req.config !== undefined) {
         checkOptions(view.options, req.config);
         config = { ...view.config, ...req.config };
+        const problem = builtinConfigProblem(view.id, config);
+        if (problem) throw badRequest(problem);
       }
     }
     await runner.edit(view.id, {
@@ -197,9 +216,24 @@ export function automationRoutes(deps: AutomationRouteDeps) {
         status: 422,
         errorClass: 'permanent',
       });
-    if (view.trigger === 'event') throw eventDriven(view);
     await runner.reset(view.id);
     return c.json(await viewOr404(view.id));
+  });
+
+  r.post('/automations/:id/test', async (c) => {
+    const view = await viewOr404(c.req.param('id'));
+    const test = view.origin === 'builtin' ? deps.tests?.[view.id] : undefined;
+    if (!test)
+      throw new AncileError({
+        code: 'automation.no_test',
+        title: `${view.title} has no test`,
+        hint: 'Run it now instead, and read what it did on its card.',
+        status: 422,
+        errorClass: 'permanent',
+      });
+    const raw: unknown = await c.req.json().catch(() => ({}));
+    const req = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    return c.json(await test(req));
   });
 
   r.delete('/automations/:id', async (c) => {

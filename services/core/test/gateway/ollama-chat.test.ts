@@ -39,7 +39,7 @@ const qwen: ModelConfig = {
 };
 
 const ndjson = (lines: unknown[]) =>
-  new Response(lines.map((l) => JSON.stringify(l)).join('\n') + '\n', {
+  new Response(`${lines.map((l) => JSON.stringify(l)).join('\n')}\n`, {
     headers: { 'content-type': 'application/x-ndjson' },
   });
 

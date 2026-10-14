@@ -68,7 +68,7 @@ export function validateSteps(steps: AutoPlanStep[]): void {
 
 /** The step a call fits, if any. */
 export function planStepFor(plan: AutoPlan | undefined | null, call: { action: string; resource: string }) {
-  if (!plan || plan.status !== 'approved') return undefined;
+  if (plan?.status !== 'approved') return undefined;
   return plan.steps.find(
     (s) => matchAction(s.action, call.action) && matchResource(s.resource, call.resource),
   );
@@ -110,7 +110,7 @@ export class MemoryPlanStore implements PlanStore {
 
   async decide(id: string, status: 'approved' | 'rejected') {
     const p = this.plans.get(id);
-    if (!p || p.status !== 'proposed') return false;
+    if (p?.status !== 'proposed') return false;
     p.status = status;
     p.decided_at = new Date().toISOString();
     return true;

@@ -54,6 +54,8 @@ interface UiState {
   focusedClaim: string | null;
   /** The answer the Evidence panel shows; null means the latest checked one. */
   evidenceMessage: string | null;
+  /** The thread open last, this session: Settings → Usage shows its context. Never stored. */
+  lastThreadId: string | null;
 
   paletteOpen: boolean;
   paletteScope: PaletteScope;
@@ -108,6 +110,7 @@ interface UiState {
   /** Opening a thread: the side panel goes to the tab chosen in Settings, unless something just asked for one. */
   resetDrawerTab: () => void;
   setModel: (modelId: string) => void;
+  setLastThread: (threadId: string) => void;
 }
 
 export const useUi = create<UiState>()(
@@ -130,6 +133,7 @@ export const useUi = create<UiState>()(
       whyMessage: null,
       noteOpen: null,
       evidenceMessage: null,
+      lastThreadId: null,
       shortcutsOpen: false,
       approvalOpen: false,
       approvalFocus: null,
@@ -218,6 +222,7 @@ export const useUi = create<UiState>()(
           Date.now() - s.drawerTabAt < 1500 ? s : { drawerTab: usePrefs.getState().prefs.layout.drawerTab },
         ),
       setModel: (modelId) => set((s) => ({ live: { ...s.live, modelId } })),
+      setLastThread: (threadId) => set({ lastThreadId: threadId }),
     }),
     {
       name: 'nvx.ancile.ui',

@@ -12,7 +12,8 @@
  *  How      |  The budget comes from /context-budget; the suggestion
  *           |  from a `suggestion` event held in useSuggestions. A
  *           |  line slides up out of the composer and leaves when
- *           |  dismissed or used (MotionConfig honours reduced motion).
+ *           |  dismissed or used. With reduced motion (the in-app
+ *           |  setting, through MotionPrefs) it fades instead.
  *  Note     |  Threads from Claude Code get no estimate: Claude Code
  *           |  manages its own context, and its own count shows in
  *           |  the status line instead (claudecode/LiveBar.tsx).

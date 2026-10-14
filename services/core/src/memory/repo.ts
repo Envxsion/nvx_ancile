@@ -18,7 +18,8 @@
  *           |  hand-edited CRLF file stays CRLF. Paths are checked
  *           |  before they touch the disk: relative, inside the root,
  *           |  markdown only, never .git.
- *           |  TODO(phase-5): push to ANCILE_MEMORY_REMOTE on schedule.
+ *           |  The backup push is the memory_backup automation
+ *           |  (automations/jobs.ts), not this module.
  * ------------------------------------------------------------------
  */
 

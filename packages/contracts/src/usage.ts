@@ -114,5 +114,11 @@ export const ClaudeCodeUsage = z.object({
   ),
   /** The busiest Claude Code threads over the 7 days, by tokens. */
   by_thread: z.array(UsageTotals.extend({ thread_id: z.string(), title: z.string().nullable() })),
+  /**
+   * Of the 7 days, the answers brought in from Claude Code's own transcripts
+   * (sessions run in the terminal and imported), already inside `week`; the
+   * rest a turn in NVX Ancile wrote. `sessions` counts the sessions they came from.
+   */
+  imported: UsageTotals.extend({ sessions: z.number().int().nonnegative() }),
 });
 export type ClaudeCodeUsage = z.infer<typeof ClaudeCodeUsage>;

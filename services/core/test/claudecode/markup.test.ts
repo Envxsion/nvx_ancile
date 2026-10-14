@@ -328,7 +328,14 @@ describe('reminders, images and results', () => {
       assistant('a1', [{ type: 'tool_use', id: 'c', name: 'Read', input: { file_path: 'a.ts' } }]),
       toolResult('r1', 'c', read),
     ]);
-    expect(planned[1]?.parts[1]).toEqual({ type: 'tool_result', call_id: 'c', ok: true, result: read });
+    // The fixtures' entries are a second apart: the step took as long.
+    expect(planned[1]?.parts[1]).toEqual({
+      type: 'tool_result',
+      call_id: 'c',
+      ok: true,
+      result: read,
+      duration_ms: 1000,
+    });
   });
 
   it('helpers: ANSI codes and tags come out, markdown stays', () => {

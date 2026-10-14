@@ -66,7 +66,7 @@ export const RuleCondition = z.object({
     'branch_depth', // messages on the path
     'language', // detected language, ISO 639-1
     'node_awake', // a GPU node (value: controller node id) is running now
-    'month_spend_usd', // spend so far this month, all models
+    'month_spend_usd', // billed spend so far this month (every model but Claude Code, which a plan covers) plus GPU compute
   ]),
   op: z.enum(['contains', 'matches', 'equals', 'not_equals', 'gt', 'lt', 'in']),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),

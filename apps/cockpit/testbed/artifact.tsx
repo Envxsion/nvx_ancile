@@ -29,6 +29,7 @@ const target = `http://127.0.0.1:${port}`;
 
 try {
   localStorage.setItem('ancile-secret', 'parent-storage-secret');
+  // biome-ignore lint/suspicious/noDocumentCookie: the probe plants a cookie on purpose, to show an artifact cannot read it
   document.cookie = 'ancile_cookie=parent-cookie-secret; path=/';
 } catch {
   // A browser without storage: the probe reports what it can.

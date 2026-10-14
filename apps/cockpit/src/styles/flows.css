@@ -407,7 +407,7 @@
 }
 .fnode__badge[data-tone='gilt'] {
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.1);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
 .fnode__badge[data-tone='warn'] {
@@ -803,17 +803,13 @@
   text-overflow: ellipsis;
   color: var(--mute);
 }
-.fadd__sleep,
-.fadd__unready {
+.fadd__sleep {
   padding: 0 5px;
   border-radius: var(--r-pill);
   font-size: 10px;
   font-weight: 500;
   color: var(--fg-3);
   background: var(--chalk-2);
-}
-.fadd__unready {
-  color: var(--warn);
 }
 .fadd__empty {
   padding: 18px 12px;
@@ -893,7 +889,7 @@
   height: 42px;
   border-radius: 14px;
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.1);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
 .fempty__actions {
@@ -1518,7 +1514,7 @@
   color: var(--fg-3);
 }
 .fp-incoming__ctx[data-custom] {
-  color: var(--s-cyan);
+  color: color-mix(in oklab, var(--s-cyan) var(--ramp-ink), var(--fg));
 }
 
 /* Try panel timeline */
@@ -1957,10 +1953,9 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fnode[data-live='running'],
-  .fedge__flow[data-travelled],
-  .ftool__state[data-dirty]::before {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .fnode[data-live='running'],
+:root[data-motion='reduced'] .fedge__flow[data-travelled],
+:root[data-motion='reduced'] .ftool__state[data-dirty]::before {
+  animation: none;
 }

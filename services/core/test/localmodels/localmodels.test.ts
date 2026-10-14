@@ -11,6 +11,7 @@ import { LocalModelEntry as Entry } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { AppEnv } from '../../src/app';
+import { ModelRegistry } from '../../src/gateway/registry';
 import { fitOf, type HardwareProbe, parseNvidia } from '../../src/localmodels/hardware';
 import {
   NETWORK_TROUBLE,
@@ -22,6 +23,8 @@ import {
 import { localModelRoutes } from '../../src/localmodels/routes';
 import { LocalModels } from '../../src/localmodels/service';
 import { errorHandler } from '../../src/obs/errors';
+import { MemorySecretStore, SecretBox } from '../../src/secrets';
+import { MemorySettings } from '../../src/settings';
 
 const GiB = 1024 ** 3;
 
@@ -517,5 +520,45 @@ describe('downloading', () => {
     const without = make();
     const e = await without.call<{ error: { code: string } }>('POST', '/local-models/bge/download', {});
     expect(e.body.error.code).toBe('local_model.embedder_unavailable');
+  });
+});
+
+describe('a download, with the models Ollama lists by itself', () => {
+  it('a pulled model is found under the id a download saves, and a download keeps the catalogue details', async () => {
+    fake.have.add('llama3.2:3b');
+    fake.have.delete('qwen3:14b');
+    const ollama = new OllamaClient({ baseUrl: base, stallMs: 200 });
+    const reg = new ModelRegistry({
+      models: [],
+      taskClasses: {},
+      secrets: new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64'))),
+      settings: new MemorySettings(),
+      offline: false,
+      ollamaTags: async () => (await ollama.tags()).map((t) => t.name),
+      ollamaFacts: (name) => ollama.facts(name),
+    });
+    await reg.refresh();
+    expect(reg.isDiscovered('ollama/llama3.2:3b')).toBe(true);
+    const { models, call } = make({ reg: reg as never });
+    const view = await call<LocalModelsView>('GET', '/local-models');
+    expect(view.body.items.find((i) => i.id === 'llama3-2-3b')).toMatchObject({
+      installed: true,
+      model_id: 'ollama/llama3.2:3b',
+    });
+
+    const r = await call<LocalDownload>('POST', '/local-models/qwen3-14b/download', {});
+    const done = await until(models, r.body.id, (d) => d.status === 'done');
+    expect(done.model_id).toBe('ollama/qwen3:14b');
+    expect(reg.all().filter((m) => m.id === 'ollama/qwen3:14b')).toHaveLength(1);
+    expect(reg.isCustom('ollama/qwen3:14b')).toBe(true);
+    expect(reg.isDiscovered('ollama/qwen3:14b')).toBe(false);
+    expect(reg.get('ollama/qwen3:14b')?.display_name).toBe('Qwen3 14B (Ollama)');
+    expect(reg.info().find((m) => m.id === 'ollama/qwen3:14b')?.status).toBe('ready');
+  });
+
+  it('reads what Ollama says a model can do, and null when it cannot say', async () => {
+    const ollama = new OllamaClient({ baseUrl: base });
+    expect(await ollama.facts('llama3.2:3b')).toEqual({ capabilities: null, context: null });
+    expect(await ollama.facts('not-pulled:1b')).toBeNull();
   });
 });

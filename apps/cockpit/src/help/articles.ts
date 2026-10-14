@@ -144,10 +144,10 @@ Open a model's **⋯** menu in Admin → Models and choose **Providers, routing 
       },
       {
         id: 'offline-model',
-        title: 'The try-out models',
+        title: 'The test models',
         summary: 'Try everything before you add a key. They do not use AI.',
         keywords: 'test offline fake say fail tool slow directive echo try-out tryout',
-        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Try-out** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
+        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Test model** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
 
 - **/say** *text*: answer with exactly that text
 - **/slow** *text*: write one word every 150 ms
@@ -156,7 +156,7 @@ Open a model's **⋯** menu in Admin → Models and choose **Providers, routing 
 
 Offline echo, the backup, only repeats what you wrote.
 
-Once a real model is ready, the try-out models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Show try-out models**.`,
+Once a real model is ready, the test models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Keep test models (no AI) in pickers**.`,
       },
       {
         id: 'api-keys',
@@ -209,11 +209,11 @@ A source's menu (**⋯**, or right-click) can **Rename** it, which changes its t
       {
         id: 'context-levels',
         title: 'What a question can use',
-        summary: 'Full, summary only, or off, per source.',
-        keywords: 'context level off insights summary full exclude include',
+        summary: 'Passages, summary only, or off, per source.',
+        keywords: 'context level off insights summary full passages exclude include',
         body: `Every source in a notebook has a setting for how much a question may draw from it:
 
-- **Full**: any passage can be found and cited.
+- **Passages**: each question finds the passages that match it best, and can cite them. The whole source is never sent at once, so a question about all of it ("summarise every chapter") reads only what matched; ask about one part at a time, or use Summary.
 - **Summary**: only the source's summary is used. Good for background reading.
 - **Off**: ignored, but kept in the notebook.
 
@@ -319,12 +319,12 @@ A thread from Claude Code says so under its title. **Sync from Claude Code** (in
 **Carry a session on here**
 Type in a Claude Code thread and send: the session carries on in your own Claude Code, in its own folder, with your CLAUDE.md files, skills, plugins and MCP servers. The answer streams in like any other, with each tool step as it happens. **Stop** (in place of Send while it works) is Claude Code's own interrupt; what it wrote so far is kept.
 
-A line above the composer says what the session is doing: **Claude Code ready in cyberfolio**, **Starting Claude Code…** or **Working…**, with the model and effort. The small meter is Claude Code's own count of its context; press it for the last turn's tokens and the cost, which is an estimate at API list prices, not your bill.
+A line above the composer says what the session is doing: **Claude Code ready in cyberfolio**, **Starting Claude Code…** or **Working…**, with the model and effort. The small meter is Claude Code's own count of its context; press it for the last turn's tokens and its cost: included in your Claude plan (or, signed in with an API key, billed there), with Claude Code's estimate at API list prices beside it.
 
 Choose the **model** and **effort** for the next message with the two buttons in the composer's bar. A message you send while Claude Code works waits as **Queued** and goes when the turn ends.
 
 **Commands**
-Type **/** for Claude Code's own commands for this folder: built-ins, your skills, plugins, MCP prompts and custom commands, each with what it does. Keep typing to narrow the list, use the arrow keys, and press Tab or Enter. A command with set values (such as **/effort** or **/model**) offers them next. A few commands open the matching part of NVX Ancile instead of being sent: **/mcp** opens Plugins, **/permissions** opens Grants, **/context** and **/cost** open usage, **/branch** branches here, **/rewind** opens the branch tree, **/login** opens Claude Code sign-in. Commands that only work in a terminal say so and are not sent.
+Type **/** for Claude Code's own commands for this folder: built-ins, your skills, plugins, MCP prompts and custom commands, each with what it does. Keep typing to narrow the list, use the arrow keys, and press Tab or Enter. A command with set values (such as **/effort** or **/model**) offers them next. A few commands open the matching part of NVX Ancile instead of being sent: **/mcp** opens Plugins, **/permissions** opens Permissions, **/context** and **/cost** open usage, **/branch** branches here, **/rewind** opens the branch tree, **/login** opens Claude Code sign-in. Commands that only work in a terminal say so and are not sent.
 
 **Approvals, with your changes**
 Every tool call Claude Code makes is checked by NVX Ancile first. When one asks, the approval can be changed before it runs: press **Edit before allowing**, change the command, the edit or the file, then **Allow once with changes**. NVX Ancile checks the changed call again; if it is refused, the dialog says why and stays open. Changes apply to that one call, so nothing is remembered while you edit.
@@ -345,7 +345,8 @@ Rewinds you made in Claude Code come in as branches. Edit an earlier message, tr
         id: 'approvals',
         title: 'Approvals',
         summary: 'Once, always, or every time: you decide what the AI may do.',
-        keywords: 'approval permission allow deny grant always once tier critical gated',
+        keywords:
+          'approval permission permissions allow deny grant grants always once tier critical gated expired',
         tour: 'approve',
         body: `Every tool call is checked at the moment it runs, on its real arguments. There are three tiers:
 
@@ -355,7 +356,7 @@ Rewinds you made in Claude Code come in as branches. Edit an earlier message, tr
 
 While the AI waits, the mark in the top-left closes like a shield and the status bar counts the decisions waiting. You can leave and come back: the run waits for you, even across a restart.
 
-Admin → Permissions lists everything you have allowed. A grant's **⋯** menu can **Edit** it, to narrow its pattern, change where it applies or set when it expires, or **Revoke** it. A pattern can only be narrowed there; to allow more, revoke it and answer the next request. Revoking asks first, and **Undo** on the notice puts it back for ten minutes.`,
+Admin → Permissions lists everything you have allowed. A saved permission's **⋯** menu can **Edit** it, to narrow its pattern, change where it applies or set when it expires, or **Revoke** it. One past its expiry no longer counts: it is marked **Expired**, and **Show: Expired** lists only those, so you can renew or revoke them. A pattern can only be narrowed there; to allow more, revoke it and answer the next request. Revoking asks first, and **Undo** on the notice puts it back for ten minutes.`,
       },
       {
         id: 'presets',
@@ -394,7 +395,7 @@ Each card shows the hourly rate, the hours and money spent this month, and the p
 
 Until you connect a provider, two **sample** nodes show how it all works. They start, stop and answer, and cost nothing.
 
-**Connect RunPod** takes an API key from RunPod (Settings → API Keys, with read and write access to pods). It is checked with RunPod before anything changes and kept encrypted on this computer; the sample nodes then go. To set a pod up yourself, **Add a node** → *Setting the pod up yourself?* has the exact start command and settings to copy.`,
+**Connect RunPod** opens **Settings → API keys** at the RunPod row: the one place keys are entered. Paste an API key from RunPod (Settings → API Keys, with read and write access to pods); it is checked with RunPod before anything changes and kept encrypted on this computer. NVX Ancile gives it to the Controller again every time the Controller starts, so you enter it once. To set a pod up yourself, **Add a node** → *Setting the pod up yourself?* has the exact start command and settings to copy.`,
       },
       {
         id: 'compute-rules',
@@ -555,14 +556,17 @@ For an answer, **Replay the run** steps through it like a recording: \`←\` and
         id: 'automations',
         title: 'Automations',
         summary: 'What NVX Ancile does on its own, and when.',
-        keywords: 'automations schedule cron cleanup backup stale links run now new edit reset reminder flow',
-        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes, model statistics) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
+        keywords:
+          'automations schedule cron cleanup backup stale links run now new edit reset reminder flow events switch tags duplicates drafts context test push remote',
+        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
 
-**Edit** changes when a job runs (every few minutes or hours, daily, weekly on the days you pick, or a custom cron schedule) and, for some jobs, their settings, such as how long logs are kept. A changed job is marked **Changed** until you reset it.
+**On events** lists the jobs that run as you work: naming new threads, tagging sources, spotting duplicates, suggesting a branch, watching the context window, saving drafts and learning from corrections. Each has a switch, and **Edit** for its settings, such as how many tags a source gets or how full the context gets before it is compacted.
+
+**Edit** changes when a job runs (every few minutes or hours, daily, weekly on the days you pick, or a custom cron schedule) and its settings, such as how long logs are kept. A changed job is marked **Changed** until you reset it.
 
 **New automation** makes your own: ask a model a question on a schedule (in a notebook if you like), run a flow, re-check a notebook's links, or send yourself a reminder. Answers land in a new thread each time; **Open** on the card takes you there. Nobody is watching when it runs, so anything it wants to change waits for your yes.
 
-A job that needs something first, like a git remote for memory backups, shows **Not set up** with what to do, and does not run until it is.
+A job that needs something first, like a git remote for memory backups, shows **Set up** instead of its switch, and stays off until it is. For memory backup, **Set up** asks for the remote, **Test push** checks it can push (nothing changes there), and **Save and turn on** starts the hourly backup.
 
 The jobs that run on events, like naming a new thread or learning from a correction, are listed too, so nothing happens out of sight.`,
       },
@@ -573,7 +577,7 @@ The jobs that run on events, like naming a new thread or learning from a correct
         keywords: 'mcp connect app editor token plugin search server grant',
         body: `Apps that speak MCP (editors, desktop assistants) can search your sources and memory. In **Admin → Plugins → Connect an app**, name the app and tick what it may do. You get a token and a ready-made config to paste into the app, shown once.
 
-Every call the app makes is checked like the assistant's own and recorded in **Decisions**. **Disconnect** stops its token at once; you can also take back one kind of access in **Grants**.
+Every call the app makes is checked like the assistant's own and recorded in **Decisions**. **Disconnect** stops its token at once; you can also take back one kind of access in **Admin → Permissions**.
 
 For apps that only start commands, run the stdio bridge with your token in \`ANCILE_MCP_TOKEN\`.`,
       },

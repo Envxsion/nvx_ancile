@@ -63,14 +63,14 @@ const PROVIDER_NAME: Record<string, string> = {
   ollama: 'Ollama',
   controller: 'Your compute',
   node: 'Your GPU node',
-  fake: 'Try-out',
+  fake: 'Test model',
   local: 'On this computer',
   'openai-compatible': 'Your server',
 };
 
 /**
- * The try-out models (built in, no AI) step out of the switcher and pickers
- * once a real model can answer, unless "Show try-out models" is on.
+ * The test models (built in, no AI) step out of the switcher and pickers
+ * once a real model can answer, unless "Keep test models (no AI) in pickers" is on.
  */
 export function hideTryout<T extends { offline?: boolean; status?: string | undefined; chat?: boolean }>(
   models: T[],
@@ -97,7 +97,9 @@ export function toModelView(m: ModelInfo): ModelView {
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
-    ...(m.status === 'not_pulled' && { note: 'Not in Ollama yet: pull it in Settings → Models' }),
+    ...(m.status === 'not_pulled' && {
+      note: 'Not in Ollama yet: download it in Admin → Models, or run ollama pull',
+    }),
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
     local: isLocalWire(m.provider, m.via, m.base_url ?? null),
     ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
@@ -405,9 +407,9 @@ export function toMessageView(m: Message): MessageView | null {
 }
 
 /**
- * Messages to draw. A message that is nothing but tool results (Claude Code
- * keeps them in the next turn, some providers in a `tool` message) joins the
- * answer that made the calls, so each step shows how it went. A user message
+ * Messages to draw. A message that is nothing but tool results (some
+ * providers keep them in a `tool` message, or in the next user turn) joins
+ * the answer that made the calls, so each step shows how it went. A message
  * like that stays in the list, folded, so the branch still ends where it ends.
  */
 export function toMessageViews(messages: Message[]): MessageView[] {
@@ -415,19 +417,37 @@ export function toMessageViews(messages: Message[]): MessageView[] {
   // A thread other models answer too: Claude Code's own compaction is a folded terminal entry,
   // since NVX Ancile's summary is the record there (docs/engines.md).
   const mixed = isMixedThread(messages);
+  const blank = (p: Part) => p.type === 'text' && !p.text.trim();
   for (const m of messages) {
+    const cc = (m.provenance as Provenance).claude_code as
+      | (NonNullable<Provenance['claude_code']> & { results_moved_to?: unknown })
+      | undefined;
+    // Core put this answer's results with their calls (Claude Code mapper version 4): with nothing
+    // else in it, it shows nothing, and stays folded as the link its entries hold in the tree.
+    if (
+      m.role === 'assistant' &&
+      cc?.results_moved_to &&
+      !unknownCount(m.provenance as Provenance) &&
+      m.parts.every(blank)
+    ) {
+      const v = toMessageView(m);
+      if (v) out.push({ ...v, parts: [], subagents: undefined, folded: true });
+      continue;
+    }
     const onlyResults =
       m.parts.some((p) => p.type === 'tool_result') &&
-      m.parts.every((p) => p.type === 'tool_result' || (p.type === 'text' && !p.text.trim()));
+      m.parts.every((p) => p.type === 'tool_result' || blank(p));
     const ids = new Set(m.parts.flatMap((p) => (p.type === 'tool_result' ? [p.call_id] : [])));
     const holds = (v: MessageView) =>
       v.role === 'assistant' &&
       !v.folded &&
       !v.cc &&
       !!v.parts?.some((p) => p.type === 'tool_call' && ids.has(p.call_id));
-    // Claude Code can put a step's result in a message of its own (a hook ran between the call
-    // and its result): it joins the answer that made the call instead of drawing an empty answer.
-    const strayResults = m.role === 'assistant' && onlyResults && out.some(holds);
+    // Still needed for Claude Code threads Core has not synced since mapper version 4 (a session
+    // whose file is gone, a folder now excluded, auto-import off and no sync since): an older
+    // mapping could give a step's result an answer of its own (a notification or a hook's note
+    // came between the call and its result). It joins the answer that made the call.
+    const strayResults = m.role === 'assistant' && !!cc && onlyResults && out.some(holds);
     if (m.role === 'tool' || (m.role === 'user' && onlyResults) || strayResults) {
       const host = out.findLast(holds) ?? out.findLast((v) => v.role === 'assistant' && !v.folded && !v.cc);
       const subagents = subagentsOf((m.provenance as Provenance).claude_code?.subagent);

@@ -47,7 +47,7 @@ export interface LocalModelsDeps {
   catalogue: LocalModelEntry[];
   ollamaUrl: string;
   registry: Pick<ModelRegistry, 'all' | 'custom' | 'saveCustom' | 'setEnabled'> &
-    Partial<Pick<ModelRegistry, 'refreshOllama'>>;
+    Partial<Pick<ModelRegistry, 'refreshOllama' | 'isDiscovered'>>;
   ollama?: OllamaClient;
   kn?: Pick<KnowledgeClient, 'get' | 'stream'>;
   probe?: HardwareProbe;
@@ -387,12 +387,16 @@ export class LocalModels {
     const reg = this.deps.registry;
     // Ollama has it now: ask again, so it is ready at once, not when the list is next read.
     if (e.via !== 'fastembed') await reg.refreshOllama?.().catch(() => undefined);
+    // One found in Ollama by itself is not "known": the catalogue's details (window,
+    // tools) are saved under the same id, and the found one gives way to it.
     const known = reg
       .all()
       .find((x) =>
         e.via === 'fastembed'
           ? x.provider === 'local' && x.provider_model === e.source
-          : (x.provider === 'ollama' || x.id.startsWith('ollama/')) && x.provider_model === e.source,
+          : (x.provider === 'ollama' || x.id.startsWith('ollama/')) &&
+            x.provider_model === e.source &&
+            !reg.isDiscovered?.(x.id),
       );
     if (known) {
       if (!known.enabled) await reg.setEnabled({ [known.id]: true });

@@ -16,7 +16,7 @@ import { useNotificationHistory } from '../lib/notifications';
 import { useNotify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
-import { EmptyState } from '../ui/primitives';
+import { EmptyState, Skeleton } from '../ui/primitives';
 
 /** 14:02 today; 3 Oct, 14:02 before that. */
 function when(ms: number): string {
@@ -71,7 +71,12 @@ export function Center() {
               <Icon name="close" size={14} />
             </Dialog.Close>
           </header>
-          {history.length === 0 ? (
+          {history.length === 0 && loading ? (
+            // Core's history is on its way: not "You're up to date" yet.
+            <div className="center__list">
+              <Skeleton lines={4} label="Loading notifications" />
+            </div>
+          ) : history.length === 0 ? (
             <EmptyState
               icon="bell"
               title="You're up to date"

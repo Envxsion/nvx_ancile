@@ -19,6 +19,7 @@ import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { relative } from '../lib/format';
 import { ConfirmDialog } from '../ui/Confirm';
 import { Icon, type IconName } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { isProtectedFile, useDeleteFile, useMemoryFile, useMemoryFiles, useMemoryUi } from './api';
@@ -91,19 +92,17 @@ export function MemoryBrowser() {
   };
 
   if (files.isPending) return <Skeleton lines={6} label="Loading memory" />;
-  if (files.isError)
-    return (
-      <EmptyState
-        icon="memory"
-        title="Memory could not be read"
-        body="Core could not open the memory folder. Health shows why; git must be installed."
-      />
-    );
+  // Core's own words say why (the folder, git); a refresh that failed keeps the list.
+  if (files.isError && !files.data)
+    return <LoadFailed error={files.error} what="Memory" onRetry={() => files.refetch()} />;
 
   return (
     <div className="mem-browser">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow-key navigation over the buttons inside */}
       <div className="mem-files" ref={listRef} onKeyDown={onKey}>
+        {files.isError ? (
+          <StaleNotice error={files.error} what="Memory" onRetry={() => files.refetch()} />
+        ) : null}
         {grouped.map((g) => (
           <section key={g.kind} className="mem-files__group" aria-label={g.label}>
             <h3 className="mem-files__h" title={g.blurb}>
@@ -207,6 +206,9 @@ function FilePane({ path, summary }: { path: string; summary: MemoryFileSummary 
       />
 
       {file.isPending ? <Skeleton lines={5} label="Loading the file" /> : null}
+      {file.isError && !file.data && mode !== 'history' ? (
+        <LoadFailed error={file.error} what="This file" onRetry={() => file.refetch()} />
+      ) : null}
 
       {file.data && mode === 'edit' ? <MemoryEditor file={file.data} onDone={() => setMode('read')} /> : null}
 

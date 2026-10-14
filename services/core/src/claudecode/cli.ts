@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { DeadlineExceededError, withTimeout } from '@nvx/resilience';
 
 export const MIN_VERSION = '2.1.200';
@@ -131,7 +131,9 @@ const isFile = (p: string) => {
  * The native executable an npm shim (claude.cmd) points at, or the
  * package's JavaScript entry to run with Node.
  */
-function throughShim(shim: string, exists: (p: string) => boolean): Located | null {
+function throughShim(shim: string, exists: (p: string) => boolean, win: boolean): Located | null {
+  // Windows paths, read as Windows reads them even where this runs elsewhere (the tests).
+  const { dirname, join } = win ? win32 : posix;
   const pkg = join(dirname(shim), 'node_modules', '@anthropic-ai', 'claude-code');
   for (const exe of ['bin/claude.exe', 'claude.exe']) {
     const p = join(pkg, exe);
@@ -190,7 +192,7 @@ export function locate(opts: LocateOptions = {}): Located | null {
     if (win) {
       const shim = join2(d, 'claude.cmd');
       if (exists(shim)) {
-        const via = throughShim(shim, exists);
+        const via = throughShim(shim, exists, win);
         if (via) return via;
       }
     }

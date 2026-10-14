@@ -22,14 +22,13 @@
 
 import type { CitationStatus, Part, RetrievalTrace } from '@nvx/contracts';
 import * as HoverCard from '@radix-ui/react-hover-card';
-import { type ComponentProps, createContext, type ReactNode, useContext, useState } from 'react';
+import { type ComponentProps, createContext, type ReactNode, useContext } from 'react';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
 import { ThreadImage } from '../images/ThreadImage';
 import { useCitationStatus } from '../lib/factcheck';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
-import { Icon } from '../ui/Icon';
 import { SafeLink } from '../ui/SafeLink';
 import { LiveClaim } from './Claims';
 import { MdCode } from './Code';

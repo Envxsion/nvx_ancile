@@ -3,8 +3,10 @@
  Title    |  Automatic tags
  ID       |  knowledge
 ------------------------------------------------------------------
- Purpose  |  Up to five keywords per source, so a new URL or file is
-          |  tagged without anyone typing (DESIGN.md §13.6).
+ Purpose  |  A few keywords per source, so a new URL or file is
+          |  tagged without anyone typing (DESIGN.md §13.6). The
+          |  auto_tag_sources automation switches it and sets how many
+          |  (max_tags, MAX_TAGS by default; automations.py).
  How      |  TF-IDF without a model: term counts for the source (words
           |  of 3+ letters, stopwords dropped, title words weighted),
           |  document frequency from the other sources in the same

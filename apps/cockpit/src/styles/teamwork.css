@@ -395,13 +395,12 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tw-step,
-  .tw-step[data-status='running'] .tw-step__ring,
-  .teamwork[data-running] .teamwork__pulse,
-  .tw-caret {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .tw-step,
+:root[data-motion='reduced'] .tw-step[data-status='running'] .tw-step__ring,
+:root[data-motion='reduced'] .teamwork[data-running] .teamwork__pulse,
+:root[data-motion='reduced'] .tw-caret {
+  animation: none;
 }
 
 /* ---- Flow chip in the composer, route marks, memory tray --------------- */
@@ -518,7 +517,7 @@
   border-radius: var(--r-pill);
   font-size: var(--t-small);
   color: var(--fg);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
 .why__hop > svg {

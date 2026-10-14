@@ -526,8 +526,8 @@ describe('the status line', () => {
     expect(screen.getByText('Working…')).toBeInTheDocument();
   });
 
-  it('the usage popover: context, last turn, plan limits, and a cost that says it is an estimate', async () => {
-    mocked.get.mockResolvedValue({
+  it('the usage popover: context, last turn, plan limits, and a cost the Claude plan covers', async () => {
+    const limits = {
       available: true,
       plan: 'max',
       windows: [
@@ -544,7 +544,12 @@ describe('the status line', () => {
       updated_at: new Date().toISOString(),
       source: 'usage',
       can_refresh: true,
-    });
+    };
+    mocked.get.mockImplementation(async (path: string) =>
+      path === '/claude-code/status'
+        ? { installed: true, signed_in: true, auth_method: 'claude.ai', install: { state: 'idle' } }
+        : limits,
+    );
     const last = msg({ id: 'm4', role: 'assistant', usage: { tokens: 12_400, costUsd: 0.42 } });
     wrap(
       <UsageBody
@@ -561,8 +566,9 @@ describe('the status line', () => {
     expect(mocked.get).toHaveBeenCalledWith('/claude-code/plan-limits');
     expect(screen.getByRole('link', { name: 'All usage' })).toBeInTheDocument();
     expect(screen.getByText('12,400 tokens')).toBeInTheDocument();
-    expect(screen.getByText('$0.42')).toBeInTheDocument();
-    expect(screen.getByText('estimate at API list prices, not your bill')).toBeInTheDocument();
+    // Claude Code's estimate is not the bill: the plan covers it, and the estimate says what it is.
+    expect(screen.getByText('Included in your Claude plan')).toBeInTheDocument();
+    expect(screen.getByText('About $0.42 at API list prices, not a bill')).toBeInTheDocument();
   });
 
   it('the effort picker sets the effort for the next message', async () => {

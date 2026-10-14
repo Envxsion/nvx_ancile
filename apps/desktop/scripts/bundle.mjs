@@ -167,6 +167,8 @@ if (want('core')) {
   for (const f of ['src', 'test', 'tsconfig.json', 'vitest.config.ts', 'drizzle.config.ts'])
     rmSync(join(dir, f), { recursive: true, force: true });
   const esbuild = createRequire(import.meta.url)('esbuild');
+  const coreVersion = () =>
+    JSON.parse(readFileSync(join(ROOT, 'services', 'core', 'package.json'), 'utf8')).version;
   console.log('Core: bundle');
   await esbuild.build({
     entryPoints: [join(ROOT, 'services', 'core', 'src', 'main.ts')],
@@ -177,9 +179,10 @@ if (want('core')) {
     target: 'node22',
     sourcemap: true,
     logLevel: 'warning',
-    // A release: only the licence keys built in are trusted, and the edition
-    // is whatever was bundled here (services/core/src/build.ts).
-    define: { __ANCILE_RELEASE__: 'true' },
+    // A release: only the licence keys built in are trusted, the edition is
+    // whatever was bundled here, and the version is Core's package.json's
+    // (services/core/src/build.ts).
+    define: { __ANCILE_RELEASE__: 'true', __ANCILE_VERSION__: JSON.stringify(coreVersion()) },
     // CommonJS dependencies inside the ESM bundle still call require().
     banner: {
       js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",

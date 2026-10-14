@@ -36,12 +36,13 @@ import { useUi } from '../state/ui';
 import { ScoreRing } from '../thread/Claims';
 import { Icon } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
+import { ClaudeCodeCost, isClaudeCodeModel } from '../usage/planCost';
 import { DecisionRule, EngineContextSection, ScopeLine } from './EngineContext';
 import { WhyDemo } from './WhyDemo';
 
 const OUTCOME: Record<NonNullable<Explain['tools'][number]['decision']>['outcome'], string> = {
   auto: 'Allowed on its own (read-only)',
-  grant: 'Allowed by a rule you made',
+  grant: 'Allowed by a permission you saved',
   approved: 'You approved it',
   denied: 'You declined it',
   policy_deny: 'Blocked by a policy',
@@ -268,7 +269,8 @@ function FlowSection({
               {s.model_id && s.label ? <span className="mute"> · {modelName(s.model_id)}</span> : null}
             </span>
             <span className="why__cited" data-num>
-              {(s.ms / 1000).toFixed(1)} s · {usd(s.cost_usd, 4)}
+              {(s.ms / 1000).toFixed(1)} s ·{' '}
+              {isClaudeCodeModel(s.model_id) ? <ClaudeCodeCost estimate={s.cost_usd} /> : usd(s.cost_usd, 4)}
               {s.status === 'pinned' || s.status === 'cached' ? ` · ${s.status}` : ''}
             </span>
           </li>
@@ -507,7 +509,13 @@ function Live({
                 <span data-num>{x.usage.cached_tokens.toLocaleString('en-GB')}</span> cached
               </span>
             ) : null}
-            <span data-num>{usd(x.usage.cost_usd, 4)}</span>
+            {x.origin !== 'ancile' || isClaudeCodeModel(x.model.id) ? (
+              <span>
+                <ClaudeCodeCost estimate={x.usage.cost_usd} />
+              </span>
+            ) : (
+              <span data-num>{usd(x.usage.cost_usd, 4)}</span>
+            )}
           </>
         ) : (
           <span>No usage was recorded.</span>

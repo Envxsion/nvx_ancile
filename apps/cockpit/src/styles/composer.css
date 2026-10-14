@@ -25,6 +25,18 @@
   padding: 6px 10px 4px;
   font-size: 11px;
 }
+/* Menus are off: one line saying why / and @ do nothing, with the way back. */
+.composer__menu-off {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 8px 8px 8px 12px;
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
 .composer__menu [role='option'] {
   transition:
     background var(--d-instant) var(--ease),

@@ -4,7 +4,14 @@
  */
 import type { ClaudeCodeUsage, UsageReport } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bucketOf, buildReport, engineOf, type UsageRow, window } from '../../src/usage/report';
+import {
+  bucketOf,
+  buildReport,
+  engineOf,
+  importedAnswer,
+  type UsageRow,
+  window,
+} from '../../src/usage/report';
 import { type Harness, harness, WORKSPACE_ID } from '../support/harness';
 
 // 2026-10-12 14:30 in London (BST, UTC+1).
@@ -134,7 +141,94 @@ describe('GET /usage', () => {
     // Nothing came from the cache in this seed.
     expect(u.cache_hit_rate).toBe(0);
     expect(u.by_thread.map((t) => [t.thread_id, t.answers])).toEqual([['thr_usage', 2]]);
+    // Both seeded answers came in from a transcript (no live mark, no Claude Code run).
+    expect(u.imported).toMatchObject({ input_tokens: 9000, answers: 2, sessions: 1 });
     expect((await h.call('GET', '/claude-code/usage?tz=Not/AZone')).status).toBe(400);
+  });
+
+  it('counts a Claude Code answer once, where it lives now, and tells imported sessions apart', async () => {
+    h = await harness({ now: () => NOW });
+    const x = h;
+    await x.repo.createThread({ id: 'thr_cc', workspace_id: WORKSPACE_ID });
+    await x.repo.createThread({ id: 'thr_gone', workspace_id: WORKSPACE_ID });
+    let n = 0;
+    const msg = (
+      thread: string,
+      i: number,
+      provenance?: Record<string, unknown>,
+      model = 'claude-code/opus',
+    ) =>
+      x.repo.insertMessage({
+        id: `c_${n++}`,
+        thread_id: thread,
+        parent_id: null,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'ok' }],
+        status: 'complete',
+        model_id: model,
+        trace_id: 't',
+        created_at: '2026-10-12T10:00:00Z',
+        usage: {
+          input_tokens: i,
+          output_tokens: 0,
+          cached_tokens: 0,
+          cost_usd: model.startsWith('openai') ? 1 : 0,
+        },
+        ...(provenance && { provenance }),
+      });
+    // Two terminal sessions brought in, and a turn written here.
+    await msg('thr_cc', 100, { claude_code: { session_id: 'term_a' } });
+    await msg('thr_cc', 200, { claude_code: { session_id: 'term_b' } });
+    await msg('thr_cc', 400, { claude_code: { session_id: 'here', live: true } });
+    // A copy a later sync replaced: its tokens live on in the copy above, so it is not counted again.
+    const replaced = await msg('thr_cc', 100, { claude_code: { session_id: 'term_a' } });
+    await x.repo.discardMessages([replaced.id]);
+    // A thread deleted after import: the session comes back into a new thread, so this copy is left out too.
+    await msg('thr_gone', 800, { claude_code: { session_id: 'term_c' } });
+    await x.repo.deleteThread('thr_gone');
+    // A deleted gateway answer still cost money, so it still counts.
+    const spent = await msg('thr_cc', 50, undefined, 'openai/gpt-5');
+    await x.repo.discardMessages([spent.id]);
+
+    const cc = (await x.call<ClaudeCodeUsage>('GET', '/claude-code/usage?tz=Europe/London')).body;
+    expect(cc.week).toMatchObject({ input_tokens: 700, answers: 3 });
+    expect(cc.imported).toMatchObject({ input_tokens: 300, answers: 2, sessions: 2 });
+    expect(cc.by_thread.map((t) => [t.thread_id, t.input_tokens])).toEqual([['thr_cc', 700]]);
+
+    const all = (await x.call<UsageReport>('GET', '/usage?range=day&tz=Europe/London')).body;
+    expect(all.by_engine.map((e) => [e.engine, e.input_tokens])).toEqual([
+      ['gateway', 50],
+      ['claude_code', 700],
+    ]);
+    expect(all.totals.cost_usd).toBe(1);
+  });
+
+  it('says nothing was imported when every answer was written here', async () => {
+    h = await harness({ now: () => NOW });
+    await h.repo.createThread({ id: 'thr_live', workspace_id: WORKSPACE_ID });
+    await h.repo.insertMessage({
+      id: 'l_1',
+      thread_id: 'thr_live',
+      parent_id: null,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'ok' }],
+      status: 'complete',
+      model_id: 'claude-code/opus',
+      trace_id: 't',
+      created_at: '2026-10-12T10:00:00Z',
+      usage: { input_tokens: 10, output_tokens: 1, cached_tokens: 0, cost_usd: 0 },
+      provenance: { claude_code: { session_id: 's', live: true } },
+    });
+    const cc = (await h.call<ClaudeCodeUsage>('GET', '/claude-code/usage?tz=UTC')).body;
+    expect(cc.week.answers).toBe(1);
+    expect(cc.imported).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cost_usd: 0,
+      answers: 0,
+      sessions: 0,
+    });
   });
 
   it('answers empty plan limits when Claude Code is not wired', async () => {
@@ -145,6 +239,15 @@ describe('GET /usage', () => {
 });
 
 describe('usage report', () => {
+  it('tells an imported Claude Code answer from one a turn here wrote', () => {
+    expect(importedAnswer({ claude_code: { session_id: 's' } }, null)).toBe(true);
+    expect(importedAnswer({ claude_code: { session_id: 's', live: true } }, null)).toBe(false);
+    // Written by a live turn before the live mark existed: its run says so.
+    expect(importedAnswer({ claude_code: { session_id: 's' } }, 'claude_code')).toBe(false);
+    expect(importedAnswer({}, 'claude_code')).toBe(false);
+    expect(importedAnswer(null, null)).toBe(false);
+  });
+
   it('names the engine from provenance, then the run, then the model', () => {
     expect(engineOf({ claude_code: {} }, null, null)).toBe('claude_code');
     expect(engineOf({}, 'claude_code', 'x')).toBe('claude_code');

@@ -102,7 +102,7 @@ Core is not a Node single-executable application: that format takes one CommonJS
 
 The lab runs commands a model chose, so the desktop gives it an environment built from nothing, as `agentEnv()` does in development: system basics, its own server password, a gateway token that can only ask Core for model calls, and its injected config. It never sees the service token, the database or any provider key (`lab_env_for` in `supervisor.rs`, with a test).
 
-The Controller starts with RunPod and no key, which means sample nodes until you choose **Connect RunPod** in Admin → Compute.
+The Controller starts with RunPod and no key. Once a RunPod key is saved in Settings → API keys, Core gives it to the Controller each time it starts, so Admin → Compute manages your pods from the first minute of every launch.
 
 ### Trying a build without touching your workspace
 
@@ -116,6 +116,10 @@ cargo run
 ```
 
 The profile name keeps its keychain entries separate too. By default the app uses ports from 17700, away from a development stack (7700) and the test stack (7800).
+
+### The version
+
+Each part reads its version from its own build, never from a number written in the code: Core and the Controller from their `package.json` (the bundler fixes it as `__ANCILE_VERSION__`; from source it is read from the file), the Cockpit the same way through Vite (it goes into an error's debug info), Knowledge from its installed package (`pyproject.toml`), and the desktop app from `Cargo.toml`, which it hands Core as `ANCILE_APP_VERSION`. Every place a release declares its version (the root and every workspace `package.json`, `pyproject.toml`, `Cargo.toml` and `tauri.conf.json`) must agree; Core's test `test/system/version.test.ts` fails when one does not, or when a version is written into the code by hand. A release bumps them together.
 
 ## Content Security Policy
 

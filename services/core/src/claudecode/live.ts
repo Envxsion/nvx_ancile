@@ -107,6 +107,7 @@ import {
   type MappedTool,
   mapTool,
 } from './permission-map';
+import { applyExtension } from './service';
 import type { ClaudeCodeStore } from './store';
 
 const log = logFor('claude-code-live');
@@ -1405,6 +1406,9 @@ export class ClaudeCodeLive {
       });
     }
     if (newRows.length) await threads.insertMessages(newRows);
+    // What the turn adds to messages already there (a result joining a call an earlier message
+    // holds, its entry where the conversation was): written with the rest, so nothing is split.
+    for (const p of plan.planned) if (p.extends) await applyExtension(threads, p);
     if (!first) {
       // Nothing to show under the prompt (a command Claude Code answered elsewhere, or a stop before any reply).
       await threads.discardMessages([cp.assistantMessageId]);

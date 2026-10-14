@@ -4,8 +4,10 @@
  * the encrypted store and never returned, and added models persisting.
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { CatalogueModel, ModelInfo } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { loadConfig } from '../../src/config/load';
 import type { CatalogueSource } from '../../src/gateway/catalogue';
 import { endpointSecret } from '../../src/setup/models';
 import { type Harness, harness } from '../support/harness';
@@ -211,5 +213,71 @@ describe('adding models', () => {
     h = await harness({ catalogue: fixtures });
     const r = await h.call('POST', '/models', { source: 'openai-compatible', provider_model: 'x' });
     expect(r.status).toBe(400);
+  });
+});
+
+describe('models found in Ollama', () => {
+  it('can be switched off and given a colour, but Ollama owns the rest', async () => {
+    h = await harness({ catalogue: fixtures, offline: false, ollamaTags: async () => ['llama3.2:3b'] });
+    const id = 'ollama/llama3.2:3b';
+    expect(h.registry.isDiscovered(id)).toBe(true);
+    const off = await h.call<ModelInfo>('PATCH', `/models/${id}`, { enabled: false, hue: 'jade' });
+    expect(off.body).toMatchObject({ id, status: 'disabled', hue: 'jade' });
+    const rename = await h.call<{ error: { code: string; title: string; hint: string } }>(
+      'PATCH',
+      `/models/${id}`,
+      { display_name: 'Mine' },
+    );
+    expect(rename.status).toBe(409);
+    expect(rename.body.error).toMatchObject({
+      code: 'model.from_ollama',
+      title: 'llama3.2:3b (Ollama) comes from Ollama',
+    });
+    expect(rename.body.error.hint).toContain('ollama rm llama3.2:3b');
+    const del = await h.call<{ error: { code: string } }>('DELETE', `/models/${id}`);
+    expect(del.status).toBe(409);
+    expect(del.body.error.code).toBe('model.from_ollama');
+  });
+});
+
+describe('OpenRouter models are added one by one', () => {
+  it('ships no OpenRouter model: none is listed until you add it', async () => {
+    const cfg = await loadConfig(fileURLToPath(new URL('../../../../config', import.meta.url)));
+    expect(cfg.models?.models.filter((m) => m.provider === 'openrouter')).toEqual([]);
+  });
+
+  it('a first OpenRouter key switches on only the models you added, never the catalogue', async () => {
+    h = await harness({ catalogue: fixtures, offline: false });
+    const openrouter = async () =>
+      (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items.filter(
+        (m) => m.provider === 'openrouter',
+      );
+    expect(await openrouter()).toEqual([]);
+    const added = await h.call<ModelInfo>('POST', '/models', {
+      source: 'openrouter',
+      provider_model: 'meta-llama/llama-4-maverick',
+    });
+    expect(added.body.status).toBe('needs_key');
+    const saved = await h.call('PUT', '/credentials/openrouter', { value: 'sk-or-v1-0000000000000001' });
+    expect(saved.status).toBe(200);
+    expect((await openrouter()).map((m) => [m.id, m.status])).toEqual([
+      ['openrouter/meta-llama__llama-4-maverick', 'ready'],
+    ]);
+  });
+
+  it("setup's OpenRouter test switches on only the models you added", async () => {
+    h = await harness({ catalogue: fixtures, offline: false });
+    await h.call('POST', '/models', {
+      source: 'openrouter',
+      provider_model: 'meta-llama/llama-4-maverick',
+      enabled: false,
+    });
+    const r = await h.call<{ enabled: string[] }>('POST', '/setup/providers/test', {
+      provider: 'openrouter',
+      key: 'sk-or-v1-0000000000000002',
+    });
+    expect(r.body.enabled).toEqual(['openrouter/meta-llama__llama-4-maverick']);
+    const items = (await h.call<{ items: ModelInfo[] }>('GET', '/models')).body.items;
+    expect(items.filter((m) => m.provider === 'openrouter').map((m) => m.status)).toEqual(['ready']);
   });
 });

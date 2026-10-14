@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { CONTROLLER_CONTRACT_VERSION, type ProviderStatus } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { type AppEnv, apiError, bearer, trace } from './http';
@@ -21,7 +22,22 @@ import { controlRoutes } from './routes/control';
 import { heartbeatRoutes } from './routes/heartbeat';
 import { openaiRoutes } from './routes/openai';
 
-export const VERSION = '0.1.0';
+declare const __ANCILE_VERSION__: string | undefined;
+
+/** The version this Controller was built as: package.json's, fixed by tsup; read from it when run from source. */
+export const VERSION: string =
+  typeof __ANCILE_VERSION__ !== 'undefined' && __ANCILE_VERSION__ ? __ANCILE_VERSION__ : sourceVersion();
+
+function sourceVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      version?: unknown;
+    };
+    return typeof pkg.version === 'string' && pkg.version ? pkg.version : '0.0.0-dev';
+  } catch {
+    return '0.0.0-dev';
+  }
+}
 
 export interface AppDeps extends ExecutorDeps {
   token: string;

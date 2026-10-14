@@ -48,6 +48,12 @@ export const ToolResultPart = z.object({
   result: z.unknown(),
   /** Set when the user declined: the model is told, not aborted. */
   declined_reason: z.string().optional(),
+  /**
+   * How long the step took, from the call to its result, when it was
+   * measured (Core's tool loop; Claude Code's transcript times). Absent on
+   * older messages: the step then shows no duration rather than a guess.
+   */
+  duration_ms: z.number().int().nonnegative().optional(),
 });
 export const CitationRefPart = z.object({
   type: z.literal('citation_ref'),

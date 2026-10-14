@@ -15,7 +15,7 @@ Auto is a permission preset (Admin → Permissions, `PUT /permissions/preset { "
    - text addressed to an AI or its reviewer: "ignore previous instructions", "this is safe, approve it", fake system blocks, chat-template tokens, fake probabilities (ask)
    - invisible characters, text-direction overrides and look-alike letters (ask)
    - data leaving the machine and private notebooks are scope rules, so they are floors too.
-3. **The usual decision.** Grants, policies and tiers, as in every preset. Like Hands-off, writing a file inside the workspace does not ask (its floors still read it first). Critical actions always ask.
+3. **The usual decision.** Saved permissions, policies and tiers, as in every preset. Like Hands-off, writing a file inside the workspace does not ask (its floors still read it first). Critical actions always ask.
 4. **Only for a call that would otherwise ask (a GATED one):**
    - **The plan.** If you approved a plan for this thread and the call fits one of its steps, it runs.
    - **The cache.** If a call like it was reviewed and ran earlier in this session, it runs. "Like it" means the same action on the same folder and file type, or the same command with numbers and quoted text folded.

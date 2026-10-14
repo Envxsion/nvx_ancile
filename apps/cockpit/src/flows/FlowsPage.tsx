@@ -24,6 +24,7 @@ import { hueVar, relative } from '../lib/format';
 import type { Hue } from '../lib/types';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { activateFlow, deleteFlow, needsCore, useFlow, useFlows } from './api';
@@ -117,6 +118,10 @@ export function FlowsScreen() {
   } | null>(null);
   const open = (id: string) => void navigate({ to: '/flows/$flowId', params: { flowId: id } });
   const missing = flows.isError && needsCore(flows.error);
+  // Any other failure is not "No workspace flow": the lists wait for an answer, and so does
+  // making one (a new flow would be made the default while the real one is unknown).
+  const failed = flows.isError && !flows.data && !missing;
+  const canCreate = !missing && !!flows.data;
   const list = flows.data ?? [];
   const workspace = list.filter((f) => f.scope === 'workspace' && !f.name.startsWith('Block:'));
   const blocks = list.filter((f) => f.name.startsWith('Block:'));
@@ -139,7 +144,7 @@ export function FlowsScreen() {
           </div>
           <button
             type="button"
-            disabled={missing}
+            disabled={!canCreate}
             className="btn btn--primary"
             data-tour="flows-new"
             onClick={() =>
@@ -163,9 +168,13 @@ export function FlowsScreen() {
           />
         ) : flows.isPending ? (
           <Skeleton lines={5} label="Loading flows" />
+        ) : failed ? (
+          <LoadFailed error={flows.error} what="Flows" onRetry={() => flows.refetch()} />
+        ) : flows.isError ? (
+          <StaleNotice error={flows.error} what="Flows" onRetry={() => flows.refetch()} />
         ) : null}
 
-        {!missing ? (
+        {flows.data && !missing ? (
           <>
             <section className="page__section">
               <div className="page__section-head">
@@ -222,7 +231,7 @@ export function FlowsScreen() {
                 key={t.id}
                 type="button"
                 className="fcard fcard--template"
-                disabled={missing}
+                disabled={!canCreate}
                 onClick={() => setCreating({ scope: 'workspace', ref: null, name: t.name, activate: false })}
               >
                 <div className="fcard__preview">
@@ -286,6 +295,13 @@ export function NotebookFlowScreen() {
       />
     );
   const missing = flows.isError && needsCore(flows.error);
+  // Not knowing its flows is not "has no flow of its own": no offer to make one over a failed read.
+  if (flows.isError && !flows.data && !missing)
+    return (
+      <div className="page page--center">
+        <LoadFailed error={flows.error} what="This notebook's flow" onRetry={() => flows.refetch()} />
+      </div>
+    );
   return (
     <div
       className="page page--center"

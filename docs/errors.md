@@ -23,6 +23,9 @@ Rules for new codes:
 | `request.too_large` | 413 | "That request is too large." / Send less at once: the limit is 25 MB. |
 | `not_implemented` | 501 | "<Feature> is not built yet." / Names the release it arrives in. |
 | `auth.service_token` | 401 | "This endpoint is for Ancile services only." / Check that `ANCILE_SERVICE_TOKEN` matches across services. |
+| `http.unexpected` | any | "The server answered <status> without an explanation." / Copy the debug info and check the logs for this trace. The Cockpit's words for an error answer with no error body. |
+| `cockpit.offline` | none | "<What> could not be loaded." / NVX Ancile is not answering. Check that it is running, then try again. The Cockpit's words when Core never answered a read; a panel shows it with Try again, never an empty list (docs/ux.md). |
+| `cockpit.load_failed` | none | "<What> could not be loaded." / Try again. If it keeps failing, copy the debug info and report it. An answer the Cockpit could not read; what went wrong goes only into the debug info. |
 
 ### Providers and models (Gateway)
 
@@ -39,6 +42,7 @@ Rules for new codes:
 | `model.gone` | 409 | "<model> is no longer available." / It was removed or renamed; pick another model and send again. Raised when a message, edit or regenerate names a model that is no longer in the list. `error.context` has `model_id` and `suggested_model` (the thread's model, else the default route's first), and the Cockpit offers a model picker on the error, preset to it. |
 | `model.exists` | 409 | "<id> is already in your models." / Edit the one you have, or remove it first. |
 | `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
+| `model.from_ollama` | 409 | "<Model> comes from Ollama." / It is listed because Ollama has it pulled (docs/models.md, Ollama). To take it off the list, remove it in Ollama (`ollama rm <name>`); you can still switch it on or off and change its colour. Raised when a model found in Ollama is edited or removed. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |
 | `routing.task_class_unknown` | 404 | "There is no task class called <class>." / Pick one of the task classes listed in Admin → Routing. |
 | `routing.chain_empty` | 400 | "A chain needs at least one model." / Add a model before saving, or reset the chain to its default. |
@@ -68,7 +72,7 @@ Rules for new codes:
 | `permission.denied` | 403 | "You declined this action." / (Given to the model as a tool result.) |
 | `permission.critical_not_rememberable` | 422 | "Critical actions can't be remembered." / Approve this once instead. |
 | `permission.scope_too_wide` | 422 | "Careful remembers answers for this thread only." / Choose "In this thread" or "Just this once", or switch to Balanced in Admin → Permissions. |
-| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a grant would widen its pattern ("That pattern is wider than the one you granted"). |
+| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a saved permission would widen its pattern ("That pattern is wider than the one you granted"). |
 | `permission.restore_expired` | 410 | "Too late to undo that revocation." / Undo works for ten minutes after revoking; the agent will ask again next time. |
 | `permission.edit_needs_once` | 422 | "Changed arguments can only be approved once." / Choose "Just this once" to run it with your changes, or approve the original. |
 | `permission.args_not_editable` | 422 | "This tool's arguments can't be changed." / Approve or deny it as it is. |
@@ -292,11 +296,12 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `replay.not_rerunnable` | 422 | "Only an answer in a thread can be re-run." / Open a chat answer's run and choose Re-run there. |
 | `replay.run_active` | 409 | "That run has not finished yet." / Wait for it to finish, or stop it, then re-run it. |
 | `replay.bad_step` | 422 | "There is no step N in that run." / Pick a step from the replay. |
-| `automation.event_driven` | 422 | "<Automation> runs as part of another feature." / It has no schedule to change or switch off here. |
+| `automation.event_driven` | 422 | "<Automation> runs as part of another feature." / It has no schedule to change; switch it off or change its settings instead. Raised for a schedule sent to an event-driven job. |
+| `automation.no_test` | 422 | "<Automation> has no test." / Run it now instead, and read what it did on its card. Only Back up memory has one (Test push). |
 | `automation.busy` | 409 | "It is running already." / Wait for it to finish. |
 | `automation.bad_schedule` | 422 | "That schedule can't be used." / A schedule has five fields: minute, hour, day of month, month and weekday, for example "0 9 * * 1-5". `error.context` has `cron` and `problem` (what is wrong, or that it never comes round). |
 | `automation.too_often` | 422 | "That schedule runs more often than every 5 minutes." / Pick a schedule with at least 5 minutes between runs. |
-| `automation.not_set_up` | 422 | "<Automation> is not set up." / What it needs, for example a git remote for memory backups. Run now is refused, and the schedule waits, until it is set up. |
+| `automation.not_set_up` | 422 | "<Automation> is not set up." / What it needs, for example a git remote for memory backups. Run now and switching it on are refused, and the schedule waits, until it is set up; meanwhile it reads as off. |
 | `automation.no_default` | 422 | "Only built-in automations have a default." / Edit this one instead, or delete it. |
 | `automation.builtin` | 422 | "<Automation> is built in and can't be deleted." / Switch it off instead, or reset it to default. |
 | `license.unreachable` | 503 | "nvx.sh could not be reached." / Check your connection; once Pro is on, it keeps working offline until its token expires. |
@@ -314,14 +319,54 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `license.rate_limited` | 429 | "Too many tries just now." / Wait a minute, then try again. |
 | `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). |
 | `pro.core_too_old` | 501 | "This part of Pro needs a newer NVX Ancile." / Update NVX Ancile, then try again. Pro is newer than the Core it runs in. |
+| `pro.seat_required` | 403 | "<Feature> needs a Pro seat." / Pro is on in this workspace, but your account has no Pro seat. Ask the workspace's owner for one in Admin → Team. A team member the owner has not given a seat is a free member; the licence's `member_seats` sets how many there are (the owner alone without it). `error.context.feature` names it. Also returned for a second GPU node. |
+| `pro.bad_request` | 400 | "“<field>” is required" (or must be text, a number, one of…) / Check the request and send it again. `error.context.field` names it. Pro's own checks use it too, with their own words (an email, an address). |
+| `pro.not_found` | 404 | "<Thing> is not there." / Refresh the page. |
+| `pro.not_started` | 503 | "Pro is still starting." / Try again in a moment. |
 | `beam.members` | 400 | "Pick between 2 and 6 models or flows" (or "The same pick is in there twice") / Beam asks several at once, so it needs at least two, each once. |
 | `beam.not_ready` | 422 | "<Model> cannot answer." / Add its key or switch it on in Settings → Models, or pick another. Nothing was asked. |
 | `beam.no_fuser` | 422 | "No model can fuse the answers." / Add a key in Settings → Models, or turn fusing off. |
 | `beam.busy` | 409 | "An answer is still being written here." / Wait for it to finish, or stop it, then ask again. |
+| `beam.not_a_question` | 422 | "Only a question can be beamed." / Pick the message you asked. Raised when Beam this question names an answer, not a question. |
 | `flowlab.empty_set` | 422 | "This test set has no questions yet." / Add answers from your threads, or write questions, then run it. |
 | `flowlab.not_ready` | 422 | "<Model> cannot answer." / Add its key in Settings → Models, or run with stand-in models. |
+| `sync.unavailable` | 501 | "This build cannot sync." / Update NVX Ancile, then try again. |
+| `sync.not_set_up` | 409 | "Sync is not set up on this computer." / Set it up in Settings → Sync. Also returned when approving a computer from one that does not sync. |
+| `sync.weak_passphrase` | 400 | "Use a passphrase of at least 10 characters." / It protects everything you sync, and nvx.sh cannot recover it. A few words you will remember works well. |
+| `sync.account_exists` | 409 | "Sync is already set up for your licence." / Join it with your passphrase, or with a code from a computer that already syncs. |
+| `sync.no_account` | 404 | "Sync is not set up yet." / Set it up on your first computer, then join here. |
+| `sync.wrong_passphrase` | 401 | "That passphrase does not open your sync." / Check it and try again, or join with a code from a computer that already syncs. Only known once a computer that syncs has approved this one (the relay shows the passphrase check to approved computers only); until then the join waits. |
+| `sync.bad_code` | 400 | "That code does not work." / Codes work once, for ten minutes. Make a new one. |
+| `sync.pairing_gone` | 404 | "That code has been used or has expired." / Make a new one on a computer that syncs (Settings → Sync → Add a computer). A code with a wrong secret answers this too, and is used up. |
+| `sync.no_licence` | 402 | "Sync needs Pro turned on here." / Turn Pro on in Admin → Licence on this computer, then set up sync. |
+| `sync.offline` | 503 | "The sync relay could not be reached." / Sync carries on when the connection is back. Nothing is lost: changes wait here. |
+| `sync.licence_invalid` | 401 | "Sync does not accept the Pro licence on this computer." / Turn Pro on again in Admin → Licence. Sync starts again by itself once it is active; nothing is tried until the licence token changes. |
+| `sync.licence_lapsed` | 402 | From the relay: the licence has lapsed. / Renew Pro. Changes keep downloading and nothing uploads, except taking back what a scope keeps on a computer. Shown in Settings → Sync, not as an error. |
+| `sync.device_pending` | 403 | From the relay: "This computer is waiting to be approved." / Approve it on a computer that syncs (Settings → Sync), or join with a code. With no computer left that syncs, approve it from your nvx.sh account. A waiting computer reads nothing, not even the passphrase check. |
+| `sync.device_unknown` | 401 | From the relay: "This computer is not registered for sync." / A computer that syncs declined or removed it. Settings → Sync says so: ask again, or join with a code. |
+| `sync.too_many_pending` | 429 | From the relay: "Too many computers are waiting to be approved." / Approve or decline them on a computer that syncs. A request waits a day at most. |
+| `sync.device_exists` | 409 | From the relay: the device id is registered with another key. / Nothing to do: the computer takes a new id and asks again by itself. |
+| `sync.bad_signature` | 401 | From the relay: the request is not signed by its device, or this computer's clock is more than five minutes out. / Check the clock, then try again. |
+| `sync.too_large`, `sync.quota`, `sync.blob_missing`, `sync.rate_limited` | 413, 413, 404, 429 | From the relay, with its own words. / Sync tries again shortly; see pro/docs/sync-server-brief.md for its limits. Any other relay refusal is `sync.relay_<status>`. |
 | `auth.sign_in_required` | 401 | "Sign in to this workspace first." / This workspace has a team: sign in with your account or your identity provider. Never returned by a single-person install. |
 | `auth.role_too_low` | 403 | "Your role in this workspace cannot do that." / Ask the workspace's owner or an admin. Viewers read; members write; admins manage people and settings. `error.context.need` names the role. |
+| `auth.sign_in_failed` | 401 | "That email and passphrase do not match." / Check both, or ask an admin to send you a new invitation. Changing your passphrase: "Your current passphrase is not right." |
+| `auth.too_many_tries` | 429 | "Too many tries just now." / Wait N seconds, then try again. After 5 failures for one email (signing in, a reset link, a recovery code) or one account (changing a passphrase): a wait of 1 minute, doubling, at most 15. |
+| `auth.weak_passphrase` | 400 | "Use a passphrase of at least 10 characters." / A few words you will remember works well. |
+| `auth.recovery_failed` | 401 | "That email and recovery code do not match." / Check both. A recovery code works once, for an owner. |
+| `auth.oidc_unreachable` | 502 | "Your identity provider did not answer." / Check the issuer address in Admin → Team. |
+| `auth.oidc_state` | 400 | "That sign-in took too long or was used already." / Start signing in again. |
+| `team.not_on` | 409 | "This workspace has no team yet." / The owner can turn one on in Admin → Team. |
+| `team.already_on` | 409 | "This workspace already has a team." / Manage it in Admin → Team. |
+| `team.last_owner` | 409 | "A team needs at least one owner." / Make someone else an owner first. |
+| `team.already_member` | 409 | "<email> is already in the team." / Change their role instead (or withdraw the invitation, when resending one). |
+| `team.already_invited` | 409 | "<email> already has an invitation waiting." / Resend it from the list, or withdraw it first. One invitation waits per email. |
+| `team.invite_gone` | 410 | "That invitation has been used or has expired." / Ask an admin to send a new one. A resent or withdrawn invitation's old link answers this too. |
+| `team.reset_gone` | 410 | "That reset link has been used, has expired or is for another email." / Check the email, or ask an admin for a new link. A reset link works once, for 24 hours; a newer one replaces it. |
+| `team.address_not_allowed` | 400 | "NVX Ancile does not accept changes from <address>." / Set ANCILE_PUBLIC_URL to it, or add it to ANCILE_ALLOWED_ORIGINS, where NVX Ancile starts; restart, then save it here. People could open a link there but not join. `error.context.allowed` lists the addresses it does accept. Signing in through an identity provider from such an address says to open NVX Ancile from its own address. |
+| `team.oidc_off` | 409 | "Sign-in through an identity provider is not set up." / An admin can set it up in Admin → Team. |
+| `team.no_seat_free` | 409 | "Every Pro seat is taken." / Take a seat from someone first, or add seats to your licence in your nvx.sh account. |
+| `team.owner_seat` | 409 | "The workspace's owner always has a Pro seat." / Give or take seats from other people. |
 
 The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer token is missing, unknown or disconnected. A tool an app has no grant for answers with `isError` and the way to allow it (Admin → Plugins).
 

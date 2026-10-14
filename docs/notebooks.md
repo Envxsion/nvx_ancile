@@ -10,6 +10,8 @@ Three ways to bring context from one place into another, from the most permanent
 
 All three keep to [scopes](scopes.md): nothing reaches a place it could not reach on its own.
 
+**What a question can use from a source.** Each source in a notebook has a level, in the Sources panel: **Passages** (stored as `full`), **Summary** (`insights`) or **Off**. Passages means each question searches the source and the passages that match it best go with the question and can be cited; the whole source is never sent at once, whatever its size. Summary sends only the source's summary; Off keeps the source in the notebook and out of answers. (The level was labelled "Full" before 0.1.0, which read as if the whole source went to the model.)
+
 ## Merging notebooks
 
 Open a notebook's menu and choose **Merge a notebook into this one**, or choose **Merge notebooks** where NVX Ancile notices two notebooks are one repository ([Claude Code](claude-code.md#one-repository-in-two-folders)).

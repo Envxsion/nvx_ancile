@@ -66,3 +66,32 @@ describe('controller client', () => {
     await expect(client.get('/nodes')).rejects.toMatchObject({ code: 'compute.not_configured' });
   });
 });
+
+describe('the Controller’s event stream', () => {
+  it('says each time it connects, so a Controller that restarted keyless gets its key back', async () => {
+    const { startComputeBridge } = await import('../../src/compute/bridge');
+    let connects = 0;
+    let opened = 0;
+    const stop = startComputeBridge({
+      client: {
+        configured: true,
+        get: async <T>() => ({ items: [] }) as T,
+        send: async <T>() => ({}) as T,
+        // Each stream ends at once, as when the Controller restarts.
+        raw: async () => {
+          opened++;
+          return new Response('');
+        },
+      },
+      registry: { setNodeModels: () => undefined } as never,
+      bus: { publish: async () => undefined } as never,
+      onConnect: () => {
+        connects++;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 1_200));
+    stop();
+    expect(opened).toBeGreaterThanOrEqual(2);
+    expect(connects).toBe(opened);
+  });
+});

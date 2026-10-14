@@ -29,6 +29,7 @@ import { notify } from '../state/notify';
 import { plainQuote } from '../thread/Citations';
 import { Check, Segmented } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { Skeleton } from '../ui/primitives';
 import { type ComparePair, useBranchLayer } from './store';
 
@@ -155,6 +156,8 @@ function Body({ pair, onDone }: { pair: ComparePair & { strategy?: Strategy }; o
       {strategy === 'manual' ? (
         paths.isPending ? (
           <Skeleton lines={4} label="Loading both branches" />
+        ) : paths.isError && !paths.data ? (
+          <LoadFailed compact error={paths.error} what="Both branches" onRetry={() => paths.refetch()} />
         ) : parts ? (
           <div className="merge__cols">
             <fieldset className="merge__col" data-side="A">

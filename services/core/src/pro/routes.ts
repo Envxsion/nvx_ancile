@@ -41,6 +41,7 @@ export function ownerIdentity(owner: {
     role: 'owner',
     name: owner.name ?? 'You',
     via: 'owner',
+    pro: true,
   };
   return { resolve: async () => principal };
 }
@@ -54,6 +55,32 @@ export const featureRequired = (feature: proContract.ProFeature) =>
     errorClass: 'permanent',
     context: { feature },
   });
+
+/** Pro is on here, but this person has no Pro seat (a team member the owner has not given one). */
+export const seatRequired = (feature: proContract.ProFeature) =>
+  new AncileError({
+    code: 'pro.seat_required',
+    title: `${proContract.PRO_FEATURE_WORDS[feature].title} needs a Pro seat`,
+    hint: "Pro is on in this workspace, but your account has no Pro seat. Ask the workspace's owner for one in Admin → Team.",
+    status: 403,
+    errorClass: 'permanent',
+    context: { feature },
+  });
+
+/**
+ * Why a Pro feature is refused to this person now, or null when it is not:
+ * not in the licence (402 pro.feature_required), or Pro is on but they have
+ * no Pro seat (403 pro.seat_required).
+ */
+export function proRefusal(
+  licensed: boolean,
+  feature: proContract.ProFeature,
+  who: Principal | null | undefined,
+): AncileError | null {
+  if (!licensed) return featureRequired(feature);
+  if (who?.pro === false) return seatRequired(feature);
+  return null;
+}
 
 export const signInRequired = () =>
   new AncileError({
@@ -86,6 +113,8 @@ const headersOf = (c: Context) => {
  * Resolve the principal for each /api/v1 request. A provider that says
  * nobody (Teams, signed out) gets 401 except on the paths it opens.
  * Reads need a viewer and writes a member; finer checks are per route.
+ * Under /pro each route declares its own lowest role (proRoutes checks
+ * it), so one may let a viewer write: their own passphrase.
  */
 export function identityMiddleware(current: () => IdentityProvider): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
@@ -98,7 +127,9 @@ export function identityMiddleware(current: () => IdentityProvider): MiddlewareH
     }
     c.set('principal', principal);
     const write = !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method);
-    if (write && !roleAllows(principal.role, 'member') && !identity.open?.(path)) throw roleTooLow('member');
+    const ownRole = path === '/pro' || path.startsWith('/pro/');
+    if (write && !ownRole && !roleAllows(principal.role, 'member') && !identity.open?.(path))
+      throw roleTooLow('member');
     await next();
     // A team's audit log hears about every change; it never holds the answer up.
     if (write && identity.record)
@@ -108,9 +139,10 @@ export function identityMiddleware(current: () => IdentityProvider): MiddlewareH
   };
 }
 
-/** Mount Pro's routes. Each checks its feature, and its role, when called. */
+/** Mount Pro's routes. Each checks its feature, its role and the caller's Pro seat, when called. */
 export function proRoutes(deps: {
   routes: ProRoute[];
+  /** The licence, for the install as a whole (seats are read from the principal). */
   hasFeature: (feature: proContract.ProFeature) => boolean;
   /** Paths answered with 402 when no Pro route serves them (default: PRO_SEAM_ROUTES). */
   seams?: readonly { method: 'GET' | 'POST'; path: string; feature: proContract.ProFeature }[];
@@ -125,6 +157,7 @@ export function proRoutes(deps: {
         if (!principal) throw signInRequired();
         const need = route.role ?? (route.method === 'GET' ? 'viewer' : 'member');
         if (!roleAllows(principal.role, need)) throw roleTooLow(need);
+        if (route.seat !== false && principal.pro === false) throw seatRequired(route.feature);
       }
       const raw = route.method === 'GET' || route.method === 'DELETE' ? undefined : await c.req.text();
       let body: unknown;

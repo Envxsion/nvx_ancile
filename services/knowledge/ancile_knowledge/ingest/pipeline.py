@@ -22,6 +22,9 @@
           |  version stays searchable until the new one is ready.
  Note     |  No model calls here in phase 3: blurbs come from the
           |  heading path, the summary is extractive, tags are TF-IDF.
+          |  Tags and duplicate suggestions are automations with a
+          |  switch and options (automations.py), read at the stage
+          |  that uses them.
           |  TODO(phase-4): model-written insights and blurbs through
           |  core_client, and transformations after embedding.
 ------------------------------------------------------------------
@@ -38,6 +41,7 @@ from typing import Any, Literal
 from sqlalchemy import CursorResult, text
 from sqlalchemy.orm import Session
 
+from .. import automations
 from ..db import hnsw_index_sql, sessions
 from ..errors import AncileError
 from ..obs import get_logger
@@ -269,10 +273,17 @@ def _extract_input(row: dict[str, Any]) -> ExtractInput:
     )
 
 
-def _record_duplicates(db: Session, row: dict[str, Any], digest: str, sig: list[int]) -> None:
+def _clear_suggestions(db: Session, source_id: str) -> None:
+    """This source's open suggestions were about the content it is replacing."""
     db.execute(
-        text(f"DELETE FROM {S}.source_relations WHERE a_id = :id AND status = 'suggested'"), {"id": row["id"]}
+        text(f"DELETE FROM {S}.source_relations WHERE a_id = :id AND status = 'suggested'"), {"id": source_id}
     )
+
+
+def _record_duplicates(
+    db: Session, row: dict[str, Any], digest: str, sig: list[int], near: float = dedupe.NEAR_DUPLICATE
+) -> None:
+    _clear_suggestions(db, row["id"])
     pool_rows = db.execute(
         text(
             f"SELECT id, content_hash, minhash, uri, title, kind FROM {S}.sources "
@@ -295,7 +306,7 @@ def _record_duplicates(db: Session, row: dict[str, Any], digest: str, sig: list[
             and p["content_hash"] != digest
         ):
             same_uri.append(p["id"])
-    matches = dedupe.find_matches(new, pool)
+    matches = dedupe.find_matches(new, pool, near)
     seen = {m.other_id for m in matches}
     for other in same_uri:  # same URL, different content: a newer version of that page
         if other not in seen:
@@ -388,9 +399,20 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
             },
         )
         title = (doc.title or "").strip()[:400]
-        _record_duplicates(
-            db, row | {"title": title if (row["title_auto"] and title) else row["title"]}, digest, sig
-        )
+        # The duplicate_sources automation. Off: no new suggestions, but the hash and
+        # signature are still stored (refetch, stale checks and notebook merges compare
+        # them, and detection sees this source again once it is switched back on).
+        dup = automations.current().duplicate_sources
+        if dup.enabled:
+            _record_duplicates(
+                db,
+                row | {"title": title if (row["title_auto"] and title) else row["title"]},
+                digest,
+                sig,
+                dup.near_threshold,
+            )
+        else:
+            _clear_suggestions(db, row["id"])
         page_note = f" from {len(pages):,} pages" if pages else ""
         _transition(
             db,
@@ -525,25 +547,17 @@ def stage_enriching(row: dict[str, Any], report: Reporter) -> None:
             )
 
         topics = dict(row.get("topics") or {})
+        # Top terms are kept whatever the switch: they are the other sources' document frequencies.
         top = tags.top_terms(counts)
-        others = (
-            db.execute(
-                text(
-                    f"SELECT topics->'terms' AS terms FROM {S}.sources "
-                    f"WHERE workspace_id = :ws AND id <> :id "
-                    f"AND deleted_at IS NULL AND topics ? 'terms'"
-                ),
-                {"ws": row["workspace_id"], "id": row["id"]},
-            )
-            .scalars()
-            .all()
-        )
-        df: dict[str, int] = {}
-        for t in others:
-            for term in t or {}:
-                df[term] = df.get(term, 0) + 1
+        # Machine-managed tags: never set by a person, or a person cleared them.
         auto = topics.get("tags_auto", True) or not row.get("tags")
-        new_tags = tags.pick_tags(counts, df, len(others) + 1) if auto else list(row.get("tags") or [])
+        new_tags = list(row.get("tags") or [])
+        tagging = automations.current().auto_tag_sources
+        # The auto_tag_sources automation. Off: nothing is added or replaced, so a
+        # source keeps the tags it has (a person's, or ones picked before).
+        if auto and tagging.enabled:
+            df, n_docs = _doc_freq(db, row)
+            new_tags = tags.pick_tags(counts, df, n_docs, k=tagging.max_tags)
         topics.update({"terms": top, "tags_auto": auto})
 
         _transition(
@@ -555,6 +569,27 @@ def stage_enriching(row: dict[str, Any], report: Reporter) -> None:
             ", tags = :tags, topics = CAST(:topics AS jsonb)",
             {"tags": new_tags, "topics": json.dumps(topics)},
         )
+
+
+def _doc_freq(db: Session, row: dict[str, Any]) -> tuple[dict[str, int], int]:
+    """Per term, how many other sources in the workspace have it among their top terms; and n_docs."""
+    others = (
+        db.execute(
+            text(
+                f"SELECT topics->'terms' AS terms FROM {S}.sources "
+                f"WHERE workspace_id = :ws AND id <> :id "
+                f"AND deleted_at IS NULL AND topics ? 'terms'"
+            ),
+            {"ws": row["workspace_id"], "id": row["id"]},
+        )
+        .scalars()
+        .all()
+    )
+    df: dict[str, int] = {}
+    for t in others:
+        for term in t or {}:
+            df[term] = df.get(term, 0) + 1
+    return df, len(others) + 1
 
 
 # --- stage: embedding ---------------------------------------------------------------

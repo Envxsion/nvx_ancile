@@ -4,8 +4,10 @@
  *  Ref      |  DESIGN.md §9 (Pro) · pro/slot.tsx
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  "Ask several models at once" opens here, from the
- *           |  composer (/beam) or the palette. With Pro and the
+ *  Purpose  |  "Ask several models at once" opens here: from the
+ *           |  composer's Compare models button (in every thread,
+ *           |  Claude Code's included) or /beam, from Beam this question
+ *           |  on a message, and from the palette. With Pro and the
  *           |  licence, Pro's own Beam panel fills the dialog; without
  *           |  them, the dialog explains what Beam is instead.
  *  How      |  A small store says where the question goes (thread,
@@ -25,6 +27,10 @@ interface BeamTarget {
   notebookId: string | null;
   parentId: string | null | undefined;
   text: string;
+  /** A question already in the thread: Beam answers it again, writing no new question. */
+  questionId?: string | null;
+  /** Called once the beam has started (the composer clears the draft it sent). */
+  onStarted?: () => void;
 }
 
 interface BeamState {
@@ -42,6 +48,8 @@ export const useBeam = create<BeamState>((set) => ({
         notebookId: t.notebookId ?? null,
         parentId: t.parentId,
         text: t.text ?? '',
+        questionId: t.questionId ?? null,
+        ...(t.onStarted && { onStarted: t.onStarted }),
       },
     }),
   close: () => set({ open: null }),

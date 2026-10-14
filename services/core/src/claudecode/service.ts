@@ -17,7 +17,9 @@
  *           |  time, newest first, writes in chunks and pauses between
  *           |  sessions, so requests are never held up; it resumes
  *           |  from what is stored (each session's last sync). A pass
- *           |  also rebuilds threads made by an older MAPPER_VERSION and
+ *           |  also brings threads made by an older MAPPER_VERSION up to
+ *           |  it (rebuilt before full history when that loses nothing,
+ *           |  otherwise repaired in place: map.ts planRepair) and
  *           |  gives folder notebooks their colour and icon. A session's
  *           |  full history (every branch, everything before each
  *           |  compaction) comes from its transcript file (transcript.ts),
@@ -56,7 +58,7 @@ import type { NotebookRepo } from '../notebooks/repo';
 import { logFor } from '../obs/logger';
 import type { SettingsStore } from '../settings';
 import { SETTING } from '../settings';
-import type { NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
+import type { MessageRecord, NewMessage, ThreadRecord, ThreadRepo } from '../threads/repo';
 import type { CcSessionInfo, CcSessionMessage, SessionSource } from './bridge-protocol';
 import { type ClaudeCli, MIN_VERSION } from './cli';
 import { ccErrors } from './errors';
@@ -70,10 +72,13 @@ import {
   MAPPER_VERSION,
   type MirrorState,
   mergeUnknown,
+  type PlannedMessage,
   type PlanResult,
   placeOf,
+  planRepair,
   planSync,
   provenanceOf,
+  REBUILT_BELOW,
   type SubagentDigest,
   titleOf,
   type UnknownRaw,
@@ -94,8 +99,8 @@ const SIGN_IN_WAIT_MS = 5 * 60_000;
 
 const yieldNow = () => new Promise<void>((r) => setImmediate(r));
 
-/** Up to CHUNK messages and about CHUNK_CHARS of parts per insert, never fewer than one message. */
-function chunksOf<T extends { parts: unknown }>(items: T[]): T[][] {
+/** Up to CHUNK messages and about CHUNK_CHARS of parts per write, never fewer than one message. */
+function chunksOf<T extends { parts?: unknown }>(items: T[]): T[][] {
   const out: T[][] = [];
   let cur: T[] = [];
   let chars = 0;
@@ -113,6 +118,44 @@ function chunksOf<T extends { parts: unknown }>(items: T[]): T[][] {
   return out;
 }
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Write what a plan adds to a message already in the thread (its parts,
+ * usage, entries, notes and a command's output). False when the message
+ * is gone. Used by syncs and by live turns alike.
+ */
+export async function applyExtension(
+  threads: Pick<ThreadRepo, 'getMessage' | 'updateMessage'>,
+  p: PlannedMessage,
+): Promise<boolean> {
+  const old = await threads.getMessage(p.id);
+  if (!old) return false;
+  const oc = (old.provenance?.claude_code ?? {}) as CcProvenance;
+  const uuids = [...(Array.isArray(oc.uuids) ? oc.uuids : []), ...p.uuids];
+  await threads.updateMessage(p.id, {
+    parts: [...old.parts, ...p.parts],
+    usage: addUsage(old.usage, p.usage),
+    ...(p.model_id && { model_id: p.model_id }),
+    provenance: {
+      claude_code: {
+        ...oc,
+        uuid: placeOf(uuids) ?? oc.uuid,
+        uuids,
+        last_api_id: p.last_api_id ?? oc.last_api_id ?? null,
+        ...(p.unknown && { unknown: mergeUnknown(oc.unknown, p.unknown) }),
+        ...(p.output !== undefined &&
+          oc.command && { command: { ...oc.command, output: joinOutput(oc.command.output, p.output) } }),
+      },
+    },
+  });
+  return true;
+}
+
+/** Came in from the transcript: not a live turn's (citations, costs, ids others point at), nor written in Ancile. */
+const fromTranscript = (m: MessageRecord) => {
+  const cc = m.provenance?.claude_code as CcProvenance | undefined;
+  return !!cc && cc.live !== true && !m.run_id;
+};
 
 export interface ClaudeCodeServiceDeps {
   workspaceId: string;
@@ -927,8 +970,8 @@ export class ClaudeCodeService {
     const cwd = info.cwd ?? null;
     const traceId = currentContext()?.traceId ?? newTraceId();
 
-    const rebuilding = !!binding && binding.mapper_version < MAPPER_VERSION;
-    const history = await this.history(sessionId, !binding || rebuilding);
+    // A thread built for the first time, or rebuilt, is checked against the SDK's chain.
+    const history = await this.history(sessionId, !binding || binding.mapper_version < REBUILT_BELOW);
     const chains = history.chains;
 
     let thread: ThreadRecord | undefined = binding
@@ -962,12 +1005,15 @@ export class ClaudeCodeService {
     }
 
     const any = chains.some((c) => c.length > 0);
-    // Built by an older mapping: rebuild it, unless something was written in Ancile.
+    // Built by an older mapping. Before full history it is rebuilt, but only when that loses
+    // nothing: every message came in from the transcript. Otherwise (a live turn's answer,
+    // anything written in Ancile, or any thread from full history on) it is repaired in place.
     let mapperVersion = binding?.mapper_version ?? MAPPER_VERSION;
     let fallbackHead = thread.active_head_id;
+    let repaired = 0;
     if (binding && mapperVersion < MAPPER_VERSION && any) {
       const old = await threads.messages(thread.id);
-      if (old.every((m) => !!m.provenance?.claude_code)) {
+      if (mapperVersion < REBUILT_BELOW && old.every(fromTranscript)) {
         await threads.discardMessages(old.map((m) => m.id));
         fallbackHead = null;
         log.info(
@@ -975,10 +1021,12 @@ export class ClaudeCodeService {
           'rebuilding a Claude Code thread with the current mapping',
         );
       } else {
-        log.info(
-          { session_id: sessionId, thread_id: thread.id },
-          'a Claude Code thread has messages written in Ancile; kept as it is, new messages use the current mapping',
-        );
+        if (mapperVersion < REBUILT_BELOW)
+          log.info(
+            { session_id: sessionId, thread_id: thread.id },
+            'a Claude Code thread has live turns or messages written in Ancile; repaired in place, not rebuilt',
+          );
+        repaired = await this.repair(thread.id, sessionId, mapperVersion, old, chains);
       }
       mapperVersion = MAPPER_VERSION;
     }
@@ -1045,8 +1093,54 @@ export class ClaudeCodeService {
       mapper_version: mapperVersion,
     };
     await this.deps.store.putSession(ws, binding2);
-    if (added || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
+    if (added || repaired || !binding || nextTitle) this.emit('thread', { thread_id: thread.id });
     return { thread_id: thread.id, added, notebook_id: thread.notebook_id };
+  }
+
+  /**
+   * Bring a thread mapped by an older version up to this one in place
+   * (map.ts planRepair): results join their calls, steps gain their
+   * durations, a response counted twice is counted once. Nothing is
+   * discarded or mapped again. Returns how many messages changed.
+   */
+  private async repair(
+    threadId: string,
+    sessionId: string,
+    from: number,
+    msgs: MessageRecord[],
+    chains: CcSessionMessage[][],
+  ): Promise<number> {
+    const plan = planRepair(sessionId, msgs, chains);
+    for (const chunk of chunksOf(plan.updates)) {
+      for (const u of chunk)
+        await this.deps.threads.updateMessage(u.id, {
+          ...(u.parts && { parts: u.parts }),
+          ...(u.usage && { usage: u.usage }),
+          ...(u.claude_code && { provenance: { claude_code: u.claude_code } }),
+        });
+      await this.breathe();
+    }
+    if (plan.updates.length)
+      log.info(
+        {
+          session_id: sessionId,
+          thread_id: threadId,
+          from,
+          to: MAPPER_VERSION,
+          messages: plan.updates.length,
+          ...plan.counts,
+        },
+        'brought a Claude Code thread up to the current mapping in place',
+      );
+    return plan.updates.length;
+  }
+
+  /** A background pass (auto-import, a repair) lets requests in between writes, and waits while the person types. */
+  private async breathe(): Promise<void> {
+    if (this.background > 0) {
+      await sleep(this.deps.auto?.chunkPauseMs ?? 15);
+      await this.waitWhileTyping();
+    } else await yieldNow();
   }
 
   /**
@@ -1152,11 +1246,19 @@ export class ClaudeCodeService {
       const oc = sent.provenance?.claude_code as CcProvenance | undefined;
       // Already holds an entry of this session: a prompt of its own, not this one.
       if (oc?.uuids?.some((u) => inChain.has(u))) continue;
-      const uuids = [...(oc?.uuids ?? []), uuid];
+      // Every entry the prompt holds goes with it (a result that joined its call keeps its place here).
+      const uuids = [...(oc?.uuids ?? []), ...p.uuids];
       await this.deps.threads.updateMessage(sent.id, {
-        provenance: { claude_code: { ...oc, session_id: sessionId, uuid, uuids } satisfies CcProvenance },
+        provenance: {
+          claude_code: {
+            ...oc,
+            session_id: sessionId,
+            uuid: placeOf(p.uuids) ?? uuid,
+            uuids,
+          } satisfies CcProvenance,
+        },
       });
-      mirror.byUuid.set(uuid, sent.id);
+      for (const u of p.uuids) mirror.byUuid.set(u, sent.id);
       plan.planned = plan.planned.filter((x) => x !== p);
       for (const x of plan.planned) if (x.parent_id === p.id) x.parent_id = sent.id;
       if (plan.head === p.id) plan.head = sent.id;
@@ -1195,37 +1297,10 @@ export class ClaudeCodeService {
       });
       await threads.insertMessages(rows);
       added += rows.length;
-      // A background pass (auto-import, a rebuild) lets requests in between inserts,
-      // and waits while the person types.
-      if (this.background > 0) {
-        await sleep(this.deps.auto?.chunkPauseMs ?? 15);
-        await this.waitWhileTyping();
-      } else await yieldNow();
+      await this.breathe();
     }
 
-    for (const p of plan.planned.filter((x) => x.extends)) {
-      const old = await threads.getMessage(p.id);
-      if (!old) continue;
-      const oc = (old.provenance?.claude_code ?? {}) as CcProvenance;
-      const uuids = [...(Array.isArray(oc.uuids) ? oc.uuids : []), ...p.uuids];
-      await threads.updateMessage(p.id, {
-        parts: [...old.parts, ...p.parts],
-        usage: addUsage(old.usage, p.usage),
-        ...(p.model_id && { model_id: p.model_id }),
-        provenance: {
-          claude_code: {
-            ...oc,
-            uuid: placeOf(uuids) ?? oc.uuid,
-            uuids,
-            last_api_id: p.last_api_id ?? oc.last_api_id ?? null,
-            ...(p.unknown && { unknown: mergeUnknown(oc.unknown, p.unknown) }),
-            ...(p.output !== undefined &&
-              oc.command && { command: { ...oc.command, output: joinOutput(oc.command.output, p.output) } }),
-          },
-        },
-      });
-      added++;
-    }
+    for (const p of plan.planned.filter((x) => x.extends)) if (await applyExtension(threads, p)) added++;
     return { added, firstRoot };
   }
 

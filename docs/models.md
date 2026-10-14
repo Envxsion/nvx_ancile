@@ -17,7 +17,24 @@ NVX Ancile talks to models through APIs. There are four ways to connect one, and
 - **Your server.** Give the base URL (for example `http://192.168.1.20:11434/v1` for Ollama, or `https://<pod-id>-8000.proxy.runpod.net/v1` for vLLM on RunPod) and a key if the server wants one. Press **List its models**, then add the ones you want, or type a model id yourself.
 - **A provider.** Pick Anthropic, OpenAI or Google and type a model id the provider publishes (for example `claude-opus-5-5`) when it is newer than the built-in list.
 
-Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again. Add, replace or remove any of them in **Settings → API keys** (see [configuration](configuration.md#api-keys)). An added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
+Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again. Add, replace or remove any of them in **Settings → API keys** (see [configuration](configuration.md#api-keys)). Once it can answer (its key is saved), an added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
+
+OpenRouter models are added one by one: nothing lists OpenRouter's catalogue in a picker, and a first OpenRouter key switches on only the models you added (see [OpenRouter](openrouter.md#adding-openrouter-models)).
+
+## Which models a picker offers
+
+Every picker lists only models that can answer now: the model picker (`m`) and the palette, `@model` in the composer, **Answer this again with**, the flow editor's model pickers, and **Add model** in Admin → Routing. A model can answer when it is:
+
+- a provider's model (Anthropic, OpenAI, Google, OpenRouter, your own server) that is switched on and whose key is saved;
+- an Ollama model that Ollama has pulled (see [Ollama](#ollama));
+- a model served by a GPU node the Controller knows (`node/<model>`);
+- Claude Code, when it is installed and usable on this computer.
+
+The [test models](#test-models) follow **Keep test models (no AI) in pickers**, as before.
+
+A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Admin → Models** still lists every model with its state (**Needs its key**, **Off**, **Not pulled**), and is where you set it up. Admin → Routing keeps such a model in a chain, marked, and routing skips it.
+
+When Claude Code cannot answer (not installed, or its install could not be verified), the picker shows no Claude Code model. A separate **Set up Claude Code** row says why and opens Settings → Claude Code. It is an action, not a model, so it can never be chosen to answer a message.
 
 ## Download a local model
 
@@ -30,19 +47,26 @@ Before anything downloads, NVX Ancile checks this computer and says plainly whet
 - **Won't fit:** not enough memory (you can still choose **Download anyway**), or not enough free disk where Ollama keeps models (`OLLAMA_MODELS`, else `~/.ollama/models`). A full disk is never overridden.
 - **Cannot check:** Ollama runs on another computer (`OLLAMA_BASE_URL`), so its memory and disk can't be read from here.
 
-Chat models download through [Ollama](https://ollama.com), using its own pull. You see progress, can **Cancel**, and **Resume** carries on from what Ollama already has. When Ollama confirms the model is there, the model is switched on, or added as `ollama/<tag>`, in every model picker, ready.
-
-An Ollama model that Ollama on this computer does not have yet is never offered or chosen: it shows as **Not pulled** (`not_pulled` in `GET /models`), routing skips it, and finding Ollama during setup switches on only the models it has. NVX Ancile asks Ollama for its list (`/api/tags`) at most every 30 seconds, and again as soon as a download finishes.
+Chat models download through [Ollama](https://ollama.com), using its own pull. You see progress, can **Cancel**, and **Resume** carries on from what Ollama already has. When Ollama confirms the model is there, the model is switched on, or added as `ollama/<tag>` with the details from the list (its window and tools), in every model picker, ready.
 
 If Ollama is missing, NVX Ancile never installs it for you. The dialog links to the official download page for your system (on Linux it shows the official install command to copy). If it is installed but not running, open it and press **Check again**.
 
 The search embedder (BGE small) downloads through the knowledge service, with fastembed's own downloader into `KNOWLEDGE_MODEL_CACHE`. It needs `KNOWLEDGE_MODEL_DOWNLOAD` left on (`embed.download_off`).
 
-## Try-out models
+## Ollama
 
-Before you connect a model, the switcher offers two built-in **try-out** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.
+NVX Ancile asks Ollama (`OLLAMA_BASE_URL`, else `http://localhost:11434`) for its list of pulled models (`/api/tags`) at most every 30 seconds, and again as soon as a download finishes or setup finds Ollama.
 
-Once any real model is ready, the model switcher and the flow pickers stop listing them, and routing no longer falls back to them: a real model that fails says so, instead of being answered by a model that does not use AI. Turn on **Settings → Advanced → Show try-out models** to keep them. Admin → Models always lists them.
+- **Pulled models are found by themselves.** Every chat model Ollama has is listed as `ollama/<name>` (`ollama/llama3.2` for `llama3.2:latest`), ready, with no need to add it. Embedding models are left out. What Ollama says a model can do (`/api/show`: tools, vision, thinking, its context length) is used when Ollama says it; otherwise the model is listed without tools, with an 8,192-token window. A model you pull with `ollama pull` shows up within 30 seconds, and leaves the list when you remove it (`ollama rm`).
+- **Never twice.** A name that a model in `config/models.yaml` or one you added already serves is not listed again. A download from the list saves its details under the same id, which then replaces the one that was found.
+- **Yours to switch off.** A found model can be switched off and given a colour in Admin → Models, and stays off. It cannot be edited or removed there (`model.from_ollama`): remove it in Ollama.
+- **Only what Ollama has.** An Ollama model in `config/models.yaml` or one you added answers only once Ollama has said it has it: until then it shows as **Not pulled** (`not_pulled` in `GET /models`), no picker offers it, and routing skips it. That includes the time before Ollama first answers. If Ollama stops answering, what it said last stands. Finding Ollama during setup switches on only the models it has, wherever they are configured to be served from.
+
+## Test models
+
+Before you connect a model, the switcher offers two built-in **test** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.
+
+Once any real model is ready, the model switcher and the flow pickers stop listing them, and routing no longer falls back to them: a real model that fails says so, instead of being answered by a model that does not use AI. Turn on **Settings → Advanced → Keep test models (no AI) in pickers** to keep them. Admin → Models always lists them.
 
 ## Editing and removing a model
 
@@ -50,13 +74,13 @@ Each row in **Admin → Models** has a "⋯" menu:
 
 - **Edit.** For a model you added: its name, context window, chip colour and whether it is on. A model on your own server also takes a new address, the name of a stored key to use instead (empty for none), or a replacement key. A model from `config/models.yaml` takes only its colour and on/off here; change the rest in the file.
 - **Turn on / Turn off.** Routing and every picker skip a model that is off.
-- **Remove** (models you added only). It asks first, then shows an Undo for ten minutes that brings the model and its stored key back. A server's key goes with its last model. Models from `config/models.yaml` cannot be removed (`model.not_custom`); turn them off instead.
+- **Remove** (models you added only). It asks first, then shows an Undo for ten minutes that brings the model and its stored key back. A server's key goes with its last model. Models from `config/models.yaml` cannot be removed (`model.not_custom`); turn them off instead. A model found in Ollama leaves when you remove it in Ollama (`model.from_ollama`).
 
 The chip colour is one of the identity hues; **Follow the family** goes back to the default for its provider family.
 
 ## GPU nodes
 
-A GPU node is a machine the Controller can start and stop. Add one under **Admin → Compute**: a RunPod pod by id (with `RUNPOD_API_KEY` in `.env`), or a machine on your network running Ollama, vLLM or LM Studio (`CONTROLLER_LOCAL_NODES`). Its models are listed as `node/<model>`. If the node serves an OpenAI-compatible API you can reach directly, you can also add it under **Your server**, but then NVX Ancile cannot wake it for you.
+A GPU node is a machine the Controller can start and stop. Add one under **Admin → Compute**: a RunPod pod by id (once a RunPod key is saved in Settings → API keys, or `RUNPOD_API_KEY` is set), or a machine on your network running Ollama, vLLM or LM Studio (`CONTROLLER_LOCAL_NODES`). Its models are listed as `node/<model>`. If the node serves an OpenAI-compatible API you can reach directly, you can also add it under **Your server**, but then NVX Ancile cannot wake it for you.
 
 When a message needs a node that is stopped, the answer shows **Waking your GPU node** with the start-up chain lighting as it goes; **Use a cloud model instead** answers straight away from the cloud. Rules stop idle nodes and cap spending; see [compute](compute.md).
 
@@ -66,7 +90,7 @@ Claude Pro or Max and ChatGPT Plus or Pro are subscriptions to the providers' ow
 
 ## Routing chains
 
-When nothing more specific chooses a model, the task class's fallback chain does: the first model in it that can answer is tried first, then the next. Change a chain in **Admin → Routing**. Drag a model by its grip, or open its **⋯** menu for **Move up**, **Move down** and **Remove from chain**; **Add model** offers your switched-on chat models. Every change saves at once and applies to the next turn. A model without its key, or switched off, stays in the chain but is skipped. **Reset to default** goes back to `config/routing.yaml`, and offers Undo.
+When nothing more specific chooses a model, the task class's fallback chain does: the first model in it that can answer is tried first, then the next. Change a chain in **Admin → Routing**. Drag a model by its grip, or open its **⋯** menu for **Move up**, **Move down** and **Remove from chain**; **Add model** offers the chat models that can answer now. Every change saves at once and applies to the next turn. A model without its key, or switched off, stays in the chain but is skipped. **Reset to default** goes back to `config/routing.yaml`, and offers Undo.
 
 ## Which model answers
 

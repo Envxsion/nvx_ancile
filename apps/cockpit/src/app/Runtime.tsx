@@ -21,16 +21,10 @@ import { setBrowserSafe, setOverrides } from '../keys/registry';
 import { startTelemetry } from '../lib/telemetry';
 import { startFrameGovernor, startPrefs, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
+import { useProtected } from './protected';
+import { applyUserCss, safeMode } from './userCss';
 
 const ZOOM_STEPS = [0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.3, 1.4];
-
-function safeMode(): boolean {
-  try {
-    return new URLSearchParams(location.search).has('safe');
-  } catch {
-    return false;
-  }
-}
 
 export function Runtime() {
   const navigate = useNavigate();
@@ -38,6 +32,8 @@ export function Runtime() {
   const theme = usePrefs((s) => s.prefs.appearance.theme);
   const overrides = usePrefs((s) => s.prefs.keyboard.overrides);
   const css = usePrefs((s) => s.prefs.advanced.css);
+  const cssConsent = usePrefs((s) => s.cssConsent);
+  const suspended = useProtected((s) => s.open > 0);
   const grain = usePrefs((s) => s.prefs.appearance.grain);
 
   useEffect(() => startPrefs(), []);
@@ -56,21 +52,11 @@ export function Runtime() {
     if (useUi.getState().theme !== theme) useUi.setState({ theme });
   }, [theme]);
 
-  // A person's own CSS, last in the cascade. ?safe=1 starts without it.
+  // A person's own CSS, last in the cascade, once confirmed on this device.
+  // ?safe=1 starts without it; it is off while a permission request is open.
   useEffect(() => {
-    if (safeMode()) return;
-    let el = document.getElementById('ancile-user-css') as HTMLStyleElement | null;
-    if (!css.trim()) {
-      el?.remove();
-      return;
-    }
-    if (!el) {
-      el = document.createElement('style');
-      el.id = 'ancile-user-css';
-      document.head.appendChild(el);
-    }
-    el.textContent = css;
-  }, [css]);
+    applyUserCss({ css, consent: cssConsent, safe: safeMode(), suspended });
+  }, [css, cssConsent, suspended]);
 
   const zoom = (dir: 1 | -1 | 0) => {
     const cur = usePrefs.getState().prefs.appearance.zoom;

@@ -36,6 +36,12 @@ export const ClaudeCodeSettings = z.object({
   exclude_folders: z.array(z.string().min(1).max(500)).max(100).default(['~/.claude-mem', '<temp>']),
   /** Claude Code's own usage reporting to Anthropic (DISABLE_TELEMETRY when off). */
   claude_telemetry: z.boolean().default(true),
+  /**
+   * How many fact-check judge calls Claude Code may answer at once, across
+   * every fact-check (1 to 4). Each is a Claude Code session on your Claude
+   * plan; the rest wait their turn.
+   */
+  factcheck_judges: z.number().int().min(1).max(4).default(1),
 });
 export type ClaudeCodeSettings = z.infer<typeof ClaudeCodeSettings>;
 export const PatchClaudeCodeSettings = ClaudeCodeSettings.partial().strict();

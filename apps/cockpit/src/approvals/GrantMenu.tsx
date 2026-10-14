@@ -1,6 +1,6 @@
 /**
  * ------------------------------------------------------------------
- *  Title    |  Edit and revoke a grant
+ *  Title    |  Edit and revoke a saved permission
  *  Ref      |  DESIGN.md §5.4 · Admin → Permissions
  *  ID       |  cockpit
  * ------------------------------------------------------------------
@@ -18,6 +18,7 @@ import type { Grant, GrantScope } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
+import { protectedLayer, useProtect } from '../app/protected';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
 import { queryClient } from '../lib/query';
@@ -72,7 +73,7 @@ export async function restoreGrant(g: Pick<Grant, 'id'>): Promise<void> {
     void refresh();
     notify({
       level: 'success',
-      title: 'Grant restored',
+      title: 'Permission restored',
       body: 'The agent can do this without asking again.',
     });
   } catch (e) {
@@ -83,6 +84,7 @@ export async function restoreGrant(g: Pick<Grant, 'id'>): Promise<void> {
 /** Mounted only while editing, so a background refresh never resets what you typed. */
 function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void }) {
   useLayer(true);
+  useProtect(true);
   const [pattern, setPattern] = useState(grant.resource_pattern);
   const [scope, setScope] = useState<GrantScope>(grant.scope);
   const [expiry, setExpiry] = useState('keep');
@@ -90,10 +92,10 @@ function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void
     mutationFn: (body: Record<string, unknown>) => api.patch<Grant>(`/grants/${grant.id}`, body),
     onSuccess: () => {
       void refresh();
-      notify({ level: 'success', title: 'Grant saved', body: 'It applies from the next check.' });
+      notify({ level: 'success', title: 'Permission saved', body: 'It applies from the next check.' });
       onClose();
     },
-    onError: (e) => failed(e, 'Saving the grant'),
+    onError: (e) => failed(e, 'Saving the permission'),
   });
   const submit = () => {
     const body = grantPatch(grant, { pattern, scope, expiry });
@@ -102,7 +104,7 @@ function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void
   };
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={protectedLayer()}>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content className="dialog m-glass-thick edit-grant" aria-describedby="edit-grant-desc">
           <Dialog.Title className="dialog__title">
@@ -211,7 +213,7 @@ export function GrantMenu({ grant }: { grant: Grant }) {
                     The agent will ask again before <code>{what}</code>. You can undo this for ten minutes.
                   </>
                 ),
-                action: 'Revoke grant',
+                action: 'Revoke permission',
               }),
           },
         ]}
@@ -222,7 +224,12 @@ export function GrantMenu({ grant }: { grant: Grant }) {
         }
       />
       {editing ? <EditGrantDialog grant={grant} onClose={() => setEditing(false)} /> : null}
-      <ConfirmDialog copy={confirm} onConfirm={() => revoke.mutate()} onClose={() => setConfirm(null)} />
+      <ConfirmDialog
+        copy={confirm}
+        onConfirm={() => revoke.mutate()}
+        onClose={() => setConfirm(null)}
+        protect
+      />
     </>
   );
 }

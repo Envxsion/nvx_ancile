@@ -514,6 +514,14 @@ li[data-done] .checklist__step {
     var(--elev-3),
     inset 0 0 0 1px rgb(var(--warn-rgb) / 0.35);
 }
+/* Solid, reduced transparency (the material resolves to solid) and Light
+   effects turn its glass opaque, like every other glass surface. */
+:root[data-material='solid'] .conn-banner,
+:root[data-fx='lite'] .conn-banner {
+  background: var(--lift-3);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .conn-banner > .icon {
   flex: none;
   color: var(--warn);
@@ -797,12 +805,12 @@ li[data-done] .checklist__step {
   overflow: hidden;
 }
 .help::before {
-  /* the gilt rim of the thick glass, at a whisper */
+  /* the gilt rim of the thick glass (its strength follows the gilt setting) */
   content: '';
   position: absolute;
   inset: 0 24px auto;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(var(--gilt-rgb) / 0.35), transparent);
+  background: linear-gradient(90deg, transparent, var(--gilt-line), transparent);
 }
 .help__head {
   display: flex;
@@ -817,7 +825,7 @@ li[data-done] .checklist__step {
   height: 26px;
   border-radius: var(--r-sm);
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
 }
 .help__head-title {
   flex: 1;
@@ -892,7 +900,7 @@ li[data-done] .checklist__step {
   color: var(--fg-2);
 }
 .help__link .icon {
-  color: var(--mute-3);
+  color: var(--mute-2);
   transition: translate var(--d-short) var(--ease-out);
 }
 .help__link:hover {
@@ -1194,7 +1202,7 @@ li[data-done] .checklist__step {
 }
 .settings__ext {
   margin-left: auto;
-  color: var(--mute-3);
+  color: var(--mute-2);
 }
 .settings__main {
   min-width: 0;
@@ -1283,6 +1291,32 @@ li[data-done] .checklist__step {
   color: var(--mute);
   font-size: var(--t-small);
   line-height: 1.5;
+}
+/* Why a setting is not in force right now (another setting overrides it) */
+.setting__note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  max-width: 52ch;
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  line-height: 1.5;
+}
+.setting__note > .icon {
+  flex: none;
+  align-self: center;
+  color: var(--mute-2);
+}
+.setting__note a {
+  color: var(--fg-2);
+  text-decoration: underline;
+  text-decoration-color: var(--edge-2);
+  text-underline-offset: 2px;
+}
+.setting__note a:hover {
+  color: var(--fg);
+  text-decoration-color: currentColor;
 }
 .setting__dot {
   width: 6px;
@@ -2513,6 +2547,12 @@ button.grounding:hover {
 }
 
 /* ---- Settings → API keys ------------------------------------------------ */
+/* Opened from another screen for this key (Connect RunPod): a quiet frame. */
+.credential[data-focused] {
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  background: var(--chalk);
+}
 .credential__status {
   display: inline-flex;
   align-items: center;

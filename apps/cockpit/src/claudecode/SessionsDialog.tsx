@@ -310,7 +310,7 @@ function CcError({ error, onRetry, what }: { error: unknown; onRetry: () => void
   const article = ERROR_ARTICLES[error.body.error.code];
   return (
     <div className="cc-error">
-      <ErrorState error={error.body} onRetry={onRetry} compact />
+      <ErrorState error={error.body} onRetry={onRetry} retry="always" compact />
       {article ? (
         <button type="button" className="link-btn" onClick={() => useUi.getState().setHelp(true, article)}>
           How Claude Code works in NVX Ancile

@@ -6,17 +6,21 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Everything a Claude Code thread adds around the
  *           |  composer: one quiet status line (ready, starting,
- *           |  working, with the model, effort and Claude Code's own
- *           |  context meter and its usage popover), the one notice
+ *           |  working with the step running now, the model, effort
+ *           |  and Claude Code's own context meter and its usage
+ *           |  popover), the one notice
  *           |  that needs you (busy elsewhere, signed out, a restart),
  *           |  a queued message, the model and effort pickers, and
  *           |  what NVX Ancile does for the "/" commands it handles.
- *  How      |  Live state from useClaudeCodeLive; choices and notices
+ *  How      |  Live state from useClaudeCodeLive; the step running now
+ *           |  from the turn's run (thread/WorkingNow.tsx), as the live
+ *           |  state has no steps; choices and notices
  *           |  from the per-thread store (claudecode/store.ts). The
  *           |  pickers are controlled so "/model" and "/effort" can
  *           |  open them.
- *  Note     |  Signal violet is the working dot only. The cost is an
- *           |  estimate at API list prices and says so.
+ *  Note     |  Signal violet is the working dot only. The cost reads
+ *           |  "Included in your Claude plan" (usage/planCost.ts), with
+ *           |  Claude Code's estimate at API list prices beside it.
  * ------------------------------------------------------------------
  */
 
@@ -32,14 +36,17 @@ import { branchHere } from '../lib/branching';
 import { keys } from '../lib/data';
 import { chooseInClaudeCodeThread } from '../lib/models';
 import { queryClient } from '../lib/query';
+import { useRuns } from '../lib/run';
 import { createThread } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
+import { nowWords, workingNow } from '../thread/WorkingNow';
 import { useBranchLayer } from '../tree/store';
 import { Icon } from '../ui/Icon';
 import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
 import { PlanLimits } from '../usage/PlanLimits';
+import { claudeCodeCostWords, useClaudeBilling } from '../usage/planCost';
 import { startClaudeCodeSignIn } from './api';
 import { FolderMissingNotice } from './FolderMissing';
 import { CcLeanToggle } from './LeanToggle';
@@ -97,6 +104,11 @@ export function CcLiveLine({
         : (live?.state ?? 'idle');
   const at = ctx?.compacts_at ?? null;
   const tone = pct === null ? 'calm' : contextTone(pct, at);
+  // What the turn streaming in this thread is running now (its run's events; the live state has no steps).
+  const now = useRuns((s) => {
+    const t = Object.values(s.turns).find((x) => x.threadId === threadId && !x.done);
+    return nowWords(workingNow(t));
+  });
 
   return (
     <div className="cc-live" data-state={state}>
@@ -104,6 +116,11 @@ export function CcLiveLine({
       <span className="cc-live__text" aria-live="polite">
         {liveWords(live, folder)}
       </span>
+      {state === 'working' && now ? (
+        <span className="cc-live__now" title={now}>
+          {now}
+        </span>
+      ) : null}
       {model || effort ? (
         <span className="cc-live__meta" data-num>
           {[model, effort ? `${effort} effort` : null].filter(Boolean).join(' · ')}
@@ -149,6 +166,7 @@ export function UsageBody({
 }) {
   const ctx = live?.context ?? null;
   const cost = last?.usage?.costUsd ?? 0;
+  const billed = useClaudeBilling();
   return (
     <div className="cc-usage__body">
       <p className="cc-usage__title">Claude Code usage</p>
@@ -168,12 +186,16 @@ export function UsageBody({
         <dd data-num>
           {last?.usage ? `${last.usage.tokens.toLocaleString('en-GB')} tokens` : 'No turn yet'}
         </dd>
-        {cost > 0 ? (
+        {last?.usage ? (
           <>
             <dt>Cost</dt>
             <dd>
-              <span data-num>${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}</span>
-              <span className="cc-usage__note">estimate at API list prices, not your bill</span>
+              <span>{claudeCodeCostWords(cost, billed)}</span>
+              {!billed && cost > 0 ? (
+                <span className="cc-usage__note" data-num>
+                  {`About $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)} at API list prices, not a bill`}
+                </span>
+              ) : null}
             </dd>
           </>
         ) : null}
@@ -433,7 +455,7 @@ export function useCcActions(opts: {
         case 'open_mcp':
           return void navigate({ to: '/admin/$section', params: { section: 'plugins' } });
         case 'open_permissions':
-          return void navigate({ to: '/admin/$section', params: { section: 'grants' } });
+          return void navigate({ to: '/admin/$section', params: { section: 'permissions' } });
         case 'open_usage':
           return patchCc(threadId, { usageOpen: true });
         case 'branch':

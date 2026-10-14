@@ -26,7 +26,7 @@
 }
 .pro-upsell__card .empty__glyph {
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.1);
+  background: var(--gilt-wash);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
 
@@ -108,7 +108,7 @@
   height: 26px;
   border-radius: var(--r-sm);
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
 }
 .eil__q {
   margin: 0;

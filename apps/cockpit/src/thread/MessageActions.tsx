@@ -24,6 +24,7 @@ import { saveAnswerAsNote } from '../lib/notebooks';
 import { queryClient } from '../lib/query';
 import { regenerate, runInLab } from '../lib/turns';
 import type { MessageView, ThreadView } from '../lib/types';
+import { openBeam } from '../pro/beam';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -60,6 +61,14 @@ const ACTIONS: Action[] = [
   { id: 'why', binding: 'message.why', label: 'Why did it say this?', icon: 'why', roles: ['assistant'] },
   { id: 'edit', binding: 'message.edit', label: 'Edit', icon: 'edit', roles: ['user'] },
   { id: 'lab', binding: 'message.lab', label: 'Run in the lab', icon: 'node', roles: ['user'] },
+  // Several models answer the question (an answer's question, for an answer) as its new versions.
+  {
+    id: 'beam',
+    binding: 'message.beam',
+    label: 'Beam this question',
+    icon: 'compare',
+    roles: ['user', 'assistant'],
+  },
   { id: 'copy', binding: 'message.copy', label: 'Copy', icon: 'copy', roles: ['user', 'assistant'] },
   { id: 'note', binding: 'message.note', label: 'Save as note', icon: 'note', roles: ['assistant'] },
   {
@@ -195,6 +204,21 @@ export function MessageActions({
       case 'lab':
         if (demo || !message.parts) break;
         return runInLab(threadId, message);
+      case 'beam': {
+        if (demo || !message.parts) break;
+        const thread = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
+        const question =
+          message.role === 'user' ? message : thread?.messages.find((x) => x.id === message.parentId);
+        if (question?.role !== 'user')
+          return notify({ level: 'info', title: 'There is no question above this answer to beam' });
+        return openBeam({
+          threadId,
+          notebookId: thread?.notebookId ?? null,
+          parentId: question.parentId,
+          questionId: question.id,
+          text: plainText(question),
+        });
+      }
       case 'branch':
         if (demo || !message.parts) break;
         return void branchHere(threadId, message.id, {
@@ -211,6 +235,7 @@ export function MessageActions({
       case 'regenerate':
       case 'edit':
       case 'lab':
+      case 'beam':
       case 'branch':
       case 'delete':
         return notify({
@@ -235,18 +260,12 @@ export function MessageActions({
       kind: 'label',
       label: flow ? `Answers alone, without ${flow.name}` : 'Answer this again with',
     },
-    ...(models ?? [])
-      .filter((m) => m.chat !== false)
-      .sort((a, b) => Number(b.status === 'ready' || !b.status) - Number(a.status === 'ready' || !a.status))
-      .slice(0, 20)
-      .map((m) => {
-        const ready = !m.status || m.status === 'ready';
-        return {
-          label: ready ? m.name : `${m.name} (needs its key)`,
-          disabled: !ready || demo || !message.parts,
-          onSelect: () => void regenerate(threadId, message, m.id),
-        };
-      }),
+    // Only models that can answer now: useModels() offers no other (lib/data.ts, pickable).
+    ...(models ?? []).slice(0, 20).map((m) => ({
+      label: m.name,
+      disabled: demo || !message.parts,
+      onSelect: () => void regenerate(threadId, message, m.id),
+    })),
   ];
   const flows = useFlowList(!!flow && visible).data;
   const versions = useFlowVersions(flow?.flow_id, !!flow && visible).data;

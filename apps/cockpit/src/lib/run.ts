@@ -54,7 +54,11 @@ export interface LiveTurn {
   lastSeq: number;
   /** When the run's first event came (server time), for the live footer's clock. */
   startedAt: string | null;
-  /** When each tool step started and finished (server time), for its timer. */
+  /**
+   * When each tool step started and finished (server time), for its timer
+   * and the "Working now" strip; a finished step's result also carries the
+   * difference as duration_ms, as the saved message will.
+   */
   calls: Record<string, StepClock>;
   /** Characters of text and thinking streamed so far: about four to a token. */
   streamedChars: number;
@@ -67,6 +71,14 @@ export interface LiveTurn {
 export interface StepClock {
   start: string;
   end: string | null;
+  /** What the step is doing, in words, from its tool.call (Core makes it from the full arguments). */
+  title?: string;
+}
+
+/** Milliseconds between two server times; undefined when either is missing or they run backwards. */
+export function between(start: string | undefined, end: string): number | undefined {
+  const ms = Date.parse(end) - Date.parse(start ?? '');
+  return Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : undefined;
 }
 
 interface RunsState {
@@ -123,7 +135,10 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
       return {
         ...next,
         parts: [...t.parts, { type: 'tool_call', call_id: e.call_id, tool: e.tool, args: e.args_preview }],
-        calls: { ...t.calls, [e.call_id]: { start: e.at, end: null } },
+        calls: {
+          ...t.calls,
+          [e.call_id]: { start: e.at, end: null, ...(e.title ? { title: e.title } : {}) },
+        },
         activity: null,
       };
     case 'activity':
@@ -134,9 +149,11 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
       if (t.parts.some((p) => p.type === 'tool_result' && p.call_id === e.call_id)) return next;
       const declined = /^Declined/.test(e.preview);
       const clock = t.calls[e.call_id];
+      // The step's duration from its own clock, as the saved message will carry it (duration_ms).
+      const ms = between(clock?.start, e.at);
       return {
         ...next,
-        calls: { ...t.calls, [e.call_id]: { start: clock?.start ?? e.at, end: e.at } },
+        calls: { ...t.calls, [e.call_id]: { ...clock, start: clock?.start ?? e.at, end: e.at } },
         parts: [
           ...t.parts,
           {
@@ -145,6 +162,7 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
             ok: e.ok,
             result: e.preview,
             ...(declined && { declined_reason: e.preview.replace(/^Declined:?\s*/, '') }),
+            ...(ms !== undefined && { duration_ms: ms }),
           },
         ],
       };

@@ -13,7 +13,9 @@
  *           |  Radix DropdownMenu: arrows move, type-ahead jumps,
  *           |  Escape closes; disabled entries are skipped by the keys.
  *           |  When the scope hides something, the last row opens the
- *           |  thread's scope editor.
+ *           |  thread's scope editor. When Claude Code cannot answer,
+ *           |  a separate "Set up Claude Code" row (an action, not a
+ *           |  model) says why and opens its settings.
  * ------------------------------------------------------------------
  */
 
@@ -22,18 +24,26 @@ import type { CSSProperties, ReactNode } from 'react';
 import { openEditor } from '../editors/store';
 import { hueVar } from '../lib/format';
 import { Icon } from '../ui/Icon';
-import type { ModelEntry, ModelGroup } from './api';
+import { type ModelEntry, type ModelGroup, SET_UP_CLAUDE_CODE } from './api';
+
+/** Claude Code cannot answer here: why, and what opens its setup (Settings → Claude Code). */
+export interface ClaudeCodeSetupRow {
+  reason: string;
+  onSelect: () => void;
+}
 
 export function ModelMenuContent({
   groups,
   onPick,
   threadId,
   label = 'Model for the next message',
+  setup,
 }: {
   groups: ModelGroup[];
   onPick: (e: ModelEntry) => void;
   threadId?: string | undefined;
   label?: string;
+  setup?: ClaudeCodeSetupRow | null | undefined;
 }) {
   const scoped = groups.some((g) =>
     g.items.some((i) => i.disabled && /notebook|thread|computer/.test(i.disabled)),
@@ -87,6 +97,18 @@ export function ModelMenuContent({
           ))}
         </DM.Group>
       ))}
+      {setup ? (
+        <>
+          {groups.length ? <DM.Separator className="menu__sep" /> : null}
+          <DM.Item className="menu__item model-menu__item" onSelect={setup.onSelect}>
+            <Icon name="terminal" size={14} />
+            <span className="menu__text model-menu__text">
+              <span className="model-menu__name">{SET_UP_CLAUDE_CODE}</span>
+              <span className="model-menu__why">{setup.reason}</span>
+            </span>
+          </DM.Item>
+        </>
+      ) : null}
       {scoped && threadId ? (
         <>
           <DM.Separator className="menu__sep" />
@@ -112,6 +134,7 @@ export function ModelMenu({
   open,
   onOpenChange,
   label,
+  setup,
 }: {
   trigger: ReactNode;
   groups: ModelGroup[];
@@ -120,12 +143,19 @@ export function ModelMenu({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   label?: string;
+  setup?: ClaudeCodeSetupRow | null | undefined;
 }) {
   return (
     <DM.Root modal={false} {...(open !== undefined && { open })} {...(onOpenChange && { onOpenChange })}>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
-        <ModelMenuContent groups={groups} onPick={onPick} threadId={threadId} {...(label && { label })} />
+        <ModelMenuContent
+          groups={groups}
+          onPick={onPick}
+          threadId={threadId}
+          setup={setup}
+          {...(label && { label })}
+        />
       </DM.Portal>
     </DM.Root>
   );

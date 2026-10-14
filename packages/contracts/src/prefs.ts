@@ -134,7 +134,7 @@ export const AdvancedPrefs = z.object({
   developer: z.boolean().default(false),
   performance: z.enum(['auto', 'full', 'lite']).default('auto'),
   hints: z.boolean().default(true),
-  /** Keep the try-out models in the switcher after a real model is ready. */
+  /** Keep the test models (no AI) in the switcher and pickers after a real model is ready. */
   tryoutModels: z.boolean().default(false),
 });
 
@@ -153,6 +153,61 @@ export type Preferences = z.infer<typeof Preferences>;
 export type PrefGroup = Exclude<keyof Preferences, 'version'>;
 
 export const DEFAULT_PREFERENCES: Preferences = Preferences.parse({});
+
+/**
+ * Settings that belong to this device, not to you: they depend on its
+ * screen, hardware or browser, or (custom CSS) could change how another
+ * computer shows a permission request. They stay in this browser: never
+ * sent to Core, synced to another computer, or written to an export.
+ */
+export const DEVICE_PREFS = {
+  appearance: ['zoom'],
+  layout: ['rail', 'railWidth', 'drawerWidth'],
+  keyboard: ['browserSafe'],
+  advanced: ['css', 'performance'],
+} as const satisfies { [G in PrefGroup]?: readonly (keyof Preferences[G])[] };
+
+type DeviceGroup = keyof typeof DEVICE_PREFS;
+const deviceGroups = Object.keys(DEVICE_PREFS) as DeviceGroup[];
+
+/** Whether one setting is device-only (DEVICE_PREFS). */
+export function isDevicePref(group: string, key: string): boolean {
+  const keys = (DEVICE_PREFS as Record<string, readonly string[]>)[group];
+  return keys?.includes(key) ?? false;
+}
+
+/**
+ * The preferences that may leave this device: every device-only setting
+ * taken out. Accepts anything (an old server copy, an import) and never
+ * throws; what is not an object is returned as it is.
+ */
+export function withoutDevicePrefs<T>(prefs: T): T {
+  if (!prefs || typeof prefs !== 'object') return prefs;
+  const out: Record<string, unknown> = { ...(prefs as Record<string, unknown>) };
+  for (const g of deviceGroups) {
+    const group = out[g];
+    if (!group || typeof group !== 'object') continue;
+    const copy = { ...(group as Record<string, unknown>) };
+    for (const k of DEVICE_PREFS[g] as readonly string[]) delete copy[k];
+    out[g] = copy;
+  }
+  return out as T;
+}
+
+/**
+ * Preferences from somewhere else (Core's copy, another computer, a file),
+ * with this device's own settings kept: nothing device-only is ever taken
+ * from outside.
+ */
+export function keepDevicePrefs(incoming: Preferences, local: Preferences): Preferences {
+  const out = { ...incoming } as Record<string, unknown>;
+  for (const g of deviceGroups) {
+    const keep: Record<string, unknown> = {};
+    for (const k of DEVICE_PREFS[g] as readonly string[]) keep[k] = (local[g] as Record<string, unknown>)[k];
+    out[g] = { ...(incoming[g] as Record<string, unknown>), ...keep };
+  }
+  return out as Preferences;
+}
 
 /** Help and onboarding progress, kept beside preferences. */
 export const HelpProgress = z.object({

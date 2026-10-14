@@ -356,7 +356,7 @@ export class McpToolGuard {
             r.origin === 'claude_code'
               ? `Claude Code's ${r.server} server changed its tools`
               : `${r.server} changed its tools`,
-          body: `${parts.join(', ')} since you approved it. New and changed tools are refused until you review the change. Its remembered answers were cleared.`,
+          body: `${parts.join(', ')} since you approved it. New and changed tools are refused until you review the change. Its saved permissions were cleared.`,
           action: { label: 'Review the change', href: '/admin/plugins' },
           category: 'health',
         });

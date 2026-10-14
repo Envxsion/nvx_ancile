@@ -46,9 +46,24 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, isIconName } from '../ui/Icon';
+import { loadError } from '../ui/LoadFailed';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
 import { Kbd, Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
+
+/** A read that failed, sized for the rail: its own words and Try again, never "Nothing here yet". */
+function RailFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => unknown }) {
+  const e = loadError(error, what).error;
+  return (
+    <div className="rail__empty" role="alert">
+      <p>{e.title}</p>
+      <p>{e.hint}</p>
+      <button type="button" className="link-btn" onClick={() => void onRetry()}>
+        Try again
+      </button>
+    </div>
+  );
+}
 
 type Row = { kind: 'notebook' | 'thread'; id: string };
 
@@ -325,6 +340,59 @@ function Section({
   );
 }
 
+/**
+ * The places that are not a notebook or a thread: one row each, lit while
+ * you are on them, with the shortcut in the tooltip.
+ */
+export const RAIL_PLACES = [
+  { id: 'flows', label: 'Flows', icon: 'branch', binding: 'go.flows' },
+  { id: 'automations', label: 'Automations', icon: 'clock', binding: 'go.automations' },
+] as const;
+
+export function railPlaceActive(id: (typeof RAIL_PLACES)[number]['id'], pathname: string): boolean {
+  if (id === 'flows')
+    return pathname === '/flows' || pathname.startsWith('/flows/') || pathname.endsWith('/flow');
+  return pathname === '/admin/automations';
+}
+
+export function RailPlaces({ pathname }: { pathname: string }) {
+  return (
+    <ul className="rail__places" aria-label="Places">
+      {RAIL_PLACES.map((p) => {
+        const active = railPlaceActive(p.id, pathname);
+        return (
+          <li key={p.id}>
+            <Tip label={p.label} binding={p.binding} side="right">
+              {p.id === 'flows' ? (
+                <Link
+                  to="/flows"
+                  className="rail__item rail__place"
+                  data-active={active || undefined}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon name={p.icon} size={14} />
+                  <span className="rail__label">{p.label}</span>
+                </Link>
+              ) : (
+                <Link
+                  to="/admin/$section"
+                  params={{ section: 'automations' }}
+                  className="rail__item rail__place"
+                  data-active={active || undefined}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <Icon name={p.icon} size={14} />
+                  <span className="rail__label">{p.label}</span>
+                </Link>
+              )}
+            </Tip>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function Rail() {
   const open = useUi((s) => s.railOpen);
   const toggle = useUi((s) => s.toggleRail);
@@ -469,6 +537,8 @@ export function Rail() {
     focused && rows[cursor]?.kind === kind && rows[cursor]?.id === id;
   const prefetch = useCallback((id: string) => void qc.prefetchQuery(threadQuery(id)), [qc]);
   const nbs = useMemo(() => notebooks.data ?? [], [notebooks.data]);
+  // Notebooks that did not load are not "Start a notebook": a refresh that failed keeps the list.
+  const notebooksFailed = notebooks.isError && !notebooks.data;
 
   const onFilterKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -534,6 +604,8 @@ export function Rail() {
         </Tip>
       </div>
 
+      <RailPlaces pathname={pathname} />
+
       <label className="rail__filter">
         <Icon name="filter" size={13} />
         <input
@@ -571,6 +643,8 @@ export function Rail() {
           <Section id="archive" title="Archive">
             {archived.isPending ? (
               <Skeleton lines={5} label="Loading the archive" />
+            ) : archived.isError && !archived.data ? (
+              <RailFailed error={archived.error} what="The archive" onRetry={() => archived.refetch()} />
             ) : (archived.data ?? []).length === 0 ? (
               <p className="rail__empty">
                 Nothing archived. Archive a thread to tidy it away without deleting it.
@@ -601,12 +675,7 @@ export function Rail() {
         ) : notebooks.isPending || threads.isPending ? (
           <Skeleton lines={9} label="Loading notebooks and threads" />
         ) : threads.isError ? (
-          <div className="rail__empty">
-            <p>The list could not be loaded.</p>
-            <button type="button" className="link-btn" onClick={() => void threads.refetch()}>
-              Try again
-            </button>
-          </div>
+          <RailFailed error={threads.error} what="Threads" onRetry={() => threads.refetch()} />
         ) : (
           <>
             {groups.pinned.length > 0 ? (
@@ -648,7 +717,9 @@ export function Rail() {
               }
             >
               {creating ? <NewNotebook onDone={() => setCreating(false)} /> : null}
-              {groups.notebooks.length === 0 && !creating ? (
+              {notebooksFailed ? (
+                <RailFailed error={notebooks.error} what="Notebooks" onRetry={() => notebooks.refetch()} />
+              ) : groups.notebooks.length === 0 && !creating ? (
                 <button type="button" className="rail__ghost" onClick={() => setCreating(true)}>
                   <Icon name="plus" size={13} />
                   Start a notebook for a project's sources
@@ -734,7 +805,7 @@ export function Rail() {
                 </button>
               </div>
             ) : null}
-            {!q && (threads.data ?? []).length === 0 && nbs.length === 0 ? (
+            {!q && (threads.data ?? []).length === 0 && nbs.length === 0 && !notebooksFailed ? (
               <p className="rail__empty">Your threads will gather here. Start one with New thread.</p>
             ) : null}
             <div ref={sentinel} aria-hidden="true" />

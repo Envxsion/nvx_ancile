@@ -20,10 +20,13 @@
  */
 
 import { statfs as nodeStatfs } from 'node:fs/promises';
-import { dirname, parse, resolve } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { AncileError } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
+
+/** Paths as the platform asked for reads them, whatever this computer is (Windows paths are checked on Linux too). */
+const pathsOf = (platform: NodeJS.Platform) => (platform === 'win32' ? win32 : posix);
 
 /** Kept free beyond what a job needs, so Postgres can still write after it. */
 export const DISK_RESERVE_BYTES = 256 * 1024 * 1024;
@@ -42,7 +45,7 @@ export function driveOf(path: string, platform: NodeJS.Platform = process.platfo
   if (platform === 'win32') {
     const m = /^([A-Za-z]:)/.exec(path);
     if (m?.[1]) return m[1].toUpperCase();
-    const root = parse(path).root.replace(/[\\/]+$/, '');
+    const root = win32.parse(path).root.replace(/[\\/]+$/, '');
     return root || path;
   }
   return path;
@@ -66,6 +69,7 @@ export async function diskSpace(
   opts: { statfs?: StatFs; platform?: NodeJS.Platform } = {},
 ): Promise<DiskSpace> {
   const stat = opts.statfs ?? (nodeStatfs as StatFs);
+  const { dirname, resolve } = pathsOf(opts.platform ?? process.platform);
   let at = resolve(path);
   for (let i = 0; i < 64; i++) {
     try {

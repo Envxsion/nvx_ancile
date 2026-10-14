@@ -93,6 +93,16 @@ const notCustom = (name: string) =>
     errorClass: 'permanent',
   });
 
+/** A model listed because Ollama has it (gateway/ollama-discovery.ts): Ollama owns it. */
+const fromOllama = (m: { display_name: string; provider_model: string }) =>
+  new AncileError({
+    code: 'model.from_ollama',
+    title: `${m.display_name} comes from Ollama`,
+    hint: `It is listed because Ollama has it. To take it off the list, remove it in Ollama (ollama rm ${m.provider_model}). You can still switch it on or off, and change its colour.`,
+    status: 409,
+    errorClass: 'permanent',
+  });
+
 const needsUrl = () =>
   new AncileError({
     code: 'model.needs_base_url',
@@ -239,7 +249,8 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
     const req = await body(c, PatchModelRequest);
     if (!registry.isCustom(id)) {
       const { enabled, hue, ...rest } = req;
-      if (Object.keys(rest).length) throw notCustom(m.display_name);
+      if (Object.keys(rest).length)
+        throw registry.isDiscovered(id) ? fromOllama(m) : notCustom(m.display_name);
       if (enabled !== undefined) await registry.setEnabled({ [id]: enabled });
       if (hue !== undefined) await registry.setHue(id, hue);
       return c.json(registry.info().find((x) => x.id === id));
@@ -286,6 +297,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
     const id = c.req.param('id');
     const m = registry.get(id);
     if (!m) throw notFound('That model');
+    if (registry.isDiscovered(id)) throw fromOllama(m);
     if (!registry.isCustom(id)) throw notCustom(m.display_name);
     const rest = registry.custom().filter((x) => x.id !== id);
     const dropKey = Boolean(m.secret && m.base_url && !rest.some((x) => x.secret === m.secret));

@@ -41,10 +41,9 @@
   background: var(--fg-2);
   opacity: 0.55;
 }
-@media (prefers-reduced-motion: reduce) {
-  .u-meter__fill {
-    transition: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .u-meter__fill {
+  transition: none;
 }
 
 .u-gauge {
@@ -381,4 +380,42 @@
   display: flex;
   gap: var(--sp-2);
   align-items: center;
+}
+
+/* ---- Context now, and lines that say why a block is empty ---------------- */
+.u-context {
+  display: grid;
+  gap: 8px;
+}
+.u-context__thread {
+  margin: 0;
+  font-size: var(--t-small);
+}
+.u-context__meter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--fg);
+}
+.u-context__parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px 16px;
+  margin: 4px 0 0;
+  font-size: var(--t-small);
+}
+.u-context__parts dt {
+  color: var(--fg-3);
+}
+.u-context__parts dd {
+  margin: 0;
+  color: var(--fg-2);
+}
+.u-context > .btn {
+  justify-self: start;
+}
+.u-empty-line {
+  margin: 12px 0 0;
+  font-size: var(--t-small);
 }

@@ -15,7 +15,8 @@
  *           |  theme script can apply it before first paint. The swap
  *           |  cross-fades colours (the theme's own mechanism); the
  *           |  arrival is a gilded line round the window, once, and
- *           |  nothing at all with reduced motion.
+ *           |  nothing at all with reduced motion. In a team, someone
+ *           |  without a Pro seat sees the free edition.
  *  Note     |  Presentation only: what Pro unlocks is decided by Core.
  * ------------------------------------------------------------------
  */
@@ -25,6 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { reducedMotionNow } from '../lib/motion';
 import { Icon } from '../ui/Icon';
 
 /** Set once Pro's arrival has been shown on this computer. */
@@ -35,13 +37,15 @@ const AWAKEN_MS = 1900;
 interface EditionView {
   build: 'free' | 'pro';
   status: { tier: 'free' | 'pro' | 'max_access' };
+  /** False: a team member without a Pro seat (absent from an older Core: yes). */
+  seat?: boolean;
 }
 
 export type Edition = 'free' | 'pro';
 
 export function editionOf(d: EditionView | undefined): Edition | null {
   if (!d) return null;
-  return d.build === 'pro' && d.status.tier !== 'free' ? 'pro' : 'free';
+  return d.build === 'pro' && d.status.tier !== 'free' && d.seat !== false ? 'pro' : 'free';
 }
 
 function store(key: string, value: string | null) {
@@ -60,12 +64,8 @@ function stored(key: string): string | null {
   }
 }
 
-function reducedMotion(): boolean {
-  return (
-    document.documentElement.dataset.motion === 'reduced' ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
-}
+/** The in-app Motion setting, resolved against the system once (lib/motion). */
+const reducedMotion = reducedMotionNow;
 
 /** Play Pro's arrival (once per call; the licence screen calls it when a key turns Pro on). */
 export function awakenPro(): void {

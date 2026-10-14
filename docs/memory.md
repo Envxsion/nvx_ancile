@@ -64,7 +64,7 @@ Ancile-Proposal: mpr_01J9Z3
 - **History:** Admin → Memory shows each file's history, a diff between any two versions, and **Revert**, which makes a new commit.
 - **Conflicts:** if Ancile commits while you're editing a file, your save is merged automatically when the edits don't overlap. When they do, you see both versions side by side. See the [memory conflict runbook](runbooks/memory-conflict.md).
 - **Deleting a file:** **⋯ → Delete file** in Admin → Memory removes it in its own commit (`DELETE /api/v1/memory/files/<path>`, through the memory module like every other write). History keeps it, so **Undo** on the notice reverts that commit and the file comes back. AGENTS.md, USER.md and the folder's guides (`README.md`, `_template.md`) can't be deleted (`memory.protected`).
-- **Backup:** set `remote` in `config/memory.yaml` (or `ANCILE_MEMORY_REMOTE`) to push to a private git remote on a schedule.
+- **Backup:** the **Back up memory** automation pushes your memory to a private git remote every hour. It is off until it has a remote: open it in Admin → Automations → Edit, type the remote, press **Test push** to check it can push (a dry run: nothing changes there), then **Save and turn on**. The remote can also be set in Settings → API keys, as `remote` in `config/memory.yaml`, or as `ANCILE_MEMORY_REMOTE`. A push never waits for a password: one that needs a password nobody saved fails and says so.
 
 ## Import and export
 

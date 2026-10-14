@@ -39,7 +39,7 @@ Ask in plain words: "what changed?", "commit the parser fix", "push it", "open a
 | Once, then as you grant | `git_add`, `git_commit`, `git_switch`, `git_pull`, `git_stash`, `gh_pr_create`, `gh_run_rerun` |
 | Every time | `git_push`, `gh_pr_merge`, `gh_workflow_dispatch`, `git_push_force_with_lease` |
 
-The approval shows what will really happen, read from the repository: the files and message of a commit, the commits and the branch a push goes to, the branches of a pull request. There is no force push unless you ask for one, and even then it is `--force-with-lease` and asks every time. Grants can name one repository (`repo:my-app`, `repo:my-app/push`).
+The approval shows what will really happen, read from the repository: the files and message of a commit, the commits and the branch a push goes to, the branches of a pull request. There is no force push unless you ask for one, and even then it is `--force-with-lease` and asks every time. A saved permission can name one repository (`repo:my-app`, `repo:my-app/push`).
 
 The same tools work in a flow's Tool node, so a flow can, for example, have a reviewer read `git_diff` before a writer drafts the commit message.
 

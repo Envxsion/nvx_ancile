@@ -37,7 +37,7 @@ const FEATURES = [
   [
     'sync',
     'Encrypted sync',
-    'Your notebooks, threads and memory on every computer, encrypted before they leave this one.',
+    'Your notebooks, threads, notes, flows and preferences on every computer, encrypted before they leave this one. What you keep on this computer stays here.',
   ],
   [
     'fleet',

@@ -118,7 +118,10 @@ export function setupRoutes(deps: SetupRouteDeps) {
 
   const status = async (): Promise<SetupStatus> => {
     const names = new Set(await secrets.names());
-    const ollamaReady = registry.all().some((m) => m.id.startsWith('ollama/') && registry.enabled(m));
+    // Set up once an Ollama model can answer: switched on is not enough when Ollama does not have it.
+    const ollamaReady = modelsOf(registry, 'ollama').some(
+      (m) => canChat(m) && registry.status(m) === 'ready',
+    );
     return {
       complete: (await settings.get<boolean>(SETTING.setupComplete)) === true,
       preset: (await settings.get<SetupStatus['preset']>(SETTING.preset)) ?? null,
@@ -167,14 +170,22 @@ export function setupRoutes(deps: SetupRouteDeps) {
     if (req.save) {
       const secret = DEFAULT_SECRET[req.provider];
       if (secret && req.key) await secrets.set(secret, req.key.trim());
-      // Ollama: only the models it has pulled; one it does not have could not answer.
+      // Ollama: only the models it has pulled, wherever they are configured to be
+      // served from; one it does not have could not answer. Models found in Ollama
+      // are on already, and one you turned off stays off.
       const pulled = tested.available ? new Set(tested.available.map(ollamaName)) : null;
-      const ready = pulled
-        ? candidates.filter((m) => m.base_url || pulled.has(ollamaName(m.provider_model)))
-        : candidates;
+      const ready = candidates.filter(
+        (m) => !registry.isDiscovered(m.id) && (!pulled || pulled.has(ollamaName(m.provider_model))),
+      );
       enabled = ready.map((m) => m.id);
       await registry.setEnabled(Object.fromEntries(enabled.map((id) => [id, true])));
-      await registry.refreshOllama();
+      if (req.provider === 'ollama') {
+        await registry.refreshOllama();
+        // What is on because Ollama works: the models above, and those it lists by itself.
+        enabled = modelsOf(registry, 'ollama')
+          .filter((m) => canChat(m) && registry.status(m) === 'ready')
+          .map((m) => m.id);
+      }
     }
     const out: z.infer<typeof ProviderTestResponse> = {
       ok: true,

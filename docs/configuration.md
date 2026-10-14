@@ -94,7 +94,7 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 |---|---|---|
 | `CONTROLLER_URL` / `CONTROLLER_PORT` | `http://localhost:7720` / `7720` | Leave `CONTROLLER_URL` empty to run without remote compute. |
 | `CONTROLLER_TOKEN` | none (required with a Controller) | Core → Controller auth. |
-| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. Optional: Admin → Compute → Connect RunPod saves the key in the app instead. Empty and not connected: sample nodes. |
+| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. Optional: Settings → API keys → RunPod saves the key in the app instead, and Core gives it to the Controller each time it starts. Empty and not connected: no provider (sample nodes only with `CONTROLLER_PROVIDER=fake`). |
 | `RUNPOD_API_BASE` | `https://api.runpod.io` | REST v2. v1 is retired on 15 Nov 2026. |
 | `CONTROLLER_COST_CAP_USD` | `150` | Default hard monthly cap across nodes. |
 | `CONTROLLER_QUEUE_DEADLINE_S` | `240` | How long a request waits for a waking node. |
@@ -111,10 +111,10 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 | Row | Environment variable | Checked by |
 |---|---|---|
 | Anthropic, OpenAI, Google, OpenRouter | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `OPENROUTER_API_KEY` | One short request to the provider's cheapest configured model (the setup test). A first key switches that provider's models on; a replacement leaves your choices alone. |
-| RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it (the same path as Admin → Compute → Connect RunPod). Unavailable when Core has no `CONTROLLER_URL`. |
+| RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it; Admin → Compute → Connect RunPod opens this row. Saving it connects the Controller at once, and Core gives it back to the Controller whenever it restarts without it. Unavailable when Core has no `CONTROLLER_URL`. |
 | Hugging Face | `HF_TOKEN` | Hugging Face's `whoami`. For gated models on GPU nodes. |
 | GitHub | `GITHUB_TOKEN` | GitHub's `/user`. Used by Repositories when the `gh` command is not signed in. |
-| Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`). Read by the nightly memory backup each time it runs, so a change needs no restart. |
+| Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`); Admin → Automations → Back up memory → Edit has **Test push** to try it. Read by the hourly memory backup each time it runs, so a change needs no restart. |
 
 **The environment wins.** When one of these variables is set where Core starts, Core uses it instead of the saved value, and its row says **Set in the environment** and is read-only. Change or remove the variable and restart. The routes are `GET /api/v1/credentials`, `PUT /api/v1/credentials/{id}` with `{ "value": "…" }`, and `DELETE /api/v1/credentials/{id}`, behind the same auth as every other route; errors are listed under [Credentials](errors.md#credentials).
 
@@ -215,23 +215,24 @@ Servers in this file are read-only in **Admin → Plugins**; tool tiers and swit
 
 Every job: `enabled`, optional `cron`, `config`.
 
-This file is the default. In **Admin → Automations** you can change a scheduled job's schedule and its settings, switch it off, or reset it to this file; those changes are kept in Core's database (`core.automations`), never written back here, because the file is read-only in the desktop app. A job you changed keeps your change when this file changes, until you reset it.
+This file is the default. In **Admin → Automations** every built-in job has a switch, and its settings are a form (no JSON): a scheduled job's schedule too, and Reset to default puts its schedule and settings back to this file. Those changes are kept in Core's database (`core.automations`), never written back here, because the file is read-only in the desktop app. A job you changed keeps your change when this file changes, until you reset it.
 
-| Job | Config |
-|---|---|
-| `auto_title` | `after_turns` |
-| `auto_tag_sources` | `max_tags` |
-| `stale_sources` | `force` (check every link, not only those due; changeable in Admin), weekly cron |
-| `tldr` | `min_turns` |
-| `draft_autosave` | `server_every_s` |
-| `cleanup` | `logs_days`, `spans_days`, `run_events_days` (default to the retention variables below; changeable in Admin), `temp_max_age_h`, nightly cron |
-| `memory_backup` | hourly cron. Shown as "Not set up", and not run, until a remote is set (`remote` in `memory.yaml` or `ANCILE_MEMORY_REMOTE`) |
-| `duplicate_sources` | `near_dup_threshold` |
-| `branch_suggestions` | `drift_threshold` |
-| `model_suggestions` | `min_calls` |
-| `context_overflow_warn` | `warn_at`, `auto_compact_at` |
-| `memory_capture` | none |
-| `model_stats_rollup` | every 15 minutes |
+Every setting below is read where the job runs: by the job itself, by the feature an event-driven job serves (through `BuiltinSettings`, which re-reads the database after each change and once a minute), or, for the three knowledge jobs, by the knowledge service. Core sends it their switches and settings (`PUT /kn/v1/maintenance/automations`, the `KnowledgeAutomations` contract) at start and after every change, and again every 30 seconds until it has them; the knowledge service keeps the last set it was sent. A job nobody configured is on, with the defaults below.
+
+| Job | When | Settings (Admin → Automations) |
+|---|---|---|
+| `auto_title`, Name new threads | a new thread's first message | none: off leaves new threads as "New thread" |
+| `auto_tag_sources`, Tag sources | a source is read | `max_tags` (1 to 20, default 5). Off: no automatic tags; tags you set are never touched |
+| `stale_sources`, Check links for changes | weekly cron, and the knowledge service's own sweep every `KNOWLEDGE_STALE_CHECK_HOURS` | `url_stale_after_days` (1 to 365, default 7), `force` (check every link, not only those due). Off: neither runs; Run now still checks |
+| `draft_autosave`, Save drafts | as you type | `server_every_s` (1 to 60, default 3). Off: drafts stay on this device only |
+| `cleanup`, Clean up old records | nightly cron | `logs_days`, `spans_days`, `run_events_days` (default to the retention variables below) |
+| `memory_backup`, Back up memory | hourly cron | none. Off, and not run, until it has a remote: set it in its Edit dialog (with **Test push**), in Settings → API keys, as `remote` in `memory.yaml`, or `ANCILE_MEMORY_REMOTE` |
+| `duplicate_sources`, Spot duplicate sources | a source is read | `near_duplicate_percent` (50 to 100, default 90). Off: no duplicate suggestions; content hashes are still kept for refetch checks and merges |
+| `branch_suggestions`, Suggest a branch | after you send | `max_shared_percent` (1 to 50, default 10): suggests when a message shares less than this share of its words with your recent questions |
+| `context_overflow_warn`, Watch the context window | before each turn | `warn_at_percent` (default 80), `compact_at_percent` (default 95; the warning must come first). Off: the meter still shows how full it is, but nothing warns and nothing is compacted for you |
+| `memory_capture`, Learn from corrections | after a turn | `mode`: what it keeps. Its switch and mode are memory capture's own (Admin → Memory): off is mode off, and on again brings the mode back |
+
+A push to the memory remote never prompts for a password (on a terminal, in a credential manager or over ssh): it fails and says why, and a remote's credentials (`https://user:token@…`) never appear in Admin.
 
 **Your own automations** are made in Admin → Automations → New automation and live only in the database:
 
@@ -255,11 +256,11 @@ They run through the same scheduler and history as the built-in jobs. Schedules 
 ## The offline model, the workspace and the lab
 
 ```bash
-# The try-out models (Offline test model, Offline echo): answer without a key
+# The test models (Offline test model, Offline echo): answer without a key
 # or a network, for trying NVX Ancile out and for tests. They don't use AI.
 # `pnpm start` and the desktop app turn them on. The model switcher and
 # pickers hide them once a real model is ready, unless Settings → Advanced →
-# Show try-out models is on.
+# Keep test models (no AI) in pickers is on.
 ANCILE_OFFLINE_MODELS=1
 
 # Where the file tools and the lab work. Models see it as /workspace.
@@ -321,8 +322,8 @@ With none of the compute settings set, a development install shows two sample GP
 # --- Controller: GPU nodes ---
 # runpod: pods in your RunPod account (needs RUNPOD_API_KEY)
 # local:  OpenAI-compatible servers on your network (CONTROLLER_LOCAL_NODES)
-# fake:   sample nodes. Also what runpod shows until a key is given here or
-#         from Admin → Compute → Connect RunPod.
+# fake:   sample nodes, for tests and trying it out. runpod with no key
+#         manages nothing until one is given here or in Settings → API keys.
 CONTROLLER_PROVIDER=runpod
 RUNPOD_API_KEY=
 # Machines on your network running Ollama, vLLM or LM Studio, as a JSON list:
@@ -352,7 +353,8 @@ ANCILE_DOCKER_PREFIX=nvx-ancile-
 
 # --- Memory backup (the "Back up memory" automation) ---
 # A git remote the memory folder is pushed to every hour (or remote in
-# config/memory.yaml). Empty: no backup, and Admin shows it as "Not set up".
+# config/memory.yaml, or one saved in Admin → Automations or Settings → API
+# keys). Empty: no backup, and Admin shows it as off and "Not set up".
 ANCILE_MEMORY_REMOTE=
 
 # --- Editions and statistics ---
@@ -366,3 +368,26 @@ NVX_TELEMETRY_URL=
 `pnpm start` also passes `ANCILE_CONTROL_URL` and `ANCILE_CONTROL_TOKEN` to Core (a loopback endpoint with a token made fresh each start, used to restart services); do not set them yourself. Retention for Admin → Logs and Traces uses `ANCILE_LOG_RETENTION_DAYS` (14), `ANCILE_SPAN_RETENTION_DAYS` (30) and `ANCILE_RUN_EVENT_RETENTION_DAYS` (7), applied nightly by the "Clean up old records" automation.
 
 Apps that only speak MCP over stdio can use the bridge: `pnpm --filter @nvx/ancile-core exec tsx src/mcp/stdio.ts`, with `ANCILE_MCP_TOKEN` set to the token from Admin → Plugins (and `ANCILE_MCP_URL` if Core is not on `http://127.0.0.1:7700/mcp`).
+
+## Settings that stay on this device {#device-settings}
+
+Settings save as you change them, to this browser and to Core, and follow you to your other computers (with Pro sync). A few belong to the device instead, because they depend on its screen, hardware or browser, or could change how it shows a permission request. They stay in this browser: they are never sent to Core, synced, or written to `ancile-settings.json`, and importing a settings file leaves them as they are.
+
+| Setting | Where |
+|---|---|
+| Zoom | Settings → Appearance |
+| Sidebar shown or hidden, sidebar width, side panel width | Settings → Layout |
+| Browser shortcut fixes | Settings → Keyboard |
+| Effects | Settings → Advanced |
+| Custom CSS | Settings → Advanced → Custom style |
+
+The list is `DEVICE_PREFS` in `packages/contracts/src/prefs.ts`.
+
+### Custom CSS {#custom-css}
+
+Your own CSS is applied after everything else, on this device only.
+
+- **The first time** you apply CSS on a device, NVX Ancile asks first ("Apply custom CSS on this device?"). CSS saved before this (or by an older version) waits, unapplied, until you confirm it there.
+- **While it is in force,** the status bar shows **Custom CSS on**; it opens Settings → Advanced.
+- **Permission requests are protected.** Approval dialogs and the dialogs that edit or revoke a remembered permission render in their own layer, above everything else, and your CSS is switched off while one is open (it comes back as it was when it closes). A visibility check confirms the request can be seen and is not covered; until it can, its answers are paused and the dialog says so.
+- **Safe mode.** Open NVX Ancile with `?safe=1` to start without it.

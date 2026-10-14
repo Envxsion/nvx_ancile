@@ -223,6 +223,12 @@ export function LicenceScreen() {
               last update.
             </p>
           ) : null}
+          {pro && d.seat === false ? (
+            <p className="edition__lapse" data-lapse="no-seat" role="status">
+              Pro is on in this workspace, but your account has no Pro seat, so its features stay locked for
+              you. Ask the workspace&apos;s owner for one in Admin → Team.
+            </p>
+          ) : null}
           {onItsWay ? (
             <p className="edition__lapse" data-lapse="on-its-way" role="status">
               Pro is on its way. It arrives as an update: choose Check for updates in the NVX Ancile tray

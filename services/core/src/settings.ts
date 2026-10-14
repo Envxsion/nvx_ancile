@@ -60,6 +60,8 @@ export const SETTING = {
   modelHue: 'models.hue',
   /** auto_confident | propose_all | off; read by memory capture (Phase 4). */
   memoryCapture: 'memory.capture',
+  /** The mode memory capture goes back to when it is switched on again (Admin → Automations). */
+  memoryCaptureLastOn: 'memory.capture.last_on',
   /** Free text from onboarding, written into memory when Phase 4 lands. */
   memoryAbout: 'memory.about',
   /** Models you added in Settings → Models: ModelConfig[] (DESIGN §16.7). */

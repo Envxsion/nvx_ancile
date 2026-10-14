@@ -28,6 +28,7 @@
 
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { scrollBehavior } from '../lib/motion';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
 import { countMatches, findAll, locatePassage, type Match, pagesToTry, zoomStep } from './pdf';
@@ -322,7 +323,7 @@ function PageView({
     const sel = marks.focus.what === 'cite' ? '.pdf__mark--cite' : '.pdf__mark--find[data-current]';
     const el = layerRef.current?.querySelector<HTMLElement>(sel);
     if (!el) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
     if (marks.focus.what === 'cite')
       for (const m of layerRef.current?.querySelectorAll('.pdf__mark--cite') ?? [])
         m.classList.add('pdf__mark--land');

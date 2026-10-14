@@ -8,11 +8,13 @@
           |  only, and every call must carry the service token
           |  (Authorization: Bearer $ANCILE_SERVICE_TOKEN).
  How      |  Sources, notebook links, duplicates and maintenance live
-          |  in sources/routes.py and are mounted here, so the token
-          |  check covers them. Search is here, and /embeddings: the
-          |  model search reads and a background re-embed's progress;
-          |  /embeddings/local and /embeddings/prepare check for and
-          |  fetch a fastembed model (Core's one-click download).
+          |  in sources/routes.py, the automations' switches and
+          |  options (/maintenance/automations) in automations.py; all
+          |  are mounted here, so the token check covers them. Search
+          |  is here, and /embeddings: the model search reads and a
+          |  background re-embed's progress; /embeddings/local and
+          |  /embeddings/prepare check for and fetch a fastembed model
+          |  (Core's one-click download).
  Note     |  TODO(phase-5): /tags/recompute and /transformations/run
           |  answer 501 in the standard error shape until then.
 ------------------------------------------------------------------
@@ -28,6 +30,7 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
 from . import jobs
+from .automations import router as automations_router
 from .errors import AncileError
 from .ingest import embed, reembed
 from .search import evidence as evidence_service
@@ -91,6 +94,7 @@ class EvidenceRequest(BaseModel):
 router.include_router(sources_router)
 router.include_router(integrity_router)
 router.include_router(merge_router)
+router.include_router(automations_router)
 
 
 @router.post("/search")

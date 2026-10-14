@@ -15,8 +15,10 @@ const SRC = resolve(__dirname, '../src');
 // Files are read once: the checks walk the same import trees many times.
 const files = new Map<string, string>();
 const read = (f: string) => {
-  let text = files.get(f);
-  if (text === undefined) files.set(f, (text = readFileSync(f, 'utf8')));
+  const known = files.get(f);
+  if (known !== undefined) return known;
+  const text = readFileSync(f, 'utf8');
+  files.set(f, text);
   return text;
 };
 

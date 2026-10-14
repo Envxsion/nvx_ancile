@@ -18,6 +18,7 @@
  */
 
 import { z } from 'zod';
+import { ALWAYS_ON, intSetting, type JobSwitches } from '../automations/settings';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import { ancestorPath } from './path';
@@ -43,14 +44,19 @@ export function contentWords(text: string): Set<string> {
  * Lexical drift: how much of the new message's vocabulary the recent
  * questions share. Fires only with enough history and enough words to judge.
  */
-export function topicDrift(recent: string[], next: string): { fired: boolean; overlap: number } {
+export function topicDrift(
+  recent: string[],
+  next: string,
+  /** Fires below this share of the message's words seen recently (Admin → Automations). */
+  maxShared = 0.1,
+): { fired: boolean; overlap: number } {
   const words = contentWords(next);
   if (recent.length < 3 || words.size < 5) return { fired: false, overlap: 1 };
   const seen = new Set(recent.flatMap((r) => [...contentWords(r)]));
   let shared = 0;
   for (const w of words) if (seen.has(w)) shared++;
   const overlap = shared / words.size;
-  return { fired: overlap < 0.1, overlap };
+  return { fired: overlap < maxShared, overlap };
 }
 
 const Shift = z.object({
@@ -63,9 +69,13 @@ const Shift = z.object({
 const FALLBACK =
   'Recent topics:\n{{recent_topics}}\n\nNew message:\n{{new_message}}\n\nIs the new message a different topic? Return JSON: {"shift": true|false, "confidence": 0..1, "new_topic": "2-5 words", "reason": "one sentence"}';
 
-/** Build the afterSend hook for startTurn. */
-export function branchSuggester(deps: UtilityDeps & { repo: ThreadRepo; bus?: EventBus }) {
+/** Build the afterSend hook for startTurn. "Suggest a branch" off: it does nothing. */
+export function branchSuggester(
+  deps: UtilityDeps & { repo: ThreadRepo; bus?: EventBus; switches?: JobSwitches },
+) {
+  const switches = deps.switches ?? ALWAYS_ON;
   return async (thread: ThreadRecord, userMessageId: string) => {
+    if (!switches.on('branch_suggestions')) return;
     const all = await deps.repo.messages(thread.id);
     const byId = new Map(asTree(all).map((m) => [m.id, m] as const));
     if (!byId.has(userMessageId)) return;
@@ -73,7 +83,11 @@ export function branchSuggester(deps: UtilityDeps & { repo: ThreadRepo; bus?: Ev
     const questions = path.filter((m) => m.role === 'user').map((m) => textOf(m.parts));
     const next = questions.pop() ?? '';
     const recent = questions.slice(-6);
-    const drift = topicDrift(recent, next);
+    const drift = topicDrift(
+      recent,
+      next,
+      intSetting(switches, 'branch_suggestions', 'max_shared_percent', 10, 1, 50) / 100,
+    );
     if (!drift.fired) return;
     const res = await runUtility(deps, {
       promptId: 'threads.branch-suggest',

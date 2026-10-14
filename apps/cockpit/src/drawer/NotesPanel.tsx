@@ -19,6 +19,7 @@ import { relative } from '../lib/format';
 import { createNote, deleteNote, saveNote } from '../lib/notebooks';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { LINK_COMPONENTS } from '../ui/SafeLink';
@@ -118,6 +119,8 @@ export function NotesPanel() {
       />
     );
   if (notes.isPending) return <Skeleton lines={5} label="Loading notes" />;
+  if (notes.isError && !notes.data)
+    return <LoadFailed error={notes.error} what="Notes" onRetry={() => notes.refetch()} />;
   const list = [...(notes.data ?? [])].sort(
     (a, b) => Number(b.pinned) - Number(a.pinned) || b.updated_at.localeCompare(a.updated_at),
   );
@@ -140,6 +143,9 @@ export function NotesPanel() {
           New note
         </button>
       </div>
+      {notes.isError ? (
+        <StaleNotice error={notes.error} what="Notes" onRetry={() => notes.refetch()} />
+      ) : null}
       {list.length === 0 ? (
         <EmptyState
           icon="note"

@@ -21,14 +21,16 @@
  */
 
 import type { FlowGraph } from '@nvx/contracts';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { type CSSProperties, memo, useEffect, useMemo, useState } from 'react';
 import { useModels } from '../lib/data';
 import { hueVar, modelById, usd } from '../lib/format';
+import { useReducedMotion } from '../lib/motion';
 import type { MessageView } from '../lib/types';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
+import { ClaudeCodeCost, isClaudeCodeModel } from '../usage/planCost';
 import { routeAgain, useFlowVersion } from './flowActions';
 import '../styles/teamwork.css';
 import {
@@ -175,7 +177,12 @@ export function Teamwork({ m, threadId }: { m: MessageView; threadId: string }) 
           ))}
         </span>
         <span className="teamwork__meta mute" data-num>
-          {seconds(elapsed)} · {usd(team.cost, 3)}
+          {seconds(elapsed)} ·{' '}
+          {team.steps.length > 0 && team.steps.every((st) => isClaudeCodeModel(st.modelId)) ? (
+            <ClaudeCodeCost estimate={team.cost} />
+          ) : (
+            usd(team.cost, 3)
+          )}
         </span>
         <Icon name="chevronDown" size={12} className="teamwork__chev" />
       </button>
@@ -283,7 +290,16 @@ const StepRow = memo(function StepRow({
         {step.status === 'skipped' ? <span className="tw-tag">skipped</span> : null}
         <span className="tw-step__meta mute" data-num>
           {ms !== null ? seconds(ms) : ''}
-          {step.cost > 0 ? ` · ${usd(step.cost, 4)}` : ''}
+          {isClaudeCodeModel(step.modelId) ? (
+            <>
+              {' · '}
+              <ClaudeCodeCost estimate={step.cost} />
+            </>
+          ) : step.cost > 0 ? (
+            ` · ${usd(step.cost, 4)}`
+          ) : (
+            ''
+          )}
         </span>
         {canSwap ? (
           <DropMenu

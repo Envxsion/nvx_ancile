@@ -29,6 +29,12 @@ export const spring = {
 /** Exits run at 70% of their entry, on a short ease-in. */
 export const exit = { duration: 0.14, ease: [0.4, 0, 1, 1] } as const;
 
+/**
+ * Reduced motion's fade: opacity only, 120 ms, the same cap prefs.css puts
+ * on every CSS duration. Use it in place of a spring when motion is reduced.
+ */
+export const fade = { duration: 0.12, ease: [0.23, 1, 0.32, 1] } as const;
+
 export const ease = {
   out: [0.23, 1, 0.32, 1],
   inOut: [0.77, 0, 0.175, 1],

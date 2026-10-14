@@ -18,7 +18,13 @@
  *           |  lab (an agent run), the model gateway (chat and flows),
  *           |  else other. claudeCodeUsage() is Settings → Usage's
  *           |  Claude Code block: today, the last 7 days by day, the
- *           |  cache hit rate and the busiest threads.
+ *           |  cache hit rate, the busiest threads, and how much came
+ *           |  from sessions imported from the terminal.
+ *           |  A Claude Code answer is a mirror of its transcript and
+ *           |  counts once, where it lives now: a copy a sync replaced
+ *           |  (deleted) or one in a deleted thread (the session comes
+ *           |  back into a new thread) is left out. Other engines'
+ *           |  answers count even after deletion: that spend was real.
  *  Note     |  Claude Code's cost is its own estimate at API list
  *           |  prices; the report says how much of the total that is.
  * ------------------------------------------------------------------
@@ -71,11 +77,20 @@ export interface UsageSource {
   rows(q: UsageQuery): Promise<UsageRow[]>;
   /** The busiest threads by Claude Code tokens over the range. */
   claudeCodeThreads?(q: UsageQuery, limit: number): Promise<ThreadUsageRow[]>;
+  /** Of Claude Code's answers over the range, those brought in from its own transcripts. */
+  claudeCodeImported?(q: UsageQuery): Promise<ImportedUsage>;
+}
+
+/** Claude Code answers brought in from a transcript (a session run in the terminal), not written by a turn here. */
+export interface ImportedUsage extends UsageTotals {
+  /** Distinct Claude Code sessions those answers came from. */
+  sessions: number;
 }
 
 export const TOP_MODELS = 6;
 /** Claude Code as a model answers as claude-code/<model>. */
 const CC_LIKE = `${CLAUDE_CODE_MODEL_PREFIX}%`;
+
 const DAY_MS = 86_400_000;
 
 /* ---- time zones ------------------------------------------------------------ */
@@ -254,6 +269,13 @@ export function engineOf(provenance: unknown, runKind: string | null, modelId: s
   return 'other';
 }
 
+/** An answer brought in from a transcript: Claude Code's provenance, not marked live, and no Claude Code run. */
+export function importedAnswer(provenance: unknown, runKind: string | null): boolean {
+  const p = isObj(provenance) ? provenance : {};
+  const cc = p.claude_code;
+  return isObj(cc) && cc.live !== true && runKind !== 'claude_code';
+}
+
 export class PgUsageSource implements UsageSource {
   constructor(private readonly sql: Sql) {}
 
@@ -297,6 +319,8 @@ export class PgUsageSource implements UsageSource {
           and m.created_at < ${q.to}
           and t.workspace_id = ${q.workspaceId}
           and (${q.provider ?? null}::text is null or m.usage->'served'->>'provider' = ${q.provider ?? null})
+          and ((m.deleted_at is null and t.deleted_at is null)
+            or not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false))
       )
       select bucket, engine, model_id, provider,
         sum(i)::text as input_tokens, sum(o)::text as output_tokens, sum(c)::text as cached_tokens,
@@ -344,6 +368,8 @@ export class PgUsageSource implements UsageSource {
         and m.created_at >= ${q.from}
         and m.created_at < ${q.to}
         and t.workspace_id = ${q.workspaceId}
+        and m.deleted_at is null
+        and t.deleted_at is null
         and (m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE})
       group by m.thread_id, t.title
       order by sum(coalesce((m.usage->>'input_tokens')::bigint, 0)
@@ -359,6 +385,62 @@ export class PgUsageSource implements UsageSource {
       answers: r.answers,
     }));
   }
+
+  async claudeCodeImported(q: UsageQuery): Promise<ImportedUsage> {
+    const [r] = await this.sql<
+      {
+        input_tokens: string;
+        output_tokens: string;
+        cached_tokens: string;
+        cost_usd: string | number;
+        answers: number;
+        sessions: number;
+      }[]
+    >`
+      select
+        coalesce(sum(coalesce((m.usage->>'input_tokens')::bigint, 0)), 0)::text as input_tokens,
+        coalesce(sum(coalesce((m.usage->>'output_tokens')::bigint, 0)), 0)::text as output_tokens,
+        coalesce(sum(coalesce((m.usage->>'cached_tokens')::bigint, 0)), 0)::text as cached_tokens,
+        coalesce(sum(coalesce((m.usage->>'cost_usd')::numeric, 0)), 0)::float8 as cost_usd,
+        count(*)::int as answers,
+        count(distinct m.provenance->'claude_code'->>'session_id')::int as sessions
+      from core.messages m
+      join core.threads t on t.id = m.thread_id
+      left join core.runs r on r.id = m.run_id
+      where m.usage is not null
+        and m.created_at >= ${q.from}
+        and m.created_at < ${q.to}
+        and t.workspace_id = ${q.workspaceId}
+        and m.deleted_at is null
+        and t.deleted_at is null
+        and m.provenance ? 'claude_code'
+        and coalesce(m.provenance->'claude_code'->>'live', 'false') <> 'true'
+        and r.kind is distinct from 'claude_code'`;
+    return {
+      input_tokens: Number(r?.input_tokens ?? 0),
+      output_tokens: Number(r?.output_tokens ?? 0),
+      cached_tokens: Number(r?.cached_tokens ?? 0),
+      cost_usd: Number(r?.cost_usd ?? 0),
+      answers: r?.answers ?? 0,
+      sessions: r?.sessions ?? 0,
+    };
+  }
+}
+
+/**
+ * What answers have cost since an instant, for a flow's month_spend_usd
+ * fact: the gateway and anything else that bills, never Claude Code (its
+ * cost is an estimate of what your Claude plan already includes).
+ */
+export async function spendUsd(sql: Sql, since: Date): Promise<number> {
+  const [r] = await sql<{ usd: number | null }[]>`
+    select sum(coalesce((m.usage->>'cost_usd')::float8, 0)) as usd
+    from core.messages m
+    left join core.runs r on r.id = m.run_id
+    where m.usage is not null
+      and m.created_at >= ${since}
+      and not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false)`;
+  return Number(r?.usd ?? 0);
 }
 
 /** For tests: the same grouping over in-memory messages. */
@@ -369,8 +451,37 @@ export class MemoryUsageSource implements UsageSource {
       workspaceOf(threadId: string): string | null;
       runKind(runId: string): string | null;
       titleOf?(threadId: string): string | null;
+      /** Whether the thread was deleted; none are by default. */
+      threadDeleted?(threadId: string): boolean;
     },
   ) {}
+
+  /** A Claude Code answer that is a replaced copy, or sits in a deleted thread, so is not counted. */
+  private goneMirror(m: MessageRecord, engine: UsageEngine): boolean {
+    return engine === 'claude_code' && (!!m.deleted_at || !!this.deps.threadDeleted?.(m.thread_id));
+  }
+
+  async claudeCodeImported(q: UsageQuery): Promise<ImportedUsage> {
+    const out: ImportedUsage = { ...zero(), sessions: 0 };
+    const sessions = new Set<string>();
+    for (const m of this.deps.messages()) {
+      if (!m.usage) continue;
+      const at = Date.parse(m.created_at);
+      if (at < q.from.getTime() || at >= q.to.getTime()) continue;
+      if (this.deps.workspaceOf(m.thread_id) !== q.workspaceId) continue;
+      const kind = m.run_id ? this.deps.runKind(m.run_id) : null;
+      if (this.goneMirror(m, 'claude_code') || !importedAnswer(m.provenance, kind)) continue;
+      out.input_tokens += m.usage.input_tokens;
+      out.output_tokens += m.usage.output_tokens;
+      out.cached_tokens += m.usage.cached_tokens ?? 0;
+      out.cost_usd += m.usage.cost_usd;
+      out.answers += 1;
+      const sid = (m.provenance?.claude_code as { session_id?: unknown } | undefined)?.session_id;
+      if (typeof sid === 'string') sessions.add(sid);
+    }
+    out.sessions = sessions.size;
+    return out;
+  }
 
   async claudeCodeThreads(q: UsageQuery, limit: number): Promise<ThreadUsageRow[]> {
     const by = new Map<string, ThreadUsageRow>();
@@ -381,6 +492,7 @@ export class MemoryUsageSource implements UsageSource {
       if (this.deps.workspaceOf(m.thread_id) !== q.workspaceId) continue;
       if (engineOf(m.provenance, m.run_id ? this.deps.runKind(m.run_id) : null, m.model_id) !== 'claude_code')
         continue;
+      if (this.goneMirror(m, 'claude_code')) continue;
       const r = by.get(m.thread_id) ?? {
         thread_id: m.thread_id,
         title: this.deps.titleOf?.(m.thread_id) ?? null,
@@ -406,6 +518,7 @@ export class MemoryUsageSource implements UsageSource {
       const provider = m.usage.served?.provider ?? null;
       if (q.provider && provider !== q.provider) continue;
       const engine = engineOf(m.provenance, m.run_id ? this.deps.runKind(m.run_id) : null, m.model_id);
+      if (this.goneMirror(m, engine)) continue;
       const bucket = bucketOf(q.tz, at, q.bucket);
       const key = `${bucket}|${engine}|${m.model_id ?? ''}|${provider ?? ''}`;
       const r = by.get(key) ?? {
@@ -486,8 +599,9 @@ export const CLAUDE_CODE_TOP_THREADS = 8;
 
 /**
  * What NVX Ancile measured of Claude Code: today, the last 7 days by day,
- * how much of what it read came from its prompt cache, and its busiest
- * threads. Measured from its answers here, never the plan's own figures.
+ * how much of what it read came from its prompt cache, its busiest
+ * threads, and the part of the week brought in from terminal sessions.
+ * Measured from its answers here, never the plan's own figures.
  */
 export async function claudeCodeUsage(
   source: UsageSource,
@@ -497,9 +611,10 @@ export async function claudeCodeUsage(
 ): Promise<ClaudeCodeUsage> {
   const w = window('week', tz, now);
   const q: UsageQuery = { workspaceId, tz, bucket: 'day', from: w.from, to: w.to };
-  const [rows, threads] = await Promise.all([
+  const [rows, threads, imported] = await Promise.all([
     source.rows(q),
     source.claudeCodeThreads ? source.claudeCodeThreads(q, CLAUDE_CODE_TOP_THREADS) : Promise.resolve([]),
+    source.claudeCodeImported ? source.claudeCodeImported(q) : Promise.resolve({ ...zero(), sessions: 0 }),
   ]);
   const todayKey = w.keys.at(-1);
   const today = zero();
@@ -527,5 +642,6 @@ export async function claudeCodeUsage(
     cache_hit_rate: read > 0 ? Math.round((week.cached_tokens / read) * 1000) / 1000 : null,
     days: [...days.values()],
     by_thread: threads.map((t) => ({ ...t, cost_usd: money(t.cost_usd) })),
+    imported: { ...rounded(imported), sessions: imported.sessions },
   };
 }

@@ -14,7 +14,10 @@
  *           |  query hooks, notices and the shared UI pieces. Pro
  *           |  imports nothing from the Cockpit but React itself.
  *           |  Where each feature appears is public (PRO_SURFACES);
- *           |  what it shows is Pro's.
+ *           |  what it shows is Pro's. What is unlocked is what this
+ *           |  person may use (/license/details answers for them): in
+ *           |  a team, someone without a Pro seat sees the card, with
+ *           |  the way to ask for a seat.
  * ------------------------------------------------------------------
  */
 
@@ -29,6 +32,7 @@ import { notify } from '../state/notify';
 import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { EmptyState, Kbd, Skeleton, StatusDot, Tip } from '../ui/primitives';
 import { ContextPacksLocked } from './ContextPacksLocked';
 import { EngineInsightsLocked } from './EngineInsightsLocked';
@@ -93,7 +97,21 @@ export const proKit = {
   Link,
   /** Follow answers as they are written (the same live store the thread uses). */
   runs: { attach: attachRun, useLive: useLiveTurn },
-  ui: { Icon, EmptyState, Kbd, Skeleton, StatusDot, Tip, Switch, Check, Segmented, Parts },
+  /** LoadFailed and StaleNotice: a failed read in its own words with Try again (ui/LoadFailed.tsx). */
+  ui: {
+    Icon,
+    EmptyState,
+    Kbd,
+    Skeleton,
+    StatusDot,
+    Tip,
+    Switch,
+    Check,
+    Segmented,
+    Parts,
+    LoadFailed,
+    StaleNotice,
+  },
 };
 export type ProKit = typeof proKit;
 
@@ -104,6 +122,10 @@ export interface BeamDialogProps {
   /** The message the question replies to; undefined: the thread's latest answer. */
   parentId: string | null | undefined;
   text: string;
+  /** A question already in the thread (Beam this question): shown as asked, sent as question_id. */
+  questionId?: string | null;
+  /** Called once the beam has started. */
+  onStarted?: () => void;
   onClose: () => void;
 }
 
@@ -160,12 +182,27 @@ function useProUi(): ProUi | null | undefined {
 
 interface LicenceView {
   build: 'free' | 'pro';
+  /** This person has a Pro seat (false: a team member without one). Absent from an older Core: yes. */
+  seat?: boolean;
+  status?: { features: ProFeatureId[] };
   features: { id: ProFeatureId; unlocked: boolean }[];
 }
 
-/** "This is part of Pro", with the words for the feature and the way to turn it on. */
+const useLicence = () =>
+  useQuery({
+    queryKey: ['license', 'details'],
+    queryFn: () => api.get<LicenceView>('/license/details'),
+    staleTime: 30_000,
+  });
+
+/** Pro is on here and includes the feature, but this person has no Pro seat. */
+export const seatMissing = (d: LicenceView | undefined, feature: ProFeatureId) =>
+  d?.seat === false && (d.status?.features ?? []).includes(feature);
+
+/** "This is part of Pro", with the words for the feature and the way to turn it on (or to ask for a seat). */
 export function ProUpsell({ feature, build }: { feature: ProFeatureId; build: 'free' | 'pro' | null }) {
   const words = proContract.PRO_FEATURE_WORDS[feature];
+  const noSeat = seatMissing(useLicence().data, feature);
   return (
     <div className="pro-upsell">
       <div className="pro-upsell__card pro-card gilt-frame gilt-frame--quiet">
@@ -175,15 +212,23 @@ export function ProUpsell({ feature, build }: { feature: ProFeatureId; build: 'f
           body={
             <>
               {words.body}{' '}
-              {build === 'pro'
-                ? 'It is part of NVX Ancile Pro: turn Pro on with your key to use it.'
-                : 'It is part of NVX Ancile Pro, which this build does not include. Everything else here is free and complete.'}
+              {noSeat
+                ? "Pro is on in this workspace, but your account has no Pro seat. Ask the workspace's owner for one."
+                : build === 'pro'
+                  ? 'It is part of NVX Ancile Pro: turn Pro on with your key to use it.'
+                  : 'It is part of NVX Ancile Pro, which this build does not include. Everything else here is free and complete.'}
             </>
           }
           secondary={
-            <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--ghost btn--sm">
-              {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
-            </Link>
+            noSeat ? (
+              <Link to="/admin/$section" params={{ section: 'team' }} className="btn btn--ghost btn--sm">
+                See who has a seat
+              </Link>
+            ) : (
+              <Link to="/admin/$section" params={{ section: 'license' }} className="btn btn--ghost btn--sm">
+                {build === 'pro' ? 'Turn on Pro' : 'About Pro'}
+              </Link>
+            )
           }
         />
       </div>
@@ -191,24 +236,23 @@ export function ProUpsell({ feature, build }: { feature: ProFeatureId; build: 'f
   );
 }
 
-/** Pro's UI module (null in a free build), and whether a feature is unlocked now. */
+/** Pro's UI module (null in a free build), and whether this person may use a feature now. */
 export function useProFeature(feature: ProFeatureId): {
   ui: ProUi | null | undefined;
   unlocked: boolean;
   build: 'free' | 'pro' | null;
   loading: boolean;
+  /** Pro is on here, but this person has no Pro seat. */
+  noSeat: boolean;
 } {
   const ui = useProUi();
-  const licence = useQuery({
-    queryKey: ['license', 'details'],
-    queryFn: () => api.get<LicenceView>('/license/details'),
-    staleTime: 30_000,
-  });
+  const licence = useLicence();
   return {
     ui,
     unlocked: licence.data?.features.find((f) => f.id === feature)?.unlocked ?? false,
     build: licence.data?.build ?? null,
     loading: licence.isLoading || ui === undefined,
+    noSeat: seatMissing(licence.data, feature),
   };
 }
 
@@ -216,18 +260,18 @@ export function useProFeature(feature: ProFeatureId): {
 export function ProSurfaceView({ id }: { id: string }) {
   const surface = PRO_SURFACES.find((s) => s.id === id);
   const ui = useProUi();
-  const licence = useQuery({
-    queryKey: ['license', 'details'],
-    queryFn: () => api.get<LicenceView>('/license/details'),
-    staleTime: 30_000,
-  });
+  const licence = useLicence();
   if (!surface) return null;
   const unlocked = licence.data?.features.find((f) => f.id === surface.feature)?.unlocked ?? false;
   const Screen = ui?.screens[surface.id];
   if (licence.isLoading || ui === undefined) return <Skeleton lines={4} label={`Loading ${surface.label}`} />;
+  // Not knowing the licence is not the same as being locked: say what failed, not "this is part of Pro".
+  if (licence.isError && !licence.data)
+    return <LoadFailed error={licence.error} what={surface.label} onRetry={() => licence.refetch()} />;
   if (!Screen || !unlocked) {
     const Locked = surface.locked;
-    return Locked ? (
+    // Without a seat, the plain card says how to get one (a locked preview would say "turn on Pro").
+    return Locked && !seatMissing(licence.data, surface.feature) ? (
       <Locked build={licence.data?.build ?? null} />
     ) : (
       <ProUpsell feature={surface.feature} build={licence.data?.build ?? null} />

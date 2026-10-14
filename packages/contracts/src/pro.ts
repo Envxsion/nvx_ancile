@@ -43,7 +43,7 @@ export const PRO_FEATURE_WORDS: Record<ProFeature, { title: string; body: string
   },
   sync: {
     title: 'Encrypted sync',
-    body: 'Your notebooks, threads and memory on every computer, encrypted before they leave this one.',
+    body: 'Your notebooks, threads, notes, flows and preferences on every computer, encrypted before they leave this one. What you keep on this computer stays here.',
   },
   fleet: {
     title: 'GPU fleet',

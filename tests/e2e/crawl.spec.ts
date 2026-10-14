@@ -55,7 +55,7 @@ const ADMIN = [
   'diagnostics',
   'logs',
   'traces',
-  'grants',
+  'permissions',
   'decisions',
   'memory',
   'models',

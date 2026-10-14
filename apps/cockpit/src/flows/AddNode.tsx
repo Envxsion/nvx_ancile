@@ -76,7 +76,8 @@ export function AddNode({
   const kinds = Object.values(KINDS).filter(
     (k) => (!fromPort || k.input) && !(k.kind === 'input' && hasInput) && !(fromPort && k.furniture),
   );
-  const chatModels = models.filter((m) => m.chat);
+  // Only models that can answer now, as every picker (lib/data.ts pickable); Admin → Models sets up the rest.
+  const chatModels = models.filter((m) => m.chat && m.status === 'ready');
   // Keep it on screen.
   const left = Math.min(screen.x, window.innerWidth - 380);
   const top = Math.min(screen.y, window.innerHeight - 440);
@@ -152,7 +153,6 @@ export function AddNode({
                     <span className="fadd__name">
                       {m.name}
                       {m.awake === false ? <span className="fadd__sleep">asleep</span> : null}
-                      {m.status !== 'ready' ? <span className="fadd__unready">needs a key</span> : null}
                     </span>
                     <span className="fadd__blurb">
                       {PROVIDER_NAMES[m.provider] ?? m.provider} · {windowText(m.window)} context ·{' '}

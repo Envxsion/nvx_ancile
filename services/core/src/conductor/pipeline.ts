@@ -42,6 +42,7 @@ import {
   stepTitle,
   type Usage,
 } from '@nvx/contracts';
+import type { JobSwitches } from '../automations/settings';
 import type { EventBus } from '../events/bus';
 import { executeFlow, type FlowState, type ModelCallResult, provenanceOf } from '../flows/execute';
 import {
@@ -75,7 +76,7 @@ import {
 import type { RunEventInput } from '../runs/events';
 import { allowedSources, type ScopeResolver } from '../scopes';
 import type { BranchStore } from '../threads/branches';
-import { prepareTurnContext } from '../threads/compact';
+import { contextWatch, prepareTurnContext } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
@@ -185,6 +186,20 @@ export interface TurnCheckpoint {
   engineContext?: EngineContextReport | null;
   /** Context links read for this turn (provenance.links); absent on older checkpoints. */
   linked?: TurnLinks | null;
+  /**
+   * When each tool call still to settle was made (epoch ms), so its result
+   * records how long the step took (tool_result.duration_ms), across a
+   * pause for approval or a restart. Absent on older checkpoints: those
+   * results carry no duration.
+   */
+  stepStarted?: Record<string, number>;
+}
+
+/** A step's duration from when it was called; undefined when the start was never recorded. */
+export function stepDuration(started: unknown, now: number): number | undefined {
+  if (typeof started !== 'number' || !Number.isFinite(started) || !Number.isFinite(now)) return undefined;
+  // A clock stepped back between the call and its result is not a negative duration.
+  return Math.max(0, Math.round(now - started));
 }
 
 /** Engines (docs/engines.md): what a model round is given beyond the conductor's own parts. */
@@ -274,6 +289,8 @@ export interface ConductorDeps {
   engineContext?: EngineContextHook;
   /** Context links (docs/notebooks.md): other notebooks' sources and threads' summaries, scope-checked now. */
   links?: { forTurn(threadId: string): Promise<TurnLinks> };
+  /** The built-in automations' switches (Watch the context window); absent: all on. */
+  switches?: JobSwitches;
 }
 
 export interface AnsweredTurn {
@@ -491,8 +508,19 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         repoId: cp.input.repoId ?? null,
       };
 
+      /** Note when a call was made, for its result's duration_ms. */
+      const started = (callId: string) => {
+        cp.stepStarted = { ...cp.stepStarted, [callId]: Date.now() };
+      };
+
       const settle = async (call: QueuedCall, result: Extract<Part, { type: 'tool_result' }>) => {
-        cp.parts.push(result);
+        // A re-run answers from the record without running anything: it has no duration of its own.
+        const ms = cp.input.replay ? undefined : stepDuration(cp.stepStarted?.[call.callId], Date.now());
+        if (cp.stepStarted && call.callId in cp.stepStarted) {
+          const { [call.callId]: _done, ...rest } = cp.stepStarted;
+          cp.stepStarted = rest;
+        }
+        cp.parts.push(ms === undefined ? result : { ...result, duration_ms: ms });
         await emit({
           type: 'tool.result',
           call_id: call.callId,
@@ -817,6 +845,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             system: 600,
             retrieval: cp.grounding?.block ? approxTokens(cp.grounding.block) : 0,
             signal: ctx.signal,
+            watch: contextWatch(deps.switches),
           },
         );
         cp.compaction =
@@ -909,6 +938,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         if (done) return done;
         if (!cp.parts.some((p) => p.type === 'tool_call' && p.call_id === callId)) {
           cp.parts.push({ type: 'tool_call', call_id: callId, tool, args });
+          started(callId);
           await emit({
             type: 'tool.call',
             call_id: callId,
@@ -1228,6 +1258,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 const seq = cp.nextSeq++;
                 cp.parts.push({ type: 'tool_call', call_id: c.callId, tool: c.tool, args: c.args });
                 cp.queue.push({ callId: c.callId, tool: c.tool, args: c.args, seq });
+                started(c.callId);
                 const spec = deps.tools.get(c.tool);
                 await emit({
                   type: 'tool.call',

@@ -14,7 +14,9 @@
  *           |  /threads/:id/turns for every turn. In a thread bound to
  *           |  a Claude Code session, its Claude Code group lists the
  *           |  session's own models; elsewhere it lists Claude Code as
- *           |  a model (claude-code/…).
+ *           |  a model (claude-code/…) while it can answer, and a
+ *           |  separate "Set up Claude Code" row when it cannot. Only
+ *           |  models that can answer now are listed.
  *  Note     |  The context notice lives in engines/notice.ts, which
  *           |  imports nothing, so lib/run.ts can feed it.
  * ------------------------------------------------------------------
@@ -32,7 +34,7 @@ import { useMemo } from 'react';
 import { modelOptions, useClaudeCodeCommands, useClaudeCodeLive } from '../claudecode/live';
 import { useCcThread } from '../claudecode/store';
 import { api } from '../lib/api';
-import { useModels, useThread } from '../lib/data';
+import { canAnswer, useModels, useThread } from '../lib/data';
 import type { Hue, ModelView } from '../lib/types';
 import { checkModel, type ModelKind, useThreadScope } from '../scopes/api';
 import { useUi } from '../state/ui';
@@ -122,13 +124,14 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
       hue: m.hue,
       kind,
       badge: kind === 'local' && m.via === 'controller' ? 'GPU node' : BADGE[kind],
-      note: m.note ?? (m.status === 'needs_key' ? 'Needs its API key' : null),
+      note: m.note ?? null,
       disabled: (kind === 'claude_code' ? ccOff : null) ?? checkModel(input.scope, kind, m.id),
       current: m.id === input.currentId,
       model: m,
     };
   };
-  const chat = input.models.filter((m) => m.chat !== false);
+  // Only models that can answer now; one that needs its key, is off or is not in Ollama is set up in Admin → Models.
+  const chat = input.models.filter(canAnswer);
   let claude: ModelEntry[];
   if (input.session) {
     const opts = input.session.options.length
@@ -150,20 +153,9 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
       };
     });
   } else {
-    claude = chat.filter((m) => modelKind(m) === 'claude_code').map(entry);
-    if (claude.length === 0 && cc && !cc.available)
-      claude = [
-        {
-          id: `${CLAUDE_CODE_MODEL_PREFIX}default`,
-          name: 'Claude Code',
-          hue: 'coral',
-          kind: 'claude_code',
-          badge: BADGE.claude_code,
-          note: null,
-          disabled: ccOff,
-          current: false,
-        },
-      ];
+    // Claude Code's models only while it can answer. When it cannot, the picker
+    // shows one separate "Set up Claude Code" row instead (claudeCodeSetup), not a model.
+    claude = ccOff ? [] : chat.filter((m) => modelKind(m) === 'claude_code').map(entry);
   }
   const rest = chat.filter((m) => modelKind(m) !== 'claude_code').map(entry);
   const groups: ModelGroup[] = [
@@ -172,6 +164,27 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
     { kind: 'local', label: GROUP_LABEL.local, items: rest.filter((e) => e.kind === 'local') },
   ];
   return groups.filter((g) => g.items.length > 0);
+}
+
+/** The picker's row for Claude Code when it cannot answer: an action, never a model. */
+export const SET_UP_CLAUDE_CODE = 'Set up Claude Code';
+
+/** Why Claude Code cannot answer, for the "Set up Claude Code" row; null when it can, or when it is not known. */
+export function claudeCodeSetup(engines: EngineInfo[] | undefined): string | null {
+  const cc = engines?.find((e) => e.kind === 'claude_code');
+  return cc && !cc.available ? (cc.reason ?? 'Claude Code cannot answer now') : null;
+}
+
+/**
+ * The "Set up Claude Code" row's reason for this thread, or null. A thread
+ * bound to a Claude Code session has none: its own notice offers the fix.
+ */
+export function useClaudeCodeSetup(threadId: string | undefined): string | null {
+  const engines = useEngines().data;
+  const thread = useThread(threadId);
+  const demo = useUi((s) => s.demo);
+  const bound = !demo && !!thread.data?.claudeCode;
+  return bound ? null : claudeCodeSetup(engines);
 }
 
 /**

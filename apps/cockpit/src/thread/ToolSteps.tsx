@@ -18,8 +18,14 @@
  *           |  Task's `description`, the plan item in progress) shows
  *           |  it as the title, with the raw command muted under it
  *           |  (contracts steps.ts, the same words for every engine).
- *           |  A live step counts its seconds; an opened step always
- *           |  shows its input and its result, or why there is none.
+ *           |  Each step is a card whose rule and icon say its family
+ *           |  (a command, an MCP tool, a subagent, any other tool).
+ *           |  A live step counts its seconds on one shared clock; a
+ *           |  finished one says how long it took (duration_ms) and
+ *           |  what came back in one short line (resultLine: lines
+ *           |  read, results found, the first line printed), never the
+ *           |  result itself. An opened step always shows its input
+ *           |  and its result, or why there is none.
  *  Note     |  Paths are shown relative to the session's folder
  *           |  (ToolCwd), with the full path in the tooltip.
  * ------------------------------------------------------------------
@@ -37,6 +43,7 @@ import {
 } from '@nvx/contracts';
 import {
   createContext,
+  memo,
   type ReactNode,
   type SyntheticEvent,
   useContext,
@@ -52,7 +59,7 @@ import { ImageGenBody, imageMeta } from '../images/ImageGenBody';
 import { PythonBody, runMeta } from '../interpreter/PythonBody';
 import { langOfPath } from '../lib/highlight';
 import { shortResource } from '../lib/mappers';
-import type { StepClock } from '../lib/run';
+import { between, type StepClock } from '../lib/run';
 import type { SubagentView } from '../lib/types';
 import { DiffView } from '../memory/DiffView';
 import { type DiffLine, diffStats, lineDiff } from '../memory/linediff';
@@ -127,6 +134,39 @@ const ICONS: Record<Kind, IconName> = {
   python: 'play',
   image: 'image',
   other: 'zap',
+};
+
+/** The icon for a kind of step. */
+export const stepIcon = (kind: Kind): IconName => ICONS[kind];
+
+/**
+ * The family a step's card says it belongs to, by its rule and icon: a
+ * command (a shell, a watched process, a Python run), an MCP tool, a
+ * subagent, or any other tool.
+ */
+export type StepFamily = 'command' | 'mcp' | 'agent' | 'tool';
+
+export function familyOf(kind: Kind): StepFamily {
+  switch (kind) {
+    case 'shell':
+    case 'monitor':
+    case 'python':
+      return 'command';
+    case 'mcp':
+      return 'mcp';
+    case 'agent':
+      return 'agent';
+    default:
+      return 'tool';
+  }
+}
+
+/** The family in a word, for screen readers (the icon's label). */
+export const FAMILY_WORD: Record<StepFamily, string> = {
+  command: 'Command',
+  mcp: 'MCP tool',
+  agent: 'Subagent',
+  tool: 'Tool',
 };
 
 type Args = Record<string, unknown>;
@@ -380,6 +420,139 @@ export function backgroundShellState(base: StepState, shell: ActivityState | 'go
 
 const isBackgroundShell = (call: ToolCall) =>
   kindOf(call.tool) === 'shell' && (call.args as { run_in_background?: unknown })?.run_in_background === true;
+
+/* ---- What came back, in one line ------------------------------------------- */
+
+/** How much of a result's text is read for its one line: only its head, however long it is. */
+const HEAD_CHARS = 4000;
+const LINE_CHARS = 90;
+const ESC = String.fromCharCode(27);
+const ANSI = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
+
+/** Terminal colour codes and other control characters out, runs of space as one. */
+function plainText(line: string): string {
+  let out = '';
+  for (const ch of line.replace(ANSI, '')) out += ch < ' ' || ch === '\u007f' ? ' ' : ch;
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/** The first line with words in it, plain and short. `prose` drops markdown's marks. */
+export function oneLine(text: string, prose = false): string | null {
+  for (const raw of text.slice(0, HEAD_CHARS).split('\n')) {
+    let line = plainText(raw);
+    if (prose)
+      line = line
+        .replace(/^(#{1,6}|>|[-*+]|\d+[.)])\s+/, '')
+        .replace(/(\*\*|__|`)/g, '')
+        .trim();
+    if (!line || /^```/.test(line)) continue;
+    return line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS - 1)}…` : line;
+  }
+  return null;
+}
+
+/** Lines in a text, without splitting it. */
+function lineCount(text: string): number {
+  const t = text.replace(/\n+$/, '');
+  if (!t) return 0;
+  let n = 1;
+  for (let i = t.indexOf('\n'); i !== -1; i = t.indexOf('\n', i + 1)) n++;
+  return n;
+}
+
+const isTextBlock = (b: unknown): b is { type: 'text'; text: string } =>
+  !!b && typeof b === 'object' && (b as Args).type === 'text' && typeof (b as Args).text === 'string';
+
+/**
+ * A structured result in a line: an MCP tool's text blocks read as their
+ * text, a list as its count, an object as its first two plain fields
+ * ("number: 42 · url: https://…"), text as its first line.
+ */
+export function valueLine(v: unknown, depth = 0): string | null {
+  if (depth > 3) return null;
+  if (typeof v === 'string') {
+    const t = stripReminders(v).trim();
+    if (!t) return null;
+    if (/^[[{]/.test(t) && t.length <= 200_000)
+      try {
+        return valueLine(JSON.parse(t), depth + 1);
+      } catch {
+        /* not JSON: read it as text */
+      }
+    return oneLine(t);
+  }
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) {
+    if (v.length && v.every(isTextBlock)) return valueLine(v.map((b) => b.text).join('\n'), depth + 1);
+    return v.length ? plural(v.length, 'item') : 'Nothing came back';
+  }
+  if (v && typeof v === 'object') {
+    const o = v as Args;
+    if (isTextBlock(o)) return valueLine(o.text, depth + 1);
+    if (Array.isArray(o.content) && o.content.length && o.content.every(isTextBlock))
+      return valueLine(o.content, depth + 1);
+    const keys = Object.keys(o);
+    if (!keys.length) return null;
+    const plain = keys.filter((k) => ['string', 'number', 'boolean'].includes(typeof o[k])).slice(0, 2);
+    if (!plain.length) return plural(keys.length, 'field');
+    return oneLine(plain.map((k) => `${k}: ${String(o[k]).slice(0, 48)}`).join(' · '));
+  }
+  return null;
+}
+
+/** A shell's output without Claude Code's "Exit code N" line in front. */
+const shellOutput = (text: string) => text.replace(/^Exit code \d+\n?/, '');
+
+/**
+ * What came back from a finished step, in one short, safe line: lines read,
+ * entries listed, results found, the first line a command printed, an MCP
+ * tool's first fields. Never the result itself. Null where the step's own
+ * line already says it (an edit's +/−, matches found, the plan's progress)
+ * or where nothing short would help.
+ */
+export function resultLine(call: ToolCall, result: ToolResult | undefined, state: StepState): string | null {
+  if (!result || result.declined_reason !== undefined) return null;
+  const kind = kindOf(call.tool);
+  if (state === 'failed') {
+    const text = resultText(result);
+    return oneLine(kind === 'shell' ? shellOutput(text) : text);
+  }
+  if (state !== 'ok') return null;
+  const a = argsOf(call);
+  const raw = result.result;
+  switch (kind) {
+    case 'read': {
+      if (typeof raw !== 'string') return null;
+      const n = lineCount(stripReminders(raw));
+      if (!n) return 'Empty file';
+      // "lines 10–29" on the line already says how much was read.
+      return typeof a.offset === 'number' && typeof a.limit === 'number' ? null : plural(n, 'line');
+    }
+    case 'list': {
+      if (Array.isArray(raw)) return raw.length ? plural(raw.length, 'entry', 'entries') : 'Empty';
+      const n = typeof raw === 'string' ? matchLines(stripReminders(raw)).length : null;
+      return n === null ? valueLine(raw) : n ? plural(n, 'entry', 'entries') : 'Empty';
+    }
+    case 'shell':
+      return oneLine(shellOutput(resultText(result))) ?? 'No output';
+    case 'search': {
+      const n = webHits(raw).length;
+      return n ? plural(n, 'result') : null;
+    }
+    case 'fetch':
+    case 'agent':
+      return oneLine(resultText(result), true);
+    case 'delete':
+    case 'patch':
+    case 'monitor':
+      return oneLine(resultText(result));
+    case 'mcp':
+    case 'other':
+      return valueLine(raw);
+    default:
+      return null;
+  }
+}
 
 /* ---- Pieces ---------------------------------------------------------------- */
 
@@ -989,27 +1162,81 @@ export function elapsed(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-/** The time now, moving once a second while `active`. */
+/** A finished step's time: "<0.1s", "0.4s", "3.2s", then "12s", "1m 27s". */
+export function took(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 100) return '<0.1s';
+  const tenths = Math.round(ms / 100);
+  return tenths < 100 ? `${(tenths / 10).toFixed(1)}s` : elapsed(Math.round(ms / 1000) * 1000);
+}
+
+/* One clock for every live timer on screen: a single interval, however many
+   steps are running, stopped when nothing is watching. Only the timers' own
+   text re-renders on a tick, never the steps around them. */
+const watchers = new Set<(now: number) => void>();
+let tick: ReturnType<typeof setInterval> | null = null;
+
+function watchClock(fn: (now: number) => void): () => void {
+  watchers.add(fn);
+  tick ??= setInterval(() => {
+    const now = Date.now();
+    for (const w of watchers) w(now);
+  }, 1000);
+  return () => {
+    watchers.delete(fn);
+    if (watchers.size || !tick) return;
+    clearInterval(tick);
+    tick = null;
+  };
+}
+
+/** The time now, moving once a second while `active`, on the shared clock. */
 export function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    return watchClock(setNow);
   }, [active]);
   return now;
 }
 
-/** A live step's seconds: counting while it runs, its duration once it is done. */
-function StepTimer({ clock, running }: { clock: StepClock; running: boolean }) {
-  const now = useNow(running && !clock.end);
-  const start = Date.parse(clock.start);
-  const end = clock.end ? Date.parse(clock.end) : now;
-  if (!Number.isFinite(start)) return null;
+/** Seconds since a server time, ticking. Null when the time is not one. */
+export function Since({ start, className, label }: { start: string; className?: string; label?: string }) {
+  const now = useNow(true);
+  const t = Date.parse(start);
+  if (!Number.isFinite(t)) return null;
   return (
-    <span className="tool-step__time" data-num title={running ? 'Running for' : 'Took'}>
-      {elapsed(end - start)}
+    <span className={className} data-num>
+      {label ? <span className="sr-only">{label} </span> : null}
+      {elapsed(now - t)}
+    </span>
+  );
+}
+
+/**
+ * A step's time: counting from its live clock while it runs, then how long
+ * it took, from the result's duration_ms (the saved message), or its live
+ * clock while the answer is still on screen. Nothing when neither is known.
+ */
+function StepTime({
+  clock,
+  result,
+  running,
+}: {
+  clock: StepClock | undefined;
+  result: ToolResult | undefined;
+  running: boolean;
+}) {
+  if (running)
+    return clock ? <Since start={clock.start} className="tool-step__time" label="Running for" /> : null;
+  const ms = result?.duration_ms ?? (clock?.end ? between(clock.start, clock.end) : undefined);
+  const text = ms === undefined ? '' : took(ms);
+  if (!text) return null;
+  return (
+    <span className="tool-step__time" data-num title={`Took ${text}`}>
+      <span className="sr-only">Took </span>
+      {text}
     </span>
   );
 }
@@ -1071,13 +1298,14 @@ interface ToolStepProps {
   live?: boolean;
 }
 
-export function ToolStep(props: ToolStepProps) {
+/** Memoised: while an answer streams, only the steps whose call, result or clock changed draw again. */
+export const ToolStep = memo(function ToolStep(props: ToolStepProps) {
   return isBackgroundShell(props.call) && props.result?.ok ? (
     <BackgroundShellStep {...props} />
   ) : (
     <ToolStepView {...props} shell={undefined} />
   );
-}
+});
 
 /** A background shell's step, with its state from Activity. */
 function BackgroundShellStep(props: ToolStepProps) {
@@ -1103,19 +1331,26 @@ function ToolStepView({
     : stepState(result, waiting);
   const line = describe(call, result, state, cwd);
   const kind = kindOf(call.tool);
+  const family = familyOf(kind);
   // The call's own words ("Reading the data models") lead; what it ran sits under them.
   const own = stepDescription(call.tool, call.args);
   const under = own ? (stepCommand(call.tool, call.args) ?? oneLiner(line)) : null;
-  const detail =
-    background && state === 'running'
+  // What came back, in a line; a background shell's launch output says nothing of how it went.
+  const said = useMemo(
+    () => (background ? null : resultLine(call, result, state)),
+    [background, call, result, state],
+  );
+  const detail = background
+    ? state === 'running'
       ? 'Running in the background'
-      : state === 'waiting'
-        ? 'Waiting for your decision'
-        : state === 'declined'
-          ? result?.declined_reason || null
-          : state === 'failed' && kind !== 'shell'
-            ? firstLine(resultText(result), 90) || null
-            : null;
+      : state === 'failed'
+        ? 'Failed in the background'
+        : 'Ran in the background'
+    : state === 'waiting'
+      ? 'Waiting for your decision'
+      : state === 'declined'
+        ? result?.declined_reason || null
+        : said;
   // A Python run is read for its output and figures: it stays open whatever the setting.
   const openByDefault = !folded || state === 'waiting' || kind === 'python' || kind === 'image';
   const [shown, onToggle] = useOpened(openByDefault);
@@ -1124,12 +1359,13 @@ function ToolStepView({
       className="tool-step"
       data-state={state}
       data-kind={kind}
+      data-family={family}
       data-described={own ? true : undefined}
       open={openByDefault || undefined}
       onToggle={onToggle}
     >
       <summary title={line.full ?? under ?? undefined}>
-        <Icon name={ICONS[kind]} size={13} className="tool-step__icon" />
+        <Icon name={ICONS[kind]} size={13} className="tool-step__icon" label={FAMILY_WORD[family]} />
         <span className="tool-step__text">
           {own ? (
             <span className="tool-step__label">
@@ -1174,14 +1410,16 @@ function ToolStepView({
             </button>
           </span>
         ) : detail ? (
-          <span className="tool-step__detail">{detail}</span>
+          <span className="tool-step__detail" title={detail}>
+            {detail}
+          </span>
         ) : null}
         {line.meta ? (
           <span className="tool-step__meta" data-num>
             {line.meta}
           </span>
         ) : null}
-        {clock ? <StepTimer clock={clock} running={!result && live} /> : null}
+        {background ? null : <StepTime clock={clock} result={result} running={!result && live} />}
         <AutoRanBadge callId={call.call_id} />
         <span className="tool-step__status" title={STATUS_WORD[state]}>
           <Icon name={STATUS_ICON[state]} size={12} />

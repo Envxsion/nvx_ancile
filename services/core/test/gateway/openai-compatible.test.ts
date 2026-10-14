@@ -31,7 +31,7 @@ const node: ModelConfig = {
 };
 
 const sse = (chunks: unknown[]) =>
-  new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', {
+  new Response(`${chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('')}data: [DONE]\n\n`, {
     headers: { 'content-type': 'text/event-stream' },
   });
 

@@ -762,7 +762,7 @@ kbd[data-flash] {
   color: var(--gilt);
   font-size: 11px;
   font-weight: 600;
-  background: rgb(var(--gilt-rgb) / 0.08);
+  background: var(--gilt-wash);
 }
 
 /* --- Segmented: a sliding plate (Segmented.tsx moves it) ---------------- */
@@ -941,6 +941,32 @@ kbd[data-flash] {
   margin-left: auto;
   color: var(--mute-2);
   font-size: 11px;
+}
+
+/* A refresh failed; the last answer stays on screen under this line. */
+.load-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 10px;
+  padding: 6px 8px 6px 10px;
+  border-radius: var(--r-md);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+  line-height: 1.45;
+  background: rgb(var(--warn-rgb) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.24);
+}
+.load-stale > .icon {
+  color: var(--warn);
+}
+.load-stale > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.artifact-panel > .load-stale {
+  margin: 0 12px 8px 14px;
 }
 
 .icon {

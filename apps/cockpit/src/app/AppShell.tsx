@@ -159,6 +159,10 @@ export function AppShell() {
   const approvals = useApprovals();
   const onScreen = pathname.startsWith('/t/') ? pathname.split('/')[2] : undefined;
   const current = useApprovalFocus(approvals, onScreen);
+  // Settings → Usage shows the context of the thread you came from.
+  useEffect(() => {
+    if (onScreen) useUi.getState().setLastThread(onScreen);
+  }, [onScreen]);
   useGlobalEvents();
   useMarkState(approvals.data?.length ?? 0);
 
@@ -172,6 +176,8 @@ export function AppShell() {
   useBinding('thread.new', () => navigate({ to: '/' }));
   useBinding('go.admin', () => navigate({ to: '/admin/$section', params: { section: 'health' } }));
   useBinding('go.logs', () => navigate({ to: '/admin/$section', params: { section: 'logs' } }));
+  useBinding('go.flows', () => navigate({ to: '/flows' }));
+  useBinding('go.automations', () => navigate({ to: '/admin/$section', params: { section: 'automations' } }));
   const signInNeeded = useSignInGate((s) => s.needed);
 
   if (signInNeeded) {

@@ -24,6 +24,7 @@
 import type { CompactionProvenance, CompactResult, ModelConfig, Part, PathBudget } from '@nvx/contracts';
 import { AncileError } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { ALWAYS_ON, intSetting, type JobSwitches } from '../automations/settings';
 import { servedWindow } from '../gateway/ollama-chat';
 import { approxTokens } from '../memory/inject';
 import type { BranchStore, SummaryRecord } from './branches';
@@ -35,6 +36,27 @@ import { runUtility, type UtilityDeps } from './utility';
 export const KEEP_RECENT = 4;
 export const WARN_RATIO = 0.8;
 export const CRITICAL_RATIO = 0.95;
+
+/**
+ * "Watch the context window" (Admin → Automations): whether it warns and
+ * compacts, and at what share of the window. Off: the meter still shows how
+ * full the context is, but nothing warns and nothing is compacted for you.
+ */
+export interface ContextWatch {
+  on: boolean;
+  warnAt: number;
+  compactAt: number;
+}
+
+export const DEFAULT_WATCH: ContextWatch = { on: true, warnAt: WARN_RATIO, compactAt: CRITICAL_RATIO };
+
+export function contextWatch(s: JobSwitches = ALWAYS_ON): ContextWatch {
+  const warn = intSetting(s, 'context_overflow_warn', 'warn_at_percent', 80, 50, 98);
+  const compact = intSetting(s, 'context_overflow_warn', 'compact_at_percent', 95, 60, 99);
+  // Settings that cross (saved before the check existed) fall back to the defaults.
+  const [warnAt, compactAt] = warn < compact ? [warn / 100, compact / 100] : [WARN_RATIO, CRITICAL_RATIO];
+  return { on: s.on('context_overflow_warn'), warnAt, compactAt };
+}
 
 /** Everything a model would read of these parts (text, tool calls and results). */
 export function partsText(parts: Part[]): string {
@@ -97,7 +119,9 @@ export function pathBudget(opts: {
   system?: number;
   memory?: number;
   retrieval?: number;
+  watch?: ContextWatch;
 }): PathBudget {
+  const watch = opts.watch ?? DEFAULT_WATCH;
   const { summary, messages, replaced } = compactedPath(opts.path, opts.summaries);
   const history =
     messages.reduce((n, m) => n + (isClaudeCodeCompaction(m) ? 0 : messageTokens(m)), 0) +
@@ -121,7 +145,7 @@ export function pathBudget(opts: {
     used,
     total,
     ratio: Math.round(ratio * 10_000) / 10_000,
-    level: ratio >= CRITICAL_RATIO ? 'critical' : ratio >= WARN_RATIO ? 'warn' : 'ok',
+    level: !watch.on ? 'ok' : ratio >= watch.compactAt ? 'critical' : ratio >= watch.warnAt ? 'warn' : 'ok',
     compaction: summary
       ? {
           summary_id: summary.id,
@@ -131,8 +155,8 @@ export function pathBudget(opts: {
         }
       : null,
     compactable: cut >= 0 ? cut + 1 : 0,
-    warn_at: WARN_RATIO,
-    compacts_at: CRITICAL_RATIO,
+    warn_at: watch.warnAt,
+    compacts_at: watch.compactAt,
   };
 }
 
@@ -277,6 +301,8 @@ export async function prepareTurnContext(
     system: number;
     retrieval: number;
     signal?: AbortSignal;
+    /** Off: never compacts by itself (a summary you made still applies). */
+    watch?: ContextWatch;
   },
 ): Promise<{ skipThrough: string | null; note: string; provenance: CompactionProvenance | null }> {
   const byId = new Map(asTree(opts.messages).map((m) => [m.id, m] as const));
@@ -289,6 +315,7 @@ export async function prepareTurnContext(
     model: opts.model,
     system: opts.system,
     retrieval: opts.retrieval,
+    ...(opts.watch && { watch: opts.watch }),
   });
   let auto = false;
   if (budget.level === 'critical' && budget.compactable > 0) {

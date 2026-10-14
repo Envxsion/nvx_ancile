@@ -4,6 +4,19 @@
    shadow; they open with the family's `pop`.
    ========================================================================== */
 
+/* Permission requests and settings (app/protected.ts): one layer above every
+   other, custom CSS off while anything is in it. The grain stays above it,
+   pointer-events none, so it never takes a click. */
+#ancile-protected {
+  position: relative;
+  z-index: 2147482900;
+}
+.approval__hidden {
+  margin: 12px 0 0;
+  font-size: var(--t-small);
+  color: var(--warn);
+}
+
 .scrim {
   position: fixed;
   inset: 0;
@@ -509,7 +522,7 @@
 .palette__scope {
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  background: rgb(var(--signal-rgb) / 0.14);
+  background: rgb(var(--signal-rgb) / 0.12);
   color: var(--signal-ink);
   font-size: 11.5px;
   font-weight: 600;

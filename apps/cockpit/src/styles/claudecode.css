@@ -113,10 +113,9 @@
     rotate: 1turn;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cc-spin {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .cc-spin {
+  animation: none;
 }
 
 /* ---- Sessions view -------------------------------------------------------- */
@@ -326,10 +325,10 @@ button.cc-session__title {
 }
 .cc-tag[data-tone='new'] {
   color: var(--gilt);
-  background: rgb(var(--gilt-rgb) / 0.1);
+  background: var(--gilt-wash);
 }
 .cc-tag[data-tone='live'] {
-  color: var(--signal);
+  color: var(--signal-ink);
   background: rgb(var(--signal-rgb) / 0.1);
 }
 .cc-tag[data-tone='warn'] {

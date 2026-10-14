@@ -15,6 +15,7 @@
 
 import * as Dialog from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
+import { protectedLayer, useProtect } from '../app/protected';
 import { useLayer } from '../keys/dispatch';
 
 export interface ConfirmCopy {
@@ -22,7 +23,7 @@ export interface ConfirmCopy {
   title: string;
   /** What happens, and what does not. */
   body: ReactNode;
-  /** Says what happens: "Remove repo", "Revoke grant". */
+  /** Says what happens: "Remove repo", "Revoke permission". */
   action: string;
   /** The way out. Defaults to "Cancel". */
   keep?: string;
@@ -32,16 +33,20 @@ export function ConfirmDialog({
   copy,
   onConfirm,
   onClose,
+  protect = false,
 }: {
   copy: ConfirmCopy | null;
   onConfirm: () => void;
   onClose: () => void;
+  /** A permission decision: shown in the protected layer, custom CSS off meanwhile. */
+  protect?: boolean;
 }) {
   const open = Boolean(copy);
   useLayer(open);
+  useProtect(open && protect);
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={protect ? protectedLayer() : undefined}>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content className="dialog m-glass-thick" aria-describedby="confirm-desc">
           <Dialog.Title className="dialog__title">{copy?.title}</Dialog.Title>

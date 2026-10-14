@@ -326,7 +326,7 @@ export function SetupScreen() {
                         </span>
                       </div>
                       <p className="mute">
-                        Nothing to install right now? The built-in try-out model works without anything
+                        Nothing to install right now? The built-in test model works without anything
                         installed. It doesn't use AI, but it shows how NVX Ancile works.
                       </p>
                     </div>
@@ -336,7 +336,7 @@ export function SetupScreen() {
               {!connected && offline ? (
                 <p className="setup__offline">
                   <Icon name="model" size={14} />
-                  No key yet? Continue with the built-in try-out model. It doesn't use AI and needs nothing
+                  No key yet? Continue with the built-in test model. It doesn't use AI and needs nothing
                   installed, but it streams, calls tools and asks for permission like a real one, so you can
                   try everything. Add a key later in Settings → API keys.
                 </p>

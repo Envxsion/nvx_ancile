@@ -52,6 +52,7 @@ import { hueVar, modelById } from '../lib/format';
 import { queryClient } from '../lib/query';
 import type { ThreadView } from '../lib/types';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import type { MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { flattenTree, quickLayout } from './outline';
@@ -609,14 +610,8 @@ function FloatingMenu({
 export function BranchTree({ threadId, variant = 'panel' }: { threadId: string; variant?: Variant }) {
   const q = useBranchTree(threadId);
   if (q.isPending) return <Skeleton lines={5} label="Loading the tree" />;
-  if (q.isError || !q.data)
-    return (
-      <EmptyState
-        icon="tree"
-        title="The tree did not load"
-        body="Check that NVX Ancile is running, then open the tree again."
-      />
-    );
+  // A failed refresh keeps the tree drawn; only a tree never loaded says what failed.
+  if (!q.data) return <LoadFailed error={q.error} what="The tree" onRetry={() => q.refetch()} />;
   if (q.data.nodes.length === 0)
     return (
       <EmptyState

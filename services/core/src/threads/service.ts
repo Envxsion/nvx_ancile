@@ -19,6 +19,7 @@
 
 import { AncileError, type ModelConfig, type Part } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import type { JobSwitches } from '../automations/settings';
 import { initialCheckpoint, titleFrom } from '../conductor/pipeline';
 import { currentContext, newTraceId } from '../context';
 import { canChat, type ModelRegistry } from '../gateway/registry';
@@ -38,6 +39,8 @@ export interface TurnDeps {
   branches?: Pick<BranchStore, 'advance' | 'list'>;
   /** After a new message is sent (not regenerate): the topic-shift detector. Never awaited. */
   afterSend?: (thread: ThreadRecord, userMessageId: string) => Promise<void>;
+  /** The built-in automations' switches (Name new threads); absent: all on. */
+  switches?: JobSwitches;
 }
 
 export interface StartTurn {
@@ -254,8 +257,12 @@ export async function startTurn(deps: TurnDeps, req: StartTurn): Promise<Started
   // The run is queued: start it now, while the thread is brought up to date.
   // Nothing the run reads before its first word depends on these writes.
   deps.worker.kick();
+  // "Name new threads" (Admin → Automations): off leaves the thread as New thread.
   const title =
-    'parts' in req.user && thread.title_source === 'auto' && thread.title === 'New thread'
+    'parts' in req.user &&
+    thread.title_source === 'auto' &&
+    thread.title === 'New thread' &&
+    (deps.switches?.on('auto_title') ?? true)
       ? titleFrom(req.user.parts)
       : null;
   await repo.patchThread(thread.id, {

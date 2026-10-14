@@ -14,17 +14,19 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimVerdict, FactcheckClaim } from '@nvx/contracts';
+import { type ClaimVerdict, type FactcheckClaim, isClaudeCodeModel } from '@nvx/contracts';
 import { useParams } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import * as demo from '../fixtures/demo';
 import { useThread } from '../lib/data';
 import { startFactcheck, useFactcheck, useProgress } from '../lib/factcheck';
 import { modelName, percent } from '../lib/format';
+import { scrollBehavior } from '../lib/motion';
 import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
 import { FactcheckChip } from '../thread/Factcheck';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
 const ORDER: Record<ClaimVerdict, number> = { contradicted: 0, unverified: 1, verified: 2, not_checkable: 3 };
@@ -112,10 +114,14 @@ export function EvidencePanel() {
     if (focused)
       ref.current
         ?.querySelector(`[data-claim="${focused}"]`)
-        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        ?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
   }, [focused, fc.data]);
 
   if (isDemo) return <DemoEvidence />;
+  // The thread's answers come first: a thread still loading, or never loaded, is not "Ask something".
+  if (params.threadId && thread.isPending) return <Skeleton lines={4} label="Loading the fact-check" />;
+  if (params.threadId && thread.isError && !thread.data)
+    return <LoadFailed error={thread.error} what="The thread" onRetry={() => thread.refetch()} />;
   if (!m)
     return (
       <EmptyState
@@ -125,6 +131,9 @@ export function EvidencePanel() {
       />
     );
   if (fc.isPending) return <Skeleton lines={4} label="Loading the fact-check" />;
+  // null is "never checked" (404); undefined after an error is a read that failed, not an offer to check.
+  if (fc.isError && fc.data === undefined && !progress)
+    return <LoadFailed error={fc.error} what="The fact-check" onRetry={() => fc.refetch()} />;
 
   const f = fc.data;
   if (!f || (f.status === 'running' && !f.claims.length) || progress) {
@@ -172,6 +181,7 @@ export function EvidencePanel() {
             <>
               Judged by <strong>{modelName(f.verifier_model_id)}</strong>
               {f.verifier_model_id !== m.modelId ? ', a different model from the one that answered.' : '.'}
+              {isClaudeCodeModel(f.verifier_model_id) ? ' Claude Code judges run on your Claude plan.' : ''}
             </>
           ) : f.status === 'failed' ? (
             // A check that stopped never reached a judge; "no claim needed one" would contradict it.

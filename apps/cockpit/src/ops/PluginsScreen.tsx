@@ -108,7 +108,7 @@ export function PluginsScreen() {
           <EmptyState
             icon="link"
             title="No apps connected"
-            body="Connect one to give it a token. You choose what it may do, and can take it back here or in Grants."
+            body="Connect one to give it a token. You choose what it may do, and can take it back here or in Admin → Permissions."
             action={{ label: 'Connect an app', onClick: () => setConnecting(true) }}
           />
         ) : (

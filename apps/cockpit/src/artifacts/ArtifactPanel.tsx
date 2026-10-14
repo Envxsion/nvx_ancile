@@ -19,12 +19,13 @@
  * ------------------------------------------------------------------
  */
 
-import { spring } from '@nvx/aperture';
+import { fade, spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { relative } from '../lib/format';
+import { useReducedMotion } from '../lib/motion';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
@@ -32,6 +33,7 @@ import { MD_COMPONENTS } from '../thread/Citations';
 import { CodeBlock } from '../thread/Code';
 import { REMARK_PLUGINS } from '../thread/mdPlugins';
 import { Icon } from '../ui/Icon';
+import { StaleNotice } from '../ui/LoadFailed';
 import { Tip } from '../ui/primitives';
 import { ArtifactFrame, type ArtifactOffer } from './ArtifactFrame';
 import { FRAMED, fileName, mimeOf, saveFile, TYPE_ICON, TYPE_LABEL } from './meta';
@@ -283,7 +285,7 @@ export function ArtifactPanel() {
             initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
-            transition={spring.snappy}
+            transition={reduce ? fade : spring.snappy}
           >
             <header className="artifact-panel__head">
               <span className="artifact-panel__tile" aria-hidden="true">
@@ -422,6 +424,16 @@ export function ArtifactPanel() {
                     },
                   );
                 }}
+              />
+            ) : null}
+
+            {/* The card's own copy stays on screen; say the thread's versions did not load. */}
+            {list.isError ? (
+              <StaleNotice
+                error={list.error}
+                what="This artifact's versions"
+                note={list.data ? undefined : 'This is the copy in the answer.'}
+                onRetry={() => list.refetch()}
               />
             ) : null}
 

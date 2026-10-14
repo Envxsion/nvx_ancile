@@ -27,7 +27,7 @@ import { openActivity } from '../activity/api';
 import { syncThread, useClaudeCodeStatus } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { openEditor } from '../editors/store';
-import { useModelGroups } from '../engines/api';
+import { SET_UP_CLAUDE_CODE, useClaudeCodeSetup, useModelGroups } from '../engines/api';
 import { searchHelp } from '../help/articles';
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
@@ -222,6 +222,8 @@ export function Palette() {
   const currentModel = useCurrentModel(threadId)?.id;
   // Claude Code, cloud and local models, with what this thread's scope rules out (docs/engines.md).
   const modelGroups = useModelGroups(threadId, currentModel ?? null);
+  // Why Claude Code cannot answer here, for its separate "Set up Claude Code" row.
+  const ccSetup = useClaudeCodeSetup(threadId);
   const navigate = useNavigate();
   const notebooks = useNotebooks();
   const threads = useThreads();
@@ -414,8 +416,24 @@ export function Palette() {
       id: 'flows',
       label: 'Open flows',
       icon: 'branch',
+      binding: 'go.flows',
       words: 'routing router graph canvas pipeline team models',
       run: go('/flows'),
+    },
+    {
+      id: 'automations',
+      label: 'Open automations',
+      icon: 'clock',
+      binding: 'go.automations',
+      words: 'schedule cron jobs backup cleanup reminders',
+      run: go('/admin/$section', { section: 'automations' }),
+    },
+    {
+      id: 'permissions',
+      label: 'Open permissions',
+      icon: 'shield',
+      words: 'grants allowed remembered revoke expired preset careful balanced',
+      run: go('/admin/$section', { section: 'permissions' }),
     },
     {
       id: 'memory',
@@ -715,9 +733,7 @@ export function Palette() {
                           <span className="palette__label">{e.name}</span>
                           <span className="mute palette__meta">
                             {e.disabled ??
-                              (e.model?.offline
-                                ? "Try-out · doesn't use AI"
-                                : (e.note ?? e.model?.provider ?? ''))}
+                              (e.model?.offline ? 'Test model · no AI' : (e.note ?? e.model?.provider ?? ''))}
                           </span>
                           <span className="model-badge" data-kind={e.kind}>
                             {e.badge}
@@ -728,6 +744,21 @@ export function Palette() {
                     </Command.Group>
                   ))
                 : null}
+              {/* Claude Code that cannot answer is an action here, never a model. */}
+              {show('models') && (scope === 'models' || typed) && ccSetup ? (
+                <Command.Group heading="Claude Code">
+                  <Command.Item
+                    value={`model set up claude code ${ccSetup}`}
+                    onSelect={() =>
+                      run(() => navigate({ to: '/settings/$group', params: { group: 'claude-code' } }))
+                    }
+                  >
+                    <Icon name="terminal" size={15} />
+                    <span className="palette__label">{SET_UP_CLAUDE_CODE}</span>
+                    <span className="mute palette__meta">{ccSetup}</span>
+                  </Command.Item>
+                </Command.Group>
+              ) : null}
 
               {show('notebooks') && (scope === 'notebooks' || typed) ? (
                 <Command.Group heading="Notebooks">

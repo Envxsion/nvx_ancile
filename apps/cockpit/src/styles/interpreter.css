@@ -121,9 +121,8 @@
   pointer-events: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pyrun__dot,
-  .pyrun__figure {
-    animation: none;
-  }
+/* Reduced motion is the resolved setting (prefs.css), not the OS alone */
+:root[data-motion='reduced'] .pyrun__dot,
+:root[data-motion='reduced'] .pyrun__figure {
+  animation: none;
 }

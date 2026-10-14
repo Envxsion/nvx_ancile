@@ -12,7 +12,13 @@
  * ------------------------------------------------------------------
  */
 
-import { DEFAULT_PREFERENCES, Preferences, type PrefGroup } from '@nvx/contracts';
+import {
+  DEFAULT_PREFERENCES,
+  keepDevicePrefs,
+  Preferences,
+  type PrefGroup,
+  withoutDevicePrefs,
+} from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ClaudeCodeGroup } from '../../claudecode/ClaudeCodeGroup';
@@ -249,7 +255,10 @@ export function SettingsScreen() {
   }, [group, navigate]);
 
   const exportFile = () => {
-    const blob = new Blob([JSON.stringify(prefs, null, 2)], { type: 'application/json' });
+    // Device-only settings (custom CSS, zoom, panel widths, effects) stay on this device.
+    const blob = new Blob([JSON.stringify(withoutDevicePrefs(prefs), null, 2)], {
+      type: 'application/json',
+    });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'ancile-settings.json';
@@ -269,7 +278,8 @@ export function SettingsScreen() {
     try {
       const parsed = Preferences.safeParse(JSON.parse(await f.text()));
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'invalid');
-      setIncoming(parsed.data);
+      // A file never brings device-only settings: this device keeps its own.
+      setIncoming(keepDevicePrefs(parsed.data, usePrefs.getState().prefs));
     } catch {
       notify({
         level: 'error',
@@ -328,7 +338,7 @@ export function SettingsScreen() {
             <span>Models</span>
             <Icon name="ext" size={11} className="settings__ext" />
           </Link>
-          <Link to="/admin/$section" params={{ section: 'grants' }} className="settings__link">
+          <Link to="/admin/$section" params={{ section: 'permissions' }} className="settings__link">
             <Icon name="shield" size={14} />
             <span>Permissions</span>
             <Icon name="ext" size={11} className="settings__ext" />
@@ -406,8 +416,8 @@ export function SettingsScreen() {
         </SearchContext.Provider>
 
         <footer className="settings__foot mute">
-          Changes save as you make them and follow you to your other devices. <Kbd keys="mod+," /> opens
-          Settings from anywhere.
+          Changes save as you make them and follow you to your other devices, except zoom, panel widths,
+          Effects and custom CSS, which stay on this one. <Kbd keys="mod+," /> opens Settings from anywhere.
         </footer>
       </section>
     </div>
