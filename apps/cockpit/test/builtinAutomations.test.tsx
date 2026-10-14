@@ -64,7 +64,16 @@ const tags = view({
   title: 'Tag sources',
   config: { max_tags: 5 },
   options: [
-    { key: 'max_tags', label: 'Tags per source, at most', hint: null, type: 'integer', min: 1, max: 20, unit: null, default: 5 },
+    {
+      key: 'max_tags',
+      label: 'Tags per source, at most',
+      hint: null,
+      type: 'integer',
+      min: 1,
+      max: 20,
+      unit: null,
+      default: 5,
+    },
   ],
 });
 const capture = view({
@@ -112,7 +121,9 @@ describe('event-driven built-ins', () => {
     const row = (await screen.findByText('Tag sources')).closest('li') as HTMLElement;
     expect(within(row).getByText('Tags per source, at most 5')).toBeInTheDocument();
     fireEvent.click(within(row).getByRole('switch', { name: 'Tag sources on' }));
-    await waitFor(() => expect(mocked.patch).toHaveBeenCalledWith('/automations/auto_tag_sources', { enabled: false }));
+    await waitFor(() =>
+      expect(mocked.patch).toHaveBeenCalledWith('/automations/auto_tag_sources', { enabled: false }),
+    );
     // A job with nothing to set has a switch and no Edit.
     const title = (await screen.findByText('Name new threads')).closest('li') as HTMLElement;
     expect(within(title).queryByRole('button', { name: 'Edit' })).toBeNull();
@@ -145,15 +156,35 @@ describe('event-driven built-ins', () => {
     fireEvent.change(screen.getByLabelText('What it keeps'), { target: { value: 'propose_all' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() =>
-      expect(mocked.patch).toHaveBeenCalledWith('/automations/memory_capture', { config: { mode: 'propose_all' } }),
+      expect(mocked.patch).toHaveBeenCalledWith('/automations/memory_capture', {
+        config: { mode: 'propose_all' },
+      }),
     );
     expect(settingsLine(capture)).toBe('What it is sure of, asking about the rest');
   });
 
   it('the warning has to come before compacting', () => {
     const opts = [
-      { key: 'warn_at_percent', label: 'Warn', hint: null, type: 'integer' as const, min: 50, max: 98, unit: '%', default: 80 },
-      { key: 'compact_at_percent', label: 'Compact', hint: null, type: 'integer' as const, min: 60, max: 99, unit: '%', default: 95 },
+      {
+        key: 'warn_at_percent',
+        label: 'Warn',
+        hint: null,
+        type: 'integer' as const,
+        min: 50,
+        max: 98,
+        unit: '%',
+        default: 80,
+      },
+      {
+        key: 'compact_at_percent',
+        label: 'Compact',
+        hint: null,
+        type: 'integer' as const,
+        min: 60,
+        max: 99,
+        unit: '%',
+        default: 95,
+      },
     ];
     expect(optionBlocker(opts, { warn_at_percent: 80, compact_at_percent: 95 })).toBeNull();
     expect(optionBlocker(opts, { warn_at_percent: 95, compact_at_percent: 90 })).toMatch(/before compacting/);
@@ -176,10 +207,14 @@ describe('Back up memory', () => {
     wrap(<AutomationDialog open automation={backup} onOpenChange={() => {}} />);
     const test = screen.getByRole('button', { name: 'Test push' });
     expect(test).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Git remote'), { target: { value: ' git@github.com:me/memory.git ' } });
+    fireEvent.change(screen.getByLabelText('Git remote'), {
+      target: { value: ' git@github.com:me/memory.git ' },
+    });
     fireEvent.click(test);
     expect(await screen.findByText('fatal: Repository not found.')).toBeInTheDocument();
-    expect(mocked.post).toHaveBeenCalledWith('/automations/memory_backup/test', { remote: 'git@github.com:me/memory.git' });
+    expect(mocked.post).toHaveBeenCalledWith('/automations/memory_backup/test', {
+      remote: 'git@github.com:me/memory.git',
+    });
   });
 
   it('saving a remote keeps it with the keys, then turns the backup on', async () => {
@@ -189,18 +224,33 @@ describe('Back up memory', () => {
     wrap(<AutomationDialog open automation={backup} onOpenChange={done} />);
     const save = screen.getByRole('button', { name: 'Save and turn on' });
     expect(save).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Git remote'), { target: { value: 'git@github.com:me/memory.git' } });
+    fireEvent.change(screen.getByLabelText('Git remote'), {
+      target: { value: 'git@github.com:me/memory.git' },
+    });
     fireEvent.click(save);
     await waitFor(() => expect(done).toHaveBeenCalledWith(false));
-    expect(mocked.put).toHaveBeenCalledWith('/credentials/memory_remote', { value: 'git@github.com:me/memory.git' });
+    expect(mocked.put).toHaveBeenCalledWith('/credentials/memory_remote', {
+      value: 'git@github.com:me/memory.git',
+    });
     expect(mocked.patch).toHaveBeenCalledWith('/automations/memory_backup', { enabled: true });
     // The key first, so Core has a remote by the time it is switched on.
-    expect(mocked.put.mock.invocationCallOrder[0]).toBeLessThan(mocked.patch.mock.invocationCallOrder[0] ?? 0);
+    expect(mocked.put.mock.invocationCallOrder[0]).toBeLessThan(
+      mocked.patch.mock.invocationCallOrder[0] ?? 0,
+    );
   });
 
   it('once set up, Test push tries the remote in use', async () => {
-    mocked.post.mockResolvedValue({ ok: true, detail: 'The remote took a test push. Nothing was changed there.' });
-    wrap(<AutomationDialog open automation={{ ...backup, setup: null, enabled: true }} onOpenChange={() => {}} />);
+    mocked.post.mockResolvedValue({
+      ok: true,
+      detail: 'The remote took a test push. Nothing was changed there.',
+    });
+    wrap(
+      <AutomationDialog
+        open
+        automation={{ ...backup, setup: null, enabled: true }}
+        onOpenChange={() => {}}
+      />,
+    );
     expect(screen.queryByLabelText('Git remote')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Test push' }));
     expect(await screen.findByText(/took a test push/)).toBeInTheDocument();

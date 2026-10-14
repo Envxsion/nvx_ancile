@@ -27,6 +27,7 @@ import { useNotebooks } from '../lib/data';
 import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
+import { AUTOMATIONS_KEY } from './builtins';
 import { reportFailure } from './common';
 import { MemoryBackupSetup } from './MemoryBackup';
 import {
@@ -39,8 +40,6 @@ import {
   type ScheduleMode,
   WEEKDAYS,
 } from './schedule';
-
-import { AUTOMATIONS_KEY } from './builtins';
 
 export { AUTOMATIONS_KEY };
 
@@ -318,7 +317,10 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
     Object.fromEntries(
       (automation?.options ?? []).map((o) => {
         const v = c[o.key];
-        return [o.key, typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' ? v : o.default];
+        return [
+          o.key,
+          typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' ? v : o.default,
+        ];
       }),
     ),
   );
@@ -395,7 +397,8 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
           ...(Object.keys(changed).length && { config: changed }),
           ...(needsRemote && { enabled: true }),
         };
-        if (Object.keys(patch).length) await api.patch<AutomationView>(`/automations/${automation.id}`, patch);
+        if (Object.keys(patch).length)
+          await api.patch<AutomationView>(`/automations/${automation.id}`, patch);
         if (needsRemote) {
           void queryClient.invalidateQueries({ queryKey: ['credentials'] });
           notify({ level: 'success', title: 'Memory backup is on', body: 'It pushes every hour.' });

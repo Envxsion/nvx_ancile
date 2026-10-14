@@ -12,8 +12,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AutomationView, PathBudget } from '@nvx/contracts';
-import { parse } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parse } from 'yaml';
 import {
   builtinConfigProblem,
   builtinOptions,
@@ -82,10 +82,12 @@ describe('the settings Admin offers', () => {
   });
 
   it('refuses a warning that comes after compacting', () => {
-    expect(builtinConfigProblem('context_overflow_warn', { warn_at_percent: 80, compact_at_percent: 95 })).toBeNull();
-    expect(builtinConfigProblem('context_overflow_warn', { warn_at_percent: 95, compact_at_percent: 90 })).toMatch(
-      /before compacting/,
-    );
+    expect(
+      builtinConfigProblem('context_overflow_warn', { warn_at_percent: 80, compact_at_percent: 95 }),
+    ).toBeNull();
+    expect(
+      builtinConfigProblem('context_overflow_warn', { warn_at_percent: 95, compact_at_percent: 90 }),
+    ).toMatch(/before compacting/);
     expect(builtinConfigProblem('cleanup', { logs_days: 1 })).toBeNull();
   });
 });
@@ -174,7 +176,8 @@ describe('the knowledge service’s jobs', () => {
     await store.patch('auto_tag_sources', { config: { max_tags: 2 } });
     await s.refresh();
     await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(3));
-    expect((put.mock.calls[2]?.[1] as { auto_tag_sources: { max_tags: number } }).auto_tag_sources.max_tags).toBe(2);
+    const sent = put.mock.calls[2]?.[1] as { auto_tag_sources: { max_tags: number } } | undefined;
+    expect(sent?.auto_tag_sources.max_tags).toBe(2);
     sync.stop();
   });
 });
@@ -229,7 +232,10 @@ describe('Admin → Automations', () => {
     const set = await hh.call<AutomationView>('PATCH', '/automations/context_overflow_warn', {
       config: { warn_at_percent: 70 },
     });
-    expect(set.body).toMatchObject({ customised: true, config: { warn_at_percent: 70, compact_at_percent: 95 } });
+    expect(set.body).toMatchObject({
+      customised: true,
+      config: { warn_at_percent: 70, compact_at_percent: 95 },
+    });
     const crossed = await hh.call<Err>('PATCH', '/automations/context_overflow_warn', {
       config: { warn_at_percent: 96 },
     });
@@ -254,7 +260,8 @@ describe('Admin → Automations', () => {
 
   it('memory backup reads as on once it has a remote', async () => {
     await ops({ remote: true });
-    expect(((await h?.automations.view('memory_backup')) as AutomationView).enabled).toBe(true);
+    const view = (await h?.automations.view('memory_backup')) as AutomationView | undefined;
+    expect(view?.enabled).toBe(true);
   });
 
   it('a job with no test says so', async () => {
@@ -356,7 +363,9 @@ describe('the features read their switches', () => {
   it('Watch the context window: its own lines, and off means no warning at all', () => {
     const at = (watch: ReturnType<typeof contextWatch>, system: number) =>
       pathBudget({ headId: 'm7', path, summaries: [], model, system, watch });
-    const loose = contextWatch(switches([], { context_overflow_warn: { warn_at_percent: 50, compact_at_percent: 60 } }));
+    const loose = contextWatch(
+      switches([], { context_overflow_warn: { warn_at_percent: 50, compact_at_percent: 60 } }),
+    );
     expect(loose).toMatchObject({ on: true, warnAt: 0.5, compactAt: 0.6 });
     const b = at(loose, 400);
     expect(b.warn_at).toBe(0.5);

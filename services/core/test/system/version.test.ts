@@ -20,8 +20,10 @@ describe('the version', () => {
       'services/core/package.json': pkg('services/core/package.json'),
       'services/controller/package.json': pkg('services/controller/package.json'),
       'packages/contracts/package.json': pkg('packages/contracts/package.json'),
-      'services/knowledge/pyproject.toml': /^version = "([^"]+)"/m.exec(read('services/knowledge/pyproject.toml'))?.[1] ?? '',
-      'apps/desktop/src-tauri/Cargo.toml': /^version = "([^"]+)"/m.exec(read('apps/desktop/src-tauri/Cargo.toml'))?.[1] ?? '',
+      'services/knowledge/pyproject.toml':
+        /^version = "([^"]+)"/m.exec(read('services/knowledge/pyproject.toml'))?.[1] ?? '',
+      'apps/desktop/src-tauri/Cargo.toml':
+        /^version = "([^"]+)"/m.exec(read('apps/desktop/src-tauri/Cargo.toml'))?.[1] ?? '',
       'apps/desktop/src-tauri/tauri.conf.json': pkg('apps/desktop/src-tauri/tauri.conf.json'),
     };
     const release = declared['package.json'];
@@ -48,6 +50,7 @@ describe('the version', () => {
       'services/knowledge/ancile_knowledge/__init__.py',
       'apps/cockpit/src/ui/ErrorState.tsx',
     ];
-    for (const file of sources) expect({ file, literal: /['"]\d+\.\d+\.\d+['"]/.test(read(file)) }).toEqual({ file, literal: false });
+    for (const file of sources)
+      expect({ file, literal: /['"]\d+\.\d+\.\d+['"]/.test(read(file)) }).toEqual({ file, literal: false });
   });
 });

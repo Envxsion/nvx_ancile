@@ -200,9 +200,7 @@ export function AutomationsScreen() {
                 {a.customised ? <span className="auto__tag">Changed</span> : null}
               </span>
               <span className="row__meta mute">{a.description}</span>
-              {a.options.length ? (
-                <span className="auto-event__set mute">{settingsLine(a)}</span>
-              ) : null}
+              {a.options.length ? <span className="auto-event__set mute">{settingsLine(a)}</span> : null}
             </span>
             {a.options.length ? (
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(a)}>

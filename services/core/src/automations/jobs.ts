@@ -332,6 +332,5 @@ export function scheduledJobs(deps: {
             : 'Checked the web sources.',
       };
     },
-
   };
 }

@@ -61,8 +61,10 @@ beforeEach(() => {
 describe('Connect RunPod in Admin → Compute', () => {
   it('opens the RunPod row of Settings → API keys, the one place keys go', async () => {
     mocked.get.mockImplementation(async (path: string) => {
-      if (path === '/compute/status') return { configured: true, reachable: true, sample: false, provider: null };
-      if (path === '/compute/provider') return { kind: 'none', connected: false, detail: '', key_saved: false };
+      if (path === '/compute/status')
+        return { configured: true, reachable: true, sample: false, provider: null };
+      if (path === '/compute/provider')
+        return { kind: 'none', connected: false, detail: '', key_saved: false };
       if (path === '/compute/nodes') return { items: [] };
       if (path.startsWith('/compute/costs')) return null;
       return { items: [] };
@@ -70,7 +72,11 @@ describe('Connect RunPod in Admin → Compute', () => {
     wrap(<ComputeScreen />);
     const buttons = await screen.findAllByRole('button', { name: 'Connect RunPod' });
     fireEvent.click(buttons[0] as HTMLElement);
-    expect(nav).toHaveBeenCalledWith({ to: '/settings/$group', params: { group: 'keys' }, search: { key: 'runpod' } });
+    expect(nav).toHaveBeenCalledWith({
+      to: '/settings/$group',
+      params: { group: 'keys' },
+      search: { key: 'runpod' },
+    });
     // No key field of its own any more.
     expect(screen.queryByLabelText('RunPod API key')).toBeNull();
   });
@@ -87,8 +93,12 @@ describe('Settings → API keys, opened for RunPod', () => {
     expect(document.getElementById('credential-runpod')).toHaveAttribute('data-focused');
     fireEvent.change(field, { target: { value: 'rpa_live_key_0000abcd' } });
     fireEvent.submit(field.closest('form') as HTMLFormElement);
-    await waitFor(() => expect(mocked.put).toHaveBeenCalledWith('/credentials/runpod', { value: 'rpa_live_key_0000abcd' }));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'RunPod connected' })));
+    await waitFor(() =>
+      expect(mocked.put).toHaveBeenCalledWith('/credentials/runpod', { value: 'rpa_live_key_0000abcd' }),
+    );
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'RunPod connected' })),
+    );
   });
 
   it('a key from the environment opens read-only, not as a field', async () => {

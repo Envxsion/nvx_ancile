@@ -19,6 +19,7 @@
 
 import { AncileError, type ModelConfig, type Part } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import type { JobSwitches } from '../automations/settings';
 import { initialCheckpoint, titleFrom } from '../conductor/pipeline';
 import { currentContext, newTraceId } from '../context';
 import { canChat, type ModelRegistry } from '../gateway/registry';
@@ -27,7 +28,6 @@ import type { ReplayInput } from '../obs/replay';
 import type { RunStore } from '../runs/engine';
 import type { RunWorker } from '../runs/worker';
 import type { BranchStore } from './branches';
-import type { JobSwitches } from '../automations/settings';
 import type { ThreadRecord, ThreadRepo } from './repo';
 
 export interface TurnDeps {

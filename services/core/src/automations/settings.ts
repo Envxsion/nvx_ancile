@@ -42,7 +42,14 @@ export interface JobSwitches {
 export const ALWAYS_ON: JobSwitches = { on: () => true, option: () => undefined };
 
 /** A whole number from a job's settings within [min, max], or the fallback. */
-export function intSetting(s: JobSwitches, id: string, key: string, fallback: number, min: number, max: number) {
+export function intSetting(
+  s: JobSwitches,
+  id: string,
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+) {
   const v = s.option(id, key);
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
 }
@@ -187,7 +194,8 @@ export class KnowledgeSync {
         return true;
       })
       .catch((err: unknown) => {
-        if (!this.pending) log.warn({ err }, 'the knowledge service did not take its automation settings yet');
+        if (!this.pending)
+          log.warn({ err }, 'the knowledge service did not take its automation settings yet');
         this.pending = true;
         return false;
       });

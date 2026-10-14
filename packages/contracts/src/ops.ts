@@ -272,9 +272,7 @@ export type AutomationOption = z.infer<typeof AutomationOption>;
  */
 export const KnowledgeAutomations = z
   .object({
-    auto_tag_sources: z
-      .object({ enabled: z.boolean(), max_tags: z.number().int().min(1).max(20) })
-      .strict(),
+    auto_tag_sources: z.object({ enabled: z.boolean(), max_tags: z.number().int().min(1).max(20) }).strict(),
     duplicate_sources: z
       .object({ enabled: z.boolean(), near_duplicate_percent: z.number().int().min(50).max(100) })
       .strict(),

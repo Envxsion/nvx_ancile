@@ -223,7 +223,11 @@ function CredentialRow({
               title: 'RunPod connected',
               body: 'Admin → Compute manages your pods now. The key is encrypted on this computer.',
             }
-          : { level: 'success', title: `${meta.name} ${meta.noun} saved`, body: 'It is encrypted on this computer.' },
+          : {
+              level: 'success',
+              title: `${meta.name} ${meta.noun} saved`,
+              body: 'It is encrypted on this computer.',
+            },
       );
     },
   });

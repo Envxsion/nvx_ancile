@@ -727,7 +727,10 @@ describe('routes', () => {
     });
     expect(await svc.cliEnv()).toEqual({ DISABLE_TELEMETRY: '1' });
     const judges = async (n: unknown) =>
-      app.request('/claude-code/settings', { method: 'PATCH', body: JSON.stringify({ factcheck_judges: n }) });
+      app.request('/claude-code/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ factcheck_judges: n }),
+      });
     expect(((await (await judges(3)).json()) as { factcheck_judges: number }).factcheck_judges).toBe(3);
     expect((await svc.settings()).factcheck_judges).toBe(3);
     for (const bad of [0, 5, 1.5, 'two']) expect((await judges(bad)).status).toBe(400);
