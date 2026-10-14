@@ -18,10 +18,14 @@
  *           |  tick every 30 s runs whatever is due, one job at a
  *           |  time, each under a lease row update so two Cores never
  *           |  run the same job twice. A built-in that is not set up
- *           |  (memory backup with no remote) is not run at all; Admin
- *           |  says what to do. Jobs without a schedule are
- *           |  event-driven (after a turn, on ingest): listed so you
- *           |  can see them, run by the features they serve.
+ *           |  (memory backup with no remote) is not run at all and
+ *           |  reads as off; Admin says what to do. Jobs without a
+ *           |  schedule are event-driven (after a turn, on ingest):
+ *           |  switched and set here, run by the features they serve,
+ *           |  which read both through BuiltinSettings (settings.ts).
+ *           |  A linked job keeps its switch and settings in the
+ *           |  feature's own store (memory capture's mode), so there
+ *           |  is only ever one of each.
  * ------------------------------------------------------------------
  */
 
@@ -31,6 +35,7 @@ import { ulid } from 'ulid';
 import { logFor } from '../obs/logger';
 import { withSpan } from '../obs/spans';
 import { cronWords, nextRun, parseCron } from './cron';
+import { redactRemote } from './jobs';
 
 const log = logFor('automations');
 
@@ -65,6 +70,12 @@ export interface SetupNeeded {
   hint: string;
 }
 
+/** A built-in whose switch and settings live in its feature's own store. */
+export interface LinkedJob {
+  read(): Promise<{ enabled: boolean; config: Record<string, unknown> }>;
+  write(p: { enabled?: boolean; config?: Record<string, unknown> }): Promise<void>;
+}
+
 export interface RunnerExtras {
   /** Handlers for your own automations, by kind. */
   userHandlers?: Partial<Record<UserAutomationKind, JobHandler>>;
@@ -72,6 +83,10 @@ export interface RunnerExtras {
   setup?: Record<string, () => SetupNeeded | null>;
   /** The settings of each built-in job that can be changed from Admin. */
   options?: Record<string, AutomationOption[]>;
+  /** Built-ins kept in their feature's own store (memory capture). */
+  linked?: Record<string, LinkedJob>;
+  /** After a job's switch, schedule or settings changed here (BuiltinSettings.refresh). */
+  onChange?: (id: string) => void | Promise<void>;
 }
 
 export interface AutomationRow {
@@ -140,17 +155,17 @@ export interface AutomationStore {
 export const CATALOGUE: Record<string, { title: string; description: string }> = {
   auto_title: {
     title: 'Name new threads',
-    description: 'Gives a thread a short title after its first answer.',
+    description: 'Names a new thread from your first message. A name you give it always wins.',
   },
   auto_tag_sources: { title: 'Tag sources', description: 'Adds topic tags to a source when it is read.' },
   stale_sources: {
     title: 'Check links for changes',
     description: 'Looks again at web sources and suggests a refetch when the page changed.',
   },
-  tldr: { title: 'Summarise long threads', description: 'Keeps a short summary at the top of long threads.' },
   draft_autosave: {
     title: 'Save drafts',
-    description: 'Keeps what you are writing on the server as you type.',
+    description:
+      'Keeps what you are writing in NVX Ancile too, so another window finds it. This device always keeps it.',
   },
   cleanup: {
     title: 'Clean up old records',
@@ -158,7 +173,7 @@ export const CATALOGUE: Record<string, { title: string; description: string }> =
   },
   memory_backup: {
     title: 'Back up memory',
-    description: 'Pushes your memory files to a git remote, when one is set.',
+    description: 'Pushes your memory files to a git remote you choose. Off until one is set.',
   },
   duplicate_sources: {
     title: 'Spot duplicate sources',
@@ -168,21 +183,13 @@ export const CATALOGUE: Record<string, { title: string; description: string }> =
     title: 'Suggest a branch',
     description: 'Offers to branch when a conversation changes topic. Never branches by itself.',
   },
-  model_suggestions: {
-    title: 'Suggest models',
-    description: 'Learns which model does best at each kind of task.',
-  },
   context_overflow_warn: {
     title: 'Watch the context window',
-    description: 'Warns at 80% full and compacts at 95%, keeping the latest turns word for word.',
+    description: 'Warns as a thread fills its context window and compacts it before it overflows.',
   },
   memory_capture: {
     title: 'Learn from corrections',
     description: 'Turns corrections and fixed failures into memory, asking first when unsure.',
-  },
-  model_stats_rollup: {
-    title: 'Total up model statistics',
-    description: 'Adds up calls, failures and speed per model for suggestions and Admin.',
   },
 };
 
@@ -260,6 +267,14 @@ export class AutomationRunner {
     return r.origin === 'user' ? isUserKind(r.kind) : Object.hasOwn(this.jobs, r.id);
   }
 
+  /** A linked job's switch and settings, read from its feature. */
+  private async withLinked(r: AutomationRow): Promise<AutomationRow> {
+    const link = r.origin === 'builtin' ? this.extras.linked?.[r.id] : undefined;
+    if (!link) return r;
+    const now = await link.read().catch(() => null);
+    return now ? { ...r, enabled: now.enabled, config: { ...r.config, ...now.config } } : r;
+  }
+
   private toView(r: AutomationRow): AutomationView {
     const user = r.origin === 'user';
     const setup = this.setupFor(r);
@@ -279,7 +294,8 @@ export class AutomationRunner {
       config: r.config,
       options: user ? [] : (this.extras.options?.[r.id] ?? []),
       setup,
-      enabled: r.enabled,
+      // A job that cannot run is off, whatever its switch says, until it is set up.
+      enabled: r.enabled && !setup,
       last_run_at: r.last_run_at,
       last_status: this.running.has(r.id) ? 'running' : r.last_status,
       last_error: r.last_error,
@@ -292,17 +308,18 @@ export class AutomationRunner {
   }
 
   async views(): Promise<AutomationView[]> {
-    const rows = await this.store.list();
+    const rows = await Promise.all(
+      (await this.store.list()).filter((r) => this.visible(r)).map((r) => this.withLinked(r)),
+    );
     const order = (v: AutomationView) => (v.origin === 'user' ? 0 : v.trigger === 'schedule' ? 1 : 2);
     return rows
-      .filter((r) => this.visible(r))
       .map((r) => this.toView(r))
       .sort((a, b) => order(a) - order(b) || a.title.localeCompare(b.title));
   }
 
   async view(id: string): Promise<AutomationView | undefined> {
     const row = await this.row(id);
-    return row ? this.toView(row) : undefined;
+    return row ? this.toView(await this.withLinked(row)) : undefined;
   }
 
   private async row(id: string): Promise<AutomationRow | undefined> {
@@ -324,6 +341,16 @@ export class AutomationRunner {
   ): Promise<boolean> {
     const row = await this.row(id);
     if (!row) return false;
+    const link = row.origin === 'builtin' ? this.extras.linked?.[id] : undefined;
+    if (link) {
+      // One store for a linked job: its feature's own.
+      await link.write({
+        ...(p.enabled !== undefined && { enabled: p.enabled }),
+        ...(p.config !== undefined && { config: p.config }),
+      });
+      await this.changed(id);
+      return true;
+    }
     const cron = p.cron ?? row.cron;
     const enabled = p.enabled ?? row.enabled;
     const rescheduled = p.cron !== undefined && p.cron !== row.cron;
@@ -341,7 +368,16 @@ export class AutomationRunner {
     }
     if (cron && enabled && (rescheduled || switchedOn)) patch.next_run_at = this.nextFor(cron);
     await this.store.patch(id, patch);
+    await this.changed(id);
     return true;
+  }
+
+  private async changed(id: string): Promise<void> {
+    try {
+      await this.extras.onChange?.(id);
+    } catch (err) {
+      log.warn({ err, automation: id }, 'a change to an automation was saved but not passed on yet');
+    }
   }
 
   /** Put a built-in job's schedule and settings back to automations.yaml. On/off is kept. */
@@ -350,12 +386,15 @@ export class AutomationRunner {
     const spec = this.jobs[id];
     if (row?.origin !== 'builtin' || !spec) return false;
     const cron = spec.cron ?? null;
+    const link = this.extras.linked?.[id];
+    if (link) await link.write({ config: spec.config });
     await this.store.patch(id, {
       cron,
       config: spec.config,
       customised: false,
       next_run_at: cron ? this.nextFor(cron) : null,
     });
+    await this.changed(id);
     return true;
   }
 
@@ -443,7 +482,8 @@ export class AutomationRunner {
       return result.status;
     } catch (err) {
       const ms = Math.round(performance.now() - started);
-      const message = err instanceof Error ? err.message : String(err);
+      // What failed is shown in Admin: no remote's or link's credentials in it.
+      const message = redactRemote(err instanceof Error ? err.message : String(err));
       await this.store.patch(row.id, {
         last_run_at: this.now().toISOString(),
         last_status: 'failed',
@@ -453,7 +493,8 @@ export class AutomationRunner {
         last_duration_ms: ms,
         runs: row.runs + 1,
       });
-      log.error({ err, automation: row.id, kind: row.kind }, `automation ${row.kind} failed`);
+      // The log gets the same redacted words as Admin: an error can quote a remote, token and all.
+      log.error({ automation: row.id, kind: row.kind, error: message }, `automation ${row.kind} failed`);
       return 'failed';
     } finally {
       this.running.delete(row.id);

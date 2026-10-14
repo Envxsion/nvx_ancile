@@ -54,15 +54,18 @@ def _migrated() -> None:
 
 @pytest.fixture
 def kdb(_migrated: None):  # type: ignore[no-untyped-def]
-    """A clean knowledge schema, the hash embedder, and no reranker."""
+    """A clean knowledge schema, the default automations, the hash embedder, and no reranker."""
     from sqlalchemy import text
 
+    from ancile_knowledge import automations
     from ancile_knowledge.db import sessions
     from ancile_knowledge.ingest import embed, fetch, reembed
     from ancile_knowledge.search import rerank
 
     with sessions().begin() as db:
         db.execute(text("TRUNCATE knowledge.sources CASCADE"))
+        db.execute(text("DELETE FROM knowledge.automation_settings"))
+    automations.forget()
     reembed.reset_index()
     if os.environ.get("ANCILE_TEST_REAL_EMBEDDER") != "1":
         embed.set_embedder(embed.HashEmbedder())
@@ -70,6 +73,7 @@ def kdb(_migrated: None):  # type: ignore[no-untyped-def]
     resolver, transport = fetch.resolve_host, fetch.transport
     yield sessions
     fetch.resolve_host, fetch.transport = resolver, transport
+    automations.forget()
     embed.set_embedder(None)
     rerank.set_reranker(None)
 

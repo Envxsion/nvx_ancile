@@ -9,11 +9,13 @@
  *           |  your own (ask a model, run a flow, re-check links,
  *           |  remind me), change a built-in job's schedule or reset
  *           |  it, switch any of them off. The ones that run on events
- *           |  (after a turn, on ingest) are listed too, so nothing
- *           |  happens out of sight.
+ *           |  (after a turn, on ingest) have a switch and settings
+ *           |  too, so nothing happens out of sight or out of reach.
  *  How      |  One card per scheduled automation; its "more" menu holds
  *           |  Edit, Run now, Reset to default (built in) and Delete
- *           |  (your own). The dialog is AutomationDialog.tsx.
+ *           |  (your own). One row per event-driven one, with Edit and
+ *           |  its switch. A job that is not set up shows Set up where
+ *           |  its switch would be. The dialog is AutomationDialog.tsx.
  * ------------------------------------------------------------------
  */
 
@@ -159,6 +161,7 @@ export function AutomationsScreen() {
           busy={runNow.isPending && runNow.variables === a.id}
           menu={menu(a)}
           onToggle={(enabled) => toggle.mutate({ id: a.id, enabled })}
+          onSetUp={() => setEditing(a)}
         />
       ))}
     </ul>
@@ -189,10 +192,28 @@ export function AutomationsScreen() {
       <h3 className="admin__h">On events</h3>
       <ul className="rows auto-events">
         {events.map((a) => (
-          <li key={a.id} className="row">
+          <li key={a.id} className="row auto-event" data-on={a.enabled || undefined}>
             <Icon name="zap" size={13} />
-            <span className="row__title">{a.title}</span>
-            <span className="row__meta mute">{a.description}</span>
+            <span className="auto-event__names">
+              <span className="row__title">
+                {a.title}
+                {a.customised ? <span className="auto__tag">Changed</span> : null}
+              </span>
+              <span className="row__meta mute">{a.description}</span>
+              {a.options.length ? (
+                <span className="auto-event__set mute">{settingsLine(a)}</span>
+              ) : null}
+            </span>
+            {a.options.length ? (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(a)}>
+                Edit
+              </button>
+            ) : null}
+            <Switch
+              checked={a.enabled}
+              onChange={(enabled) => toggle.mutate({ id: a.id, enabled })}
+              label={`${a.title} on`}
+            />
           </li>
         ))}
       </ul>
@@ -210,18 +231,32 @@ export function AutomationsScreen() {
   );
 }
 
+/** What an event-driven job is set to, in a line: "At most 5 tags per source". */
+export function settingsLine(a: Pick<AutomationView, 'options' | 'config'>): string {
+  return a.options
+    .map((o) => {
+      const v = a.config[o.key] ?? o.default;
+      if (o.type === 'boolean') return `${o.label}: ${v === true ? 'yes' : 'no'}`;
+      if (o.type === 'choice') return o.choices?.find((c) => c.value === v)?.label ?? String(v);
+      return `${o.label} ${String(v)}${o.unit ? ` ${o.unit}` : ''}`;
+    })
+    .join(' · ');
+}
+
 function AutomationCard({
   a,
   delay,
   busy,
   menu,
   onToggle,
+  onSetUp,
 }: {
   a: AutomationView;
   delay: number;
   busy: boolean;
   menu: MenuEntry[];
   onToggle: (enabled: boolean) => void;
+  onSetUp: () => void;
 }) {
   const navigate = useNavigate();
   const note = a.setup
@@ -249,7 +284,14 @@ function AutomationCard({
           </strong>
           <span className="mute">{a.description}</span>
         </div>
-        <Switch checked={a.enabled} onChange={onToggle} label={`Run ${a.title} on its schedule`} />
+        {a.setup ? (
+          // Off until it can run: setting it up is what turns it on.
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onSetUp}>
+            Set up
+          </button>
+        ) : (
+          <Switch checked={a.enabled} onChange={onToggle} label={`Run ${a.title} on its schedule`} />
+        )}
       </div>
       <dl className="auto__facts">
         <div>

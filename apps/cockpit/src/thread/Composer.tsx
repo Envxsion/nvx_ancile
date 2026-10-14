@@ -47,6 +47,7 @@ import { type AncileExtra, ccMenu, parseTyped } from '../claudecode/live';
 import * as demo from '../fixtures/demo';
 import { attachImage, imageKeys } from '../images/api';
 import { useBinding } from '../keys/dispatch';
+import { draftAutosave, useAutomations } from '../ops/builtins';
 import { api } from '../lib/api';
 import { useModels, useNotebooks, useSources } from '../lib/data';
 import { hueVar } from '../lib/format';
@@ -218,7 +219,9 @@ export function Composer({
     () => (notebookId ? allUploads.filter((u) => u.notebookId === notebookId) : []),
     [allUploads, notebookId],
   );
-  const synced = realThread && !isDemo;
+  // Save drafts (Admin → Automations): off keeps a draft on this device only.
+  const autosave = draftAutosave(useAutomations(realThread && !isDemo).data);
+  const synced = realThread && !isDemo && autosave.on;
   // Which flow answers here, so the model chip can say when it is not the one answering.
   const resolved = useResolvedFlow(synced ? threadId : undefined).data;
   // Before a thread exists (Home, a notebook page): the flow its notebook,
@@ -329,13 +332,13 @@ export function Composer({
         ? setTimeout(() => {
             latest.current.sent = text;
             void api.put(`/drafts/${threadId}/${serverParent(parentId)}`, { text }).catch(() => undefined);
-          }, 1_200)
+          }, autosave.afterMs)
         : undefined;
     return () => {
       clearTimeout(t);
       clearTimeout(remote);
     };
-  }, [text, key, synced, threadId, parentId]);
+  }, [text, key, synced, threadId, parentId, autosave.afterMs]);
 
   // Flush when the composer goes away or the tab hides, so a quick switch
   // never loses the last few words.

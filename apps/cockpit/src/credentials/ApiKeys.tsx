@@ -123,7 +123,7 @@ export const CREDENTIAL_META: CredentialMeta[] = [
   {
     id: 'memory_remote',
     name: 'Memory backup',
-    desc: 'A private git repository your memory is pushed to every night.',
+    desc: 'A private git repository your memory is pushed to every hour.',
     noun: 'remote',
     placeholder: 'git@github.com:you/memory.git',
     getUrl: 'https://github.com/new',

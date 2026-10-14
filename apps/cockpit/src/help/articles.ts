@@ -555,14 +555,16 @@ For an answer, **Replay the run** steps through it like a recording: \`←\` and
         id: 'automations',
         title: 'Automations',
         summary: 'What NVX Ancile does on its own, and when.',
-        keywords: 'automations schedule cron cleanup backup stale links run now new edit reset reminder flow',
-        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes, model statistics) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
+        keywords: 'automations schedule cron cleanup backup stale links run now new edit reset reminder flow events switch tags duplicates drafts context test push remote',
+        body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
 
-**Edit** changes when a job runs (every few minutes or hours, daily, weekly on the days you pick, or a custom cron schedule) and, for some jobs, their settings, such as how long logs are kept. A changed job is marked **Changed** until you reset it.
+**On events** lists the jobs that run as you work: naming new threads, tagging sources, spotting duplicates, suggesting a branch, watching the context window, saving drafts and learning from corrections. Each has a switch, and **Edit** for its settings, such as how many tags a source gets or how full the context gets before it is compacted.
+
+**Edit** changes when a job runs (every few minutes or hours, daily, weekly on the days you pick, or a custom cron schedule) and its settings, such as how long logs are kept. A changed job is marked **Changed** until you reset it.
 
 **New automation** makes your own: ask a model a question on a schedule (in a notebook if you like), run a flow, re-check a notebook's links, or send yourself a reminder. Answers land in a new thread each time; **Open** on the card takes you there. Nobody is watching when it runs, so anything it wants to change waits for your yes.
 
-A job that needs something first, like a git remote for memory backups, shows **Not set up** with what to do, and does not run until it is.
+A job that needs something first, like a git remote for memory backups, shows **Set up** instead of its switch, and stays off until it is. For memory backup, **Set up** asks for the remote, **Test push** checks it can push (nothing changes there), and **Save and turn on** starts the hourly backup.
 
 The jobs that run on events, like naming a new thread or learning from a correction, are listed too, so nothing happens out of sight.`,
       },

@@ -10,14 +10,16 @@
  *           |  minutes or hours, daily, and weekly on chosen days, with
  *           |  Custom for any other cron; Core checks it again. A
  *           |  built-in job keeps its name and what it does; only its
- *           |  schedule and its own options change here.
+ *           |  schedule (when it has one) and its own options change
+ *           |  here, each option as a field of its type. Back up memory
+ *           |  also takes its git remote here, with Test push.
  * ------------------------------------------------------------------
  */
 
 import type { AutomationOption, AutomationView, ModelInfo, UserAutomationKind } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 import { useFlows } from '../flows/api';
 import { useLayer } from '../keys/dispatch';
 import { api } from '../lib/api';
@@ -26,6 +28,7 @@ import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
 import { reportFailure } from './common';
+import { MemoryBackupSetup } from './MemoryBackup';
 import {
   cronError,
   cronFromDraft,
@@ -37,7 +40,9 @@ import {
   WEEKDAYS,
 } from './schedule';
 
-export const AUTOMATIONS_KEY = ['ops', 'automations'] as const;
+import { AUTOMATIONS_KEY } from './builtins';
+
+export { AUTOMATIONS_KEY };
 
 const KINDS: { value: UserAutomationKind; label: string; lede: string }[] = [
   {
@@ -174,41 +179,90 @@ export function scheduleBlocker(d: ScheduleDraft): string | null {
 
 /* ---- Built-in options ------------------------------------------------------ */
 
-function OptionField({
+/** Why the settings can't be saved as they are (Core checks the same), or null. */
+export function optionBlocker(options: AutomationOption[], values: Record<string, unknown>): string | null {
+  for (const o of options) {
+    const v = values[o.key];
+    if (o.type !== 'integer') continue;
+    if (typeof v !== 'number' || !Number.isInteger(v)) return `${o.label}: a whole number.`;
+    if ((o.min !== null && v < o.min) || (o.max !== null && v > o.max))
+      return `${o.label}: ${o.min ?? '…'} to ${o.max ?? '…'}.`;
+  }
+  const warn = values.warn_at_percent;
+  const compact = values.compact_at_percent;
+  if (typeof warn === 'number' && typeof compact === 'number' && warn >= compact)
+    return 'The warning has to come before compacting.';
+  return null;
+}
+
+type OptionValue = number | boolean | string;
+
+export function OptionField({
   option,
   value,
   onChange,
 }: {
   option: AutomationOption;
-  value: number | boolean;
-  onChange: (v: number | boolean) => void;
+  value: OptionValue;
+  onChange: (v: OptionValue) => void;
 }) {
+  const id = useId();
+  // The hint describes the field; it is not part of its name.
+  const hint = option.hint ? (
+    <span id={`${id}-hint`} className="field__hint">
+      {option.hint}
+    </span>
+  ) : null;
+  const describedBy = option.hint ? `${id}-hint` : undefined;
   if (option.type === 'boolean')
     return (
       <div className="auto-opt auto-opt--switch">
         <div className="auto-opt__text">
           <span>{option.label}</span>
-          {option.hint ? <span className="field__hint">{option.hint}</span> : null}
+          {hint}
         </div>
-        <Switch checked={value === true} onChange={onChange} label={option.label} />
+        <Switch
+          checked={value === true}
+          onChange={onChange}
+          label={option.label}
+          {...(describedBy && { describedBy })}
+        />
       </div>
     );
   return (
-    <label className="auto-opt">
-      <span>{option.label}</span>
-      <span className="sched__line">
-        <input
-          className="input input--sm sched__num"
-          type="number"
-          min={option.min ?? undefined}
-          max={option.max ?? undefined}
-          value={typeof value === 'number' ? value : Number(option.default)}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
-        {option.unit ? <span>{option.unit}</span> : null}
-      </span>
-      {option.hint ? <span className="field__hint">{option.hint}</span> : null}
-    </label>
+    <div className="auto-opt">
+      <label htmlFor={id}>{option.label}</label>
+      {option.type === 'choice' ? (
+        <select
+          id={id}
+          className="input input--sm"
+          value={String(value)}
+          aria-describedby={describedBy}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {(option.choices ?? []).map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="sched__line">
+          <input
+            id={id}
+            className="input input--sm sched__num"
+            type="number"
+            min={option.min ?? undefined}
+            max={option.max ?? undefined}
+            value={typeof value === 'number' ? value : Number(option.default)}
+            aria-describedby={describedBy}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+          {option.unit ? <span>{option.unit}</span> : null}
+        </span>
+      )}
+      {hint}
+    </div>
   );
 }
 
@@ -260,15 +314,20 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
   const [flow, setFlow] = useState(str(c.flow_id));
   const [remindTitle, setRemindTitle] = useState(str(c.title));
   const [remindBody, setRemindBody] = useState(str(c.body));
-  const [options, setOptions] = useState<Record<string, number | boolean>>(() =>
+  const [options, setOptions] = useState<Record<string, OptionValue>>(() =>
     Object.fromEntries(
       (automation?.options ?? []).map((o) => {
         const v = c[o.key];
-        return [o.key, typeof v === 'number' || typeof v === 'boolean' ? v : o.default];
+        return [o.key, typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' ? v : o.default];
       }),
     ),
   );
   const [busy, setBusy] = useState(false);
+  // An event-driven built-in has no schedule to pick; memory backup takes its remote here.
+  const scheduled = !builtin || automation.trigger === 'schedule';
+  const backup = builtin && automation.id === 'memory_backup';
+  const needsRemote = backup && automation.setup !== null;
+  const [remote, setRemote] = useState('');
 
   const notebooks = useNotebooks();
   const flows = useFlows();
@@ -288,9 +347,10 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
   const flowId = flow || flowList[0]?.id || '';
 
   const blocker = (() => {
-    const s = scheduleBlocker(schedule);
+    const s = scheduled ? scheduleBlocker(schedule) : null;
     if (s) return s;
-    if (builtin) return null;
+    if (needsRemote && !remote.trim()) return 'Type the git remote to push to.';
+    if (builtin) return optionBlocker(automation.options, options);
     if (!title.trim()) return 'Give it a name.';
     if ((kind === 'ask_model' || kind === 'run_flow') && !prompt.trim()) return 'Write the message to send.';
     if (kind === 'run_flow' && !flowId) return 'Make a flow first, in Flows.';
@@ -328,10 +388,18 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
             .filter((o) => options[o.key] !== (c[o.key] ?? o.default))
             .map((o) => [o.key, options[o.key]]),
         );
-        await api.patch<AutomationView>(`/automations/${automation.id}`, {
-          ...(cron !== automation.cron && { cron }),
+        // A new remote is saved with the keys first; then the backup can be switched on.
+        if (needsRemote) await api.put('/credentials/memory_remote', { value: remote.trim() });
+        const patch = {
+          ...(scheduled && cron !== automation.cron && { cron }),
           ...(Object.keys(changed).length && { config: changed }),
-        });
+          ...(needsRemote && { enabled: true }),
+        };
+        if (Object.keys(patch).length) await api.patch<AutomationView>(`/automations/${automation.id}`, patch);
+        if (needsRemote) {
+          void queryClient.invalidateQueries({ queryKey: ['credentials'] });
+          notify({ level: 'success', title: 'Memory backup is on', body: 'It pushes every hour.' });
+        }
       } else {
         await api.patch<AutomationView>(`/automations/${automation.id}`, {
           title: title.trim(),
@@ -480,7 +548,9 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
           </>
         ) : null}
 
-        <SchedulePicker value={schedule} onChange={setSchedule} />
+        {scheduled ? <SchedulePicker value={schedule} onChange={setSchedule} /> : null}
+
+        {backup ? <MemoryBackupSetup needsRemote={needsRemote} remote={remote} onRemote={setRemote} /> : null}
 
         {builtin && automation.options.length ? (
           <fieldset className="field auto-opts">
@@ -504,7 +574,15 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
             </button>
           </Dialog.Close>
           <button type="submit" className="btn btn--primary" disabled={!!blocker || busy}>
-            {isNew ? (busy ? 'Creating…' : 'Create automation') : busy ? 'Saving…' : 'Save changes'}
+            {isNew
+              ? busy
+                ? 'Creating…'
+                : 'Create automation'
+              : busy
+                ? 'Saving…'
+                : needsRemote
+                  ? 'Save and turn on'
+                  : 'Save changes'}
           </button>
         </div>
       </form>

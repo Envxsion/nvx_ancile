@@ -292,11 +292,12 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `replay.not_rerunnable` | 422 | "Only an answer in a thread can be re-run." / Open a chat answer's run and choose Re-run there. |
 | `replay.run_active` | 409 | "That run has not finished yet." / Wait for it to finish, or stop it, then re-run it. |
 | `replay.bad_step` | 422 | "There is no step N in that run." / Pick a step from the replay. |
-| `automation.event_driven` | 422 | "<Automation> runs as part of another feature." / It has no schedule to change or switch off here. |
+| `automation.event_driven` | 422 | "<Automation> runs as part of another feature." / It has no schedule to change; switch it off or change its settings instead. Raised for a schedule sent to an event-driven job. |
+| `automation.no_test` | 422 | "<Automation> has no test." / Run it now instead, and read what it did on its card. Only Back up memory has one (Test push). |
 | `automation.busy` | 409 | "It is running already." / Wait for it to finish. |
 | `automation.bad_schedule` | 422 | "That schedule can't be used." / A schedule has five fields: minute, hour, day of month, month and weekday, for example "0 9 * * 1-5". `error.context` has `cron` and `problem` (what is wrong, or that it never comes round). |
 | `automation.too_often` | 422 | "That schedule runs more often than every 5 minutes." / Pick a schedule with at least 5 minutes between runs. |
-| `automation.not_set_up` | 422 | "<Automation> is not set up." / What it needs, for example a git remote for memory backups. Run now is refused, and the schedule waits, until it is set up. |
+| `automation.not_set_up` | 422 | "<Automation> is not set up." / What it needs, for example a git remote for memory backups. Run now and switching it on are refused, and the schedule waits, until it is set up; meanwhile it reads as off. |
 | `automation.no_default` | 422 | "Only built-in automations have a default." / Edit this one instead, or delete it. |
 | `automation.builtin` | 422 | "<Automation> is built in and can't be deleted." / Switch it off instead, or reset it to default. |
 | `license.unreachable` | 503 | "nvx.sh could not be reached." / Check your connection; once Pro is on, it keeps working offline until its token expires. |

@@ -32,13 +32,14 @@ import {
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
 import type { AppEnv } from '../app';
+import type { JobSwitches } from '../automations/settings';
 import { currentContext, newTraceId } from '../context';
 import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunStore } from '../runs/engine';
 import { alreadyRunning } from '../runs/store';
 import type { BranchStore } from './branches';
-import { compactPath, pathBudget } from './compact';
+import { compactPath, contextWatch, pathBudget } from './compact';
 import { compareBranches } from './compare';
 import { mergeBranches } from './merge';
 import { ancestorPath, childrenIndex, snapBranchPoint } from './path';
@@ -54,6 +55,8 @@ export interface BranchRouteDeps extends UtilityDeps {
   runs: RunStore;
   branches: BranchStore;
   now?: () => number;
+  /** The built-in automations' switches (Watch the context window); absent: all on. */
+  switches?: JobSwitches;
 }
 
 export function branchFromStreaming(): AncileError {
@@ -172,6 +175,7 @@ export function branchRoutes(deps: BranchRouteDeps) {
         summaries: await branches.summaries(t.id, 'compaction'),
         model,
         system: 600,
+        watch: contextWatch(deps.switches),
       }),
     );
   });

@@ -111,6 +111,8 @@ export interface HarnessOptions {
     serviceCheck?: import('../../src/credentials/routes').ServiceCheck;
     runpod?: import('../../src/credentials/routes').CredentialRouteDeps['runpod'];
   };
+  /** The built-in automations' switches the features read (Name new threads, Suggest a branch, …). */
+  switches?: import('../../src/automations/settings').JobSwitches;
   /** Automations: built-in jobs and their extras (setup, options, more handlers). */
   automations?: {
     jobs?: Record<string, JobSpec>;
@@ -253,6 +255,7 @@ export async function harness(opts: HarnessOptions = {}) {
           deltaMs: 0,
           ...(opts.retriever && { retriever: opts.retriever }),
           ...(opts.links && { links: opts.links }),
+          ...(opts.switches && { switches: opts.switches }),
           notebookTitle: async () => 'Test notebook',
           branches,
           flows,
@@ -396,7 +399,15 @@ export async function harness(opts: HarnessOptions = {}) {
         branches,
         flowStore,
         sendLocks,
-        afterSend: branchSuggester({ gateway, registry, promptsDir: PROMPTS_DIR, repo, bus }),
+        ...(opts.switches && { switches: opts.switches }),
+        afterSend: branchSuggester({
+          gateway,
+          registry,
+          promptsDir: PROMPTS_DIR,
+          repo,
+          bus,
+          ...(opts.switches && { switches: opts.switches }),
+        }),
       }),
       branchRoutes({
         workspaceId: WORKSPACE_ID,
@@ -407,6 +418,7 @@ export async function harness(opts: HarnessOptions = {}) {
         registry,
         promptsDir: PROMPTS_DIR,
         now: () => clock.now,
+        ...(opts.switches && { switches: opts.switches }),
       }),
       permissionRoutes({
         store: perms,

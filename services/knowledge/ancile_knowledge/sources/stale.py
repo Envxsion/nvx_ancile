@@ -15,16 +15,27 @@
           |  sweep() is the side-effecting part: a conditional GET for
           |  each due URL source (through fetch.py, so SSRF-guarded and
           |  retried) and sources.stale set when the page changed. It
-          |  runs in the worker every KNOWLEDGE_STALE_CHECK_HOURS and on
+          |  runs in the worker every KNOWLEDGE_STALE_CHECK_HOURS while
+          |  the stale_sources automation is on (automations.py), and on
           |  POST /kn/v1/maintenance/stale-check. Refetch clears it.
+ Note     |  A URL source's interval is the automation's
+          |  url_stale_after_days; other kinds keep DEFAULT_INTERVAL.
+          |  stale_after (the next check) is stored, so when the setting
+          |  changes rebase_url_checks() moves every scheduled URL check
+          |  to its last check plus the new interval: a shorter interval
+          |  takes effect now, not after the old one runs out.
 ------------------------------------------------------------------
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+
+from sqlalchemy import CursorResult, text
+from sqlalchemy.orm import Session
 
 # Default revalidation interval by kind. Files and pasted text never go stale
 # on their own; a thread source is refreshed when the thread changes.
@@ -39,6 +50,19 @@ DEFAULT_INTERVAL: dict[str, timedelta | None] = {
 }
 
 Verdict = Literal["fresh", "stale", "gone", "unknown"]
+
+
+def intervals(url_stale_after_days: int) -> dict[str, timedelta | None]:
+    """The revalidation interval by kind, with the URL interval from the stale_sources automation."""
+    if url_stale_after_days < 1:
+        raise ValueError("url_stale_after_days must be at least 1")
+    return {**DEFAULT_INTERVAL, "url": timedelta(days=url_stale_after_days)}
+
+
+def _url_days() -> int:
+    from .. import automations  # here, not at the top: automations imports this module
+
+    return automations.current().stale_sources.url_stale_after_days
 
 
 @dataclass(frozen=True)
@@ -66,10 +90,12 @@ class Decision:
     suggest_refetch: bool
 
 
-def due_for_check(s: Stored, now: datetime) -> bool:
+def due_for_check(
+    s: Stored, now: datetime, by_kind: Mapping[str, timedelta | None] = DEFAULT_INTERVAL
+) -> bool:
     if s.stale_after is not None:
         return now >= s.stale_after
-    interval = DEFAULT_INTERVAL.get(s.kind)
+    interval = by_kind.get(s.kind)
     if interval is None:
         return False
     if s.fetched_at is None:
@@ -108,12 +134,31 @@ def evaluate(s: Stored, o: Observed) -> Decision:
 # --- the sweep (database + network) ---------------------------------------------------
 
 
+def rebase_url_checks(db: Session, url_stale_after_days: int) -> int:
+    """
+    Reschedule every URL source's next check to its last check plus the new
+    interval, in the caller's transaction (automations.store, when the
+    interval changes). Sources not checked since they were fetched have no
+    stale_after; due_for_check counts their interval from fetched_at with the
+    current setting, so they need nothing. Returns the rows moved.
+    """
+    intervals(url_stale_after_days)  # the same bound as the sweep
+    # The sweep writes stale_after = stale_checked_at + interval too (both now()), so this is exact.
+    result = db.execute(
+        text(
+            "UPDATE knowledge.sources SET stale_after = stale_checked_at + make_interval(days => :d) "
+            "WHERE kind = 'url' AND deleted_at IS NULL "
+            "AND stale_after IS NOT NULL AND stale_checked_at IS NOT NULL"
+        ),
+        {"d": url_stale_after_days},
+    )
+    return result.rowcount if isinstance(result, CursorResult) else 0
+
+
 async def sweep(
     *, force: bool = False, source_ids: list[str] | None = None, limit: int = 200
 ) -> dict[str, Any]:
     """Re-validate due URL sources. Returns counts by verdict."""
-    from sqlalchemy import text
-
     from ..db import sessions
     from ..errors import AncileError
     from ..ingest import fetch
@@ -145,7 +190,7 @@ async def sweep(
         stored = Stored(
             r["kind"], r["fetched_at"], r["stale_after"], r["etag"], r["last_modified"], r["content_hash"]
         )
-        if not force and not due_for_check(stored, now):
+        if not force and not due_for_check(stored, now, intervals(_url_days())):
             continue
         counts["checked"] += 1
         try:
@@ -173,13 +218,14 @@ async def sweep(
             observed = Observed(status)
         decision = evaluate(stored, observed)
         counts[decision.verdict] += 1
-        interval = DEFAULT_INTERVAL.get("url") or timedelta(days=7)
+        # Read per row: a setting changed mid-sweep applies to the rows still to be written.
         with sessions().begin() as db:
             db.execute(
                 text(
-                    "UPDATE knowledge.sources SET stale_checked_at = now(), stale_after = :next, "
+                    "UPDATE knowledge.sources SET stale_checked_at = now(), "
+                    "stale_after = now() + make_interval(days => :d), "
                     "stale = CASE WHEN :stale THEN true ELSE stale END WHERE id = :id"
                 ),
-                {"id": r["id"], "next": now + interval, "stale": decision.suggest_refetch},
+                {"id": r["id"], "d": _url_days(), "stale": decision.suggest_refetch},
             )
     return counts

@@ -185,7 +185,7 @@ function fromEnvironment(d: Definition): AncileError {
   });
 }
 
-const GIT_REMOTE =
+export const GIT_REMOTE =
   /^(https?:\/\/[^\s]+|ssh:\/\/[^\s]+|git:\/\/[^\s]+|[\w.-]+@[\w.-]+:[^\s]+|file:\/\/[^\s]+)$/;
 
 export function credentialRoutes(deps: CredentialRouteDeps) {

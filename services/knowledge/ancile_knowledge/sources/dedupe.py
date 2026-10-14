@@ -9,10 +9,12 @@
  How      |  Exact: sha256 of normalised text (NFKC, collapsed
           |  whitespace, case-folded). Near: MinHash over 5-word
           |  shingles, 128 permutations; estimated Jaccard decides.
-          |    ≥ 0.90                       near_duplicate
+          |    ≥ near (0.90 by default)     near_duplicate
           |    ≥ 0.50 and same uri/title    new_version
-          |  Signatures are plain int lists so they persist in JSONB
-          |  and can feed an LSH index later.
+          |  near is the duplicate_sources automation's
+          |  near_duplicate_percent / 100 (automations.py); at 0.50 the
+          |  new_version band is empty. Signatures are plain int lists
+          |  so they persist in JSONB and can feed an LSH index later.
 ------------------------------------------------------------------
 """
 
@@ -87,21 +89,23 @@ def _same_origin(a: Candidate, b: Candidate) -> bool:
     return bool(a.title and b.title and normalise(a.title) == normalise(b.title))
 
 
-def classify(new: Candidate, existing: Candidate) -> Match | None:
+def classify(new: Candidate, existing: Candidate, near: float = NEAR_DUPLICATE) -> Match | None:
     if new.id == existing.id:
         return None
     if new.hash == existing.hash:
         return Match(existing.id, "duplicate", 1.0)
     score = similarity(new.sig, existing.sig)
-    if score >= NEAR_DUPLICATE:
+    if score >= near:
         return Match(existing.id, "near_duplicate", score)
     if score >= NEW_VERSION and _same_origin(new, existing):
         return Match(existing.id, "new_version", score)
     return None
 
 
-def find_matches(new: Candidate, pool: list[Candidate]) -> list[Match]:
+def find_matches(new: Candidate, pool: list[Candidate], near: float = NEAR_DUPLICATE) -> list[Match]:
     """Best match first. Linear scan; swap for MinHash LSH past ~50k sources."""
-    found = [m for m in (classify(new, c) for c in pool) if m is not None]
+    if not NEW_VERSION <= near <= 1:
+        raise ValueError(f"near-duplicate threshold must be between {NEW_VERSION} and 1, not {near}")
+    found = [m for m in (classify(new, c, near) for c in pool) if m is not None]
     order = {"duplicate": 0, "near_duplicate": 1, "new_version": 2}
     return sorted(found, key=lambda m: (order[m.kind], -m.score, m.other_id))

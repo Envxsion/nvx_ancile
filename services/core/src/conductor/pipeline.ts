@@ -42,6 +42,7 @@ import {
   stepTitle,
   type Usage,
 } from '@nvx/contracts';
+import type { JobSwitches } from '../automations/settings';
 import type { EventBus } from '../events/bus';
 import { executeFlow, type FlowState, type ModelCallResult, provenanceOf } from '../flows/execute';
 import {
@@ -75,7 +76,7 @@ import {
 import type { RunEventInput } from '../runs/events';
 import { allowedSources, type ScopeResolver } from '../scopes';
 import type { BranchStore } from '../threads/branches';
-import { prepareTurnContext } from '../threads/compact';
+import { contextWatch, prepareTurnContext } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
@@ -274,6 +275,8 @@ export interface ConductorDeps {
   engineContext?: EngineContextHook;
   /** Context links (docs/notebooks.md): other notebooks' sources and threads' summaries, scope-checked now. */
   links?: { forTurn(threadId: string): Promise<TurnLinks> };
+  /** The built-in automations' switches (Watch the context window); absent: all on. */
+  switches?: JobSwitches;
 }
 
 export interface AnsweredTurn {
@@ -817,6 +820,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             system: 600,
             retrieval: cp.grounding?.block ? approxTokens(cp.grounding.block) : 0,
             signal: ctx.signal,
+            watch: contextWatch(deps.switches),
           },
         );
         cp.compaction =

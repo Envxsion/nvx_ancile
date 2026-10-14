@@ -19,6 +19,7 @@ uv run pytest -m boot            # boot suite only
 | `search/hybrid.py`: reciprocal rank fusion | Implemented and tested |
 | `sources/dedupe.py`: exact hash + MinHash near-duplicates and new versions | Implemented and tested |
 | `sources/stale.py`: ETag / Last-Modified / hash staleness | Implemented and tested |
+| `automations.py` + `alembic/versions/0005_automation_settings.py`: the switches and options of automatic tags, duplicate suggestions and the stale-URL sweep, sent by Core (`PUT /kn/v1/maintenance/automations`) and kept in the database | Implemented and tested |
 | `resilience.py`: retry with full jitter, deadlines, circuit breaker | Implemented and tested |
 | `main.py`, `health.py`, `errors.py`, `obs.py`: app, health checks, error shape, JSON logs with traces | Implemented |
 | `db.py` + `alembic/versions/0001_init.py`: the full knowledge schema and the per-model HNSW index helper | Implemented |

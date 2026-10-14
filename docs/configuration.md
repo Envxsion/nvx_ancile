@@ -114,7 +114,7 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 | RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it (the same path as Admin → Compute → Connect RunPod). Unavailable when Core has no `CONTROLLER_URL`. |
 | Hugging Face | `HF_TOKEN` | Hugging Face's `whoami`. For gated models on GPU nodes. |
 | GitHub | `GITHUB_TOKEN` | GitHub's `/user`. Used by Repositories when the `gh` command is not signed in. |
-| Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`). Read by the nightly memory backup each time it runs, so a change needs no restart. |
+| Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`); Admin → Automations → Back up memory → Edit has **Test push** to try it. Read by the hourly memory backup each time it runs, so a change needs no restart. |
 
 **The environment wins.** When one of these variables is set where Core starts, Core uses it instead of the saved value, and its row says **Set in the environment** and is read-only. Change or remove the variable and restart. The routes are `GET /api/v1/credentials`, `PUT /api/v1/credentials/{id}` with `{ "value": "…" }`, and `DELETE /api/v1/credentials/{id}`, behind the same auth as every other route; errors are listed under [Credentials](errors.md#credentials).
 
@@ -215,23 +215,24 @@ Servers in this file are read-only in **Admin → Plugins**; tool tiers and swit
 
 Every job: `enabled`, optional `cron`, `config`.
 
-This file is the default. In **Admin → Automations** you can change a scheduled job's schedule and its settings, switch it off, or reset it to this file; those changes are kept in Core's database (`core.automations`), never written back here, because the file is read-only in the desktop app. A job you changed keeps your change when this file changes, until you reset it.
+This file is the default. In **Admin → Automations** every built-in job has a switch, and its settings are a form (no JSON): a scheduled job's schedule too, and Reset to default puts its schedule and settings back to this file. Those changes are kept in Core's database (`core.automations`), never written back here, because the file is read-only in the desktop app. A job you changed keeps your change when this file changes, until you reset it.
 
-| Job | Config |
-|---|---|
-| `auto_title` | `after_turns` |
-| `auto_tag_sources` | `max_tags` |
-| `stale_sources` | `force` (check every link, not only those due; changeable in Admin), weekly cron |
-| `tldr` | `min_turns` |
-| `draft_autosave` | `server_every_s` |
-| `cleanup` | `logs_days`, `spans_days`, `run_events_days` (default to the retention variables below; changeable in Admin), `temp_max_age_h`, nightly cron |
-| `memory_backup` | hourly cron. Shown as "Not set up", and not run, until a remote is set (`remote` in `memory.yaml` or `ANCILE_MEMORY_REMOTE`) |
-| `duplicate_sources` | `near_dup_threshold` |
-| `branch_suggestions` | `drift_threshold` |
-| `model_suggestions` | `min_calls` |
-| `context_overflow_warn` | `warn_at`, `auto_compact_at` |
-| `memory_capture` | none |
-| `model_stats_rollup` | every 15 minutes |
+Every setting below is read where the job runs: by the job itself, by the feature an event-driven job serves (through `BuiltinSettings`, which re-reads the database after each change and once a minute), or, for the three knowledge jobs, by the knowledge service. Core sends it their switches and settings (`PUT /kn/v1/maintenance/automations`, the `KnowledgeAutomations` contract) at start and after every change, and again every 30 seconds until it has them; the knowledge service keeps the last set it was sent. A job nobody configured is on, with the defaults below.
+
+| Job | When | Settings (Admin → Automations) |
+|---|---|---|
+| `auto_title`, Name new threads | a new thread's first message | none: off leaves new threads as "New thread" |
+| `auto_tag_sources`, Tag sources | a source is read | `max_tags` (1 to 20, default 5). Off: no automatic tags; tags you set are never touched |
+| `stale_sources`, Check links for changes | weekly cron, and the knowledge service's own sweep every `KNOWLEDGE_STALE_CHECK_HOURS` | `url_stale_after_days` (1 to 365, default 7), `force` (check every link, not only those due). Off: neither runs; Run now still checks |
+| `draft_autosave`, Save drafts | as you type | `server_every_s` (1 to 60, default 3). Off: drafts stay on this device only |
+| `cleanup`, Clean up old records | nightly cron | `logs_days`, `spans_days`, `run_events_days` (default to the retention variables below) |
+| `memory_backup`, Back up memory | hourly cron | none. Off, and not run, until it has a remote: set it in its Edit dialog (with **Test push**), in Settings → API keys, as `remote` in `memory.yaml`, or `ANCILE_MEMORY_REMOTE` |
+| `duplicate_sources`, Spot duplicate sources | a source is read | `near_duplicate_percent` (50 to 100, default 90). Off: no duplicate suggestions; content hashes are still kept for refetch checks and merges |
+| `branch_suggestions`, Suggest a branch | after you send | `max_shared_percent` (1 to 50, default 10): suggests when a message shares less than this share of its words with your recent questions |
+| `context_overflow_warn`, Watch the context window | before each turn | `warn_at_percent` (default 80), `compact_at_percent` (default 95; the warning must come first). Off: the meter still shows how full it is, but nothing warns and nothing is compacted for you |
+| `memory_capture`, Learn from corrections | after a turn | `mode`: what it keeps. Its switch and mode are memory capture's own (Admin → Memory): off is mode off, and on again brings the mode back |
+
+A push to the memory remote never prompts for a password (on a terminal, in a credential manager or over ssh): it fails and says why, and a remote's credentials (`https://user:token@…`) never appear in Admin.
 
 **Your own automations** are made in Admin → Automations → New automation and live only in the database:
 
@@ -352,7 +353,8 @@ ANCILE_DOCKER_PREFIX=nvx-ancile-
 
 # --- Memory backup (the "Back up memory" automation) ---
 # A git remote the memory folder is pushed to every hour (or remote in
-# config/memory.yaml). Empty: no backup, and Admin shows it as "Not set up".
+# config/memory.yaml, or one saved in Admin → Automations or Settings → API
+# keys). Empty: no backup, and Admin shows it as off and "Not set up".
 ANCILE_MEMORY_REMOTE=
 
 # --- Editions and statistics ---

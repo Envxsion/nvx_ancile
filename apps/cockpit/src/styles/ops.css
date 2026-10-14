@@ -1905,10 +1905,38 @@ button.logline__row:hover {
   font-size: 11px;
 }
 .auto-events .row {
-  grid-template-columns: auto minmax(0, 16em) minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.auto-event__names {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 .auto-events .row__meta {
   text-align: left;
+}
+.auto-event__set {
+  font-size: var(--t-micro);
+}
+.auto-event:not([data-on]) .row__title {
+  color: var(--fg-3);
+}
+.auto-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.auto-test__result {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-small);
+  color: var(--ok);
+}
+.auto-test__result[data-ok='false'] {
+  color: var(--warn);
 }
 .activate {
   align-items: flex-start;

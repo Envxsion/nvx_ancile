@@ -159,6 +159,15 @@ class EmbedIndex(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=_now())
 
 
+class AutomationSettings(Base):
+    """One row: the last automation settings Core sent (0005, automations.py); none means defaults."""
+
+    __tablename__ = "automation_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=_now())
+
+
 class Insight(Base):
     __tablename__ = "insights"
     id: Mapped[str] = mapped_column(String, primary_key=True)

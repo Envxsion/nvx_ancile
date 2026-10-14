@@ -24,9 +24,11 @@
           |            stage they reached; elsewhere an expired lease
           |            is simply claimable again
           |  The same loop runs maintenance: the stale-URL sweep every
-          |  KNOWLEDGE_STALE_CHECK_HOURS, and a background re-embed
-          |  when the embedding model changes (ingest/reembed.py: a
-          |  check every minute, one batch whenever no source waits).
+          |  KNOWLEDGE_STALE_CHECK_HOURS while the stale_sources
+          |  automation is on (automations.py), and a background
+          |  re-embed when the embedding model changes
+          |  (ingest/reembed.py: a check every minute, one batch
+          |  whenever no source waits).
  Note     |  Why not Procrastinate: its worker needs psycopg's async
           |  connection, which cannot run on Windows' default Proactor
           |  event loop (uvicorn's choice there), and this queue needs
@@ -50,6 +52,7 @@ from typing import Any
 import structlog
 from sqlalchemy import text
 
+from . import automations
 from .db import sessions
 from .errors import AncileError
 from .ingest import pipeline, reembed
@@ -280,6 +283,10 @@ class Worker:
 
         self._next_maintenance = time.monotonic() + get_settings().stale_check_hours * 3600
         try:
+            # Read when the sweep is due, so switching it on or off applies from the next one.
+            if not automations.current().stale_sources.enabled:
+                log.info("stale sweep skipped: the stale_sources automation is off")
+                return
             result = await stale.sweep()
             log.info("stale sweep", **result)
         except Exception:

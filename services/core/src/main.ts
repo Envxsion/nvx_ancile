@@ -37,11 +37,14 @@ import {
   AutomationRunner,
   builtinOptions,
   jobSetup,
+  memoryCaptureLink,
   PgAutomationStore,
   scheduledJobs,
+  testMemoryPush,
   userJobs,
 } from './automations';
 import { automationRoutes } from './automations/routes';
+import { BuiltinSettings, KnowledgeSync } from './automations/settings';
 import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
@@ -59,7 +62,7 @@ import { chatTurnHandler } from './conductor/pipeline';
 import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './conductor/retrieval';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
-import { credentialRoutes, ENV_FOR_SECRET, MEMORY_REMOTE_SECRET } from './credentials/routes';
+import { credentialRoutes, ENV_FOR_SECRET, GIT_REMOTE, MEMORY_REMOTE_SECRET } from './credentials/routes';
 import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
 import { type Prepared, prepareDatabase } from './db/prepare';
@@ -353,6 +356,12 @@ async function main() {
   const notifications = new PgNotificationStore(sql, owner.userId);
   startNotificationSink(events, notifications);
   const settings = new PgSettings(sql);
+  // The built-in automations' switches and settings, read by the features they serve.
+  const automationStore = new PgAutomationStore(sql);
+  const builtinSettings = new BuiltinSettings(config.automations?.jobs ?? {}, automationStore);
+  await builtinSettings
+    .refresh()
+    .catch((err: unknown) => log.warn({ err }, 'automation settings not read; using the defaults'));
   const savedSecrets = new PgSecretStore(sql, new SecretBox(env.ANCILE_SECRET_KEY));
   const imported = await importEnvKeys(savedSecrets, process.env);
   // A key set in the environment wins over the saved one (Settings → API keys shows it read-only).
@@ -997,6 +1006,7 @@ async function main() {
         memory,
         engineContext: gatewayContextHook({ threads, store: engineStore }),
         links: contextLinks,
+        switches: builtinSettings,
         // Grounded mode (DESIGN.md §10.7): every answer in the notebook is fact-checked.
         afterAnswer: async (a) => {
           // Pro (Flow lab): a shadow flow answers the same question off the record. Never awaited.
@@ -1165,13 +1175,24 @@ async function main() {
       memoryRemote: async () => memoryRemote ?? (await secrets.get(MEMORY_REMOTE_SECRET)),
       retention,
     }),
-    new PgAutomationStore(sql),
+    automationStore,
     undefined,
     {
       setup: jobSetup({ memoryRemote: () => memoryRemote ?? savedRemote }),
       options: builtinOptions(retention),
+      // "Learn from corrections" is memory capture's own mode (Admin → Memory).
+      linked: { memory_capture: memoryCaptureLink({ memory, settings }) },
+      // A switch or a setting changed here reaches the features (and the knowledge service) at once.
+      onChange: () => builtinSettings.refresh(),
       userHandlers: userJobs({
-        turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
+        turn: {
+          repo: threads,
+          runs: runStore,
+          worker,
+          registry,
+          branches: branchStore,
+          switches: builtinSettings,
+        },
         workspaceId: owner.workspaceId,
         kn,
         bus: events,
@@ -1184,6 +1205,11 @@ async function main() {
     },
   );
   await automations.start().catch((err: unknown) => log.error({ err }, 'automations did not start'));
+  // Now every built-in has its row: read them, keep reading, and tell the knowledge service its own.
+  await builtinSettings.refresh().catch((err: unknown) => log.warn({ err }, 'automation settings not read'));
+  builtinSettings.start();
+  const knowledgeSync = new KnowledgeSync(builtinSettings, kn);
+  knowledgeSync.start();
   const mcpClients = new PgMcpClientStore(sql);
   const mcpServe = mcpEndpoint({
     clients: mcpClients,
@@ -1404,7 +1430,14 @@ async function main() {
         store: obsStore,
         runs: runStore,
         runEvents,
-        turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
+        turn: {
+          repo: threads,
+          runs: runStore,
+          worker,
+          registry,
+          branches: branchStore,
+          switches: builtinSettings,
+        },
       }),
       healthRoutes({ supervisor: () => supervisor }),
       diagnosticRoutes({ runner: diagnostics }),
@@ -1413,6 +1446,17 @@ async function main() {
         notebookExists: notebookInWorkspace,
         flowExists,
         registry,
+        tests: {
+          // Test push: the remote typed in the dialog, else the one in use. Nothing is changed there.
+          memory_backup: async (req) => {
+            const typed = typeof req.remote === 'string' ? req.remote.trim() : '';
+            if (typed && !GIT_REMOTE.test(typed))
+              return { ok: false, detail: "That doesn't look like a git remote." };
+            const remote = typed || memoryRemote || (await secrets.get(MEMORY_REMOTE_SECRET));
+            if (!remote) return { ok: false, detail: 'No remote is set yet. Type one to test it.' };
+            return testMemoryPush(resolve(env.ANCILE_DATA_DIR, 'memory'), remote);
+          },
+        },
       }),
       mcpClientRoutes({
         clients: mcpClients,
@@ -1431,7 +1475,14 @@ async function main() {
         runs: runStore,
         worker,
         tools,
-        turn: { repo: threads, runs: runStore, worker, registry, branches: branchStore },
+        turn: {
+          repo: threads,
+          runs: runStore,
+          worker,
+          registry,
+          branches: branchStore,
+          switches: builtinSettings,
+        },
       }),
       threadRoutes({
         afterDelete: (id) => imageStore.deleteThread(id),
@@ -1444,12 +1495,14 @@ async function main() {
         flowStore,
         branches: branchStore,
         sendLocks,
+        switches: builtinSettings,
         afterSend: branchSuggester({
           gateway,
           registry,
           promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
           repo: threads,
           bus: events,
+          switches: builtinSettings,
         }),
       }),
       branchRoutes({
@@ -1460,6 +1513,7 @@ async function main() {
         gateway,
         registry,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
+        switches: builtinSettings,
       }),
       // Room on the disk before a source is added (system/disk.ts).
       sourceDiskGuard({ dataDir }),
@@ -1577,8 +1631,10 @@ async function main() {
             disconnect: () => disconnectRunPod(compute, savedSecrets),
           },
         }),
-        onChange: (id) => {
+        onChange: async (id) => {
           if (id === 'github') github.forget?.();
+          // The backup's "Not set up" follows a remote saved or removed here at once.
+          if (id === 'memory_remote') await readSavedRemote();
         },
       }),
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
@@ -1740,6 +1796,8 @@ async function main() {
     wake.stop();
     supervisor.stop();
     automations.stop();
+    builtinSettings.stop();
+    knowledgeSync.stop();
     licence.stop();
     proFeatures?.stop?.();
     telemetry.stop();

@@ -251,14 +251,46 @@ export const AutomationOption = z.object({
   key: z.string(),
   label: z.string(),
   hint: z.string().nullable(),
-  type: z.enum(['integer', 'boolean']),
+  /** integer: a whole number within min..max; boolean: a switch; choice: one of `choices`. */
+  type: z.enum(['integer', 'boolean', 'choice']),
   min: z.number().nullable(),
   max: z.number().nullable(),
-  /** Shown after the field: "days", "hours". */
+  /** Shown after the field: "days", "hours", "%". */
   unit: z.string().nullable(),
-  default: z.union([z.number(), z.boolean()]),
+  default: z.union([z.number(), z.boolean(), z.string()]),
+  /** For a choice: the values it takes, with their words. */
+  choices: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
 });
 export type AutomationOption = z.infer<typeof AutomationOption>;
+
+/**
+ * The switch and settings of the built-in jobs that run inside the knowledge
+ * service. Core owns them (core.automations) and sends the whole set with
+ * PUT /kn/v1/maintenance/automations at start and after every change; the
+ * knowledge service keeps the last set it was sent, so a restart of either
+ * keeps them. Mirrored in services/knowledge/ancile_knowledge/automations.py.
+ */
+export const KnowledgeAutomations = z
+  .object({
+    auto_tag_sources: z
+      .object({ enabled: z.boolean(), max_tags: z.number().int().min(1).max(20) })
+      .strict(),
+    duplicate_sources: z
+      .object({ enabled: z.boolean(), near_duplicate_percent: z.number().int().min(50).max(100) })
+      .strict(),
+    stale_sources: z
+      .object({ enabled: z.boolean(), url_stale_after_days: z.number().int().min(1).max(365) })
+      .strict(),
+  })
+  .strict();
+export type KnowledgeAutomations = z.infer<typeof KnowledgeAutomations>;
+
+/** What the knowledge service does before Core has sent anything: today's behaviour. */
+export const DEFAULT_KNOWLEDGE_AUTOMATIONS: KnowledgeAutomations = {
+  auto_tag_sources: { enabled: true, max_tags: 5 },
+  duplicate_sources: { enabled: true, near_duplicate_percent: 90 },
+  stale_sources: { enabled: true, url_stale_after_days: 7 },
+};
 
 export const AutomationView = z.object({
   id: z.string(),
