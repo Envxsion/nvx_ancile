@@ -41,7 +41,7 @@ import { WhyDemo } from './WhyDemo';
 
 const OUTCOME: Record<NonNullable<Explain['tools'][number]['decision']>['outcome'], string> = {
   auto: 'Allowed on its own (read-only)',
-  grant: 'Allowed by a rule you made',
+  grant: 'Allowed by a permission you saved',
   approved: 'You approved it',
   denied: 'You declined it',
   policy_deny: 'Blocked by a policy',

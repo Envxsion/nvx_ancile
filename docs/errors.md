@@ -68,7 +68,7 @@ Rules for new codes:
 | `permission.denied` | 403 | "You declined this action." / (Given to the model as a tool result.) |
 | `permission.critical_not_rememberable` | 422 | "Critical actions can't be remembered." / Approve this once instead. |
 | `permission.scope_too_wide` | 422 | "Careful remembers answers for this thread only." / Choose "In this thread" or "Just this once", or switch to Balanced in Admin → Permissions. |
-| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a grant would widen its pattern ("That pattern is wider than the one you granted"). |
+| `permission.pattern_too_broad` | 422 | "That pattern is wider than this tool allows." / Choose a suggested pattern or a narrower one. Also when the pattern doesn't cover what was asked, and when editing a saved permission would widen its pattern ("That pattern is wider than the one you granted"). |
 | `permission.restore_expired` | 410 | "Too late to undo that revocation." / Undo works for ten minutes after revoking; the agent will ask again next time. |
 | `permission.edit_needs_once` | 422 | "Changed arguments can only be approved once." / Choose "Just this once" to run it with your changes, or approve the original. |
 | `permission.args_not_editable` | 422 | "This tool's arguments can't be changed." / Approve or deny it as it is. |

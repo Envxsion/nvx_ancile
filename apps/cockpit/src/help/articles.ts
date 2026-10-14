@@ -324,7 +324,7 @@ A line above the composer says what the session is doing: **Claude Code ready in
 Choose the **model** and **effort** for the next message with the two buttons in the composer's bar. A message you send while Claude Code works waits as **Queued** and goes when the turn ends.
 
 **Commands**
-Type **/** for Claude Code's own commands for this folder: built-ins, your skills, plugins, MCP prompts and custom commands, each with what it does. Keep typing to narrow the list, use the arrow keys, and press Tab or Enter. A command with set values (such as **/effort** or **/model**) offers them next. A few commands open the matching part of NVX Ancile instead of being sent: **/mcp** opens Plugins, **/permissions** opens Grants, **/context** and **/cost** open usage, **/branch** branches here, **/rewind** opens the branch tree, **/login** opens Claude Code sign-in. Commands that only work in a terminal say so and are not sent.
+Type **/** for Claude Code's own commands for this folder: built-ins, your skills, plugins, MCP prompts and custom commands, each with what it does. Keep typing to narrow the list, use the arrow keys, and press Tab or Enter. A command with set values (such as **/effort** or **/model**) offers them next. A few commands open the matching part of NVX Ancile instead of being sent: **/mcp** opens Plugins, **/permissions** opens Permissions, **/context** and **/cost** open usage, **/branch** branches here, **/rewind** opens the branch tree, **/login** opens Claude Code sign-in. Commands that only work in a terminal say so and are not sent.
 
 **Approvals, with your changes**
 Every tool call Claude Code makes is checked by NVX Ancile first. When one asks, the approval can be changed before it runs: press **Edit before allowing**, change the command, the edit or the file, then **Allow once with changes**. NVX Ancile checks the changed call again; if it is refused, the dialog says why and stays open. Changes apply to that one call, so nothing is remembered while you edit.
@@ -345,7 +345,8 @@ Rewinds you made in Claude Code come in as branches. Edit an earlier message, tr
         id: 'approvals',
         title: 'Approvals',
         summary: 'Once, always, or every time: you decide what the AI may do.',
-        keywords: 'approval permission allow deny grant always once tier critical gated',
+        keywords:
+          'approval permission permissions allow deny grant grants always once tier critical gated expired',
         tour: 'approve',
         body: `Every tool call is checked at the moment it runs, on its real arguments. There are three tiers:
 
@@ -355,7 +356,7 @@ Rewinds you made in Claude Code come in as branches. Edit an earlier message, tr
 
 While the AI waits, the mark in the top-left closes like a shield and the status bar counts the decisions waiting. You can leave and come back: the run waits for you, even across a restart.
 
-Admin → Permissions lists everything you have allowed. A grant's **⋯** menu can **Edit** it, to narrow its pattern, change where it applies or set when it expires, or **Revoke** it. A pattern can only be narrowed there; to allow more, revoke it and answer the next request. Revoking asks first, and **Undo** on the notice puts it back for ten minutes.`,
+Admin → Permissions lists everything you have allowed. A saved permission's **⋯** menu can **Edit** it, to narrow its pattern, change where it applies or set when it expires, or **Revoke** it. One past its expiry no longer counts: it is marked **Expired**, and **Show: Expired** lists only those, so you can renew or revoke them. A pattern can only be narrowed there; to allow more, revoke it and answer the next request. Revoking asks first, and **Undo** on the notice puts it back for ten minutes.`,
       },
       {
         id: 'presets',
@@ -555,7 +556,8 @@ For an answer, **Replay the run** steps through it like a recording: \`←\` and
         id: 'automations',
         title: 'Automations',
         summary: 'What NVX Ancile does on its own, and when.',
-        keywords: 'automations schedule cron cleanup backup stale links run now new edit reset reminder flow events switch tags duplicates drafts context test push remote',
+        keywords:
+          'automations schedule cron cleanup backup stale links run now new edit reset reminder flow events switch tags duplicates drafts context test push remote',
         body: `**Admin → Automations** lists the work NVX Ancile does by itself. Scheduled jobs (clean-up, memory backup, checking links for changes) show when they last ran, how it went, and when they run next. The switch stops a schedule; the **⋯** menu has **Edit**, **Run now** and **Reset to default**.
 
 **On events** lists the jobs that run as you work: naming new threads, tagging sources, spotting duplicates, suggesting a branch, watching the context window, saving drafts and learning from corrections. Each has a switch, and **Edit** for its settings, such as how many tags a source gets or how full the context gets before it is compacted.
@@ -575,7 +577,7 @@ The jobs that run on events, like naming a new thread or learning from a correct
         keywords: 'mcp connect app editor token plugin search server grant',
         body: `Apps that speak MCP (editors, desktop assistants) can search your sources and memory. In **Admin → Plugins → Connect an app**, name the app and tick what it may do. You get a token and a ready-made config to paste into the app, shown once.
 
-Every call the app makes is checked like the assistant's own and recorded in **Decisions**. **Disconnect** stops its token at once; you can also take back one kind of access in **Grants**.
+Every call the app makes is checked like the assistant's own and recorded in **Decisions**. **Disconnect** stops its token at once; you can also take back one kind of access in **Admin → Permissions**.
 
 For apps that only start commands, run the stdio bridge with your token in \`ANCILE_MCP_TOKEN\`.`,
       },

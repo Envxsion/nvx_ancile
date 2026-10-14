@@ -23,7 +23,7 @@ export interface ConfirmCopy {
   title: string;
   /** What happens, and what does not. */
   body: ReactNode;
-  /** Says what happens: "Remove repo", "Revoke grant". */
+  /** Says what happens: "Remove repo", "Revoke permission". */
   action: string;
   /** The way out. Defaults to "Cancel". */
   keep?: string;

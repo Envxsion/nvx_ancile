@@ -1,6 +1,6 @@
 /**
  * ------------------------------------------------------------------
- *  Title    |  Edit and revoke a grant
+ *  Title    |  Edit and revoke a saved permission
  *  Ref      |  DESIGN.md §5.4 · Admin → Permissions
  *  ID       |  cockpit
  * ------------------------------------------------------------------
@@ -73,7 +73,7 @@ export async function restoreGrant(g: Pick<Grant, 'id'>): Promise<void> {
     void refresh();
     notify({
       level: 'success',
-      title: 'Grant restored',
+      title: 'Permission restored',
       body: 'The agent can do this without asking again.',
     });
   } catch (e) {
@@ -92,10 +92,10 @@ function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void
     mutationFn: (body: Record<string, unknown>) => api.patch<Grant>(`/grants/${grant.id}`, body),
     onSuccess: () => {
       void refresh();
-      notify({ level: 'success', title: 'Grant saved', body: 'It applies from the next check.' });
+      notify({ level: 'success', title: 'Permission saved', body: 'It applies from the next check.' });
       onClose();
     },
-    onError: (e) => failed(e, 'Saving the grant'),
+    onError: (e) => failed(e, 'Saving the permission'),
   });
   const submit = () => {
     const body = grantPatch(grant, { pattern, scope, expiry });
@@ -213,7 +213,7 @@ export function GrantMenu({ grant }: { grant: Grant }) {
                     The agent will ask again before <code>{what}</code>. You can undo this for ten minutes.
                   </>
                 ),
-                action: 'Revoke grant',
+                action: 'Revoke permission',
               }),
           },
         ]}

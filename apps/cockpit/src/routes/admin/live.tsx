@@ -4,7 +4,8 @@
  *  ID       |  cockpit
  * ------------------------------------------------------------------
  *  Purpose  |  The admin views that have real data in Phase 2: health
- *           |  from the supervisor, remembered grants (with revoke),
+ *           |  from the supervisor, saved permissions (with revoke,
+ *           |  and expired ones marked and filterable),
  *           |  the decision log, and models and their readiness. The
  *           |  routing chain editor is RoutingEditor.tsx.
  *  How      |  Plain React Query reads; writes invalidate what they
@@ -15,8 +16,9 @@
 
 import type { Decision, Grant } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { CSSProperties } from 'react';
+import { type CSSProperties, useState } from 'react';
 import { GRANT_SCOPE_WORDS, GrantMenu } from '../../approvals/GrantMenu';
+import { expiryWords, filterGrants, type GrantFilter, isExpired } from '../../approvals/grantState';
 import { PresetPicker } from '../../approvals/preset';
 import { ApiCallError, api } from '../../lib/api';
 import { useModels, useSystemHealth } from '../../lib/data';
@@ -28,6 +30,7 @@ import { ModelMenu } from '../../models/EditModel';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
 import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
+import { Segmented } from '../../ui/controls';
 import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
 import { EmptyState, Skeleton, StatusDot } from '../../ui/primitives';
@@ -120,16 +123,21 @@ export function LiveHealth() {
   );
 }
 
+const GRANT_FILTERS: { value: GrantFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'expired', label: 'Expired' },
+];
+
 export function LiveGrants() {
   const grants = useQuery({
     queryKey: ['grants'],
     queryFn: () => api.get<{ items: Grant[] }>('/grants').then((r) => r.items),
   });
-  if (grants.isPending) return <Skeleton lines={4} label="Loading grants" />;
+  const [filter, setFilter] = useState<GrantFilter>('all');
+  if (grants.isPending) return <Skeleton lines={4} label="Loading permissions" />;
   if (grants.isError && !grants.data)
-    return (
-      <LoadFailed error={grants.error} what="Remembered permissions" onRetry={() => void grants.refetch()} />
-    );
+    return <LoadFailed error={grants.error} what="Saved permissions" onRetry={() => void grants.refetch()} />;
   const items = grants.data ?? [];
   if (items.length === 0)
     return (
@@ -137,60 +145,98 @@ export function LiveGrants() {
         <PresetPicker />
         <EmptyState
           icon="shield"
-          title="Nothing remembered yet"
+          title="No saved permissions yet"
           body="When you approve an action and choose to remember it, it appears here, ready to narrow or revoke."
         />
       </>
     );
+  const now = Date.now();
+  const expired = items.filter((g) => isExpired(g, now)).length;
+  const shown = filterGrants(items, filter, now);
   return (
     <>
       <PresetPicker />
-      <p className="mute admin__lede">
-        What the agent may do without asking, because you said so. Narrow or revoke any of it from its menu.
-      </p>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Action</th>
-            <th>Pattern</th>
-            <th>Where</th>
-            <th>Used</th>
-            <th>Expires</th>
-            <th>
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((g) => (
-            <tr key={g.id}>
-              <td data-num>
-                {g.effect === 'deny' ? 'Never ' : ''}
-                {g.action_pattern}
-              </td>
-              <td data-num className="table__mono">
-                {g.resource_pattern}
-              </td>
-              <td>{GRANT_SCOPE_WORDS[g.scope]}</td>
-              <td>
-                <span data-num>{g.uses}</span>
-                {g.last_used_at ? <span className="mute"> · {relative(g.last_used_at)}</span> : null}
-              </td>
-              <td>{g.expires_at ? relative(g.expires_at).replace(' ago', '') : 'Never'}</td>
-              <td>
-                <GrantMenu grant={g} />
-              </td>
+      <div className="grants__bar">
+        <p className="mute admin__lede">
+          What the agent may do without asking, because you said so. Narrow or revoke any of it from its menu.
+          An expired one no longer counts.
+        </p>
+        <Segmented
+          label="Show"
+          size="sm"
+          value={filter}
+          onChange={setFilter}
+          options={GRANT_FILTERS.map((f) => ({
+            value: f.value,
+            label:
+              f.value === 'expired'
+                ? `Expired ${expired}`
+                : f.value === 'active'
+                  ? `Active ${items.length - expired}`
+                  : `All ${items.length}`,
+          }))}
+        />
+      </div>
+      {shown.length === 0 ? (
+        <p className="mute grants__none">
+          {filter === 'expired' ? 'Nothing has expired.' : 'Every saved permission has expired.'}
+        </p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Pattern</th>
+              <th>Where</th>
+              <th>Used</th>
+              <th>Expires</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {shown.map((g) => {
+              const gone = isExpired(g, now);
+              return (
+                <tr key={g.id} data-expired={gone || undefined}>
+                  <td data-num>
+                    {g.effect === 'deny' ? 'Never ' : ''}
+                    {g.action_pattern}
+                  </td>
+                  <td data-num className="table__mono">
+                    {g.resource_pattern}
+                  </td>
+                  <td>{GRANT_SCOPE_WORDS[g.scope]}</td>
+                  <td>
+                    <span data-num>{g.uses}</span>
+                    {g.last_used_at ? <span className="mute"> · {relative(g.last_used_at)}</span> : null}
+                  </td>
+                  <td>
+                    {gone ? (
+                      <span className="grant-expired">
+                        <Icon name="clock" size={11} />
+                        Expired
+                      </span>
+                    ) : null}{' '}
+                    <span className={gone ? 'mute' : undefined}>{expiryWords(g, now)}</span>
+                  </td>
+                  <td>
+                    <GrantMenu grant={g} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }
 
 const OUTCOME_WORDS: Record<Decision['outcome'], string> = {
   auto: 'Allowed (no need to ask)',
-  grant: 'Allowed (remembered)',
+  grant: 'Allowed (a saved permission)',
   approved: 'You approved',
   denied: 'Declined',
   policy_deny: 'Blocked by a policy',

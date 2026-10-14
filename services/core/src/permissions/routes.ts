@@ -416,7 +416,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
         throw new AncileError({
           code: 'permission.pattern_too_broad',
           title: 'That pattern is wider than the one you granted',
-          hint: `An edit can only narrow a grant. Choose a pattern inside ${g.resource_pattern}, or revoke this one and answer the next request afresh.`,
+          hint: `An edit can only narrow a saved permission. Choose a pattern inside ${g.resource_pattern}, or revoke this one and answer the next request afresh.`,
           status: 422,
           errorClass: 'permanent',
         });
@@ -453,7 +453,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
               req.scope === 'notebook'
                 ? 'The thread this came from is not in a notebook'
                 : 'NVX Ancile no longer knows where this grant came from',
-            hint: 'Choose another scope, or revoke this grant and answer the next request afresh.',
+            hint: 'Choose another scope, or revoke this permission and answer the next request afresh.',
             status: 422,
             errorClass: 'permanent',
           });

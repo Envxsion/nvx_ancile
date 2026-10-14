@@ -131,7 +131,7 @@ With Claude Code installed and verified, `claude-code/default`, `claude-code/opu
 
 ### Approvals
 
-Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Grants), so Claude Code asks again next time and the grant answers.
+Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Permissions), so Claude Code asks again next time and the grant answers.
 
 | Claude Code tool | Checked as | Resource | Tier |
 |---|---|---|---|

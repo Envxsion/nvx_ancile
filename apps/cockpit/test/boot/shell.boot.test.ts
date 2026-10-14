@@ -60,7 +60,7 @@ describe('boot: routes', () => {
     const required = [
       'health',
       'compute',
-      'grants',
+      'permissions',
       'decisions',
       'memory',
       'logs',

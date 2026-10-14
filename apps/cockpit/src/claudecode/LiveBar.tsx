@@ -448,7 +448,7 @@ export function useCcActions(opts: {
         case 'open_mcp':
           return void navigate({ to: '/admin/$section', params: { section: 'plugins' } });
         case 'open_permissions':
-          return void navigate({ to: '/admin/$section', params: { section: 'grants' } });
+          return void navigate({ to: '/admin/$section', params: { section: 'permissions' } });
         case 'open_usage':
           return patchCc(threadId, { usageOpen: true });
         case 'branch':

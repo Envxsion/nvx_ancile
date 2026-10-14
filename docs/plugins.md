@@ -61,7 +61,7 @@ const saveSnippet = defineTool({
 });
 ```
 
-`resource()` is the important part. Ancile checks the permission on the URI it returns, using the real arguments, before your handler runs. So the handler can assume it's allowed. Grants then match on patterns: approving `fs:/workspace/snippets/**` once covers every later snippet.
+`resource()` is the important part. Ancile checks the permission on the URI it returns, using the real arguments, before your handler runs. So the handler can assume it's allowed. Saved permissions then match on patterns: approving `fs:/workspace/snippets/**` once covers every later snippet.
 
 ### 3. Serve it over MCP
 

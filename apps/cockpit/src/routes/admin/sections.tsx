@@ -3,7 +3,7 @@
  *  Title    |  Admin sections
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  Every admin view the design calls for. Health, grants,
+ *  Purpose  |  Every admin view the design calls for. Health, permissions,
  *           |  decisions, models and routing read Core (live.tsx).
  *           |  The rest show the sample workspace in demo mode, and an
  *           |  empty state saying what will live there, and when,
@@ -290,7 +290,7 @@ function Decisions() {
     <EmptyState
       icon="shield"
       title="Every permission decision, in order"
-      body="Each automatic allow, remembered grant, approval and refusal will be listed here with a link to the trace. One decision is waiting on you now."
+      body="Each automatic allow, saved permission, approval and refusal will be listed here with a link to the trace. One decision is waiting on you now."
       action={{ label: 'Review the waiting request', onClick: () => setApproval(true) }}
     />
   );
@@ -332,7 +332,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     group: 'System',
     render: () => <TracesScreen />,
   },
-  { id: 'grants', label: 'Grants', icon: 'shield', group: 'Trust', render: demoOr(Grants, LiveGrants) },
+  {
+    id: 'permissions',
+    label: 'Permissions',
+    icon: 'shield',
+    group: 'Trust',
+    render: demoOr(Grants, LiveGrants),
+  },
   {
     id: 'decisions',
     label: 'Decisions',

@@ -427,6 +427,13 @@ export function Palette() {
       run: go('/admin/$section', { section: 'automations' }),
     },
     {
+      id: 'permissions',
+      label: 'Open permissions',
+      icon: 'shield',
+      words: 'grants allowed remembered revoke expired preset careful balanced',
+      run: go('/admin/$section', { section: 'permissions' }),
+    },
+    {
       id: 'memory',
       label: 'Search memory',
       icon: 'memory',

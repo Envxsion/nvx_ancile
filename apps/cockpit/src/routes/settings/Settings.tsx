@@ -338,7 +338,7 @@ export function SettingsScreen() {
             <span>Models</span>
             <Icon name="ext" size={11} className="settings__ext" />
           </Link>
-          <Link to="/admin/$section" params={{ section: 'grants' }} className="settings__link">
+          <Link to="/admin/$section" params={{ section: 'permissions' }} className="settings__link">
             <Icon name="shield" size={14} />
             <span>Permissions</span>
             <Icon name="ext" size={11} className="settings__ext" />

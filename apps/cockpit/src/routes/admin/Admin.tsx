@@ -3,12 +3,12 @@
  *  Title    |  Admin
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  One place for the machinery: health, compute, grants,
+ *  Purpose  |  One place for the machinery: health, compute, permissions,
  *           |  memory, logs and the rest, grouped by what they are for.
  * ------------------------------------------------------------------
  */
 
-import { Link, Outlet, useParams } from '@tanstack/react-router';
+import { Link, Navigate, Outlet, useParams } from '@tanstack/react-router';
 import { Icon } from '../../ui/Icon';
 import { EmptyState } from '../../ui/primitives';
 import { ADMIN_SECTIONS, type AdminSection } from './sections';
@@ -52,6 +52,9 @@ export function AdminLayout() {
 
 export function AdminSectionScreen() {
   const { section } = useParams({ strict: false });
+  // Permissions were called Grants: an old link still lands there.
+  if (section === 'grants')
+    return <Navigate to="/admin/$section" params={{ section: 'permissions' }} replace />;
   const found = ADMIN_SECTIONS.find((s) => s.id === section);
   if (!found)
     return (
