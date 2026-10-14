@@ -24,6 +24,7 @@ import { useLayer } from '../keys/dispatch';
 import { type ConfirmCopy, ConfirmDialog } from '../ui/Confirm';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { DropMenu } from '../ui/Menu';
 import { Skeleton } from '../ui/primitives';
 import { type ComputeNode, deleteRule, type Rule, saveRule, useNodes, useRules } from './data';
@@ -441,7 +442,8 @@ export function Rules() {
         <h3 id="rules-h" className="admin__h">
           Rules
         </h3>
-        <div className="compute__adds">
+        {/* Until the rules are known, adding one could repeat a rule already there. */}
+        <div className="compute__adds" hidden={!rules.data}>
           {!has('idle_timeout') ? (
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => add('idle_timeout')}>
               <Icon name="plus" size={13} />
@@ -466,6 +468,8 @@ export function Rules() {
       </p>
       {rules.isPending ? (
         <Skeleton lines={3} label="Loading rules" />
+      ) : rules.isError && !rules.data ? (
+        <LoadFailed compact error={rules.error} what="Rules" onRetry={() => rules.refetch()} />
       ) : items.length === 0 ? (
         <p className="mute">No rules yet. An idle stop is the one most people want first.</p>
       ) : (

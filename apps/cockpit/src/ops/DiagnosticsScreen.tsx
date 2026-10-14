@@ -22,8 +22,8 @@ import { relative } from '../lib/format';
 import { openStream } from '../lib/sse';
 import { Ticker } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
-import { EmptyState } from '../ui/primitives';
-import { CopyButton, duration, reportFailure } from './common';
+import { EmptyState, Skeleton } from '../ui/primitives';
+import { CopyButton, duration, LoadFailed, reportFailure } from './common';
 
 const GROUPS: { id: DiagnosticCheck['group']; title: string; icon: IconName }[] = [
   { id: 'data', title: 'Your data', icon: 'grid' },
@@ -220,6 +220,11 @@ export function DiagnosticsScreen() {
             );
           })}
         </div>
+      ) : recent.isPending ? (
+        <Skeleton lines={5} label="Loading the last self-check" />
+      ) : recent.isError && !recent.data ? (
+        // Not "No self-check yet": the earlier runs did not load.
+        <LoadFailed error={recent.error} what="Earlier self-checks" onRetry={() => recent.refetch()} />
       ) : (
         <EmptyState icon="factcheck" title="No self-check yet" body="Run one to see how everything stands." />
       )}

@@ -19,6 +19,8 @@ import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Segmented } from '../ui/controls';
+import { LoadFailed } from '../ui/LoadFailed';
+import { Skeleton } from '../ui/primitives';
 
 const KEY = ['permissions', 'preset'] as const;
 
@@ -69,6 +71,25 @@ export function PresetPicker() {
       notify({ level: 'error', title: 'The preset did not change', body: 'Nothing was changed. Try again.' }),
   });
   const value = change.isPending ? change.variables : (preset.data ?? 'balanced');
+  // Until Core says which preset is on, "Balanced" would be a guess shown as fact. (Demo data
+  // never asks, isLoading stays false, and the sample shows Balanced.)
+  if (preset.isLoading)
+    return (
+      <section className="preset-pick" aria-label="Permission preset">
+        <Skeleton lines={2} label="Loading the permission preset" />
+      </section>
+    );
+  if (preset.isError && preset.data === undefined)
+    return (
+      <section className="preset-pick" aria-label="Permission preset">
+        <LoadFailed
+          compact
+          error={preset.error}
+          what="The permission preset"
+          onRetry={() => preset.refetch()}
+        />
+      </section>
+    );
   return (
     <section className="preset-pick" aria-label="Permission preset">
       <Segmented<PermissionPreset>

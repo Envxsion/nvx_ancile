@@ -26,6 +26,8 @@ import { Block, matches, SearchContext } from '../routes/settings/rows';
 import { notify } from '../state/notify';
 import { Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
+import { Skeleton } from '../ui/primitives';
 import '../styles/telemetry.css';
 
 const KEY = ['telemetry'] as const;
@@ -116,41 +118,23 @@ export function PrivacyGroup() {
   return (
     <>
       <Block title="Usage statistics">
-        <div className="setting">
-          <div className="setting__words">
-            <div className="setting__label">
-              <span>Share anonymous usage stats</span>
-            </div>
-            <p className="setting__desc">{WHAT}</p>
+        {/* Until Core answers, the switch would claim "off" and the facts "never sent". */}
+        {status.isPending ? (
+          <div className="setting" data-stack>
+            <Skeleton lines={3} label="Loading usage statistics" />
           </div>
-          <div className="setting__control">
-            <Switch
-              label="Share anonymous usage stats"
-              checked={on}
-              onChange={(share) => consent.mutate(share)}
+        ) : status.isError && !s ? (
+          <div className="setting" data-stack>
+            <LoadFailed
+              compact
+              error={status.error}
+              what="Usage statistics"
+              onRetry={() => status.refetch()}
             />
           </div>
-        </div>
-        <div className="setting" data-stack>
-          <ul className="privacy__facts mute">
-            <li>
-              A random id is made when you turn this on, and erased when you turn it off, with everything
-              waiting to be sent.
-            </li>
-            <li>
-              Your licence, email and account are never linked to it. Only the edition (free or Pro) is sent.
-            </li>
-            <li>
-              {s?.endpoint
-                ? on
-                  ? s.last_sent_at
-                    ? `Last sent ${relative(s.last_sent_at)}. ${s.queued} waiting.`
-                    : `${s.queued} waiting to be sent.`
-                  : 'Nothing is sent while this is off.'
-                : 'This build has no statistics address, so nothing is ever sent from it.'}
-            </li>
-          </ul>
-        </div>
+        ) : (
+          <UsageRows on={on} s={s} onChange={(share) => consent.mutate(share)} />
+        )}
       </Block>
 
       <Block
@@ -162,23 +146,77 @@ export function PrivacyGroup() {
             <Icon name={showing ? 'chevronDown' : 'chevronRight'} size={13} />
             {showing ? 'Hide' : 'Show the next batch'}
           </button>
-          {showing ? (
+          {!showing ? null : preview.isPending ? (
+            <Skeleton lines={4} label="Loading the next batch" />
+          ) : preview.isError && !preview.data ? (
+            <LoadFailed
+              compact
+              error={preview.error}
+              what="The next batch"
+              onRetry={() => preview.refetch()}
+            />
+          ) : (
             <pre className="privacy__json" data-scrollable>
-              {preview.isPending
-                ? 'Loading…'
-                : JSON.stringify(
-                    {
-                      next_batch: preview.data?.batch ?? (on ? 'nothing queued' : 'sharing is off'),
-                      today_so_far: preview.data?.today ?? {},
-                      active_would_say: preview.data?.active ?? {},
-                    },
-                    null,
-                    2,
-                  )}
+              {JSON.stringify(
+                {
+                  next_batch: preview.data?.batch ?? (on ? 'nothing queued' : 'sharing is off'),
+                  today_so_far: preview.data?.today ?? {},
+                  active_would_say: preview.data?.active ?? {},
+                },
+                null,
+                2,
+              )}
             </pre>
-          ) : null}
+          )}
         </div>
       </Block>
+    </>
+  );
+}
+
+/** The switch and the facts, once Core has said what is set. */
+function UsageRows({
+  on,
+  s,
+  onChange,
+}: {
+  on: boolean;
+  s: telemetry.TelemetryStatus | undefined;
+  onChange: (share: boolean) => void;
+}) {
+  return (
+    <>
+      <div className="setting">
+        <div className="setting__words">
+          <div className="setting__label">
+            <span>Share anonymous usage stats</span>
+          </div>
+          <p className="setting__desc">{WHAT}</p>
+        </div>
+        <div className="setting__control">
+          <Switch label="Share anonymous usage stats" checked={on} onChange={onChange} />
+        </div>
+      </div>
+      <div className="setting" data-stack>
+        <ul className="privacy__facts mute">
+          <li>
+            A random id is made when you turn this on, and erased when you turn it off, with everything
+            waiting to be sent.
+          </li>
+          <li>
+            Your licence, email and account are never linked to it. Only the edition (free or Pro) is sent.
+          </li>
+          <li>
+            {s?.endpoint
+              ? on
+                ? s.last_sent_at
+                  ? `Last sent ${relative(s.last_sent_at)}. ${s.queued} waiting.`
+                  : `${s.queued} waiting to be sent.`
+                : 'Nothing is sent while this is off.'
+              : 'This build has no statistics address, so nothing is ever sent from it.'}
+          </li>
+        </ul>
+      </div>
     </>
   );
 }

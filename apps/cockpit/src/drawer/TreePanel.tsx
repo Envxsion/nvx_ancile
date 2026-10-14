@@ -182,14 +182,13 @@ export function LiveTree() {
     <div className="panel panel--tree">
       <div className="panel__bar">
         <span className="mute">
+          {/* No count until the tree is here: the canvas shows its skeleton, or what failed. */}
           {tree.data ? (
             <>
               <span data-num>{tree.data.total}</span> messages · <span data-num>{forks}</span>{' '}
               {forks === 1 ? 'fork' : 'forks'}
             </>
-          ) : (
-            'Loading'
-          )}
+          ) : null}
         </span>
         <Tip label="Full screen" binding="go.tree">
           <button

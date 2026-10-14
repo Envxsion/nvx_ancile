@@ -23,6 +23,9 @@ Rules for new codes:
 | `request.too_large` | 413 | "That request is too large." / Send less at once: the limit is 25 MB. |
 | `not_implemented` | 501 | "<Feature> is not built yet." / Names the release it arrives in. |
 | `auth.service_token` | 401 | "This endpoint is for Ancile services only." / Check that `ANCILE_SERVICE_TOKEN` matches across services. |
+| `http.unexpected` | any | "The server answered <status> without an explanation." / Copy the debug info and check the logs for this trace. The Cockpit's words for an error answer with no error body. |
+| `cockpit.offline` | none | "<What> could not be loaded." / NVX Ancile is not answering. Check that it is running, then try again. The Cockpit's words when Core never answered a read; a panel shows it with Try again, never an empty list (docs/ux.md). |
+| `cockpit.load_failed` | none | "<What> could not be loaded." / Try again. If it keeps failing, copy the debug info and report it. An answer the Cockpit could not read; what went wrong goes only into the debug info. |
 
 ### Providers and models (Gateway)
 

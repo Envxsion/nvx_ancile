@@ -39,9 +39,10 @@ import '@xyflow/react/dist/base.css';
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chordOf, isTyping } from '../keys/dispatch';
 import { keysFor, normalise } from '../keys/registry';
-import { api } from '../lib/api';
+import { ApiCallError, api } from '../lib/api';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Kbd, Skeleton, Tip } from '../ui/primitives';
 import { AddNode, type Pick } from './AddNode';
 import {
@@ -836,7 +837,16 @@ function Editor({
         <Skeleton lines={6} label="Opening the flow" />
       </div>
     );
-  if (flow.isError || !flow.data)
+  // Gone (a 404 for the flow) or a Core without flows is an answer; any other failure is not,
+  // and keeps the editor if it has the flow already, or offers Try again if not.
+  const gone = flow.error instanceof ApiCallError && flow.error.status === 404;
+  if (!flow.data && !gone && !needsCore(flow.error))
+    return (
+      <div className="feditor feditor--loading">
+        <LoadFailed error={flow.error} what="This flow" onRetry={() => flow.refetch()} />
+      </div>
+    );
+  if (gone || !flow.data)
     return (
       <div className="feditor feditor--loading">
         <EmptyState

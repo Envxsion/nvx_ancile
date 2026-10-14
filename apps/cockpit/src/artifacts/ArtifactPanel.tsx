@@ -33,6 +33,7 @@ import { MD_COMPONENTS } from '../thread/Citations';
 import { CodeBlock } from '../thread/Code';
 import { REMARK_PLUGINS } from '../thread/mdPlugins';
 import { Icon } from '../ui/Icon';
+import { StaleNotice } from '../ui/LoadFailed';
 import { Tip } from '../ui/primitives';
 import { ArtifactFrame, type ArtifactOffer } from './ArtifactFrame';
 import { FRAMED, fileName, mimeOf, saveFile, TYPE_ICON, TYPE_LABEL } from './meta';
@@ -423,6 +424,16 @@ export function ArtifactPanel() {
                     },
                   );
                 }}
+              />
+            ) : null}
+
+            {/* The card's own copy stays on screen; say the thread's versions did not load. */}
+            {list.isError ? (
+              <StaleNotice
+                error={list.error}
+                what="This artifact's versions"
+                note={list.data ? undefined : 'This is the copy in the answer.'}
+                onRetry={() => list.refetch()}
               />
             ) : null}
 

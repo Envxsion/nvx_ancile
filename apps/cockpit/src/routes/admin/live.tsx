@@ -31,8 +31,9 @@ import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModel
 import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
 import { Segmented } from '../../ui/controls';
-import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
+// A read that failed says so, with a retry, rather than passing for an empty list.
+import { LoadFailed } from '../../ui/LoadFailed';
 import { EmptyState, Skeleton, StatusDot } from '../../ui/primitives';
 
 const SERVICE_LABEL: Record<string, string> = {
@@ -43,19 +44,6 @@ const SERVICE_LABEL: Record<string, string> = {
   controller: 'Controller',
   disk: 'Disk space',
 };
-
-/** A read that failed says so, with a retry, rather than passing for an empty list. */
-function LoadFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => void }) {
-  if (error instanceof ApiCallError) return <ErrorState error={error.body} onRetry={onRetry} />;
-  return (
-    <EmptyState
-      icon="alert"
-      title={`${what} could not be loaded`}
-      body="Core did not answer. Check that NVX Ancile is running, then try again."
-      action={{ label: 'Try again', onClick: onRetry }}
-    />
-  );
-}
 
 function failed(error: unknown, what: string) {
   notify({

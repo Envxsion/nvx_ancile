@@ -26,6 +26,7 @@ import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
 import { FactcheckChip } from '../thread/Factcheck';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
 const ORDER: Record<ClaimVerdict, number> = { contradicted: 0, unverified: 1, verified: 2, not_checkable: 3 };
@@ -117,6 +118,10 @@ export function EvidencePanel() {
   }, [focused, fc.data]);
 
   if (isDemo) return <DemoEvidence />;
+  // The thread's answers come first: a thread still loading, or never loaded, is not "Ask something".
+  if (params.threadId && thread.isPending) return <Skeleton lines={4} label="Loading the fact-check" />;
+  if (params.threadId && thread.isError && !thread.data)
+    return <LoadFailed error={thread.error} what="The thread" onRetry={() => thread.refetch()} />;
   if (!m)
     return (
       <EmptyState
@@ -126,6 +131,9 @@ export function EvidencePanel() {
       />
     );
   if (fc.isPending) return <Skeleton lines={4} label="Loading the fact-check" />;
+  // null is "never checked" (404); undefined after an error is a read that failed, not an offer to check.
+  if (fc.isError && fc.data === undefined && !progress)
+    return <LoadFailed error={fc.error} what="The fact-check" onRetry={() => fc.refetch()} />;
 
   const f = fc.data;
   if (!f || (f.status === 'running' && !f.claims.length) || progress) {

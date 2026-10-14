@@ -41,6 +41,7 @@ import { Composer, type SendExtras } from '../thread/Composer';
 import { useFlowList } from '../thread/flowActions';
 import { Ticker } from '../ui/controls';
 import { Icon, isIconName } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
@@ -92,6 +93,13 @@ export function NotebookScreen() {
         <div className="page__measure">
           <Skeleton lines={8} label="Loading notebook" />
         </div>
+      </div>
+    );
+  // Notebooks that did not load are not "This notebook isn't here".
+  if (notebooks.isError && !notebooks.data)
+    return (
+      <div className="page page--center">
+        <LoadFailed error={notebooks.error} what="This notebook" onRetry={() => notebooks.refetch()} />
       </div>
     );
   if (!nb || !notebookId)
@@ -366,6 +374,8 @@ export function NotebookScreen() {
           <UploadQueue notebookId={nb.id} />
           {sources.isPending ? (
             <Skeleton lines={4} label="Loading sources" />
+          ) : sources.isError && !sources.data ? (
+            <LoadFailed compact error={sources.error} what="Sources" onRetry={() => sources.refetch()} />
           ) : items.length === 0 ? (
             <button type="button" className="nbk__dropzone" onClick={() => setAdding(true)}>
               <Icon name="upload" size={22} />
@@ -403,7 +413,11 @@ export function NotebookScreen() {
                 New thread here
               </Link>
             </div>
-            {own.length === 0 ? (
+            {threads.isPending ? (
+              <Skeleton lines={3} label="Loading threads" />
+            ) : threads.isError ? (
+              <LoadFailed compact error={threads.error} what="Threads" onRetry={() => threads.refetch()} />
+            ) : own.length === 0 ? (
               <p className="mute nbk__empty">No threads yet. Ask something above and it starts one here.</p>
             ) : (
               <ul className="rows">
@@ -431,7 +445,11 @@ export function NotebookScreen() {
                 Open notes
               </button>
             </div>
-            {(notes.data ?? []).length === 0 ? (
+            {notes.isPending ? (
+              <Skeleton lines={3} label="Loading notes" />
+            ) : notes.isError && !notes.data ? (
+              <LoadFailed compact error={notes.error} what="Notes" onRetry={() => notes.refetch()} />
+            ) : (notes.data ?? []).length === 0 ? (
               <p className="mute nbk__empty">
                 Keep what matters: save an answer as a note from its menu, or write one in the notes panel.
               </p>

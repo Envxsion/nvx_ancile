@@ -20,6 +20,7 @@ import { useId, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { useNotebooks, useThreads } from '../lib/data';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { Skeleton } from '../ui/primitives';
 import { createLink, removeLink, useContextLinks } from './api';
 import '../styles/notebooks.css';
@@ -123,6 +124,9 @@ export function LinksDialog({
           </div>
           {links.isPending && open ? (
             <Skeleton lines={3} label="Loading links" />
+          ) : links.isError && !links.data ? (
+            // Not "No links yet": the links did not load.
+            <LoadFailed compact error={links.error} what="Links" onRetry={() => links.refetch()} />
           ) : (
             <>
               <section className="ctx-links__group" aria-labelledby={`${pick}-out`}>

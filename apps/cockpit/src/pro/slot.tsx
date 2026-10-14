@@ -32,6 +32,7 @@ import { notify } from '../state/notify';
 import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { EmptyState, Kbd, Skeleton, StatusDot, Tip } from '../ui/primitives';
 import { ContextPacksLocked } from './ContextPacksLocked';
 import { EngineInsightsLocked } from './EngineInsightsLocked';
@@ -96,7 +97,21 @@ export const proKit = {
   Link,
   /** Follow answers as they are written (the same live store the thread uses). */
   runs: { attach: attachRun, useLive: useLiveTurn },
-  ui: { Icon, EmptyState, Kbd, Skeleton, StatusDot, Tip, Switch, Check, Segmented, Parts },
+  /** LoadFailed and StaleNotice: a failed read in its own words with Try again (ui/LoadFailed.tsx). */
+  ui: {
+    Icon,
+    EmptyState,
+    Kbd,
+    Skeleton,
+    StatusDot,
+    Tip,
+    Switch,
+    Check,
+    Segmented,
+    Parts,
+    LoadFailed,
+    StaleNotice,
+  },
 };
 export type ProKit = typeof proKit;
 
@@ -246,6 +261,9 @@ export function ProSurfaceView({ id }: { id: string }) {
   const unlocked = licence.data?.features.find((f) => f.id === surface.feature)?.unlocked ?? false;
   const Screen = ui?.screens[surface.id];
   if (licence.isLoading || ui === undefined) return <Skeleton lines={4} label={`Loading ${surface.label}`} />;
+  // Not knowing the licence is not the same as being locked: say what failed, not "this is part of Pro".
+  if (licence.isError && !licence.data)
+    return <LoadFailed error={licence.error} what={surface.label} onRetry={() => licence.refetch()} />;
   if (!Screen || !unlocked) {
     const Locked = surface.locked;
     // Without a seat, the plain card says how to get one (a locked preview would say "turn on Pro").

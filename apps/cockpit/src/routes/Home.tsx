@@ -32,7 +32,9 @@ import { useUi } from '../state/ui';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Composer, type SendExtras } from '../thread/Composer';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { NotebookPick } from '../ui/NotebookPick';
+import { Skeleton } from '../ui/primitives';
 
 const STARTERS = [
   {
@@ -143,7 +145,21 @@ export function HomeScreen() {
           </div>
         )}
 
-        {recent.length > 0 ? (
+        {threads.isPending || threads.isError ? (
+          <section className="home__recent" aria-label="Recent threads">
+            <h2 className="home__h">Pick up where you left off</h2>
+            {threads.isPending ? (
+              <Skeleton lines={3} label="Loading recent threads" />
+            ) : (
+              <LoadFailed
+                compact
+                error={threads.error}
+                what="Recent threads"
+                onRetry={() => threads.refetch()}
+              />
+            )}
+          </section>
+        ) : recent.length > 0 ? (
           <section className="home__recent" aria-label="Recent threads">
             <h2 className="home__h">Pick up where you left off</h2>
             <ul>

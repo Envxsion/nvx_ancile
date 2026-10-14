@@ -515,7 +515,7 @@ export function ComputeScreen() {
   if (nodes.isError) {
     const e = nodes.error;
     return e instanceof ApiCallError ? (
-      <ErrorState error={e.body} onRetry={() => void nodes.refetch()} />
+      <ErrorState error={e.body} onRetry={() => nodes.refetch()} retry="always" />
     ) : (
       <EmptyState
         icon="alert"

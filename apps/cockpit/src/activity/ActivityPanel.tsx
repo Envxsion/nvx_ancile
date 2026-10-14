@@ -26,6 +26,7 @@ import { useEffect, useState } from 'react';
 import { useImportProgress } from '../claudecode/api';
 import { useBinding, useLayer } from '../keys/dispatch';
 import { Icon, type IconName } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import {
   GROUP_TITLES,
@@ -192,6 +193,11 @@ export function ActivityPanel() {
           {q.isPending && !q.data ? (
             <div className="act__body">
               <Skeleton lines={3} label="Looking at what is running" />
+            </div>
+          ) : q.isError && !q.data ? (
+            // Not knowing what runs is not "Nothing running".
+            <div className="act__body">
+              <LoadFailed error={q.error} what="Activity" onRetry={() => q.refetch()} />
             </div>
           ) : groups.length === 0 ? (
             <EmptyState

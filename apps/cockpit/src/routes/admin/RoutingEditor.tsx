@@ -105,7 +105,7 @@ export function RoutingEditor() {
   if (routing.isError && !routing.data) {
     const retry = () => void routing.refetch();
     if (routing.error instanceof ApiCallError)
-      return <ErrorState error={routing.error.body} onRetry={retry} />;
+      return <ErrorState error={routing.error.body} onRetry={retry} retry="always" />;
     return (
       <EmptyState
         icon="alert"

@@ -103,6 +103,8 @@ Single-key shortcuts never fire while you're typing. Leave the composer with `Es
 
 **Empty states** say what to do, in one sentence with one button. For example: "No sources yet. Drop files here, paste a link, or pull in a past thread."
 
+**Loading and failed reads.** A panel with nothing to show yet shows a labelled skeleton. A read that fails shows the failure in its own words (what happened, what to do, Copy debug info) with Try again, which asks again; a read always offers it, even for an error a retry may not fix, because asking again is harmless and Core may simply have restarted. An action's failure offers Try again only when the error says a retry can help. A refresh that fails while the last answer is on screen keeps it, with one slim line and Try again (Core not answering at all is the connection banner's to say). A failed read never shows an empty state ("No sources yet") or a way to make the first one in its place. In code: `LoadFailed` and `StaleNotice` in `apps/cockpit/src/ui/LoadFailed.tsx`, lent to Pro's screens through the kit.
+
 **You come back to where you left off.** After a reload or a week away, you get the same notebook, thread, branch and draft, and the scroll position is anchored to the message you were reading. Drafts save locally as you type and to the server every 3 seconds.
 
 ## Accessibility

@@ -132,7 +132,7 @@ export function EndpointExplorer({ model }: { model: string }) {
         </button>
       </p>
       {q.isPending ? <Skeleton lines={4} label="Reading providers" /> : null}
-      {q.error ? <ErrorState error={errorBody(q.error)} onRetry={() => void q.refetch()} /> : null}
+      {q.error ? <ErrorState error={errorBody(q.error)} onRetry={() => q.refetch()} retry="always" /> : null}
       {q.data ? <EndpointTable report={q.data} /> : null}
     </section>
   );

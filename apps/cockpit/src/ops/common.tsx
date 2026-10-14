@@ -13,9 +13,10 @@
 import { useState } from 'react';
 import { ApiCallError } from '../lib/api';
 import { notify } from '../state/notify';
-import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
-import { EmptyState } from '../ui/primitives';
+
+// The failed-load state is shared by every screen now; kept here for the ops screens' imports.
+export { LoadFailed } from '../ui/LoadFailed';
 
 export function reportFailure(error: unknown, what: string): void {
   notify({
@@ -26,18 +27,6 @@ export function reportFailure(error: unknown, what: string): void {
         ? error.body.error.hint
         : 'Check that NVX Ancile is running, then try again.',
   });
-}
-
-export function LoadFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => void }) {
-  if (error instanceof ApiCallError) return <ErrorState error={error.body} onRetry={onRetry} />;
-  return (
-    <EmptyState
-      icon="alert"
-      title={`${what} could not be loaded`}
-      body="Core did not answer. Check that NVX Ancile is running, then try again."
-      action={{ label: 'Try again', onClick: onRetry }}
-    />
-  );
 }
 
 export function CopyButton({

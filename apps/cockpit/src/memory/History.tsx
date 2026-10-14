@@ -17,6 +17,7 @@ import type { MemoryCommit } from '@nvx/contracts';
 import { useEffect, useState } from 'react';
 import { relative } from '../lib/format';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { useMemoryDiff, useMemoryHistory, useRevert } from './api';
 import { DiffView } from './DiffView';
@@ -84,6 +85,9 @@ function Commit({ c, path, first }: { c: MemoryCommit; path: string | null; firs
               <p className="mem-commit__why mute">{c.body.replace(/\n?Ancile-Proposal: \S+/, '').trim()}</p>
             ) : null}
             {diff.isPending ? <Skeleton lines={3} label="Loading the change" /> : null}
+            {diff.isError && !diff.data ? (
+              <LoadFailed compact error={diff.error} what="The change" onRetry={() => diff.refetch()} />
+            ) : null}
             {diff.data ? (
               <DiffView rows={parsePatch(diff.data.patch)} label={`What ${text} changed`} />
             ) : null}
@@ -119,6 +123,9 @@ function Commit({ c, path, first }: { c: MemoryCommit; path: string | null; firs
 export function Timeline({ path }: { path: string | null }) {
   const history = useMemoryHistory(path);
   if (history.isPending) return <Skeleton lines={5} label="Loading history" />;
+  // A failed read is not "No history yet".
+  if (history.isError && !history.data)
+    return <LoadFailed error={history.error} what="Memory's history" onRetry={() => history.refetch()} />;
   const items = history.data ?? [];
   if (!items.length)
     return (

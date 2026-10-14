@@ -30,6 +30,7 @@ import { useUploads } from '../sources/uploads';
 import { useUi } from '../state/ui';
 import { Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
@@ -230,6 +231,9 @@ export function SourcesPanel() {
   if (viewer) return <SourceViewer {...viewer} />;
   if (!notebookId) return <NoNotebook />;
   if (sources.isPending) return <Skeleton lines={6} label="Loading sources" />;
+  // A failed read is not "No sources yet": say what failed, with Try again.
+  if (sources.isError && !sources.data)
+    return <LoadFailed error={sources.error} what="Sources" onRetry={() => sources.refetch()} />;
 
   const working = items.filter((s) => !['ready', 'failed', 'stale'].includes(s.status)).length;
   const problems = items.filter(
@@ -253,6 +257,9 @@ export function SourcesPanel() {
           Add
         </button>
       </div>
+      {sources.isError ? (
+        <StaleNotice error={sources.error} what="Sources" onRetry={() => sources.refetch()} />
+      ) : null}
       <UploadQueue notebookId={notebookId} />
       {items.length ? <GroundedRow notebookId={notebookId} /> : null}
       {items.length > 1 ? <LanguageHint notebookId={notebookId} /> : null}

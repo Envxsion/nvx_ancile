@@ -20,6 +20,7 @@ import { Link } from '@tanstack/react-router';
 import { type KeyboardEvent, useRef, useState } from 'react';
 import { relative } from '../lib/format';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { useDecide, useMemoryUi, useProposals } from './api';
 
@@ -205,6 +206,9 @@ export function Inbox() {
   const proposals = useProposals();
   const list = useRef<HTMLOListElement>(null);
   if (proposals.isPending) return <Skeleton lines={4} label="Loading the inbox" />;
+  // A failed read is not "Nothing waiting".
+  if (proposals.isError && !proposals.data)
+    return <LoadFailed error={proposals.error} what="The inbox" onRetry={() => proposals.refetch()} />;
   const items = proposals.data?.items ?? [];
   const waiting = items.filter((p) => p.status === 'proposed');
   const done = items.filter((p) => p.status !== 'proposed').slice(0, 20);

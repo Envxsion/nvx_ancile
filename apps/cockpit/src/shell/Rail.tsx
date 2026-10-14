@@ -46,9 +46,24 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, isIconName } from '../ui/Icon';
+import { loadError } from '../ui/LoadFailed';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
 import { Kbd, Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
+
+/** A read that failed, sized for the rail: its own words and Try again, never "Nothing here yet". */
+function RailFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => unknown }) {
+  const e = loadError(error, what).error;
+  return (
+    <div className="rail__empty" role="alert">
+      <p>{e.title}</p>
+      <p>{e.hint}</p>
+      <button type="button" className="link-btn" onClick={() => void onRetry()}>
+        Try again
+      </button>
+    </div>
+  );
+}
 
 type Row = { kind: 'notebook' | 'thread'; id: string };
 
@@ -522,6 +537,8 @@ export function Rail() {
     focused && rows[cursor]?.kind === kind && rows[cursor]?.id === id;
   const prefetch = useCallback((id: string) => void qc.prefetchQuery(threadQuery(id)), [qc]);
   const nbs = useMemo(() => notebooks.data ?? [], [notebooks.data]);
+  // Notebooks that did not load are not "Start a notebook": a refresh that failed keeps the list.
+  const notebooksFailed = notebooks.isError && !notebooks.data;
 
   const onFilterKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -626,6 +643,8 @@ export function Rail() {
           <Section id="archive" title="Archive">
             {archived.isPending ? (
               <Skeleton lines={5} label="Loading the archive" />
+            ) : archived.isError && !archived.data ? (
+              <RailFailed error={archived.error} what="The archive" onRetry={() => archived.refetch()} />
             ) : (archived.data ?? []).length === 0 ? (
               <p className="rail__empty">
                 Nothing archived. Archive a thread to tidy it away without deleting it.
@@ -656,12 +675,7 @@ export function Rail() {
         ) : notebooks.isPending || threads.isPending ? (
           <Skeleton lines={9} label="Loading notebooks and threads" />
         ) : threads.isError ? (
-          <div className="rail__empty">
-            <p>The list could not be loaded.</p>
-            <button type="button" className="link-btn" onClick={() => void threads.refetch()}>
-              Try again
-            </button>
-          </div>
+          <RailFailed error={threads.error} what="Threads" onRetry={() => threads.refetch()} />
         ) : (
           <>
             {groups.pinned.length > 0 ? (
@@ -703,7 +717,9 @@ export function Rail() {
               }
             >
               {creating ? <NewNotebook onDone={() => setCreating(false)} /> : null}
-              {groups.notebooks.length === 0 && !creating ? (
+              {notebooksFailed ? (
+                <RailFailed error={notebooks.error} what="Notebooks" onRetry={() => notebooks.refetch()} />
+              ) : groups.notebooks.length === 0 && !creating ? (
                 <button type="button" className="rail__ghost" onClick={() => setCreating(true)}>
                   <Icon name="plus" size={13} />
                   Start a notebook for a project's sources
@@ -789,7 +805,7 @@ export function Rail() {
                 </button>
               </div>
             ) : null}
-            {!q && (threads.data ?? []).length === 0 && nbs.length === 0 ? (
+            {!q && (threads.data ?? []).length === 0 && nbs.length === 0 && !notebooksFailed ? (
               <p className="rail__empty">Your threads will gather here. Start one with New thread.</p>
             ) : null}
             <div ref={sentinel} aria-hidden="true" />

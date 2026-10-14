@@ -460,7 +460,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
     return (
       <div className="thread thread--center">
         {err ? (
-          <ErrorState error={err} onRetry={() => void thread.refetch()} />
+          <ErrorState error={err} onRetry={() => thread.refetch()} retry="always" />
         ) : (
           <EmptyState
             icon={offline ? 'pulse' : 'alert'}
