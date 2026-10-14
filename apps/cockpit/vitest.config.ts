@@ -13,7 +13,7 @@ const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   plugins: [react()],
   // Tests run as the free build: no Pro screens (see vite.config.ts).
-  define: { __ANCILE_PRO_UI__: 'false' },
+  define: { __ANCILE_PRO_UI__: 'false', __ANCILE_VERSION__: JSON.stringify('0.0.0-test') },
   resolve: hasPro
     ? {
         alias: [

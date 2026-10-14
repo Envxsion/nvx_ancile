@@ -117,6 +117,10 @@ cargo run
 
 The profile name keeps its keychain entries separate too. By default the app uses ports from 17700, away from a development stack (7700) and the test stack (7800).
 
+### The version
+
+Each part reads its version from its own build, never from a number written in the code: Core and the Controller from their `package.json` (the bundler fixes it as `__ANCILE_VERSION__`; from source it is read from the file), the Cockpit the same way through Vite (it goes into an error's debug info), Knowledge from its installed package (`pyproject.toml`), and the desktop app from `Cargo.toml`, which it hands Core as `ANCILE_APP_VERSION`. Every place a release declares its version (the root and every workspace `package.json`, `pyproject.toml`, `Cargo.toml` and `tauri.conf.json`) must agree; Core's test `test/system/version.test.ts` fails when one does not, or when a version is written into the code by hand. A release bumps them together.
+
 ## Content Security Policy
 
 The app has two kinds of page, and each has its own policy.

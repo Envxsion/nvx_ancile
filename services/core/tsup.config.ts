@@ -11,7 +11,12 @@
  * ------------------------------------------------------------------
  */
 
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'tsup';
+
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 export default defineConfig({
   entry: ['src/main.ts'],
@@ -21,6 +26,6 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   noExternal: [/^@nvx\//],
-  // A release: licence keys and edition are fixed here (src/build.ts).
-  define: { __ANCILE_RELEASE__: 'true' },
+  // A release: licence keys, edition and version are fixed here (src/build.ts).
+  define: { __ANCILE_RELEASE__: 'true', __ANCILE_VERSION__: JSON.stringify(version) },
 });

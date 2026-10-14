@@ -18,6 +18,7 @@
 
 import type { ApiError } from '@nvx/contracts';
 import { useState } from 'react';
+import { COCKPIT_VERSION } from '../lib/build';
 import { notify } from '../state/notify';
 import { Icon } from './Icon';
 
@@ -55,7 +56,7 @@ export function ErrorState({
   const copy = async () => {
     const debug = {
       error: e,
-      app: { name: 'NVX Ancile Cockpit', version: '0.1.0' },
+      app: { name: 'NVX Ancile Cockpit', version: COCKPIT_VERSION },
       url: location.pathname,
       userAgent: navigator.userAgent,
       at: new Date().toISOString(),

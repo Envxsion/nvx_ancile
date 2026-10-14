@@ -41,6 +41,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { type McpServerConfig, type McpServerStatus, Tier } from '@nvx/contracts';
 import type { z } from 'zod';
+import { BUILD_VERSION } from '../build';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import type { SecretStore } from '../secrets';
@@ -389,7 +390,7 @@ export class McpManager {
 
   private async attempt(entry: Live): Promise<void> {
     const { spec } = entry;
-    const client = new Client({ name: 'nvx-ancile', version: this.opts.version ?? '0.1.0' });
+    const client = new Client({ name: 'nvx-ancile', version: this.opts.version ?? BUILD_VERSION });
     // halt() can land during any await below: then close what was opened and stop.
     const abandoned = async () => {
       if (!entry.stopped) return false;

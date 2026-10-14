@@ -45,7 +45,7 @@ import {
 } from './automations';
 import { automationRoutes } from './automations/routes';
 import { BuiltinSettings, KnowledgeSync } from './automations/settings';
-import { chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
+import { appVersion, chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeCodeMcpList } from './claudecode/mcp-list';
@@ -209,8 +209,8 @@ import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
 
-// The desktop app says which NVX Ancile this is; a checkout reads its package.json.
-const VERSION = process.env.ANCILE_APP_VERSION ?? process.env.npm_package_version ?? '0.1.0';
+// The desktop app says which NVX Ancile this is; otherwise the version Core was built as (build.ts).
+const VERSION = appVersion();
 
 /** Reasons Core stops before opening the database, and shows its start-up screen instead. */
 const STOPS = new Set([

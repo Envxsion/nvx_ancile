@@ -15,7 +15,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 // Relative, so the config bundles it (a workspace package's .ts is not loadable by Node here).
@@ -67,10 +67,15 @@ const core = process.env.ANCILE_CORE_URL ?? 'http://localhost:7700';
 const proUi =
   process.env.NVX_TIER !== 'free' && existsSync(new URL('../../pro/cockpit/index.tsx', import.meta.url));
 
+// The version the Cockpit says it is (debug info, About): package.json's, fixed at build time.
+const version = (
+  JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
+).version;
+
 export default defineConfig({
   plugins: [react(), contentSecurityPolicy()],
   resolve: { dedupe: ['react', 'react-dom'] },
-  define: { __ANCILE_PRO_UI__: JSON.stringify(proUi) },
+  define: { __ANCILE_PRO_UI__: JSON.stringify(proUi), __ANCILE_VERSION__: JSON.stringify(version) },
   server: {
     // 7701, or 7801 for the test profile (pnpm start:e2e) so both can run.
     port: Number(process.env.COCKPIT_PORT ?? 7701),

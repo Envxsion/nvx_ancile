@@ -19,6 +19,7 @@
 import { resolve } from 'node:path';
 import { AncileError } from '@nvx/contracts';
 import postgres from 'postgres';
+import { appVersion } from '../build';
 import { formatBytes } from '../system/disk';
 import { backupsDir, listBackups, restoreBackup, takeBackup } from './backup';
 import { prepareDatabase } from './prepare';
@@ -27,7 +28,7 @@ import { controllerMigrationsDir, knowledgeVersionsDir, schemaState } from './ve
 const [command = 'migrate', arg] = process.argv.slice(2);
 const url = process.env.DATABASE_URL;
 const dataDir = resolve(process.env.ANCILE_DATA_DIR ?? './data');
-const version = process.env.ANCILE_APP_VERSION ?? process.env.npm_package_version ?? '0.1.0';
+const version = appVersion();
 
 if (!url) {
   console.error(

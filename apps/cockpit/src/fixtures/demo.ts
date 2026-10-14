@@ -16,6 +16,7 @@
  * ------------------------------------------------------------------
  */
 
+import { COCKPIT_VERSION } from '../lib/build';
 import type {
   EvidenceView,
   ExplainView,
@@ -608,7 +609,13 @@ export const criticalApproval: PendingApproval = {
 };
 
 export const health: ServiceHealth[] = [
-  { service: 'Core', status: 'ok', latencyMs: 4, detail: 'v0.1.0 · uptime 3 h 12 min', failures: 0 },
+  {
+    service: 'Core',
+    status: 'ok',
+    latencyMs: 4,
+    detail: `v${COCKPIT_VERSION} · uptime 3 h 12 min`,
+    failures: 0,
+  },
   { service: 'Postgres', status: 'ok', latencyMs: 2, detail: 'pgvector 0.8.1 · 38 MB', failures: 0 },
   { service: 'Knowledge', status: 'ok', latencyMs: 18, detail: 'Embedding 96 of 140 chunks', failures: 0 },
   { service: 'Controller', status: 'ok', latencyMs: 9, detail: '1 node running, 1 stopped', failures: 0 },
