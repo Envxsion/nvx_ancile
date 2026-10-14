@@ -214,6 +214,8 @@ export function freeModule(host: FreeHost): { build: 'free'; license: ProLicense
       key_held: !!(token || key),
       checked_at: (await settings.get<string>(CHECKED_KEY)) ?? null,
       problem: null,
+      // No team here: the one person this install belongs to.
+      seat: true,
       features: featureList(FREE),
     };
   };

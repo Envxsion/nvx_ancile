@@ -15,7 +15,8 @@
  *           |  theme script can apply it before first paint. The swap
  *           |  cross-fades colours (the theme's own mechanism); the
  *           |  arrival is a gilded line round the window, once, and
- *           |  nothing at all with reduced motion.
+ *           |  nothing at all with reduced motion. In a team, someone
+ *           |  without a Pro seat sees the free edition.
  *  Note     |  Presentation only: what Pro unlocks is decided by Core.
  * ------------------------------------------------------------------
  */
@@ -35,13 +36,15 @@ const AWAKEN_MS = 1900;
 interface EditionView {
   build: 'free' | 'pro';
   status: { tier: 'free' | 'pro' | 'max_access' };
+  /** False: a team member without a Pro seat (absent from an older Core: yes). */
+  seat?: boolean;
 }
 
 export type Edition = 'free' | 'pro';
 
 export function editionOf(d: EditionView | undefined): Edition | null {
   if (!d) return null;
-  return d.build === 'pro' && d.status.tier !== 'free' ? 'pro' : 'free';
+  return d.build === 'pro' && d.status.tier !== 'free' && d.seat !== false ? 'pro' : 'free';
 }
 
 function store(key: string, value: string | null) {

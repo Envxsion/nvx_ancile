@@ -22,7 +22,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { useCloud } from '../gateway/compute';
 import { body } from '../http/body';
-import { featureRequired } from '../pro/routes';
+import { proRefusal } from '../pro/routes';
 import type { SecretStore } from '../secrets';
 import type { ControllerClient } from './controller';
 
@@ -104,10 +104,10 @@ const RuleBody = z.object({
  * The free edition runs one GPU node; GPU fleet (Pro) runs many. Sample
  * nodes never count, and nodes added before are never switched off.
  */
-async function assertRoomForNode(client: ControllerClient, hasFleet: boolean) {
-  if (hasFleet) return;
+async function assertRoomForNode(client: ControllerClient, refusal: Error | null) {
+  if (!refusal) return;
   const { items } = await client.get<{ items: { provider: string }[] }>('/nodes');
-  if (items.filter((n) => n.provider !== 'fake').length >= 1) throw featureRequired('fleet');
+  if (items.filter((n) => n.provider !== 'fake').length >= 1) throw refusal;
 }
 
 export function computeRoutes(deps: {
@@ -161,7 +161,9 @@ export function computeRoutes(deps: {
   r.get('/compute/node-setup', async (c) => c.json(await client.get('/node-setup')));
   r.post('/compute/nodes', async (c) => {
     const req = await body(c, AddNodeBody);
-    if (deps.hasFeature) await assertRoomForNode(client, deps.hasFeature('fleet'));
+    // GPU fleet is the licence's and, in a team, the caller's Pro seat's.
+    if (deps.hasFeature)
+      await assertRoomForNode(client, proRefusal(deps.hasFeature('fleet'), 'fleet', c.get('principal')));
     return c.json(await client.send('POST', '/nodes', req), 201);
   });
   r.delete('/compute/nodes/:id', async (c) => {

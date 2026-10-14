@@ -41,6 +41,13 @@ export const TokenClaims = z.object({
   /** The device the token is bound to. */
   dev: z.string().min(1).max(64),
   note: z.string().max(200).optional(),
+  /**
+   * How many people in one team workspace may use Pro's features, the
+   * workspace's owner included (pro/docs/license-server-brief.md, "Member
+   * seats"). Absent, or not a whole number from 1: the owner alone. A bad
+   * value never costs the licence itself.
+   */
+  member_seats: z.number().int().min(1).max(100_000).optional().catch(undefined),
 });
 export type TokenClaims = z.infer<typeof TokenClaims>;
 
@@ -85,6 +92,14 @@ export const LicenseDetails = z.object({
   key_held: z.boolean(),
   checked_at: z.string().nullable(),
   problem: z.string().nullable(),
+  /**
+   * The person asking has a Pro seat. False only in a team workspace, for
+   * someone the owner has not given one (or nobody signed in): Pro is on
+   * here, but `features[].unlocked` is false for them, Teams aside.
+   * Absent (an older Core): yes.
+   */
+  seat: z.boolean().optional(),
+  /** What this person may use now (their seat taken into account). */
   features: z.array(z.object({ id: ProFeature, title: z.string(), body: z.string(), unlocked: z.boolean() })),
 });
 export type LicenseDetails = z.infer<typeof LicenseDetails>;

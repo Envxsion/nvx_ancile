@@ -1256,6 +1256,9 @@ async function main() {
       ),
       licenseUrl: env.NVX_LICENSE_URL,
       version: VERSION,
+      // Where the Cockpit is opened, and the origins that may make changes (Teams' links).
+      publicUrl: env.ANCILE_PUBLIC_URL,
+      allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     },
   });
   const licence = pro.license;

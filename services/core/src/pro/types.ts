@@ -43,6 +43,13 @@ export interface ProHost {
   version: string;
   /** The licence clock (never earlier than any time seen before); Date.now when absent. */
   now?: () => number;
+  /** Where the Cockpit is served (ANCILE_PUBLIC_URL). */
+  publicUrl?: string;
+  /**
+   * Every origin Core accepts changes from (requestGuard): a page opened
+   * anywhere else can read but not write. Absent: not known (tests).
+   */
+  allowedOrigins?: readonly string[];
 }
 
 /** Turning Pro on and keeping it on: Admin → Licence talks to this. */
@@ -50,7 +57,12 @@ export interface ProLicense {
   start(): Promise<void>;
   stop(): void;
   status(): license.LicenseStatus;
-  details(): Promise<license.LicenseDetails>;
+  /**
+   * What the licence holds, as the person asking may use it: `who` is the
+   * request's principal (null: nobody signed in). Absent: the install as a
+   * whole (the owner's view).
+   */
+  details(who?: Principal | null): Promise<license.LicenseDetails>;
   activate(key: string, opts?: { transfer?: boolean }): Promise<license.LicenseDetails>;
   refresh(): Promise<license.LicenseDetails>;
   deactivate(): Promise<license.LicenseDetails>;
@@ -80,6 +92,12 @@ export interface Principal {
   name: string;
   /** How they signed in: the free build's single owner, a session, or a service. */
   via: 'owner' | 'session' | 'service';
+  /**
+   * Has a Pro seat: may use the Pro features the licence includes. False
+   * for a team member the owner has not given one; Pro's routes and
+   * checks then refuse them (pro.seat_required). Absent means true.
+   */
+  pro?: boolean;
 }
 
 export interface ProNotice {
@@ -322,8 +340,12 @@ export interface ProServices {
   db: ProDb;
   controller: ProController;
   notify(n: ProNotice): void;
-  /** Read the licence at the moment of use: features are checked when they run, not when they load. */
-  hasFeature(feature: pro.ProFeature): boolean;
+  /**
+   * Read the licence at the moment of use: features are checked when they
+   * run, not when they load. With `who`, also that this person has a Pro
+   * seat (Principal.pro); without, the install as a whole.
+   */
+  hasFeature(feature: pro.ProFeature, who?: Principal | null): boolean;
   /** The workspace's own data, for sync. */
   sync?: ProSyncSource;
   /** Sources, summaries, instructions and scope checks for context packs. */
@@ -339,10 +361,20 @@ export interface ProRoute {
   /** Hono-style path under /api/v1/pro, e.g. "/fleet/groups/:id". */
   path: string;
   feature: pro.ProFeature;
-  /** Lowest role that may call it (team workspaces). Defaults to member for writes, viewer for reads. */
+  /**
+   * Lowest role that may call it (team workspaces). Defaults to member for
+   * writes, viewer for reads. A route may let a viewer write (their own
+   * passphrase): Core leaves the role check under /pro to this.
+   */
   role?: Principal['role'];
   /** Reachable before sign-in (the sign-in routes themselves). */
   public?: boolean;
+  /**
+   * false: a member without a Pro seat may call it too (a team's own
+   * sign-in, member list and each person's account). Default: a seat is
+   * needed (Principal.pro).
+   */
+  seat?: false;
   handler(req: ProRequest): Promise<ProResponse>;
 }
 

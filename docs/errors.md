@@ -315,14 +315,53 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `license.rate_limited` | 429 | "Too many tries just now." / Wait a minute, then try again. |
 | `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). |
 | `pro.core_too_old` | 501 | "This part of Pro needs a newer NVX Ancile." / Update NVX Ancile, then try again. Pro is newer than the Core it runs in. |
+| `pro.seat_required` | 403 | "<Feature> needs a Pro seat." / Pro is on in this workspace, but your account has no Pro seat. Ask the workspace's owner for one in Admin → Team. A team member the owner has not given a seat is a free member; the licence's `member_seats` sets how many there are (the owner alone without it). `error.context.feature` names it. Also returned for a second GPU node. |
+| `pro.bad_request` | 400 | "“<field>” is required" (or must be text, a number, one of…) / Check the request and send it again. `error.context.field` names it. Pro's own checks use it too, with their own words (an email, an address). |
+| `pro.not_found` | 404 | "<Thing> is not there." / Refresh the page. |
+| `pro.not_started` | 503 | "Pro is still starting." / Try again in a moment. |
 | `beam.members` | 400 | "Pick between 2 and 6 models or flows" (or "The same pick is in there twice") / Beam asks several at once, so it needs at least two, each once. |
 | `beam.not_ready` | 422 | "<Model> cannot answer." / Add its key or switch it on in Settings → Models, or pick another. Nothing was asked. |
 | `beam.no_fuser` | 422 | "No model can fuse the answers." / Add a key in Settings → Models, or turn fusing off. |
 | `beam.busy` | 409 | "An answer is still being written here." / Wait for it to finish, or stop it, then ask again. |
 | `flowlab.empty_set` | 422 | "This test set has no questions yet." / Add answers from your threads, or write questions, then run it. |
 | `flowlab.not_ready` | 422 | "<Model> cannot answer." / Add its key in Settings → Models, or run with stand-in models. |
+| `sync.unavailable` | 501 | "This build cannot sync." / Update NVX Ancile, then try again. |
+| `sync.not_set_up` | 409 | "Sync is not set up on this computer." / Set it up in Settings → Sync. Also returned when approving a computer from one that does not sync. |
+| `sync.weak_passphrase` | 400 | "Use a passphrase of at least 10 characters." / It protects everything you sync, and nvx.sh cannot recover it. A few words you will remember works well. |
+| `sync.account_exists` | 409 | "Sync is already set up for your licence." / Join it with your passphrase, or with a code from a computer that already syncs. |
+| `sync.no_account` | 404 | "Sync is not set up yet." / Set it up on your first computer, then join here. |
+| `sync.wrong_passphrase` | 401 | "That passphrase does not open your sync." / Check it and try again, or join with a code from a computer that already syncs. Only known once a computer that syncs has approved this one (the relay shows the passphrase check to approved computers only); until then the join waits. |
+| `sync.bad_code` | 400 | "That code does not work." / Codes work once, for ten minutes. Make a new one. |
+| `sync.pairing_gone` | 404 | "That code has been used or has expired." / Make a new one on a computer that syncs (Settings → Sync → Add a computer). A code with a wrong secret answers this too, and is used up. |
+| `sync.no_licence` | 402 | "Sync needs Pro turned on here." / Turn Pro on in Admin → Licence on this computer, then set up sync. |
+| `sync.offline` | 503 | "The sync relay could not be reached." / Sync carries on when the connection is back. Nothing is lost: changes wait here. |
+| `sync.licence_invalid` | 401 | "Sync does not accept the Pro licence on this computer." / Turn Pro on again in Admin → Licence. Sync starts again by itself once it is active; nothing is tried until the licence token changes. |
+| `sync.licence_lapsed` | 402 | From the relay: the licence has lapsed. / Renew Pro. Changes keep downloading and nothing uploads, except taking back what a scope keeps on a computer. Shown in Settings → Sync, not as an error. |
+| `sync.device_pending` | 403 | From the relay: "This computer is waiting to be approved." / Approve it on a computer that syncs (Settings → Sync), or join with a code. With no computer left that syncs, approve it from your nvx.sh account. A waiting computer reads nothing, not even the passphrase check. |
+| `sync.device_unknown` | 401 | From the relay: "This computer is not registered for sync." / A computer that syncs declined or removed it. Settings → Sync says so: ask again, or join with a code. |
+| `sync.too_many_pending` | 429 | From the relay: "Too many computers are waiting to be approved." / Approve or decline them on a computer that syncs. A request waits a day at most. |
+| `sync.device_exists` | 409 | From the relay: the device id is registered with another key. / Nothing to do: the computer takes a new id and asks again by itself. |
+| `sync.bad_signature` | 401 | From the relay: the request is not signed by its device, or this computer's clock is more than five minutes out. / Check the clock, then try again. |
+| `sync.too_large`, `sync.quota`, `sync.blob_missing`, `sync.rate_limited` | 413, 413, 404, 429 | From the relay, with its own words. / Sync tries again shortly; see pro/docs/sync-server-brief.md for its limits. Any other relay refusal is `sync.relay_<status>`. |
 | `auth.sign_in_required` | 401 | "Sign in to this workspace first." / This workspace has a team: sign in with your account or your identity provider. Never returned by a single-person install. |
 | `auth.role_too_low` | 403 | "Your role in this workspace cannot do that." / Ask the workspace's owner or an admin. Viewers read; members write; admins manage people and settings. `error.context.need` names the role. |
+| `auth.sign_in_failed` | 401 | "That email and passphrase do not match." / Check both, or ask an admin to send you a new invitation. Changing your passphrase: "Your current passphrase is not right." |
+| `auth.too_many_tries` | 429 | "Too many tries just now." / Wait N seconds, then try again. After 5 failures for one email (signing in, a reset link, a recovery code) or one account (changing a passphrase): a wait of 1 minute, doubling, at most 15. |
+| `auth.weak_passphrase` | 400 | "Use a passphrase of at least 10 characters." / A few words you will remember works well. |
+| `auth.recovery_failed` | 401 | "That email and recovery code do not match." / Check both. A recovery code works once, for an owner. |
+| `auth.oidc_unreachable` | 502 | "Your identity provider did not answer." / Check the issuer address in Admin → Team. |
+| `auth.oidc_state` | 400 | "That sign-in took too long or was used already." / Start signing in again. |
+| `team.not_on` | 409 | "This workspace has no team yet." / The owner can turn one on in Admin → Team. |
+| `team.already_on` | 409 | "This workspace already has a team." / Manage it in Admin → Team. |
+| `team.last_owner` | 409 | "A team needs at least one owner." / Make someone else an owner first. |
+| `team.already_member` | 409 | "<email> is already in the team." / Change their role instead (or withdraw the invitation, when resending one). |
+| `team.already_invited` | 409 | "<email> already has an invitation waiting." / Resend it from the list, or withdraw it first. One invitation waits per email. |
+| `team.invite_gone` | 410 | "That invitation has been used or has expired." / Ask an admin to send a new one. A resent or withdrawn invitation's old link answers this too. |
+| `team.reset_gone` | 410 | "That reset link has been used, has expired or is for another email." / Check the email, or ask an admin for a new link. A reset link works once, for 24 hours; a newer one replaces it. |
+| `team.address_not_allowed` | 400 | "NVX Ancile does not accept changes from <address>." / Set ANCILE_PUBLIC_URL to it, or add it to ANCILE_ALLOWED_ORIGINS, where NVX Ancile starts; restart, then save it here. People could open a link there but not join. `error.context.allowed` lists the addresses it does accept. Signing in through an identity provider from such an address says to open NVX Ancile from its own address. |
+| `team.oidc_off` | 409 | "Sign-in through an identity provider is not set up." / An admin can set it up in Admin → Team. |
+| `team.no_seat_free` | 409 | "Every Pro seat is taken." / Take a seat from someone first, or add seats to your licence in your nvx.sh account. |
+| `team.owner_seat` | 409 | "The workspace's owner always has a Pro seat." / Give or take seats from other people. |
 
 The MCP endpoint (`/mcp`) answers 401 with a JSON-RPC error when the bearer token is missing, unknown or disconnected. A tool an app has no grant for answers with `isError` and the way to allow it (Admin → Plugins).
 

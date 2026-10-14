@@ -72,6 +72,7 @@ export function proServices(deps: {
   sql: Sql;
   controller: ControllerClient;
   events: EventBus;
+  /** The licence, for the install as a whole. */
   hasFeature: (f: proContract.ProFeature) => boolean;
   owner: { userId: string; workspaceId: string };
   sync?: ProSyncSource;
@@ -82,7 +83,8 @@ export function proServices(deps: {
     db: proDb(deps.sql),
     controller: proController(deps.controller),
     notify: proNotify(deps.events),
-    hasFeature: deps.hasFeature,
+    // A principal narrows the licence to what that person may use: their Pro seat.
+    hasFeature: (f, who) => deps.hasFeature(f) && who?.pro !== false,
     owner: deps.owner,
     ...(deps.sync && { sync: deps.sync }),
     ...(deps.answers && { answers: deps.answers }),
