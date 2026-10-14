@@ -28,6 +28,8 @@ export interface ModelView {
   note?: string;
   /** From Core: whether it can answer now. Fixtures are always ready. */
   status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled';
+  /** Nothing real behind it yet (no key, not pulled, no node): Settings leaves it out. */
+  unlisted?: boolean;
   offline?: boolean;
   /** False for embedding and rerank models: listed in settings, never chosen for chat. */
   chat?: boolean;

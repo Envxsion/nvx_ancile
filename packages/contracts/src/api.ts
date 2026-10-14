@@ -254,6 +254,12 @@ export const ModelInfo = z.object({
   capabilities: z.array(z.string()),
   price: z.object({ input_per_mtok: z.number(), output_per_mtok: z.number() }),
   status: ModelStatus,
+  /**
+   * False while nothing real stands behind it: a provider with no key, an
+   * Ollama model not pulled, a node model with no node. Settings lists only
+   * listed models; routing and traces still find the rest by id. Absent means listed.
+   */
+  listed: z.boolean().optional(),
   /** The secret this model needs, so Settings can ask for exactly that key. */
   secret: z.string().nullable(),
   /** The built-in offline test model: answers without a key or a network. */

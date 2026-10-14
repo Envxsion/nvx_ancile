@@ -301,6 +301,20 @@ export class ModelRegistry {
     return 'ready';
   }
 
+  /**
+   * Whether something real stands behind a model, so Settings lists it:
+   * its provider's key is saved, Ollama has pulled it, or (for a node model
+   * from config) you switched it on. Models you added are always listed.
+   */
+  listed(m: ModelConfig): boolean {
+    if (this.customIds.has(m.id)) return true;
+    const secret = secretFor(m);
+    if (secret && !this.secretNames.has(secret)) return false;
+    if (isLocalOllama(m) && this.status(m) === 'not_pulled') return false;
+    if (m.provider === 'controller') return this.enabled(m);
+    return true;
+  }
+
   info(): ModelInfo[] {
     return this.models.map((m) => ({
       id: m.id,
@@ -314,6 +328,7 @@ export class ModelRegistry {
       capabilities: m.capabilities,
       price: { input_per_mtok: m.price.input_per_mtok, output_per_mtok: m.price.output_per_mtok },
       status: this.status(m),
+      listed: this.listed(m),
       secret: secretFor(m),
       offline: m.provider === 'fake',
       ...(this.customIds.has(m.id) && { custom: true, base_url: m.base_url ?? null }),

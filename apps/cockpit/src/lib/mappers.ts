@@ -93,6 +93,7 @@ export function toModelView(m: ModelInfo): ModelView {
     via: m.via,
     contextWindow: m.context_window,
     status: m.status,
+    ...(m.listed === false && { unlisted: true }),
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),

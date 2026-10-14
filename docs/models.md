@@ -32,7 +32,7 @@ Every picker lists only models that can answer now: the model picker (`m`) and t
 
 The [test models](#test-models) follow **Keep test models (no AI) in pickers**, as before.
 
-A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Admin → Models** still lists every model with its state (**Needs its key**, **Off**, **Not pulled**), and is where you set it up. Admin → Routing keeps such a model in a chain, marked, and routing skips it.
+A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Settings → Models** lists only what is real: Claude Code's models, the ones Ollama has, your GPU nodes', each provider's models once its key is saved (**Off** if you switch one off), and any you added. A provider's models appear when you add its key in **Settings → API keys**. Admin → Routing keeps such a model in a chain, marked, and routing skips it.
 
 When Claude Code cannot answer (not installed, or its install could not be verified), the picker shows no Claude Code model. A separate **Set up Claude Code** row says why and opens Settings → Claude Code. It is an action, not a model, so it can never be chosen to answer a message.
 

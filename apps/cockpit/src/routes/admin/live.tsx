@@ -292,12 +292,16 @@ export function LiveModels() {
   if (models.isPending) return <Skeleton lines={6} label="Loading models" />;
   if (models.isError && !models.data)
     return <LoadFailed error={models.error} what="Models" onRetry={() => void models.refetch()} />;
+  // Only what is real: a provider shows once its key is saved, an Ollama model once pulled.
+  const shown = (models.data ?? []).filter((m) => !m.unlisted);
+  const waiting = (models.data ?? []).length - shown.length;
   return (
     <>
       <div className="admin__bar">
         <p className="mute admin__lede">
-          Models from config/models.yaml, your GPU nodes, and any you add: OpenRouter, your own server, or a
-          provider's model id. A model with no key is skipped by routing, never tried and failed.
+          Models you can use: Claude Code's, the ones Ollama has, your GPU nodes', and those of each provider
+          you have added a key for.
+          {waiting > 0 ? ' Add a key in Settings → API keys to see that provider’s models.' : ''}
         </p>
         <div className="admin__bar-actions">
           <AdvisorButton />
@@ -314,7 +318,7 @@ export function LiveModels() {
       <AddModelDialog />
       <LocalModelsDialog />
       <ul className="rows">
-        {(models.data ?? []).map((m) => (
+        {shown.map((m) => (
           <li
             key={m.id}
             className="row row--health row--model"
