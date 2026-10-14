@@ -18,6 +18,7 @@ import { usePrefs } from '../../state/prefs';
 import { CodeBlock } from '../../thread/Code';
 import { Range, Segmented, Switch } from '../../ui/controls';
 import { Kbd } from '../../ui/primitives';
+import { CustomCssBlock } from './CustomCss';
 import { Block, matches, Row, SearchContext, useSet } from './rows';
 
 const ACCENT_LABEL: Record<(typeof ACCENTS)[number], string> = {
@@ -870,7 +871,6 @@ export function AccessibilityGroup() {
 export function AdvancedGroup() {
   const v = usePrefGroup('advanced');
   const set = useSet('advanced');
-  const [css, setCss] = useState(v.css);
   return (
     <>
       <Block title="Behaviour">
@@ -929,39 +929,7 @@ export function AdvancedGroup() {
         </Row>
       </Block>
       <MemoryBlock />
-      <Block
-        title="Custom style"
-        lede="Your own CSS, applied after everything else. Open NVX Ancile with ?safe=1 to start without it."
-      >
-        <Row group="advanced" k="css" label="CSS" keywords="custom css theme style" stack>
-          <div className="css-editor">
-            <textarea
-              className="input input--mono css-editor__text"
-              rows={8}
-              spellCheck={false}
-              value={css}
-              placeholder={
-                ':root { --signal: #c9a362; }\n.msg[data-role="assistant"] { letter-spacing: 0.01em; }'
-              }
-              onChange={(e) => setCss(e.target.value)}
-              aria-label="Custom CSS"
-            />
-            <div className="css-editor__bar">
-              <span className="mute">
-                Uses the same tokens as NVX Ancile: --signal, --lift, --fg and the rest.
-              </span>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={css === v.css}
-                onClick={() => set({ css })}
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-        </Row>
-      </Block>
+      <CustomCssBlock />
       <p className="mute settings__kbd-note">
         Press <Kbd keys="mod+," /> to come back here from anywhere.
       </p>

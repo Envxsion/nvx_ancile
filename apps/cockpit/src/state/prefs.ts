@@ -11,14 +11,24 @@
  *           |  reading choices become a Look (aperture/prefs.ts) on
  *           |  <html>. Core holds a copy under ui-state "prefs",
  *           |  written 800 ms after the last change; on start the
- *           |  newer of the two wins.
+ *           |  newer of the two wins. Device-only settings
+ *           |  (DEVICE_PREFS: zoom, panel widths, effects, custom CSS)
+ *           |  never go to Core and are never taken from its copy.
+ *           |  Whether custom CSS was confirmed here (cssConsent) is
+ *           |  this device's alone, outside the preferences.
  *  Note     |  Everything is parsed through the contract, so an old or
  *           |  hand-edited file can never leave a hole.
  * ------------------------------------------------------------------
  */
 
 import { applyLook, getThemeChoice, type Look } from '@nvx/aperture';
-import { DEFAULT_PREFERENCES, Preferences, type PrefGroup } from '@nvx/contracts';
+import {
+  DEFAULT_PREFERENCES,
+  keepDevicePrefs,
+  Preferences,
+  type PrefGroup,
+  withoutDevicePrefs,
+} from '@nvx/contracts';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { API_BASE, api } from '../lib/api';
@@ -31,10 +41,14 @@ interface PrefsState {
   changedAt: number;
   /** Resolved by the frame-time governor while performance is "auto". */
   autoLite: boolean;
+  /** Custom CSS was confirmed on this device (the first-time confirm). Never synced. */
+  cssConsent: boolean;
   set: <G extends PrefGroup>(group: G, patch: Partial<Group<G>>) => void;
   reset: (group?: PrefGroup, key?: string) => void;
   replace: (next: unknown) => Preferences;
   setAutoLite: (lite: boolean) => void;
+  /** Confirm custom CSS on this device and apply it. */
+  applyCss: (css: string) => void;
 }
 
 const READ_LH = { tight: 1.5, normal: 1.65, loose: 1.8 } as const;
@@ -79,8 +93,10 @@ export function lookOf(p: Preferences, autoLite = false): Look {
 
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingSync: string | null = null;
-function scheduleSync(prefs: Preferences, changedAt: number) {
+function scheduleSync(all: Preferences, changedAt: number) {
   clearTimeout(syncTimer);
+  // Core's copy follows you to other devices: what belongs to this one stays here.
+  const prefs = withoutDevicePrefs(all);
   pendingSync = JSON.stringify({ value: { prefs, changedAt } });
   syncTimer = setTimeout(() => {
     pendingSync = null;
@@ -108,6 +124,7 @@ export const usePrefs = create<PrefsState>()(
       prefs: DEFAULT_PREFERENCES,
       changedAt: 0,
       autoLite: false,
+      cssConsent: false,
       set: (group, patch) => {
         const prefs = Preferences.parse({ ...get().prefs, [group]: { ...get().prefs[group], ...patch } });
         const changedAt = Date.now();
@@ -136,14 +153,18 @@ export const usePrefs = create<PrefsState>()(
         return prefs;
       },
       setAutoLite: (autoLite) => set({ autoLite }),
+      applyCss: (css) => {
+        set({ cssConsent: true });
+        get().set('advanced', { css });
+      },
     }),
     {
       name: 'nvx.ancile.prefs',
       version: 1,
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ prefs: s.prefs, changedAt: s.changedAt }),
+      partialize: (s) => ({ prefs: s.prefs, changedAt: s.changedAt, cssConsent: s.cssConsent }),
       merge: (persisted, current) => {
-        const p = persisted as { prefs?: unknown; changedAt?: number } | undefined;
+        const p = persisted as { prefs?: unknown; changedAt?: number; cssConsent?: boolean } | undefined;
         // Before preferences existed the theme had its own key: carry it over once.
         const legacy = !p?.prefs ? { appearance: { theme: getThemeChoice() } } : {};
         const parsed = Preferences.safeParse(p?.prefs ?? legacy);
@@ -151,11 +172,27 @@ export const usePrefs = create<PrefsState>()(
           ...current,
           prefs: parsed.success ? parsed.data : DEFAULT_PREFERENCES,
           changedAt: p?.changedAt ?? 0,
+          cssConsent: p?.cssConsent === true,
         };
       },
     },
   ),
 );
+
+/**
+ * Take Core's copy (from another device, or this one before a reload) when
+ * it is newer, keeping this device's own settings. Exported for tests.
+ */
+export function adoptRemotePrefs(
+  remote: { prefs?: unknown; changedAt?: number } | null | undefined,
+): boolean {
+  const s = usePrefs.getState();
+  if (!remote?.prefs || (remote.changedAt ?? 0) <= s.changedAt) return false;
+  const parsed = Preferences.safeParse(remote.prefs);
+  if (!parsed.success) return false;
+  usePrefs.setState({ prefs: keepDevicePrefs(parsed.data, s.prefs), changedAt: remote.changedAt ?? 0 });
+  return true;
+}
 
 /** Read one group, re-rendering only when it changes. */
 export function usePref<G extends PrefGroup>(group: G): Group<G> {
@@ -187,15 +224,11 @@ export function startPrefs(): () => void {
   );
   for (const mq of mqs) mq.addEventListener('change', apply);
 
-  // The server copy wins only when it is newer than this device's.
+  // The server copy wins only when it is newer than this device's, and
+  // never for what belongs to this device (an older copy may still hold it).
   void api
     .get<{ value: { prefs?: unknown; changedAt?: number } | null }>('/ui-state/prefs')
-    .then((r) => {
-      const remote = r.value;
-      if (!remote?.prefs || (remote.changedAt ?? 0) <= usePrefs.getState().changedAt) return;
-      const parsed = Preferences.safeParse(remote.prefs);
-      if (parsed.success) usePrefs.setState({ prefs: parsed.data, changedAt: remote.changedAt ?? 0 });
-    })
+    .then((r) => adoptRemotePrefs(r.value))
     .catch(() => undefined);
 
   return () => {

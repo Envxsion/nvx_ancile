@@ -366,3 +366,26 @@ NVX_TELEMETRY_URL=
 `pnpm start` also passes `ANCILE_CONTROL_URL` and `ANCILE_CONTROL_TOKEN` to Core (a loopback endpoint with a token made fresh each start, used to restart services); do not set them yourself. Retention for Admin → Logs and Traces uses `ANCILE_LOG_RETENTION_DAYS` (14), `ANCILE_SPAN_RETENTION_DAYS` (30) and `ANCILE_RUN_EVENT_RETENTION_DAYS` (7), applied nightly by the "Clean up old records" automation.
 
 Apps that only speak MCP over stdio can use the bridge: `pnpm --filter @nvx/ancile-core exec tsx src/mcp/stdio.ts`, with `ANCILE_MCP_TOKEN` set to the token from Admin → Plugins (and `ANCILE_MCP_URL` if Core is not on `http://127.0.0.1:7700/mcp`).
+
+## Settings that stay on this device {#device-settings}
+
+Settings save as you change them, to this browser and to Core, and follow you to your other computers (with Pro sync). A few belong to the device instead, because they depend on its screen, hardware or browser, or could change how it shows a permission request. They stay in this browser: they are never sent to Core, synced, or written to `ancile-settings.json`, and importing a settings file leaves them as they are.
+
+| Setting | Where |
+|---|---|
+| Zoom | Settings → Appearance |
+| Sidebar shown or hidden, sidebar width, side panel width | Settings → Layout |
+| Browser shortcut fixes | Settings → Keyboard |
+| Effects | Settings → Advanced |
+| Custom CSS | Settings → Advanced → Custom style |
+
+The list is `DEVICE_PREFS` in `packages/contracts/src/prefs.ts`.
+
+### Custom CSS {#custom-css}
+
+Your own CSS is applied after everything else, on this device only.
+
+- **The first time** you apply CSS on a device, NVX Ancile asks first ("Apply custom CSS on this device?"). CSS saved before this (or by an older version) waits, unapplied, until you confirm it there.
+- **While it is in force,** the status bar shows **Custom CSS on**; it opens Settings → Advanced.
+- **Permission requests are protected.** Approval dialogs and the dialogs that edit or revoke a remembered permission render in their own layer, above everything else, and your CSS is switched off while one is open (it comes back as it was when it closes). A visibility check confirms the request can be seen and is not covered; until it can, its answers are paused and the dialog says so.
+- **Safe mode.** Open NVX Ancile with `?safe=1` to start without it.

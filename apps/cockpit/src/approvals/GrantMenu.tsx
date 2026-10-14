@@ -18,6 +18,7 @@ import type { Grant, GrantScope } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
+import { protectedLayer, useProtect } from '../app/protected';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
 import { queryClient } from '../lib/query';
@@ -83,6 +84,7 @@ export async function restoreGrant(g: Pick<Grant, 'id'>): Promise<void> {
 /** Mounted only while editing, so a background refresh never resets what you typed. */
 function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void }) {
   useLayer(true);
+  useProtect(true);
   const [pattern, setPattern] = useState(grant.resource_pattern);
   const [scope, setScope] = useState<GrantScope>(grant.scope);
   const [expiry, setExpiry] = useState('keep');
@@ -102,7 +104,7 @@ function EditGrantDialog({ grant, onClose }: { grant: Grant; onClose: () => void
   };
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={protectedLayer()}>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content className="dialog m-glass-thick edit-grant" aria-describedby="edit-grant-desc">
           <Dialog.Title className="dialog__title">
@@ -222,7 +224,12 @@ export function GrantMenu({ grant }: { grant: Grant }) {
         }
       />
       {editing ? <EditGrantDialog grant={grant} onClose={() => setEditing(false)} /> : null}
-      <ConfirmDialog copy={confirm} onConfirm={() => revoke.mutate()} onClose={() => setConfirm(null)} />
+      <ConfirmDialog
+        copy={confirm}
+        onConfirm={() => revoke.mutate()}
+        onClose={() => setConfirm(null)}
+        protect
+      />
     </>
   );
 }

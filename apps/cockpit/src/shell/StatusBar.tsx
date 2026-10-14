@@ -17,6 +17,7 @@
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { ActivitySegment, ImportSegment } from '../activity/ActivityPanel';
+import { safeMode, userCssOn } from '../app/userCss';
 import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
 import { live as demoLive } from '../fixtures/demo';
 import { tourEvent } from '../help/tours';
@@ -90,6 +91,24 @@ function Clock() {
   );
 }
 
+/**
+ * "Custom CSS on" while this device's own CSS is in force, so a look that
+ * comes from it is never mistaken for NVX Ancile's. Opens where it is set.
+ */
+export function CustomCssChip() {
+  const css = usePrefs((s) => s.prefs.advanced.css);
+  const consent = usePrefs((s) => s.cssConsent);
+  if (!userCssOn({ css, consent, safe: safeMode() })) return null;
+  return (
+    <Tip label="Your own CSS is applied on this device">
+      <Link to="/settings/$group" params={{ group: 'advanced' }} className="status-seg status-css">
+        <Icon name="paint" size={13} />
+        <span>Custom CSS on</span>
+      </Link>
+    </Tip>
+  );
+}
+
 export function StatusBar() {
   const demo = useUi((s) => s.demo);
   const openPalette = useUi((s) => s.openPalette);
@@ -157,6 +176,8 @@ export function StatusBar() {
           <span>{approvals === 1 ? 'decision waiting' : 'decisions waiting'}</span>
         </button>
       ) : null}
+
+      <CustomCssChip />
 
       <EditionMark />
 
