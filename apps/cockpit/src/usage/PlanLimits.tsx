@@ -22,6 +22,8 @@
 import type { ClaudeCodePlanLimits } from '@nvx/contracts';
 import { useEffect, useState } from 'react';
 import { Icon } from '../ui/Icon';
+import { LoadFailed } from '../ui/LoadFailed';
+import { Skeleton } from '../ui/primitives';
 import {
   CLAUDE_USAGE_URL,
   paceWords,
@@ -115,9 +117,9 @@ export function PlanLimits({ compact = false }: { compact?: boolean }) {
     }
   };
 
-  if (q.isLoading) return <p className="u-quiet">Reading Claude Code's limits…</p>;
+  if (q.isLoading) return <Skeleton lines={compact ? 1 : 3} label="Reading Claude Code's limits" />;
   if (!limits)
-    return <p className="u-quiet">Claude Code's limits could not be read. Try again in a moment.</p>;
+    return <LoadFailed compact error={q.error} what="Claude Code's limits" onRetry={() => q.refetch()} />;
 
   const refreshButton = limits.can_refresh ? (
     <button

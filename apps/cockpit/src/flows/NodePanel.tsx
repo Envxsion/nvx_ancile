@@ -25,6 +25,7 @@ import { StepRouting } from '../openrouter/StepRouting';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { ClaudeCodeCost, isClaudeCodeModel } from '../usage/planCost';
 import {
   invalidIssues,
   needsCore,
@@ -799,7 +800,11 @@ function DebugSection({ node, flowId }: { node: FlowNode; flowId: string | undef
                 {shown.tin} in · {shown.tout ?? 0} out
               </span>
             ) : null}
-            {shown.cost != null ? <span>{usd(shown.cost)}</span> : null}
+            {shown.cost != null ? (
+              <span>
+                {isClaudeCodeModel(shown.model) ? <ClaudeCodeCost estimate={shown.cost} /> : usd(shown.cost)}
+              </span>
+            ) : null}
           </div>
           <details>
             <summary>What it was given</summary>

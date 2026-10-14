@@ -159,6 +159,10 @@ export function AppShell() {
   const approvals = useApprovals();
   const onScreen = pathname.startsWith('/t/') ? pathname.split('/')[2] : undefined;
   const current = useApprovalFocus(approvals, onScreen);
+  // Settings → Usage shows the context of the thread you came from.
+  useEffect(() => {
+    if (onScreen) useUi.getState().setLastThread(onScreen);
+  }, [onScreen]);
   useGlobalEvents();
   useMarkState(approvals.data?.length ?? 0);
 

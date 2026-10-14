@@ -20,6 +20,7 @@ import { Handle, type NodeProps, NodeResizer, Position } from '@xyflow/react';
 import { type CSSProperties, memo } from 'react';
 import { hueVar } from '../lib/format';
 import { Icon } from '../ui/Icon';
+import { claudeCodeCostWords, isClaudeCodeModel, useClaudeBilling } from '../usage/planCost';
 import { contextSummary, msText, nodeSummary, usd } from './describe';
 import { KINDS, modelOf, outputPorts, PROVIDER_NAMES, providerOf } from './kinds';
 import type { FlowModel } from './models';
@@ -66,6 +67,9 @@ function ModelChip({ id, model }: { id: string; model?: FlowModel }) {
 
 function Badges({ n, data }: { n: FlowNode; data: CardData }) {
   const out: { key: string; text: string; tone?: string; title?: string }[] = [];
+  // Claude Code as a model bills the account it is signed into (usage/planCost.ts).
+  const claude = isClaudeCodeModel(modelOf(n));
+  const billed = useClaudeBilling(claude && !!data.stats);
   if (n.disabled)
     out.push({
       key: 'bypass',
@@ -90,11 +94,19 @@ function Badges({ n, data }: { n: FlowNode; data: CardData }) {
     out.push({ key: 'speaks', text: 'Speaks', title: 'Its words stream into the answer you see' });
   if (data.overridden) out.push({ key: 'ovr', text: 'Changed in this chat', tone: 'warn' });
   if (data.stats)
-    out.push({
-      key: 'stats',
-      text: `${msText(data.stats.p50)} · ${usd(data.stats.cost)}`,
-      title: `Typical: ${msText(data.stats.p50)}, slow: ${msText(data.stats.p95)}, about ${usd(data.stats.cost)} a call`,
-    });
+    out.push(
+      claude
+        ? {
+            key: 'stats',
+            text: `${msText(data.stats.p50)} · ${billed ? usd(data.stats.cost) : 'In your Claude plan'}`,
+            title: `Typical: ${msText(data.stats.p50)}, slow: ${msText(data.stats.p95)}. ${claudeCodeCostWords(data.stats.cost, billed)}.`,
+          }
+        : {
+            key: 'stats',
+            text: `${msText(data.stats.p50)} · ${usd(data.stats.cost)}`,
+            title: `Typical: ${msText(data.stats.p50)}, slow: ${msText(data.stats.p95)}, about ${usd(data.stats.cost)} a call`,
+          },
+    );
   if (!out.length) return null;
   return (
     <div className="fnode__badges">

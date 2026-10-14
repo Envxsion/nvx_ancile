@@ -4,32 +4,42 @@
  *  Ref      |  docs/claude-code.md (Usage) · docs/api.md (Usage)
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  Where you see what you have used: Claude Code's plan
- *           |  limits first (as its own /usage shows them), then what
- *           |  NVX Ancile measured of Claude Code here (tokens in, out
- *           |  and from cache today and over 7 days, the cache hit
- *           |  rate, the busiest threads), then NVX Ancile's totals
- *           |  across every engine, today or over the last 7 or 30
- *           |  days, by engine and by model. No block is ever blank: an
- *           |  empty one says what will appear.
- *  How      |  usePlanLimits, useClaudeCodeUsage and useUsageReport. The bars are plain
+ *  Purpose  |  Where you see what you have used: the live context of
+ *           |  the thread you last had open (where the status bar's
+ *           |  meter leads), Claude Code's plan limits (as its own
+ *           |  /usage shows them), then what NVX Ancile measured of
+ *           |  Claude Code (tokens in, out and from cache today and
+ *           |  over 7 days, the cache hit rate, the busiest threads,
+ *           |  and how much came in with terminal sessions), then
+ *           |  NVX Ancile's totals across every engine, today or over
+ *           |  the last 7 or 30 days, by engine and by model. No block
+ *           |  is ever blank: an empty one says why and what will
+ *           |  appear, a slow one shows a skeleton, a failed one says
+ *           |  so with Try again.
+ *  How      |  LiveContext, usePlanLimits, useClaudeCodeUsage and useUsageReport. The bars are plain
  *           |  SVG, stacked by engine in the engines' own hues. GPU
  *           |  compute comes from the Controller's month (Admin →
  *           |  Compute). Pro's Insights, when unlocked, goes deeper.
- *  Note     |  Claude Code's cost is its own estimate at API list
- *           |  prices, never your bill, and the page says so.
+ *  Note     |  Claude Code's cost reads "Included in your Claude plan"
+ *           |  (usage/planCost.ts); its estimate at API list prices is
+ *           |  never added to a total as if it were billed.
  * ------------------------------------------------------------------
  */
 
 import type { UsageRange, UsageReport } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { useContext, useState } from 'react';
+import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { useComputeStatus, useCosts } from '../compute/data';
 import { useProFeature } from '../pro/slot';
 import { matches, SearchContext } from '../routes/settings/rows';
 import { Segmented } from '../ui/controls';
+import { LoadFailed } from '../ui/LoadFailed';
+import { Skeleton } from '../ui/primitives';
 import { costWords, ENGINE_WORDS, modelWords, tokensWords, useClaudeCodeUsage, useUsageReport } from './api';
+import { LiveContext } from './LiveContext';
 import { PlanLimits } from './PlanLimits';
+import { IN_PLAN, useClaudeBilling } from './planCost';
 
 const RANGES: { value: UsageRange; label: string }[] = [
   { value: 'day', label: 'Today' },
@@ -105,6 +115,7 @@ function Breakdown({
   rows: { key: string; label: string; engine: string; tokens: number; cost: number; answers: number }[];
   total: number;
 }) {
+  const billed = useClaudeBilling(rows.some((r) => r.engine === 'claude_code'));
   return (
     <section className="u-break" aria-label={title}>
       <h3 className="u-h3">{title}</h3>
@@ -119,9 +130,16 @@ function Breakdown({
             <span className="u-break__num" data-num>
               {tokensWords(r.tokens)}
             </span>
-            <span className="u-break__num u-quiet" data-num>
-              {costWords(r.cost)}
-            </span>
+            {r.engine === 'claude_code' && !billed ? (
+              <span className="u-break__num u-quiet" title={IN_PLAN}>
+                <span aria-hidden="true">In plan</span>
+                <span className="sr-only">{IN_PLAN}</span>
+              </span>
+            ) : (
+              <span className="u-break__num u-quiet" data-num>
+                {costWords(r.cost)}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -129,8 +147,11 @@ function Breakdown({
   );
 }
 
-export function AncileUsage({ report }: { report: UsageReport }) {
+export function AncileUsage({ report, provider = '' }: { report: UsageReport; provider?: string }) {
   const t = report.totals;
+  const billed = useClaudeBilling(report.estimated_cost_usd > 0);
+  // Claude Code's estimate is not a bill when your Claude plan covers it, so it stays out of the total.
+  const cost = billed ? t.cost_usd : Math.max(0, t.cost_usd - report.estimated_cost_usd);
   const tokens = t.input_tokens + t.output_tokens;
   const engines = report.by_engine.map((e) => ({
     key: e.engine,
@@ -161,11 +182,12 @@ export function AncileUsage({ report }: { report: UsageReport }) {
         </div>
         <div>
           <dt>Estimated cost</dt>
-          <dd data-num>{costWords(t.cost_usd)}</dd>
+          <dd data-num>{costWords(cost)}</dd>
           {report.estimated_cost_usd > 0 ? (
             <dd className="u-quiet">
-              {costWords(report.estimated_cost_usd)} of it is Claude Code's estimate at API list prices, not
-              your bill
+              {billed
+                ? `${costWords(report.estimated_cost_usd)} of it is Claude Code's estimate at API list prices, billed to ${billed}`
+                : `Claude Code is included in your Claude plan (about ${costWords(report.estimated_cost_usd)} at API list prices, not added here)`}
             </dd>
           ) : null}
         </div>
@@ -194,7 +216,13 @@ export function AncileUsage({ report }: { report: UsageReport }) {
             />
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <p className="u-quiet u-empty-line">
+          {provider
+            ? `Nothing served by ${provider} in this range.`
+            : 'Once something answers in this range, its tokens and cost split here by engine, by model and by OpenRouter provider.'}
+        </p>
+      )}
     </div>
   );
 }
@@ -205,20 +233,27 @@ const inOut = (t: { input_tokens: number; output_tokens: number; cached_tokens: 
 /** What NVX Ancile measured of Claude Code on this computer: its own count, not the plan's. */
 export function ClaudeCodeMeasured() {
   const q = useClaudeCodeUsage();
-  if (q.isPending) return <p className="u-quiet">Adding up Claude Code's usage…</p>;
-  if (!q.data)
-    return <p className="u-quiet">Claude Code's usage could not be read. Try again in a moment.</p>;
+  if (q.isPending) return <Skeleton lines={3} label="Adding up Claude Code's usage" />;
+  if (q.isError || !q.data)
+    return <LoadFailed compact error={q.error} what="Claude Code's usage" onRetry={() => q.refetch()} />;
   const u = q.data;
   if (u.week.answers === 0)
     return (
       <div className="u-plan-empty">
-        <p>No Claude Code answers in NVX Ancile in the last 7 days.</p>
+        <p>No Claude Code answers in the last 7 days.</p>
         <p className="u-quiet">
-          Once Claude Code answers in a thread, this shows its tokens in, out and from cache today and over
-          the week, how much its prompt cache saved, and its busiest threads.
+          Once Claude Code answers in a thread, as a model, or in a terminal session brought in here, this
+          shows its tokens in, out and from cache today and over the week, how much its prompt cache saved,
+          and its busiest threads.
+        </p>
+        <p className="u-quiet">
+          <button type="button" className="link-btn" onClick={() => openClaudeCodeSessions()}>
+            See Claude Code sessions
+          </button>
         </p>
       </div>
     );
+  const imported = u.imported ?? null;
   return (
     <div className="u-ancile">
       <dl className="u-totals">
@@ -244,6 +279,18 @@ export function ClaudeCodeMeasured() {
           <dd className="u-quiet">of what it read this week</dd>
         </div>
       </dl>
+      {imported && imported.answers > 0 ? (
+        <p className="u-quiet u-empty-line" data-num>
+          {`Includes ${tokensWords(imported.input_tokens + imported.output_tokens + imported.cached_tokens)} tokens from ${imported.sessions.toLocaleString('en-GB')} ${imported.sessions === 1 ? 'session' : 'sessions'} run in the terminal and brought in.`}
+        </p>
+      ) : (
+        <p className="u-quiet u-empty-line">
+          All of it from Claude Code here. A session run in the terminal counts too once it is brought in.{' '}
+          <button type="button" className="link-btn" onClick={() => openClaudeCodeSessions()}>
+            See sessions
+          </button>
+        </p>
+      )}
       {u.by_thread.length ? (
         <section aria-label="Busiest Claude Code threads">
           <h3 className="u-h3">Busiest threads this week</h3>
@@ -261,7 +308,9 @@ export function ClaudeCodeMeasured() {
             ))}
           </ul>
         </section>
-      ) : null}
+      ) : (
+        <p className="u-quiet u-empty-line">No single thread stands out this week.</p>
+      )}
     </div>
   );
 }
@@ -271,7 +320,29 @@ function ComputeMonth() {
   const on = !!status.data?.configured && !!status.data.reachable;
   const costs = useCosts(on);
   const c = costs.data;
-  if (!on || !c || c.nodes.length === 0) return null;
+  // Not set up: GPU compute is not part of this page, so nothing to explain.
+  if (!status.data?.configured) return null;
+  if (!on)
+    return (
+      <p className="u-compute">
+        <span>GPU compute this month</span>
+        <span className="u-quiet">The Controller is not answering, so it is not counted here.</span>
+      </p>
+    );
+  if (costs.isError)
+    return (
+      <div className="u-compute">
+        <LoadFailed compact error={costs.error} what="GPU compute costs" onRetry={() => costs.refetch()} />
+      </div>
+    );
+  if (!c) return null;
+  if (c.nodes.length === 0)
+    return (
+      <p className="u-compute">
+        <span>GPU compute this month</span>
+        <span className="u-quiet">No GPU node has run this month.</span>
+      </p>
+    );
   return (
     <p className="u-compute">
       <span>GPU compute this month</span>
@@ -294,9 +365,20 @@ export function UsageGroup() {
   const report = useUsageReport(range, { provider });
   const providers = all.data?.by_provider.map((p) => p.provider) ?? [];
   const insights = useProFeature('insights');
-  if (!matches(q, 'Usage', 'plan limits session week tokens cost context cache threads pace Claude Code')) return null;
+  if (!matches(q, 'Usage', 'plan limits session week tokens cost context cache threads pace Claude Code'))
+    return null;
   return (
     <div className="u-view">
+      <section className="setting-block" aria-labelledby="u-context-title">
+        <header className="setting-block__head">
+          <h2 id="u-context-title">Context now</h2>
+          <p className="mute">How full the thread you last had open is, and when it compacts.</p>
+        </header>
+        <div className="u-card m-raised">
+          <LiveContext />
+        </div>
+      </section>
+
       <section className="setting-block" aria-labelledby="u-plan-title">
         <header className="setting-block__head">
           <h2 id="u-plan-title">Claude Code plan limits</h2>
@@ -313,8 +395,9 @@ export function UsageGroup() {
         <header className="setting-block__head">
           <h2 id="u-cc-title">Claude Code in NVX Ancile</h2>
           <p className="mute">
-            What NVX Ancile measured from Claude Code's answers on this computer. Use elsewhere (the terminal,
-            claude.ai) is not counted here.
+            What NVX Ancile measured from Claude Code's answers on this computer: in its threads, as a model,
+            and in terminal sessions brought in here. Use on claude.ai, and terminal sessions not brought in,
+            is not counted.
           </p>
         </header>
         <div className="u-card m-raised">
@@ -351,11 +434,11 @@ export function UsageGroup() {
         </header>
         <div className="u-card m-raised">
           {report.data ? (
-            <AncileUsage report={report.data} />
+            <AncileUsage report={report.data} provider={provider} />
           ) : report.isError ? (
-            <p className="u-quiet">Usage could not be read. Try again in a moment.</p>
+            <LoadFailed compact error={report.error} what="Usage" onRetry={() => report.refetch()} />
           ) : (
-            <p className="u-quiet">Adding up usage…</p>
+            <Skeleton lines={4} label="Adding up usage" />
           )}
           <ComputeMonth />
         </div>

@@ -31,6 +31,12 @@ import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import {
+  claudeCodeCostWords,
+  isClaudeCodeAnswer,
+  isClaudeCodeModel,
+  useClaudeBilling,
+} from '../usage/planCost';
 import { CiteProvider } from './Citations';
 import { Cite, Claim, ClaimsProvider } from './Claims';
 import { FactcheckChip } from './Factcheck';
@@ -180,13 +186,19 @@ function ProvenanceMarks({ m }: { m: MessageView }) {
   );
 }
 
-/** What an answer cost, without rounding a real cost down to "$0.000". */
 /**
- * The cost line. Claude Code bills the plan it is signed into, so a zero
- * there means "not metered here", never "free": it says so instead of $0.000.
+ * The cost line, without rounding a real cost down to "$0.000". Claude
+ * Code bills the account it is signed into, so its answers say "Included
+ * in your Claude plan" (or where an API sign-in bills), never a price that
+ * reads like a bill (usage/planCost.ts).
  */
-export function costText(usdCost: number, modelId?: string | null): string {
-  if (usdCost === 0 && modelId?.startsWith('claude-code/')) return 'Included in your Claude plan';
+export function costText(
+  usdCost: number,
+  modelId?: string | null,
+  claude?: { answer: boolean; billedTo: string | null },
+): string {
+  if (claude?.answer || isClaudeCodeModel(modelId))
+    return claudeCodeCostWords(usdCost, claude?.billedTo ?? null);
   if (usdCost > 0 && usdCost < 0.001) return 'under $0.001';
   return usd(usdCost, usdCost < 0.1 ? 3 : 2);
 }
@@ -242,6 +254,8 @@ export const Message = memo(function Message({
   const flow = m.provenance?.flow;
   const hasText = (m.parts ?? []).some((p) => (p.type === 'text' && p.text) || p.type === 'tool_call');
   const showCost = usePrefs((s) => s.prefs.reading.cost);
+  const fromClaude = m.role === 'assistant' && isClaudeCodeAnswer(m);
+  const billedTo = useClaudeBilling(fromClaude && showCost && !!m.usage);
   // "When finished": the answer is held back until it is whole.
   const whole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
   const writingHidden = streaming && whole && hasText;
@@ -528,7 +542,8 @@ export const Message = memo(function Message({
           ) : null}
           {m.usage && showCost ? (
             <span className="msg__usage" data-num>
-              {m.usage.tokens.toLocaleString('en-GB')} tokens · {costText(m.usage.costUsd, m.modelId)}
+              {m.usage.tokens.toLocaleString('en-GB')} tokens ·{' '}
+              {costText(m.usage.costUsd, m.modelId, { answer: fromClaude, billedTo })}
               {m.usage.ms !== undefined ? ` · ${(m.usage.ms / 1000).toFixed(1)} s` : null}
             </span>
           ) : null}

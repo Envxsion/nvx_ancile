@@ -204,7 +204,7 @@ import { PgSendLocks } from './threads/send-lock';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
-import { PgUsageSource, usageHistory } from './usage/report';
+import { PgUsageSource, spendUsd, usageHistory } from './usage/report';
 import { usageRoutes } from './usage/routes';
 
 const supervisorLog = logFor('supervisor');
@@ -923,15 +923,15 @@ async function main() {
     kn,
     memory: memoryText((q) => memory.pack(q)),
     monthSpendUsd: async () => {
-      const rows = await sql<{ usd: number | null }[]>`
-        select sum((usage->>'cost_usd')::float8) as usd from core.messages
-        where created_at >= date_trunc('month', now()) and usage is not null`;
-      // Model usage, plus what GPU nodes have cost this month (when the Controller answers).
+      const now = new Date();
+      // Billed model usage (not Claude Code: your Claude plan covers it), plus what GPU
+      // nodes have cost this month (when the Controller answers).
+      const models = await spendUsd(sql, new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
       const gpu = await compute
         .get<{ total_to_date: number }>('/costs')
         .then((c) => Number(c.total_to_date) || 0)
         .catch(() => 0);
-      return Number(rows[0]?.usd ?? 0) + gpu;
+      return models + gpu;
     },
     // A rule's "node is awake": the Controller's own view of the node.
     nodeAwake: async (nodeId) =>

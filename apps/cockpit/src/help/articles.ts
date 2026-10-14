@@ -319,7 +319,7 @@ A thread from Claude Code says so under its title. **Sync from Claude Code** (in
 **Carry a session on here**
 Type in a Claude Code thread and send: the session carries on in your own Claude Code, in its own folder, with your CLAUDE.md files, skills, plugins and MCP servers. The answer streams in like any other, with each tool step as it happens. **Stop** (in place of Send while it works) is Claude Code's own interrupt; what it wrote so far is kept.
 
-A line above the composer says what the session is doing: **Claude Code ready in cyberfolio**, **Starting Claude Code…** or **Working…**, with the model and effort. The small meter is Claude Code's own count of its context; press it for the last turn's tokens and the cost, which is an estimate at API list prices, not your bill.
+A line above the composer says what the session is doing: **Claude Code ready in cyberfolio**, **Starting Claude Code…** or **Working…**, with the model and effort. The small meter is Claude Code's own count of its context; press it for the last turn's tokens and its cost: included in your Claude plan (or, signed in with an API key, billed there), with Claude Code's estimate at API list prices beside it.
 
 Choose the **model** and **effort** for the next message with the two buttons in the composer's bar. A message you send while Claude Code works waits as **Queued** and goes when the turn ends.
 

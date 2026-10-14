@@ -5,7 +5,7 @@
 import { beforeEach, expect, it } from 'vitest';
 import { MemoryRunStore, PgRunStore } from '../../src/runs/store';
 import { MemoryThreadRepo, PgThreadRepo, type ThreadRepo } from '../../src/threads/repo';
-import { MemoryUsageSource, PgUsageSource, type UsageSource } from '../../src/usage/report';
+import { MemoryUsageSource, PgUsageSource, spendUsd, type UsageSource } from '../../src/usage/report';
 import { eachBackend, uid } from '../support/stores';
 
 eachBackend('usage source', (backend) => {
@@ -13,10 +13,12 @@ eachBackend('usage source', (backend) => {
   let source: UsageSource;
   let runs: MemoryRunStore | PgRunStore;
   let ws: string;
+  let sql: import('postgres').Sql | null;
 
   beforeEach(() => {
     const b = backend();
     ws = b.owner.workspaceId;
+    sql = b.sql ?? null;
     if (b.sql) {
       repo = new PgThreadRepo(b.sql);
       runs = new PgRunStore(b.sql);
@@ -31,6 +33,7 @@ eachBackend('usage source', (backend) => {
         workspaceOf: (id) => mem.threads.get(id)?.workspace_id ?? null,
         runKind: (id) => memRuns.runs.get(id)?.kind ?? null,
         titleOf: (id) => mem.threads.get(id)?.title ?? null,
+        threadDeleted: (id) => !!mem.threads.get(id)?.deleted_at,
       });
     }
   });
@@ -177,5 +180,85 @@ eachBackend('usage source', (backend) => {
       ['Refactor the parser', 150, 450, 2],
       ['Quick question', 10, 0, 1],
     ]);
+  });
+
+  it('counts a Claude Code answer once, where it lives now, and adds up what was imported', async () => {
+    const here = uid('thr');
+    const gone = uid('thr');
+    await repo.createThread({ id: here, workspace_id: ws });
+    await repo.createThread({ id: gone, workspace_id: ws });
+    const run = uid('run');
+    await runs.create({
+      id: run,
+      kind: 'claude_code',
+      threadId: here,
+      messageId: null,
+      checkpoint: {},
+      traceId: 't',
+    });
+    const at = (iso: string) => iso.replace('2026', '2097');
+    const add = async (
+      thread: string,
+      o: { i: number; model?: string; cc?: Record<string, unknown>; run?: string; cost?: number },
+    ) => {
+      const id = uid('msg');
+      await repo.insertMessages([
+        {
+          id,
+          thread_id: thread,
+          parent_id: null,
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'ok' }],
+          status: 'complete',
+          model_id: o.model ?? 'claude-sonnet',
+          run_id: o.run ?? null,
+          trace_id: 't',
+          created_at: at('2026-10-12T09:00:00Z'),
+          usage: { input_tokens: o.i, output_tokens: 0, cached_tokens: 0, cost_usd: o.cost ?? 0 },
+          ...(o.cc && { provenance: { claude_code: o.cc } }),
+        },
+      ]);
+      return id;
+    };
+    await add(here, { i: 100, cc: { session_id: 'term_a' } });
+    await add(here, { i: 200, cc: { session_id: 'term_b' } });
+    await add(here, { i: 400, cc: { session_id: 'live', live: true } });
+    // A live turn written before the live mark: its run tells it apart.
+    await add(here, { i: 800, cc: { session_id: 'live' }, run });
+    // A copy a sync replaced, and a copy in a thread deleted after import: not counted again.
+    await repo.discardMessages([await add(here, { i: 1600, cc: { session_id: 'term_a' } })]);
+    await add(gone, { i: 3200, cc: { session_id: 'term_c' } });
+    await repo.deleteThread(gone);
+    // A deleted gateway answer still cost money.
+    await repo.discardMessages([await add(here, { i: 6400, model: 'openai/gpt-5', cost: 2 })]);
+
+    const q = {
+      workspaceId: ws,
+      tz: 'UTC',
+      bucket: 'day' as const,
+      from: new Date(at('2026-10-12T00:00:00Z')),
+      to: new Date(at('2026-10-13T00:00:00Z')),
+    };
+    const byEngine = new Map<string, number>();
+    for (const r of await source.rows(q))
+      byEngine.set(r.engine, (byEngine.get(r.engine) ?? 0) + r.input_tokens);
+    expect(Object.fromEntries(byEngine)).toEqual({ claude_code: 1500, gateway: 6400 });
+    expect((await source.claudeCodeThreads?.(q, 8))?.map((t) => [t.thread_id, t.input_tokens])).toEqual([
+      [here, 1500],
+    ]);
+    // A flow's month_spend_usd counts what bills: the deleted gateway answer, never Claude Code.
+    if (sql) {
+      // Only this test's answers sit at that instant; later suites' rows are in both sums.
+      const fromHere = await spendUsd(sql, q.from);
+      expect(fromHere - (await spendUsd(sql, new Date(at('2026-10-12T09:00:01Z'))))).toBeCloseTo(2);
+    }
+    expect(await source.claudeCodeImported?.(q)).toEqual({
+      input_tokens: 300,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cost_usd: 0,
+      answers: 2,
+      sessions: 2,
+    });
   });
 });

@@ -21,12 +21,14 @@ import { useQuery } from '@tanstack/react-query';
 import { type CSSProperties, useMemo } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { compare, jumpTo, pathTo } from '../lib/branching';
+import { useThread } from '../lib/data';
 import { hueVar, modelById, modelName, percent, usd } from '../lib/format';
 import type { MessageView } from '../lib/types';
 import { CiteProvider, plainQuote } from '../thread/Citations';
 import { Parts } from '../thread/Parts';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
+import { ClaudeCodeCost, isClaudeCodeModel } from '../usage/planCost';
 import { type ComparePair, useBranchLayer } from './store';
 
 type Side = CompareResult['a'];
@@ -41,8 +43,10 @@ function turns(msgs: MessageView[]): MessageView[][] {
   return out;
 }
 
-function Metrics({ side, label }: { side: Side; label: 'A' | 'B' }) {
+function Metrics({ side, label, claude }: { side: Side; label: 'A' | 'B'; claude: boolean }) {
   const m = side.metrics;
+  // Claude Code answered every turn on this side: its plan covers it (usage/planCost.ts).
+  const fromClaude = claude || (m.models.length > 0 && m.models.every(isClaudeCodeModel));
   return (
     <div className="cmp__metrics">
       <span className="cmp__side" data-side={label}>
@@ -64,7 +68,8 @@ function Metrics({ side, label }: { side: Side; label: 'A' | 'B' }) {
         );
       })}
       <span className="mute" data-num>
-        {(m.input_tokens + m.output_tokens).toLocaleString('en-GB')} tok · {usd(m.cost_usd, 3)}
+        {(m.input_tokens + m.output_tokens).toLocaleString('en-GB')} tok ·{' '}
+        {fromClaude ? <ClaudeCodeCost estimate={m.cost_usd} /> : usd(m.cost_usd, 3)}
       </span>
       {m.confidence !== null ? (
         <span className="mute" data-num>
@@ -107,6 +112,7 @@ function Body({ pair }: { pair: ComparePair }) {
   });
   const setMerge = useBranchLayer((s) => s.setMerge);
   const setCompare = useBranchLayer((s) => s.setCompare);
+  const claude = !!useThread(pair.threadId).data?.claudeCode;
 
   const rows = useMemo(() => {
     if (!res.data || !sides.data) return [];
@@ -193,8 +199,8 @@ function Body({ pair }: { pair: ComparePair }) {
       </section>
 
       <div className="cmp__heads">
-        <Metrics side={r.a} label="A" />
-        <Metrics side={r.b} label="B" />
+        <Metrics side={r.a} label="A" claude={claude} />
+        <Metrics side={r.b} label="B" claude={claude} />
       </div>
 
       <div className="cmp__rows" data-scrollable>
