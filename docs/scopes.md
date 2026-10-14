@@ -80,6 +80,19 @@ What the Why view shows: the thread's effective scope, and for each tool decisio
 
 - **Flows** (`flows/turn.ts`, `makeTurnRuntime`): read again before every step, so a scope narrowed while a flow runs applies to its next step. Each model in a step's chain passes `checkEngineAllowed`; a refused one is skipped for the next (a `fallback` event gives the reason), and a step with none left stops with the scope's own error, before anything is sent. Retrieve steps and "named sources" edges search only the sources the scope allows, plus linked notebooks as the links service allows them now; "retrieved passages" edges get the turn's own retrieval, already scoped.
 - **Context links and context packs** (`scopes/combine.ts`, `checkLinkRead`): every read across a link passes the reading side's scope and the linked side's. The reader must allow `context_links`; a private or local-only place is read only where nothing leaves this machine (never by Claude Code, never where a cloud model may answer); the linked side may not allow fewer engines or models than the reader; only the sources its scope lets retrieval read are searched. Checked when a link is made (403 with the scope's code) and again on every read.
+- **Encrypted sync** (Pro, below): read on every sync, from the scopes as they are then.
+
+## Sync (Pro)
+
+Encrypted sync carries notebooks, flows, threads, messages, notes and your preferences between your computers. A place that keeps data on this machine (a private notebook, or `data_leaves_machine` off on a notebook or thread; `keepsLocal` in `scopes/combine.ts`) stays out of it:
+
+- **Never sent.** Core's sync source (`services/core/src/pro/sync-source.ts`) hands such items to Pro as `local`, without their data: the notebook, every thread in it, their messages, its notes, and the flows that answer there. A thread can only narrow its notebook, so every thread in a local notebook is local too.
+- **Never written from elsewhere.** A change from another computer to anything in such a place is not applied here, by its own place or by the copy here.
+- **Taken back.** When a place starts keeping data here, everything in it this computer had synced (sent or received) is withdrawn: the relay deletes every record of it and holds back other computers' copies, and each other computer empties and deletes its copy, with everything it holds inside that notebook or thread. A copy there that this computer never had (an edit made there before it heard) is kept aside on that computer (Settings → Sync), to put back there only. Scopes themselves do not sync, so the computer where you made the change decides.
+- **Sent again.** When the place may share again, everything in it goes again as it is now, including what was made while it was local.
+- Checked at the start of every sync (every 30 seconds) and for every item; nothing is cached.
+
+Cockpit settings that belong to a device (zoom, panel widths, browser-safe keys, performance, custom CSS: `DEVICE_PREFS` in `packages/contracts/src/prefs.ts`) never sync either, and UI state other than preferences and help progress (scroll positions, open panels) stays on the computer it is about.
 
 ## Where two scopes meet: a notebook merge
 
