@@ -1,13 +1,31 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+
+// Pro (a private submodule at pro/) brings tests for its own screens; a public
+// clone has none. They run here, in the Cockpit's jsdom, against the kit the
+// Cockpit lends them. Pro imports only React, which lives in this package.
+const proTests = fileURLToPath(new URL('../../pro/cockpit/test', import.meta.url));
+const hasPro = existsSync(proTests);
+const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   // Tests run as the free build: no Pro screens (see vite.config.ts).
   define: { __ANCILE_PRO_UI__: 'false' },
+  resolve: hasPro
+    ? {
+        alias: [
+          { find: /^react$/, replacement: here('node_modules/react/index.js') },
+          { find: /^react\/jsx-runtime$/, replacement: here('node_modules/react/jsx-runtime.js') },
+          { find: /^react\/jsx-dev-runtime$/, replacement: here('node_modules/react/jsx-dev-runtime.js') },
+        ],
+      }
+    : {},
   test: {
     environment: 'jsdom',
-    include: ['test/**/*.test.{ts,tsx}'],
+    include: ['test/**/*.test.{ts,tsx}', ...(hasPro ? ['../../pro/cockpit/test/**/*.test.{ts,tsx}'] : [])],
     setupFiles: ['test/setup.ts'],
     css: false,
     // `vitest run --coverage` (CI). Every source file counts, tested or not;
