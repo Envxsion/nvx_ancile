@@ -60,7 +60,7 @@ Placeholders are text and are held to the same 4.5:1. `--mute-3` (2.2 to 3.4:1) 
 ## Materials: glass, grain and gilt
 
 - **Glass** (`.m-glass`, `.m-glass-thick`): a translucent ground (`--glass` at 0.64, `--glass-thick` at 0.8) with a backdrop blur. It is a utility and wins over the solid ground a component sets for when glass is off, but only while glass is in force: Settings → Appearance → Surfaces → Glass, transparency not reduced, effects not Light. Otherwise it steps aside and the component's own solid ground shows.
-- **Grain**: one fixed layer of grey noise over the whole app, blended hard-light at `--grain-opacity` (0.10 dark, 0.08 light). Above mid-grey it lightens, below it darkens, and mid-grey changes nothing, so it shows on the near-black grounds as well as the light ones without veiling either.
+- **Grain**: one fixed layer of grey noise over the whole app, blended hard-light at `--grain-opacity` (0.05 dark, 0.045 light). Off by default (Settings → Appearance → Film grain). Above mid-grey it lightens, below it darkens, and mid-grey changes nothing, so it shows on the near-black grounds as well as the light ones without veiling either.
 - **Gilt** has three modes. On is the full brass: rich ink, a wash you can see (`--gilt-wash`, 12%), a bright rim (`--gilt-line`) and the glow. Subtle greys the ink and halves the wash and rim, with a hairline for the glow. Off removes the brass. Components draw gilt grounds with `--gilt-wash` and gilt rules with `--gilt-line`, so every mode reaches them.
 - Settings shows a note under Surfaces and Film grain whenever Transparency, the system or Effects overrides them, naming and linking the setting.
 

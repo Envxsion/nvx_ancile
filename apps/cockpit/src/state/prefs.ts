@@ -118,6 +118,14 @@ if (typeof window !== 'undefined')
     pendingSync = null;
   });
 
+/** Stored preferences from an older version of this store, brought up to date. Exported for tests. */
+export function migratePrefs(persisted: unknown, from: number): unknown {
+  const p = persisted as { prefs?: { appearance?: Record<string, unknown> } } | undefined;
+  if (from < 2 && p?.prefs?.appearance)
+    return { ...p, prefs: { ...p.prefs, appearance: { ...p.prefs.appearance, grain: false } } };
+  return persisted;
+}
+
 export const usePrefs = create<PrefsState>()(
   persist(
     (set, get) => ({
@@ -160,7 +168,10 @@ export const usePrefs = create<PrefsState>()(
     }),
     {
       name: 'nvx.ancile.prefs',
-      version: 1,
+      // 2: film grain became Off by default. Version 1 stored it On for
+      // everyone who never touched it, so it goes Off once; On again is a click.
+      version: 2,
+      migrate: (persisted, from) => migratePrefs(persisted, from),
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({ prefs: s.prefs, changedAt: s.changedAt, cssConsent: s.cssConsent }),
       merge: (persisted, current) => {

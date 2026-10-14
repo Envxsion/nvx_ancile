@@ -34,7 +34,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 import { queryClient } from '../src/lib/query';
 import { AccessibilityGroup, AdvancedGroup, AppearanceGroup } from '../src/routes/settings/groups';
 import { lookOverride } from '../src/routes/settings/rows';
-import { lookOf, usePrefs } from '../src/state/prefs';
+import { lookOf, migratePrefs, usePrefs } from '../src/state/prefs';
 import {
   here,
   oklab,
@@ -131,6 +131,12 @@ const set = <G extends 'appearance' | 'accessibility' | 'advanced'>(g: G, patch:
   act(() => usePrefs.getState().set(g, patch as never));
 
 describe('Settings notes while an override is in force', () => {
+  // Grain is off by default; these are about what overrides it once it is on.
+  beforeEach(() => {
+    usePrefs.setState({
+      prefs: { ...DEFAULT_PREFERENCES, appearance: { ...DEFAULT_PREFERENCES.appearance, grain: true } },
+    });
+  });
   it('no notes when nothing overrides', () => {
     render(<AppearanceGroup />, { wrapper: Shell });
     expect(noteOf('Surfaces')).toBeNull();
@@ -340,15 +346,27 @@ describe('the grain shows on every ground', () => {
     ['dark', '--lift-3'],
     ['light', '--void-deep'],
     ['light', '--lift'],
-  ] as const)('a speck a fifth off mid-grey moves the %s %s by at least 6 of 255', (theme, ground) => {
+  ] as const)('when on, a speck a fifth off mid-grey moves the %s %s by 3 to 8 of 255', (theme, ground) => {
     const t = tokensFor({ theme, tint: theme === 'dark' ? 'obsidian' : undefined });
     const g = parse(t[ground]);
     const level = (0.2126 * g[0] + 0.7152 * g[1] + 0.0722 * g[2]) / 255;
     const opacity = Number(t['--grain-opacity']);
     const strongest = Math.max(Math.abs(speck(level, 0.7, opacity)), Math.abs(speck(level, 0.3, opacity)));
-    expect(strongest).toBeGreaterThanOrEqual(6);
-    // ...and never so strong that it reads as dirt (a sixth of the way to white or black).
-    expect(strongest).toBeLessThan(255 / 6);
+    expect(strongest).toBeGreaterThanOrEqual(3);
+    // ...and never so strong that it reads as dirt: 10% opacity (about 10 of 255) was too much.
+    expect(strongest).toBeLessThanOrEqual(8);
+  });
+
+  it('is off by default, and goes off once for preferences stored when it was on by default', () => {
+    expect(DEFAULT_PREFERENCES.appearance.grain).toBe(false);
+    expect(resolveLook(lookOf(prefs({}))).attrs.grain).toBe('off');
+    const stored = {
+      prefs: { appearance: { ...DEFAULT_PREFERENCES.appearance, grain: true } },
+      changedAt: 5,
+    };
+    expect(migratePrefs(stored, 1)).toMatchObject({ prefs: { appearance: { grain: false } }, changedAt: 5 });
+    // A choice made since stays as it is.
+    expect(migratePrefs(stored, 2)).toBe(stored);
   });
 });
 

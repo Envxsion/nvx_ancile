@@ -25,7 +25,8 @@ export const AppearancePrefs = z.object({
   tint: z.enum(['graphite', 'ink', 'obsidian']).default('graphite'),
   gilt: z.enum(['on', 'subtle', 'off']).default('on'),
   material: z.enum(['glass', 'solid']).default('glass'),
-  grain: z.boolean().default(true),
+  /** Off by default: a texture some like, not part of the look everyone gets. */
+  grain: z.boolean().default(false),
   mark: z.enum(['full', 'status', 'still']).default('full'),
   font: z.enum(['archivo', 'system']).default('archivo'),
   /** Archivo's width axis: 88 narrow, 100, 112 wide. */

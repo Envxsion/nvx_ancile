@@ -161,9 +161,9 @@
     rgb(201 163 98 / 0.65)
   );
   --gilt-glow-strong: 0 0 0 1px rgb(217 184 113 / 0.32), 0 14px 34px -16px rgb(217 184 113 / 0.5);
-  /* Grain (prefs.css .grain, hard-light): strong enough to see on the
-     near-black grounds, where the old overlay blend showed nothing. */
-  --grain-opacity: 0.1;
+  /* Grain (prefs.css .grain, hard-light), when it is turned on: a texture
+     you notice on the near-black grounds, never one that reads as dirt. */
+  --grain-opacity: 0.05;
 }
 
 [data-theme='light'] {
@@ -277,7 +277,7 @@
     rgb(143 106 38 / 0.65)
   );
   --gilt-glow-strong: 0 0 0 1px rgb(122 90 30 / 0.3), 0 14px 32px -16px rgb(122 90 30 / 0.35);
-  --grain-opacity: 0.08;
+  --grain-opacity: 0.045;
 }
 
 /* ---------------------------------------------------------------------------
