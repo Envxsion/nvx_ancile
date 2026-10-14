@@ -102,7 +102,7 @@ Core is not a Node single-executable application: that format takes one CommonJS
 
 The lab runs commands a model chose, so the desktop gives it an environment built from nothing, as `agentEnv()` does in development: system basics, its own server password, a gateway token that can only ask Core for model calls, and its injected config. It never sees the service token, the database or any provider key (`lab_env_for` in `supervisor.rs`, with a test).
 
-The Controller starts with RunPod and no key, which means sample nodes until you choose **Connect RunPod** in Admin → Compute.
+The Controller starts with RunPod and no key. Once a RunPod key is saved in Settings → API keys, Core gives it to the Controller each time it starts, so Admin → Compute manages your pods from the first minute of every launch.
 
 ### Trying a build without touching your workspace
 

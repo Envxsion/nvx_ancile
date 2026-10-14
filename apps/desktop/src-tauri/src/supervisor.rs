@@ -230,8 +230,9 @@ impl Supervisor {
                 "CONTROLLER_URL",
                 format!("http://127.0.0.1:{}", p.controller),
             );
-            // RunPod with no key: sample nodes until RunPod is connected in
-            // Admin → Compute (Core keeps the key and gives it to the Controller).
+            // RunPod with no key: it manages nothing until a key is saved in
+            // Settings → API keys. Core keeps the key and gives it to the
+            // Controller each time it starts (it holds keys only in memory).
             set("CONTROLLER_PROVIDER", "runpod".into());
         }
         if layout.has(&format!("lab/{}", exe("ancile-lab"))) {

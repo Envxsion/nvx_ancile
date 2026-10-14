@@ -68,6 +68,8 @@ export function startComputeBridge(deps: {
   client: ControllerClient;
   registry: ModelRegistry;
   bus: EventBus;
+  /** Each time the event stream (re)connects: the Controller may have just restarted, keyless. */
+  onConnect?: () => void;
 }): () => void {
   if (!deps.client.configured) return () => {};
   const { client, registry, bus } = deps;
@@ -121,6 +123,7 @@ export function startComputeBridge(deps: {
         const res = await client.raw('/events', abort.signal);
         if (!res.ok || !res.body) throw new Error(`events answered ${res.status}`);
         backoff = 1_000;
+        deps.onConnect?.();
         await refresh();
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         let buf = '';

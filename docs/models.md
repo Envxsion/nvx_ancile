@@ -56,7 +56,7 @@ The chip colour is one of the identity hues; **Follow the family** goes back to 
 
 ## GPU nodes
 
-A GPU node is a machine the Controller can start and stop. Add one under **Admin → Compute**: a RunPod pod by id (with `RUNPOD_API_KEY` in `.env`), or a machine on your network running Ollama, vLLM or LM Studio (`CONTROLLER_LOCAL_NODES`). Its models are listed as `node/<model>`. If the node serves an OpenAI-compatible API you can reach directly, you can also add it under **Your server**, but then NVX Ancile cannot wake it for you.
+A GPU node is a machine the Controller can start and stop. Add one under **Admin → Compute**: a RunPod pod by id (once a RunPod key is saved in Settings → API keys, or `RUNPOD_API_KEY` is set), or a machine on your network running Ollama, vLLM or LM Studio (`CONTROLLER_LOCAL_NODES`). Its models are listed as `node/<model>`. If the node serves an OpenAI-compatible API you can reach directly, you can also add it under **Your server**, but then NVX Ancile cannot wake it for you.
 
 When a message needs a node that is stopped, the answer shows **Waking your GPU node** with the start-up chain lighting as it goes; **Use a cloud model instead** answers straight away from the cloud. Rules stop idle nodes and cap spending; see [compute](compute.md).
 

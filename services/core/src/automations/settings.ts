@@ -151,7 +151,7 @@ export class KnowledgeSync {
 
   constructor(
     private readonly settings: BuiltinSettings,
-    private readonly kn: { put<T>(path: string, body: unknown): Promise<T> },
+    private readonly kn: { put(path: string, body: unknown): Promise<unknown> },
     private readonly retryMs = 30_000,
   ) {}
 

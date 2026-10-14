@@ -393,10 +393,16 @@ async function main() {
   };
   // ---- Phase 5: remote compute (the Controller) ----
   const compute = controllerClient({ url: env.CONTROLLER_URL, token: env.CONTROLLER_TOKEN });
-  const stopCompute = startComputeBridge({ client: compute, registry, bus: events });
-  // A RunPod key saved from Admin → Compute goes back to the Controller after
-  // it restarts (it holds the key only in memory).
+  // A saved RunPod key goes back to the Controller whenever it has none: it
+  // holds the key only in memory, so every restart of it (every launch of the
+  // desktop app) starts keyless. At start, when its events reconnect, and each minute.
   const syncProvider = providerSync(compute, secrets);
+  const stopCompute = startComputeBridge({
+    client: compute,
+    registry,
+    bus: events,
+    onConnect: () => void syncProvider(),
+  });
   void syncProvider();
   setInterval(() => void syncProvider(), 60_000).unref();
   // ---- end Phase 5 ----

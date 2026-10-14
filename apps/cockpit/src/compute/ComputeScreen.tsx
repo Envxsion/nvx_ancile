@@ -20,6 +20,7 @@
  */
 
 import * as Dialog from '@radix-ui/react-dialog';
+import { useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useMemo, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError } from '../lib/api';
@@ -30,7 +31,6 @@ import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton, StatusDot, Tip } from '../ui/primitives';
 import { ConfirmationChain } from './ConfirmationChain';
-import { ConnectRunPodDialog, useDisconnectRunPod, useProvider } from './ConnectRunPod';
 import {
   ACTION_WORD,
   addNode,
@@ -44,6 +44,7 @@ import {
   useLiveOps,
   useNodeOperations,
   useNodes,
+  useProvider,
 } from './data';
 import { PodSetup } from './PodSetup';
 import { Rules } from './Rules';
@@ -492,8 +493,10 @@ export function ComputeScreen() {
   const nodes = useNodes();
   const costs = useCosts();
   const [adding, setAdding] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const disconnect = useDisconnectRunPod();
+  const navigate = useNavigate();
+  // One key screen: the RunPod key is added, replaced and removed in Settings → API keys.
+  const keyScreen = () =>
+    void navigate({ to: '/settings/$group', params: { group: 'keys' }, search: { key: 'runpod' } });
   const provider = useProvider(!!status.data?.reachable);
   const [terminating, setTerminating] = useState<ComputeNode | null>(null);
   const costByNode = useMemo(
@@ -538,7 +541,7 @@ export function ComputeScreen() {
         </p>
         <div className="compute__bar-actions">
           {sample || unconnected ? (
-            <button type="button" className="btn btn--primary btn--sm" onClick={() => setConnecting(true)}>
+            <button type="button" className="btn btn--primary btn--sm" onClick={keyScreen}>
               <Icon name="link" size={14} />
               Connect RunPod
             </button>
@@ -552,10 +555,9 @@ export function ComputeScreen() {
             <DropMenu
               items={[
                 {
-                  label: 'Disconnect RunPod',
-                  icon: 'close',
-                  danger: true,
-                  onSelect: () => disconnect.mutate(),
+                  label: 'Change or remove the RunPod key',
+                  icon: 'key',
+                  onSelect: keyScreen,
                 },
               ]}
               trigger={
@@ -573,7 +575,7 @@ export function ComputeScreen() {
           <Icon name="sparkle" size={14} />
           <span>
             These are sample nodes: they start, stop, answer and cost nothing, so you can try everything.{' '}
-            <button type="button" className="link-btn" onClick={() => setConnecting(true)}>
+            <button type="button" className="link-btn" onClick={keyScreen}>
               Connect RunPod
             </button>{' '}
             to manage real ones.
@@ -597,7 +599,7 @@ export function ComputeScreen() {
               icon="node"
               title="No GPU provider connected"
               body="Connect RunPod with an API key, then add a pod or create one. GPU time is billed by RunPod, to you."
-              action={{ label: 'Connect RunPod', onClick: () => setConnecting(true) }}
+              action={{ label: 'Connect RunPod', onClick: keyScreen }}
             />
           ) : (
             <EmptyState
@@ -625,7 +627,6 @@ export function ComputeScreen() {
       <Rules />
 
       <AddNodeDialog open={adding} onOpenChange={setAdding} provider={status.data?.provider ?? null} />
-      <ConnectRunPodDialog open={connecting} onOpenChange={setConnecting} />
       <TerminateDialog
         key={terminating?.id ?? 'none'}
         node={terminating}

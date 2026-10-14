@@ -6,7 +6,9 @@ Remote nodes are ephemeral and stateless. Your data, memory and history stay on 
 
 ## Setting up RunPod
 
-1. Create an API key in RunPod (Settings → API Keys) with read and write access to pods. In NVX Ancile, open Admin → Compute and choose **Connect RunPod**, then paste it. The Controller checks it with RunPod before anything changes, and NVX Ancile keeps it encrypted on this computer. Until then Compute is empty: there are no sample nodes or invented prices. **Disconnect RunPod** (the ⋯ menu) removes the key, once no real node is left.
+1. Create an API key in RunPod (Settings → API Keys) with read and write access to pods. In NVX Ancile, paste it in **Settings → API keys → RunPod**, the one place keys are entered (**Connect RunPod** in Admin → Compute opens it there). The Controller checks it with RunPod before anything changes, and NVX Ancile keeps it encrypted on this computer. Until then Compute is empty: there are no sample nodes or invented prices. Removing the key there disconnects RunPod, once no real node is left (Admin → Compute's ⋯ menu has **Change or remove the RunPod key**).
+
+   The Controller holds the key only in memory, so it starts without one every time it starts (every launch of the desktop app). Core gives it the saved key back by itself: at start, whenever the Controller's event stream reconnects, once a minute, and before Compute reads the provider. A key RunPod refused (one you revoked) is not sent again until you save another.
 
    On a server, `RUNPOD_API_KEY` in `.env` does the same, with `CONTROLLER_URL=http://localhost:7720`.
 2. Create a **network volume** in the region you want, for the model weights.

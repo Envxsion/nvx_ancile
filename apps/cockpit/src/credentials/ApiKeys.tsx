@@ -11,13 +11,16 @@
  *           |  and save a value, DELETE to remove it. A value typed
  *           |  here is sent once and never comes back: rows only know
  *           |  "saved, ends in 4f2a". A value set in the environment
- *           |  wins, and its row is read-only.
+ *           |  wins, and its row is read-only. This is the one place a
+ *           |  key is entered: other screens (Admin → Compute's Connect
+ *           |  RunPod) open it at their row, ?key=<id>, ready to type.
  * ------------------------------------------------------------------
  */
 
 import type { CredentialId, CredentialList, CredentialStatus } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useContext, useId, useState } from 'react';
+import { useSearch } from '@tanstack/react-router';
+import { useContext, useEffect, useId, useRef, useState } from 'react';
 import { ApiCallError, api } from '../lib/api';
 import { keys as dataKeys } from '../lib/data';
 import { queryClient } from '../lib/query';
@@ -98,7 +101,7 @@ export const CREDENTIAL_META: CredentialMeta[] = [
     placeholder: 'rpa_…',
     getUrl: 'https://www.runpod.io/console/user/settings',
     getLabel: 'Get a key',
-    removes: 'Admin → Compute goes back to sample nodes. Your pods keep running in RunPod.',
+    removes: 'Admin → Compute stops managing your pods. They keep running, and billing, in RunPod.',
   },
   {
     id: 'huggingface',
@@ -180,12 +183,30 @@ const problemOf = (e: unknown) =>
     ? { title: e.body.error.title, hint: e.body.error.hint }
     : { title: 'NVX Ancile did not answer', hint: 'Check that it is running, then try again.' };
 
-function CredentialRow({ meta, status }: { meta: CredentialMeta; status: CredentialStatus | undefined }) {
+function CredentialRow({
+  meta,
+  status,
+  focused = false,
+}: {
+  meta: CredentialMeta;
+  status: CredentialStatus | undefined;
+  /** Opened from another screen for this key: brought into view, ready to type. */
+  focused?: boolean;
+}) {
   const [mode, setMode] = useState<'idle' | 'edit' | 'confirm'>('idle');
   const [value, setValue] = useState('');
   const [reveal, setReveal] = useState(false);
   const inputId = useId();
   const hintId = useId();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const opened = useRef(false);
+  // Once its status is known: a key that can be typed opens its field.
+  useEffect(() => {
+    if (!focused || !status || opened.current) return;
+    opened.current = true;
+    rowRef.current?.scrollIntoView?.({ block: 'center' });
+    if (status.source !== 'environment' && status.available) setMode('edit');
+  }, [focused, status]);
 
   const save = useMutation({
     mutationFn: (v: string) => api.put<CredentialStatus>(`/credentials/${meta.id}`, { value: v }),
@@ -195,11 +216,15 @@ function CredentialRow({ meta, status }: { meta: CredentialMeta; status: Credent
       setMode('idle');
       queryClient.setQueryData<CredentialStatus[]>(KEY, (all) => all?.map((x) => (x.id === s.id ? s : x)));
       refresh(meta.id);
-      notify({
-        level: 'success',
-        title: `${meta.name} ${meta.noun} saved`,
-        body: 'It is encrypted on this computer.',
-      });
+      notify(
+        meta.id === 'runpod'
+          ? {
+              level: 'success',
+              title: 'RunPod connected',
+              body: 'Admin → Compute manages your pods now. The key is encrypted on this computer.',
+            }
+          : { level: 'success', title: `${meta.name} ${meta.noun} saved`, body: 'It is encrypted on this computer.' },
+      );
     },
   });
   const remove = useMutation({
@@ -223,9 +248,12 @@ function CredentialRow({ meta, status }: { meta: CredentialMeta; status: Credent
 
   return (
     <div
+      ref={rowRef}
+      id={`credential-${meta.id}`}
       className="setting credential"
       data-stack={mode !== 'idle' || undefined}
       data-set={status?.set || undefined}
+      data-focused={focused || undefined}
     >
       <div className="setting__words">
         <div className="setting__label">
@@ -379,6 +407,7 @@ function CredentialRow({ meta, status }: { meta: CredentialMeta; status: Credent
 
 export function ApiKeysGroup() {
   const q = useContext(SearchContext);
+  const focus = (useSearch({ strict: false }) as { key?: string }).key;
   const list = useCredentials();
   const byId = new Map((list.data ?? []).map((s) => [s.id, s]));
   return (
@@ -397,7 +426,7 @@ export function ApiKeysGroup() {
         return (
           <Block key={g.title} title={g.title} lede={g.lede}>
             {rows.map((m) => (
-              <CredentialRow key={m.id} meta={m} status={byId.get(m.id)} />
+              <CredentialRow key={m.id} meta={m} status={byId.get(m.id)} focused={focus === m.id} />
             ))}
           </Block>
         );

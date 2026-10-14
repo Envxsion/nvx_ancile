@@ -14,14 +14,15 @@ import { MemorySecretStore, SecretBox } from '../../src/secrets';
 
 const KEY = 'rpa_good_key_000';
 
-function controller() {
-  let kind = 'fake';
+/** A Controller that starts with no provider ('none', every real install) or sample nodes ('fake'). */
+function controller(start: 'fake' | 'none' = 'fake') {
+  let kind: string = start;
   const calls: string[] = [];
   const client: ControllerClient = {
     configured: true,
     async get<T>(path: string) {
       calls.push(`GET ${path}`);
-      return { kind, connected: kind !== 'fake', detail: '' } as T;
+      return { kind, connected: kind !== 'fake' && kind !== 'none', detail: '' } as T;
     },
     async send<T>(method: string, path: string, body?: unknown) {
       calls.push(`${method} ${path}`);
@@ -35,14 +36,14 @@ function controller() {
           });
         kind = 'runpod';
       }
-      if (method === 'DELETE') kind = 'fake';
-      return { kind, connected: kind !== 'fake', detail: '' } as T;
+      if (method === 'DELETE') kind = start;
+      return { kind, connected: kind !== 'fake' && kind !== 'none', detail: '' } as T;
     },
     async raw() {
       return new Response();
     },
   };
-  return { client, calls, restart: () => (kind = 'fake') };
+  return { client, calls, restart: () => (kind = start) };
 }
 
 const secretsStore = () => new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64')));
@@ -96,5 +97,48 @@ describe('connecting RunPod from the app', () => {
     c.calls.length = 0;
     await Promise.all([sync(), sync()]); // one at a time
     expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+  });
+
+  it('gives the key back to a real Controller that started keyless (provider none)', async () => {
+    // Every launch of the desktop app: the Controller holds the key in memory only.
+    const c = controller('none');
+    const secrets = secretsStore();
+    await secrets.set(RUNPOD_KEY_SECRET, KEY);
+    const sync = providerSync(c.client, secrets);
+    await sync();
+    expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+    c.calls.length = 0;
+    await sync();
+    expect(c.calls).toEqual(['GET /provider']);
+    c.restart();
+    c.calls.length = 0;
+    await sync();
+    expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+  });
+
+  it('does not keep offering RunPod a key it refused, until the key changes', async () => {
+    const c = controller('none');
+    const secrets = secretsStore();
+    await secrets.set(RUNPOD_KEY_SECRET, 'rpa_revoked_000');
+    const sync = providerSync(c.client, secrets);
+    await sync();
+    expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+    c.calls.length = 0;
+    await sync();
+    await sync();
+    expect(c.calls).toEqual([]);
+    // A new key is tried at once.
+    await secrets.set(RUNPOD_KEY_SECRET, KEY);
+    await sync();
+    expect(c.calls).toEqual(['GET /provider', 'PUT /provider']);
+  });
+
+  it('reading the provider in Compute gives a keyless Controller the key first', async () => {
+    const c = controller('none');
+    const secrets = secretsStore();
+    await secrets.set(RUNPOD_KEY_SECRET, KEY);
+    const { call } = app(c.client, secrets);
+    const r = await call('GET', '/compute/provider');
+    expect(await r.json()).toMatchObject({ kind: 'runpod', connected: true, key_saved: true });
   });
 });

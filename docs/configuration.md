@@ -94,7 +94,7 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 |---|---|---|
 | `CONTROLLER_URL` / `CONTROLLER_PORT` | `http://localhost:7720` / `7720` | Leave `CONTROLLER_URL` empty to run without remote compute. |
 | `CONTROLLER_TOKEN` | none (required with a Controller) | Core → Controller auth. |
-| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. Optional: Admin → Compute → Connect RunPod saves the key in the app instead. Empty and not connected: sample nodes. |
+| `RUNPOD_API_KEY` | empty | Pod read/write scope. Used only by the Controller. Optional: Settings → API keys → RunPod saves the key in the app instead, and Core gives it to the Controller each time it starts. Empty and not connected: no provider (sample nodes only with `CONTROLLER_PROVIDER=fake`). |
 | `RUNPOD_API_BASE` | `https://api.runpod.io` | REST v2. v1 is retired on 15 Nov 2026. |
 | `CONTROLLER_COST_CAP_USD` | `150` | Default hard monthly cap across nodes. |
 | `CONTROLLER_QUEUE_DEADLINE_S` | `240` | How long a request waits for a waking node. |
@@ -111,7 +111,7 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 | Row | Environment variable | Checked by |
 |---|---|---|
 | Anthropic, OpenAI, Google, OpenRouter | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `OPENROUTER_API_KEY` | One short request to the provider's cheapest configured model (the setup test). A first key switches that provider's models on; a replacement leaves your choices alone. |
-| RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it (the same path as Admin → Compute → Connect RunPod). Unavailable when Core has no `CONTROLLER_URL`. |
+| RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it; Admin → Compute → Connect RunPod opens this row. Saving it connects the Controller at once, and Core gives it back to the Controller whenever it restarts without it. Unavailable when Core has no `CONTROLLER_URL`. |
 | Hugging Face | `HF_TOKEN` | Hugging Face's `whoami`. For gated models on GPU nodes. |
 | GitHub | `GITHUB_TOKEN` | GitHub's `/user`. Used by Repositories when the `gh` command is not signed in. |
 | Memory backup | `ANCILE_MEMORY_REMOTE` | Its shape only: an address git can push to (`git@host:path`, `https://`, `ssh://`, `file://`); Admin → Automations → Back up memory → Edit has **Test push** to try it. Read by the hourly memory backup each time it runs, so a change needs no restart. |
@@ -322,8 +322,8 @@ With none of the compute settings set, a development install shows two sample GP
 # --- Controller: GPU nodes ---
 # runpod: pods in your RunPod account (needs RUNPOD_API_KEY)
 # local:  OpenAI-compatible servers on your network (CONTROLLER_LOCAL_NODES)
-# fake:   sample nodes. Also what runpod shows until a key is given here or
-#         from Admin → Compute → Connect RunPod.
+# fake:   sample nodes, for tests and trying it out. runpod with no key
+#         manages nothing until one is given here or in Settings → API keys.
 CONTROLLER_PROVIDER=runpod
 RUNPOD_API_KEY=
 # Machines on your network running Ollama, vLLM or LM Studio, as a JSON list:

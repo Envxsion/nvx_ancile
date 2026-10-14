@@ -15,6 +15,7 @@
  * ------------------------------------------------------------------
  */
 
+import { AncileError } from '@nvx/contracts';
 import { NodeAction, type ProviderStatus } from '@nvx/contracts/controller';
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
@@ -22,6 +23,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { useCloud } from '../gateway/compute';
 import { body } from '../http/body';
+import { logFor } from '../obs/logger';
 import { proRefusal } from '../pro/routes';
 import type { SecretStore } from '../secrets';
 import type { ControllerClient } from './controller';
@@ -30,22 +32,36 @@ import type { ControllerClient } from './controller';
 export const RUNPOD_KEY_SECRET = 'compute.runpod_api_key';
 
 /**
- * Give the Controller the saved RunPod key whenever it has none (it restarted,
- * or was down when the key was saved). Safe to call often: one at a time,
- * and only a GET when nothing is needed.
+ * Give the Controller the saved RunPod key whenever it has none: it holds
+ * the key only in memory, so after every restart of the Controller (every
+ * launch of the desktop app) it starts with none, as "none" or with sample
+ * nodes ("fake"). Called at start, once a minute, when the Controller's
+ * event stream reconnects, and before Compute reads the provider. Safe to
+ * call often: one at a time, only a GET when nothing is needed, and a key
+ * RunPod refused is not sent again until the key changes.
  */
 export function providerSync(client: ControllerClient, secrets: SecretStore) {
   let running: Promise<void> | null = null;
+  let refused: string | null = null;
   const once = async () => {
     if (!client.configured) return;
     const key = await secrets.get(RUNPOD_KEY_SECRET);
-    if (!key) return;
+    if (!key || key === refused) return;
     const now = await client.get<ProviderStatus>('/provider');
-    if (now.kind === 'fake') await client.send('PUT', '/provider', { kind: 'runpod', api_key: key });
+    if (now.connected) return;
+    try {
+      await client.send('PUT', '/provider', { kind: 'runpod', api_key: key });
+      refused = null;
+      log.info('the saved RunPod key was given to the Controller');
+    } catch (err) {
+      // RunPod said no (a revoked key): asking it every minute would change nothing.
+      if (err instanceof AncileError && err.code === 'provider.auth') refused = key;
+      throw err;
+    }
   };
   return (): Promise<void> => {
     running ??= once()
-      .catch(() => undefined)
+      .catch((err: unknown) => log.debug({ err }, 'the RunPod key was not given to the Controller'))
       .finally(() => {
         running = null;
       });
@@ -64,7 +80,7 @@ export async function connectRunPod(
   return status;
 }
 
-/** Back to sample nodes, and the saved key removed. */
+/** The Controller back to no provider (sample nodes in a test profile), and the saved key removed. */
 export async function disconnectRunPod(
   client: ControllerClient,
   secrets: SecretStore | undefined,
@@ -74,6 +90,7 @@ export async function disconnectRunPod(
   return status;
 }
 
+const log = logFor('compute');
 const enc = encodeURIComponent;
 
 const ActionBody = z

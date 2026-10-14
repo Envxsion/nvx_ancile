@@ -280,3 +280,20 @@ export const ACTION_WORD: Record<Operation['action'], string> = {
   restart: 'Restart',
   terminate: 'Terminate',
 };
+
+/** Which provider the Controller manages nodes with, and whether a RunPod key is saved here. */
+export interface ProviderInfo {
+  kind: string;
+  connected: boolean;
+  detail: string;
+  key_saved: boolean;
+}
+
+export function useProvider(enabled = true) {
+  return useQuery({
+    queryKey: ['compute', 'provider'],
+    queryFn: () => api.get<ProviderInfo>('/compute/provider'),
+    enabled,
+    staleTime: 30_000,
+  });
+}
