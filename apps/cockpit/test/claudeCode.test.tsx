@@ -70,6 +70,7 @@ function status(p: Partial<ClaudeCodeStatus> = {}): ClaudeCodeStatus {
       auto_import: true,
       exclude_folders: ['~/.claude-mem'],
       claude_telemetry: true,
+      factcheck_judges: 1,
     },
     ...p,
   };
@@ -240,6 +241,7 @@ describe('the status card offers the step that comes next', () => {
           auto_import: false,
           exclude_folders: ['~/.claude-mem'],
           claude_telemetry: true,
+          factcheck_judges: 1,
         },
       }),
     );
@@ -633,6 +635,7 @@ describe("Don't bring in this folder", () => {
       auto_import: true,
       exclude_folders: ['~/.claude-mem', '/home/me/site'],
       claude_telemetry: true,
+      factcheck_judges: 1,
     });
     expect(await excludeFolder('/home/me/site')).toBe(true);
     expect(mocked.post).toHaveBeenCalledWith('/claude-code/projects/exclude', { cwd: '/home/me/site' });
@@ -650,6 +653,7 @@ describe("Don't bring in this folder", () => {
           auto_import: true,
           exclude_folders: ['~/.claude-mem', '/home/me/old'],
           claude_telemetry: true,
+          factcheck_judges: 1,
         },
       }),
     );
