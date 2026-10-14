@@ -89,6 +89,8 @@ Single-key shortcuts never fire while you're typing. Leave the composer with `Es
 
 **Progress says what's happening.** For example "Extracting tables · page 14 of 52" or "Waking node · loading weights (about 40 s)". There are no bare spinners. Content that's loading shows a skeleton with the family's chalk wipe.
 
+**An agent's steps are cards.** Each tool call is a one-line card: a rule and icon for its kind (a command, an MCP tool, a subagent, or any other tool, never in signal violet), what it did, its seconds while it runs, then how long it took and what came back in one short line (lines read, results found, the first line printed). While an answer is written, "Working now" under it lists every step running, parallel calls too. All the timers on screen tick on one shared clock, and the seconds are never announced to screen readers.
+
 **Confirmation chains** for anything touching infrastructure: Requested → Acknowledged → In progress → Confirmed, each step lit as it's reported, with timestamps and the provider's words.
 
 **Optimistic, with rollback.** Sending, renaming, pinning, archiving, attaching, revoking a grant and editing memory appear instantly. If the server disagrees, the change rolls back with a toast that says why.

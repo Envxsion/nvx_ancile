@@ -64,6 +64,15 @@
 .cc-live__meta {
   color: var(--mute);
 }
+/* The step the turn is running now: quiet, and never announced (it changes often). */
+.cc-live__now {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--mute);
+}
 .cc-live__usage {
   display: inline-flex;
   flex: none;

@@ -6,12 +6,15 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Everything a Claude Code thread adds around the
  *           |  composer: one quiet status line (ready, starting,
- *           |  working, with the model, effort and Claude Code's own
- *           |  context meter and its usage popover), the one notice
+ *           |  working with the step running now, the model, effort
+ *           |  and Claude Code's own context meter and its usage
+ *           |  popover), the one notice
  *           |  that needs you (busy elsewhere, signed out, a restart),
  *           |  a queued message, the model and effort pickers, and
  *           |  what NVX Ancile does for the "/" commands it handles.
- *  How      |  Live state from useClaudeCodeLive; choices and notices
+ *  How      |  Live state from useClaudeCodeLive; the step running now
+ *           |  from the turn's run (thread/WorkingNow.tsx), as the live
+ *           |  state has no steps; choices and notices
  *           |  from the per-thread store (claudecode/store.ts). The
  *           |  pickers are controlled so "/model" and "/effort" can
  *           |  open them.
@@ -32,10 +35,12 @@ import { branchHere } from '../lib/branching';
 import { keys } from '../lib/data';
 import { chooseInClaudeCodeThread } from '../lib/models';
 import { queryClient } from '../lib/query';
+import { useRuns } from '../lib/run';
 import { createThread } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
+import { nowWords, workingNow } from '../thread/WorkingNow';
 import { useBranchLayer } from '../tree/store';
 import { Icon } from '../ui/Icon';
 import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
@@ -97,6 +102,11 @@ export function CcLiveLine({
         : (live?.state ?? 'idle');
   const at = ctx?.compacts_at ?? null;
   const tone = pct === null ? 'calm' : contextTone(pct, at);
+  // What the turn streaming in this thread is running now (its run's events; the live state has no steps).
+  const now = useRuns((s) => {
+    const t = Object.values(s.turns).find((x) => x.threadId === threadId && !x.done);
+    return nowWords(workingNow(t));
+  });
 
   return (
     <div className="cc-live" data-state={state}>
@@ -104,6 +114,11 @@ export function CcLiveLine({
       <span className="cc-live__text" aria-live="polite">
         {liveWords(live, folder)}
       </span>
+      {state === 'working' && now ? (
+        <span className="cc-live__now" title={now}>
+          {now}
+        </span>
+      ) : null}
       {model || effort ? (
         <span className="cc-live__meta" data-num>
           {[model, effort ? `${effort} effort` : null].filter(Boolean).join(' · ')}

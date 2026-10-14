@@ -50,11 +50,12 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 ## How sessions look in a thread
 
 - Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results.
-- The answer reads like an editor's timeline. Each tool step is one line saying what it did and to what, and opens onto the detail:
+- The answer reads like an editor's timeline. Each tool step is a one-line card saying what it did and to what, and opens onto the detail. Its left rule and icon say what kind of step it is (a command, an MCP tool, a subagent, or any other tool), and its icon carries the same word for screen readers. While it runs it counts its seconds; once done it says how long it took (from Claude Code's transcript times) and, beside it, what came back in one short line: lines read, results found, the first line a command printed, an MCP tool's first fields. A failed step shows its first line of error instead.
   - **Read** shows the file with line numbers; **Edit** and **Write** show a diff; **Bash** (and PowerShell) a terminal block with the command and what it printed; **Grep** and **Glob** a list of matches; **WebFetch** and **WebSearch** their links; **TodoWrite** a checklist.
   - A subagent (the Task or Agent tool) is folded under the call that started it; open it to read its conversation. An MCP tool (`mcp__server__tool`) shows its server, tool and arguments.
   - More than four steps in a row fold into "Worked through N steps" (while it runs, "Working through N steps").
   - Thinking is folded to one line until you open it.
+- While a turn from NVX Ancile runs, the line under the answer reads "Working now" and lists every step running, parallel calls too, each with its kind and its seconds (a step waiting on your decision says "Waiting"). The status line above the composer names the step running ("Running pnpm test and 2 more"). Claude Code's own live state has no steps, so both come from the turn's run.
 - Long messages start folded at about twelve lines; long pastes too.
 - A Claude Code thread shows no NVX Ancile context estimate: the context is Claude Code's, and its own count (with where it compacts) shows in the same meter once its session is open (`GET /claude-code/threads/:id/live`).
 - What Claude Code itself wrote on your side of the conversation is not shown as if you typed it:
