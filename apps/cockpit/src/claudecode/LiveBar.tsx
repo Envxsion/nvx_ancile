@@ -41,9 +41,11 @@ import { createThread } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
+import { shortModelName } from '../thread/composerBar';
 import { nowWords, workingNow } from '../thread/WorkingNow';
 import { useBranchLayer } from '../tree/store';
 import { Icon } from '../ui/Icon';
+import { BarLabel, Tip } from '../ui/primitives';
 import { ContextGauge, contextTone, contextWords } from '../usage/Meter';
 import { PlanLimits } from '../usage/PlanLimits';
 import { claudeCodeCostWords, useClaudeBilling } from '../usage/planCost';
@@ -245,33 +247,43 @@ export function CcPickers({
         onOpenChange={setOpen('model')}
         onPick={(e) => chooseInClaudeCodeThread(threadId, e)}
         trigger={
-          <button
-            type="button"
-            className="cc-pick"
-            data-other={st.other ? true : undefined}
-            aria-label={
-              st.other
-                ? `${st.other.name} answers the next message instead of Claude Code. Change model`
-                : `Claude Code model: ${currentModel ?? 'the session default'}. Change model`
-            }
-          >
-            <Icon name="model" size={12} />
-            <span className="cc-pick__label">{label}</span>
-            {otherBadge ? <span className="model-badge model-badge--xs">{otherBadge}</span> : null}
-            <Icon name="chevronDown" size={10} />
-          </button>
+          <Tip label={st.other ? `${st.other.name} answers next` : `Model: ${label}`}>
+            <button
+              type="button"
+              className="cc-pick"
+              data-other={st.other ? true : undefined}
+              aria-label={
+                st.other
+                  ? `${st.other.name} answers the next message instead of Claude Code. Change model`
+                  : `Claude Code model: ${currentModel ?? 'the session default'}. Change model`
+              }
+            >
+              <Icon name="model" size={12} />
+              <BarLabel className="cc-pick__label" full={label} short={shortModelName(label)} />
+              {otherBadge ? <span className="model-badge model-badge--xs">{otherBadge}</span> : null}
+              <Icon name="chevronDown" size={10} className="cc-pick__chev" />
+            </button>
+          </Tip>
         }
       />
       {st.other ? null : (
         <DM.Root modal={false} open={st.picker === 'effort'} onOpenChange={setOpen('effort')}>
           <DM.Trigger asChild>
-            <button type="button" className="cc-pick" aria-label={`Effort: ${currentEffort}. Change effort`}>
-              <Icon name="zap" size={12} />
-              <span className="cc-pick__label">
-                {currentEffort === 'auto' ? 'Auto effort' : currentEffort}
-              </span>
-              <Icon name="chevronDown" size={10} />
-            </button>
+            <Tip label={`Effort: ${currentEffort}`}>
+              <button
+                type="button"
+                className="cc-pick"
+                aria-label={`Effort: ${currentEffort}. Change effort`}
+              >
+                <Icon name="zap" size={12} />
+                <BarLabel
+                  className="cc-pick__label"
+                  full={currentEffort === 'auto' ? 'Auto effort' : currentEffort}
+                  short={currentEffort === 'auto' ? 'Auto' : currentEffort}
+                />
+                <Icon name="chevronDown" size={10} className="cc-pick__chev" />
+              </button>
+            </Tip>
           </DM.Trigger>
           <DM.Portal>
             <DM.Content

@@ -208,17 +208,36 @@
   text-overflow: ellipsis;
 }
 
-/* The bar never pushes Send out of the box: chips give way first. */
+/* The bar never pushes Send out of the box: chips give way first, a step at
+   a time (thread/composerBar.ts sets data-bar): whole labels, short labels,
+   then the icon alone with its tooltip. A label is never cut mid-word. */
 .composer__bar > .send,
-.composer__bar > .composer__attach {
+.composer__bar > .send-wrap,
+.composer__bar > .composer__attach,
+.composer__bar > .icon-btn {
   flex: none;
 }
 .composer__bar > .composer__model,
 .composer__bar > .flow-chip,
-.composer__bar > .scope-pick {
+.composer__bar > .scope-pick,
+.composer__bar > .cc-pick {
   flex: 0 1 auto;
   min-width: 0;
+  max-width: 220px;
   overflow: hidden;
+}
+/* One height for everything on the bar. */
+.composer__bar > :is(.flow-chip, .scope-pick) {
+  height: 28px;
+  padding: 0 10px;
+}
+.composer__bar > .icon-btn {
+  width: 28px;
+  height: 28px;
+  color: var(--fg-3);
+}
+.composer__bar > .icon-btn:hover {
+  color: var(--fg);
 }
 .composer__model .hue-chip {
   min-width: 0;
@@ -227,16 +246,36 @@
   margin: -3px;
   overflow: hidden;
   white-space: nowrap;
+}
+.bar-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
-
-@media (max-width: 560px) {
-  .composer__hint {
-    display: none;
-  }
-  .composer__bar .send {
-    margin-left: auto;
-  }
+.bar-label[data-fit='short'],
+.composer[data-bar='short'] .bar-label[data-fit='full']:has(+ .bar-label[data-fit='short']),
+.composer[data-bar='icon'] .bar-label {
+  display: none;
+}
+.composer[data-bar='short'] .bar-label[data-fit='short'] {
+  display: inline;
+}
+/* Icons only: a round 28px key, the chevron gone, the tooltip says what it is. */
+.composer[data-bar='icon'] .composer__bar > :is(.cc-pick, .flow-chip, .composer__model) {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+.composer[data-bar='icon'] .composer__bar :is(.cc-pick__chev, .model-badge, .flow-chip__wake) {
+  display: none;
+}
+.composer[data-bar='icon'] .composer__model .hue-chip {
+  gap: 0;
+}
+/* Empty, the hint still takes the free room: it is the spacer that keeps Send at the end. */
+.composer__hint:empty {
+  padding: 0;
 }
 
 /* A flow answers this thread: the model chip is what answers when no flow does. */

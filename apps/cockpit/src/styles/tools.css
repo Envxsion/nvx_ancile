@@ -54,7 +54,7 @@
 }
 /* A card is a little taller than a bare line: the hairline starts under it. */
 .tool-step[open]::before {
-  top: 30px;
+  top: 32px;
 }
 
 /* Martian is wide and dark beside Archivo: in the thread it is set a step
@@ -100,10 +100,10 @@ details[open] > summary .cc-chev {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  margin: 0 -6px;
-  padding: 3px 6px;
-  border-radius: var(--r-sm);
+  min-height: 30px;
+  margin: 0 -8px;
+  padding: 4px 8px;
+  border-radius: var(--r-md);
   list-style: none;
   cursor: pointer;
   color: var(--fg-3);
@@ -221,7 +221,7 @@ details[open] > summary .cc-chev {
 .tool-step[data-state='ok'] .tool-step__detail {
   max-width: 34%;
 }
-@media (max-width: 600px) {
+@container thread (max-width: 600px) {
   .tool-step[data-state='ok'] .tool-step__detail {
     display: none;
   }

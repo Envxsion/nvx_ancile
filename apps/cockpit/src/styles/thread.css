@@ -5,17 +5,28 @@
    page at reading size and measure; your turns sit on a quiet plate; the
    chrome around a message appears only when you are on it.
 
-   Rhythm (4/8 px): a turn opens 48px below the last one; inside a turn
-   blocks sit 12px apart and tool steps 2px. Every row carries its own
-   padding, so a row reads the same wherever it is drawn (the list may be
-   windowed). One left edge: prose, your plate, the tool timeline's icons
-   and Claude Code's event rows all start on it.
+   Layout: the thread is a size container, so everything below reflows with
+   the pane (window, rail and drawer), not the window alone. One centred
+   column, as wide as the Reading width setting allows (--measure), with a
+   side gutter that grows from 16px on a phone to 48px on a wide screen. The
+   composer sits in the same column, so its edges line up with the prose.
+
+   Rhythm (spacing tokens, scaled by density): a turn opens --turn-gap below
+   the last one; inside a turn blocks sit --block-gap apart and tool steps
+   4px. Every row carries its own padding, so a row reads the same wherever
+   it is drawn (the list may be windowed). One left edge: prose, your plate,
+   the tool timeline's icons and Claude Code's event rows all start on it.
    ========================================================================== */
 
 .thread {
+  --gutter: clamp(var(--sp-4), 4cqi, var(--sp-7));
+  --turn-gap: calc(var(--sp-6) * var(--dens));
+  --block-gap: calc(var(--sp-3) * var(--dens));
+  container: thread / inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
 }
 .thread--center {
   justify-content: center;
@@ -23,21 +34,23 @@
 .thread__scroll {
   flex: 1;
   min-height: 0;
-  padding: 36px 28px 24px;
+  padding: calc(var(--sp-6) * var(--dens)) var(--gutter) var(--sp-5);
 }
+/* The column: the reading measure plus room for the tool rail, never wider than the pane. */
 .thread__measure {
   width: 100%;
-  max-width: calc(var(--measure) + 64px);
+  max-width: min(100%, calc(var(--measure) + var(--sp-7) + var(--sp-4)));
   margin: 0 auto;
 }
 .thread__title {
   font-size: var(--t-h1);
   line-height: 1.12;
-  margin-bottom: 18px;
+  margin-bottom: var(--sp-4);
+  text-wrap: balance;
 }
 .thread__messages {
   display: grid;
-  padding-bottom: 24px;
+  padding-bottom: var(--sp-5);
 }
 /* A wide table or log scrolls inside its row, never widens the column.
    A long thread lays out and paints only what is near the screen; the last
@@ -54,7 +67,7 @@
    the row's own spacing so nothing shifts much when it is drawn. */
 .msg-lazy {
   max-width: var(--measure);
-  padding: 12px 0 8px;
+  padding: var(--block-gap) 0 var(--sp-1);
   color: var(--fg-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -63,7 +76,7 @@
   overflow: hidden;
 }
 .msg-lazy[data-role='user'] {
-  padding-top: 48px;
+  padding-top: var(--turn-gap);
 }
 .thread__earlier {
   display: flex;
@@ -72,15 +85,16 @@
   color: var(--mute);
   font-size: var(--t-small);
 }
+/* The composer floats over the end of the thread: the words fade under it. */
 .thread__composer {
-  padding: 0 28px 18px;
-  background: linear-gradient(to bottom, transparent, var(--lift) 30%);
-  margin-top: -20px;
   position: relative;
+  margin-top: calc(-1 * var(--sp-5));
+  padding: var(--sp-2) var(--gutter) calc(var(--sp-4) * var(--dens));
+  background: linear-gradient(to bottom, transparent, var(--lift) var(--sp-5));
 }
 
 .tldr {
-  margin-bottom: 28px;
+  margin-bottom: var(--sp-5);
   padding: 10px 14px;
   border-radius: var(--r-md);
   background: var(--wash-2);
@@ -106,33 +120,36 @@
 
 .msg {
   /* Space above the row: a new turn (your message) opens wider. */
-  --msg-top: 12px;
+  --msg-top: var(--block-gap);
   position: relative;
   display: grid;
-  gap: 12px;
+  gap: var(--block-gap);
   min-width: 0;
-  padding: var(--msg-top) 0 8px;
+  padding: var(--msg-top) 0 var(--sp-1);
 }
 .msg[data-role='user'] {
-  --msg-top: 48px;
+  --msg-top: var(--turn-gap);
   justify-items: start;
-  gap: 4px;
+  gap: var(--sp-1);
   padding-bottom: 0;
 }
 .thread__messages > li:first-child .msg {
-  --msg-top: 8px;
+  --msg-top: var(--sp-2);
 }
 /* Your words: a quiet plate on the same left edge as the answer. */
 .msg[data-role='user'] .msg__body {
   width: fit-content;
-  max-width: 100%;
+  /* A plate, not a banner: long turns wrap at a comfortable line. */
+  max-width: min(100%, 66ch);
   min-width: 0;
-  padding: 12px 16px;
+  padding: calc(var(--sp-2) * var(--dens) + 2px) calc(var(--sp-3) * var(--dens) + 2px);
   border-radius: var(--r-lg);
   background: var(--wash-2);
-  box-shadow: inset 0 0 0 1px var(--hair);
+  box-shadow:
+    var(--hi),
+    inset 0 0 0 1px var(--hair);
   font-size: var(--t-body);
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--fg);
 }
 /* A long paste starts at about a dozen lines. */
@@ -187,7 +204,7 @@
   outline: none;
 }
 .msg__body > * + * {
-  margin-top: 12px;
+  margin-top: var(--block-gap, 12px);
 }
 /* A heading that opens the prose after tool steps starts a new section. */
 .msg__body > :not(.md) + .md > :is(h1, h2, h3, h4):first-child {
@@ -231,8 +248,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 16px;
-  min-height: 20px;
+  gap: var(--sp-1) var(--sp-3);
+  min-height: 18px;
   font-size: var(--t-small);
   color: var(--mute-2);
 }
@@ -258,8 +275,14 @@
     opacity: 1;
   }
 }
+/* Your message's time takes no room of its own: it shows in the gap above
+   your plate when you are on the turn, so plates sit evenly. */
 .msg__foot--user {
+  position: absolute;
+  top: max(0px, calc(var(--msg-top) - 20px));
+  left: 0;
   min-height: 16px;
+  pointer-events: none;
 }
 .msg__foot--user:empty {
   display: none;
@@ -330,7 +353,7 @@
     transform var(--d-short) var(--ease);
 }
 .msg[data-role='user'] .msg__actions {
-  top: calc(var(--msg-top) - 36px);
+  top: max(0px, calc(var(--msg-top) - 32px));
 }
 .msg:hover .msg__actions,
 .msg__actions[data-visible]:focus-within,
@@ -423,29 +446,59 @@
   background: rgb(var(--signal-rgb) / 0.22);
 }
 
-/* --- Composer ----------------------------------------------------------- */
+/* --- Composer -----------------------------------------------------------
+
+   A calm, raised plate: one field, one toolbar row. Depth from the elevation
+   tokens; focus lifts it a step and rings it in signal; while the model works
+   a soft signal edge breathes (opacity only). The toolbar's fit (full labels,
+   short labels, icons) is set by thread/composerBar.ts as data-bar. */
 
 .composer {
   position: relative;
   display: grid;
-  gap: 6px;
-  padding: 10px 10px 8px 14px;
-  border-radius: var(--r-lg);
+  gap: calc(var(--sp-2) * var(--dens));
+  padding: calc(var(--sp-3) * var(--dens)) calc(var(--sp-2) * var(--dens)) calc(var(--sp-2) * var(--dens))
+    calc(var(--sp-4) * var(--dens));
+  border-radius: var(--r-xl);
   background: var(--lift-2);
   box-shadow:
     inset 0 0 0 1px var(--edge),
-    0 18px 40px -28px rgb(0 0 0 / 0.8);
+    var(--elev-2);
   transition: box-shadow var(--d-short) var(--ease);
 }
 [data-theme='light'] .composer {
   background: var(--lift);
-  box-shadow: var(--shadow-pop);
 }
 .composer:focus-within {
   box-shadow:
     inset 0 0 0 1px rgb(var(--signal-rgb) / 0.55),
-    0 0 0 calc(var(--focus-w) + 2px) rgb(var(--signal-rgb) / 0.1),
-    0 18px 40px -28px rgb(0 0 0 / 0.8);
+    0 0 0 calc(var(--focus-w) + 2px) rgb(var(--signal-rgb) / 0.12),
+    var(--elev-3);
+}
+/* Working: a signal edge that breathes. Opacity only, so it costs nothing to paint. */
+.composer::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 1px rgb(var(--signal-rgb) / 0.5),
+    0 0 22px -6px rgb(var(--signal-rgb) / 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--d-medium) var(--ease);
+}
+.composer[data-working]::after {
+  opacity: 0.8;
+  animation: composer-breathe 2.4s var(--ease-inout) infinite alternate;
+}
+@keyframes composer-breathe {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 0.9;
+  }
 }
 .composer__input {
   width: 100%;
@@ -467,34 +520,49 @@
 .composer__bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
 }
 .composer__model {
   display: inline-flex;
   align-items: center;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  color: var(--fg-3);
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--fg-2);
   font-size: var(--t-small);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
 }
 .composer__model:hover {
   background: var(--chalk);
   color: var(--fg);
 }
+/* The hint takes what room is left and gives it up first; Send is never under it. */
 .composer__hint {
-  margin-left: auto;
+  flex: 1 1 0;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
+  min-width: 0;
+  padding: 0 4px;
   font-size: 11px;
+}
+.send-wrap {
+  display: inline-flex;
+  flex: none;
 }
 .send {
   display: grid;
   place-items: center;
+  flex: none;
   width: 32px;
   height: 32px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   background: var(--signal);
   color: var(--on-signal);
   transition:
@@ -1022,15 +1090,16 @@
   color: var(--mute);
 }
 
-/* Phone width: the column keeps a 16px gutter. */
-@media (max-width: 560px) {
+/* A narrow pane (phone, or the drawer open on a small window): turns sit a
+   little closer, the gutter is already at its 16px floor. */
+@container thread (max-width: 560px) {
   .thread__scroll {
-    padding: 24px 16px 16px;
+    padding-top: var(--sp-5);
   }
   .thread__composer {
-    padding: 0 12px 12px;
+    padding-bottom: var(--sp-3);
   }
-  .msg[data-role='user'] {
-    --msg-top: 40px;
+  .msg {
+    --turn-gap: calc(var(--sp-5) * var(--dens));
   }
 }

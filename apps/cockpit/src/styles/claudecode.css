@@ -475,7 +475,7 @@ button.cc-session__title {
    the same 16px column as a tool step's. Quieter than anything you read. */
 .cc-row {
   min-width: 0;
-  padding: 6px 0;
+  padding: var(--sp-1) 0;
   font-size: var(--t-small);
   color: var(--fg-3);
 }
@@ -511,7 +511,7 @@ details[open] > summary.cc-row__line {
 }
 /* A command you ran starts something new: a little more room above. */
 li[data-cc='command'] > .cc-row {
-  padding-top: 24px;
+  padding-top: var(--turn-gap, 24px);
 }
 .cc-cmd__name {
   flex: none;

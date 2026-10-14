@@ -26,6 +26,7 @@ import { queryClient } from '../lib/query';
 import type { ThreadView } from '../lib/types';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
+import { BarLabel, Tip } from '../ui/primitives';
 
 export const LEAN_LABEL = "Load only this project's Claude Code settings";
 export const LEAN_HELP =
@@ -64,15 +65,21 @@ export function CcLeanToggle({ threadId }: { threadId: string }) {
   return (
     <DM.Root modal={false} open={open} onOpenChange={setOpen}>
       <DM.Trigger asChild>
-        <button
-          type="button"
-          className="cc-pick"
-          aria-label={`Claude Code settings: ${lean ? "this project's only" : 'your whole setup'}. Change`}
-        >
-          <Icon name="settings" size={12} />
-          <span className="cc-pick__label">{lean ? 'Project settings' : 'Whole setup'}</span>
-          <Icon name="chevronDown" size={10} />
-        </button>
+        <Tip label={lean ? "Settings: this project's only" : 'Settings: your whole setup'}>
+          <button
+            type="button"
+            className="cc-pick"
+            aria-label={`Claude Code settings: ${lean ? "this project's only" : 'your whole setup'}. Change`}
+          >
+            <Icon name="settings" size={12} />
+            <BarLabel
+              className="cc-pick__label"
+              full={lean ? 'Project settings' : 'Whole setup'}
+              short={lean ? 'Project' : 'All'}
+            />
+            <Icon name="chevronDown" size={10} className="cc-pick__chev" />
+          </button>
+        </Tip>
       </DM.Trigger>
       <DM.Portal>
         <DM.Content

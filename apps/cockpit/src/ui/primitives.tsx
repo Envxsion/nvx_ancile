@@ -11,7 +11,7 @@
  */
 
 import * as Tooltip from '@radix-ui/react-tooltip';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ComponentPropsWithRef, CSSProperties, ReactNode } from 'react';
 import { noteClick } from '../keys/nudge';
 import { bindingById, displayKeys } from '../keys/registry';
 import { hueVar } from '../lib/format';
@@ -33,32 +33,73 @@ export function Kbd({ keys, binding }: { keys: string; binding?: string }) {
   );
 }
 
-/** Tooltip with the binding's real shortcut. */
+/**
+ * Tooltip with the binding's real shortcut, or `keys` when a key is not a
+ * binding (Enter to send). Props from an outer trigger (a menu's
+ * `DM.Trigger asChild`) pass through to the control, so a tooltip can sit
+ * inside a menu trigger.
+ */
 export function Tip({
   label,
   binding,
+  keys: shown,
   children,
   side = 'top',
+  ...through
 }: {
   label: string;
   binding?: string;
+  keys?: string;
   children: ReactNode;
   side?: 'top' | 'bottom' | 'left' | 'right';
-}) {
-  const keys = binding ? bindingById(binding)?.keys : undefined;
+} & Omit<ComponentPropsWithRef<typeof Tooltip.Trigger>, 'children' | 'asChild'>) {
+  const keys = shown ?? (binding ? bindingById(binding)?.keys : undefined);
+  const note = binding && !shown && keys ? () => noteClick(binding) : undefined;
+  const outer = through.onClick;
   return (
     <Tooltip.Root delayDuration={350}>
       {/* Slot composes this after the control's own onClick. */}
-      <Tooltip.Trigger asChild onClick={keys && binding ? () => noteClick(binding) : undefined}>
+      <Tooltip.Trigger
+        asChild
+        {...through}
+        onClick={
+          outer && note
+            ? (e) => {
+                outer(e);
+                note();
+              }
+            : (outer ?? note)
+        }
+      >
         {children}
       </Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content className="tip" side={side} sideOffset={6}>
           <span>{label}</span>
-          {keys ? <Kbd keys={keys} binding={binding} /> : null}
+          {keys ? <Kbd keys={keys} binding={shown ? undefined : binding} /> : null}
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
+  );
+}
+
+/**
+ * A toolbar label with a shorter form for a tight bar: CSS shows one or the
+ * other (composer.css, data-bar). The short form is drawn only when it differs.
+ */
+export function BarLabel({ full, short, className }: { full: string; short: string; className?: string }) {
+  const cls = className ? `bar-label ${className}` : 'bar-label';
+  return (
+    <>
+      <span className={cls} data-fit="full">
+        {full}
+      </span>
+      {short && short !== full ? (
+        <span className={cls} data-fit="short" aria-hidden="true">
+          {short}
+        </span>
+      ) : null}
+    </>
   );
 }
 
