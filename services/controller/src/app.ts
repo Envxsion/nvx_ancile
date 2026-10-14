@@ -46,7 +46,7 @@ export interface AppDeps extends ExecutorDeps {
   nodeToken?: string;
   routingBlocked?: () => boolean;
   /** Connect RunPod with a key (checked first), or go back to sample nodes with null. */
-  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean }>;
+  connectProvider?: (apiKey: string | null) => Promise<ProviderStatus & { ok: boolean; refused?: boolean }>;
 }
 
 export function createApp(deps: AppDeps) {

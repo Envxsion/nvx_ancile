@@ -324,7 +324,7 @@ export class RunPodProvider implements ComputeProvider {
     }
   }
 
-  async ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string }> {
+  async ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string; refused?: boolean }> {
     // TODO(phase-5): confirm the cheapest authenticated v2 endpoint; listing pods is safe and read-only.
     try {
       await this.call('GET', '/v2/pods?limit=1', undefined, 'start', signal);
@@ -334,6 +334,9 @@ export class RunPodProvider implements ComputeProvider {
       return {
         ok: false,
         detail: `${e.error?.provider_message ?? String(err)}. ${e.error?.suggestion ?? ''}`.trim(),
+        // Only RunPod saying no to the key is a refusal; no answer, a 5xx or a
+        // rate limit is not, and the same key is worth trying again.
+        refused: e.error?.code === 'auth',
       };
     }
   }

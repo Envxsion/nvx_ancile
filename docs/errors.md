@@ -259,6 +259,8 @@ Validation issues (shown in the editor, not as HTTP errors): `flow.no_input`, `f
 | `compute.no_capacity` | 502 | "RunPod has no capacity for this GPU here." / Try another region with your volume's datacentre, or another GPU type. |
 | `compute.invalid_transition` | 409 | "The node can't <action> while <state>." / Wait for the current operation to finish. |
 | `compute.provider_auth` | 502 | "RunPod rejected the API key." / Update RUNPOD_API_KEY with pod read/write scope. |
+| `provider.auth` | 422 | "RunPod did not accept that key." / RunPod's own reason. Only RunPod answering and refusing the key; Core then stops offering that key until it changes, and Compute leads to Settings → API keys. |
+| `provider.unreachable` | 503 | "RunPod could not be reached." / Connecting a key while RunPod (or the network) does not answer. Not a refusal: Core keeps the saved key, Compute says so, and it is tried again each minute. |
 | `compute.controller_unreachable` | 503 | "The Controller isn't responding." / Node models are queued; see Health and docs/runbooks/service-down.md. |
 | `compute.unavailable` | 503 | "The Controller is not answering." / It starts with NVX Ancile; check "Controller" in Admin → Health. |
 | `compute.not_configured` | 503 | "Remote compute is not set up." / Set `CONTROLLER_URL` and `CONTROLLER_TOKEN` in .env, then restart. |

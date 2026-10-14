@@ -53,8 +53,12 @@ export interface ComputeProvider {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<ProviderNode>;
-  /** Cheap reachability probe for /ready and the self-diagnostic. */
-  ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Cheap reachability probe for /ready and the self-diagnostic. `refused`
+   * is true only when the provider answered and turned the key down; a
+   * provider that could not be reached is not a refusal.
+   */
+  ping(signal?: AbortSignal): Promise<{ ok: boolean; detail: string; refused?: boolean }>;
   /**
    * Answer a data-plane request itself (the fake provider's sample nodes,
    * whose endpoint URL starts with fake://). Real providers leave it out.

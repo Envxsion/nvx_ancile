@@ -200,12 +200,13 @@ function CredentialRow({
   const hintId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
-  // Once its status is known: a key that can be typed opens its field.
+  // Once its status is known: a key not set yet that can be typed opens its field.
   useEffect(() => {
     if (!focused || !status || opened.current) return;
     opened.current = true;
     rowRef.current?.scrollIntoView?.({ block: 'center' });
-    if (status.source !== 'environment' && status.available) setMode('edit');
+    // A key already set is shown, not asked for again: Change is one click away.
+    if (!status.set && status.source !== 'environment' && status.available) setMode('edit');
   }, [focused, status]);
 
   const save = useMutation({

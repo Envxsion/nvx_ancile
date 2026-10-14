@@ -80,9 +80,50 @@ describe('Connect RunPod in Admin → Compute', () => {
     // No key field of its own any more.
     expect(screen.queryByLabelText('RunPod API key')).toBeNull();
   });
+
+  const savedKey = (problem: { refused: boolean; title: string; hint: string } | null) =>
+    mocked.get.mockImplementation(async (path: string) => {
+      if (path === '/compute/status')
+        return { configured: true, reachable: true, sample: false, provider: null };
+      if (path === '/compute/provider')
+        return { kind: 'none', connected: false, detail: '', key_saved: true, key_problem: problem };
+      if (path === '/compute/nodes') return { items: [] };
+      if (path.startsWith('/compute/costs')) return null;
+      return { items: [] };
+    });
+
+  it('with a key saved, never asks for one: it says why and tries the saved key again', async () => {
+    savedKey({ refused: false, title: 'RunPod could not be reached', hint: 'No response from RunPod.' });
+    wrap(<ComputeScreen />);
+    expect(await screen.findByText('RunPod could not be reached')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect RunPod' })).toBeNull();
+    const calls = mocked.get.mock.calls.filter(([p]) => p === '/compute/provider').length;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() =>
+      expect(mocked.get.mock.calls.filter(([p]) => p === '/compute/provider').length).toBeGreaterThan(calls),
+    );
+    expect(nav).not.toHaveBeenCalled();
+  });
+
+  it('a saved key RunPod refused leads to changing it, with RunPod’s reason', async () => {
+    savedKey({ refused: true, title: 'RunPod did not accept that key', hint: 'Invalid API key.' });
+    wrap(<ComputeScreen />);
+    expect(await screen.findByText('RunPod did not accept that key')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect RunPod' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Change the RunPod key' }).length).toBeGreaterThan(0);
+  });
 });
 
 describe('Settings → API keys, opened for RunPod', () => {
+  it('a key already saved is shown, not asked for again', async () => {
+    search = { key: 'runpod' };
+    mocked.get.mockResolvedValue({ items: [runpod({ set: true, source: 'saved', last4: 'abcd' })] });
+    wrap(<ApiKeysGroup />);
+    await screen.findByText('RunPod');
+    await waitFor(() => expect(document.getElementById('credential-runpod')).toHaveAttribute('data-focused'));
+    expect(screen.queryByLabelText('RunPod API key')).toBeNull();
+  });
+
   it('opens the row ready to type, and says RunPod is connected once saved', async () => {
     search = { key: 'runpod' };
     mocked.get.mockResolvedValue({ items: [runpod()] });

@@ -32,7 +32,7 @@ const runpodWith = (apiKey: string) =>
     }) as typeof fetch,
   });
 
-async function setup() {
+async function setup(connect: (apiKey: string) => RunPodProvider = runpodWith) {
   const store = new MemoryStore();
   const samples = async () => {
     const fake = new FakeProvider(20);
@@ -47,7 +47,7 @@ async function setup() {
     costCapUsd: 100,
     queueDeadlineS: 60,
     pollMs: 5,
-    connectProvider: providerSwitch({ store, provider, samples, connect: runpodWith }),
+    connectProvider: providerSwitch({ store, provider, samples, connect }),
   });
   const call = (method: string, path: string, body?: unknown) =>
     app.request(`/control/v1${path}`, {
@@ -97,5 +97,25 @@ describe('connecting a provider from the app', () => {
     expect(r.status).toBe(409);
     expect(((await r.json()) as { error: { code: string } }).error.code).toBe('provider.nodes_exist');
     expect(await (await call('GET', '/provider')).json()).toMatchObject({ kind: 'runpod' });
+  });
+
+  it('tells RunPod not answering apart from RunPod refusing the key', async () => {
+    // At launch the network can come up after the app: that is not a bad key,
+    // and Core must be free to give the same key again a minute later.
+    const offline = (apiKey: string) =>
+      new RunPodProvider({
+        apiKey,
+        baseUrl: 'https://api.runpod.test',
+        fetch: (async () => {
+          throw new TypeError('fetch failed');
+        }) as typeof fetch,
+      });
+    const { call } = await setup(offline);
+    const r = await call('PUT', '/provider', { kind: 'runpod', api_key: GOOD });
+    expect(r.status).toBe(503);
+    const { error } = (await r.json()) as { error: { code: string; retryable: boolean } };
+    expect(error.code).toBe('provider.unreachable');
+    expect(error.retryable).toBe(true);
+    expect(await (await call('GET', '/provider')).json()).toMatchObject({ kind: 'fake' });
   });
 });
