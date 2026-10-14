@@ -240,7 +240,7 @@ describe('the CSS: one rule, keyed on the resolved data-motion', () => {
       ),
     );
     expect(offenders).toEqual([]);
-  });
+  }, 20_000); // scans every source file; slow on Windows
 });
 
 describe('the theme cross-fade', () => {

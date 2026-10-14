@@ -138,5 +138,6 @@ describe('Admin → Permissions', () => {
     const { AdminSectionScreen } = await import('../src/routes/admin/Admin');
     render(<AdminSectionScreen />);
     expect(screen.getByText('Redirected to permissions')).toBeInTheDocument();
-  });
+    // A fresh import of the whole Admin screen is slow on Windows.
+  }, 20_000);
 });

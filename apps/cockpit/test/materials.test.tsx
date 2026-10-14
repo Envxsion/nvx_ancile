@@ -266,7 +266,7 @@ describe('glass wins over the grounds of the components it is laid on', () => {
       }
     }
     expect(beaten).toEqual([]);
-  });
+  }, 20_000); // scans every source file; slow on Windows
 
   it('every glass surface that draws its own glass turns solid with the rest', () => {
     const styles = here('../src/styles/');
