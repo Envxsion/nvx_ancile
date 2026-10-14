@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimVerdict, FactcheckClaim } from '@nvx/contracts';
+import { type ClaimVerdict, type FactcheckClaim, isClaudeCodeModel } from '@nvx/contracts';
 import { useParams } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import * as demo from '../fixtures/demo';
@@ -173,6 +173,7 @@ export function EvidencePanel() {
             <>
               Judged by <strong>{modelName(f.verifier_model_id)}</strong>
               {f.verifier_model_id !== m.modelId ? ', a different model from the one that answered.' : '.'}
+              {isClaudeCodeModel(f.verifier_model_id) ? ' Claude Code judges run on your Claude plan.' : ''}
             </>
           ) : f.status === 'failed' ? (
             // A check that stopped never reached a judge; "no claim needed one" would contradict it.

@@ -25,6 +25,11 @@
  *           |            a short time limit), then the smallest Ollama
  *           |            model you pulled. With none of them, the error
  *           |            says each thing that was tried.
+ *           |  Every Claude Code judge call (fallback or chosen for a
+ *           |  step) is asked on its own, with its own time limit, and
+ *           |  through JudgeSlots: at most Settings → Claude Code's
+ *           |  "fact-check judges at once" (default 1) across every
+ *           |  fact-check, since each is a session on your Claude plan.
  * ------------------------------------------------------------------
  */
 
@@ -62,6 +67,67 @@ export const CLAUDE_CODE_JUDGE = `${CLAUDE_CODE_MODEL_PREFIX}haiku`;
 export const CLAUDE_CODE_JUDGE_TIMEOUT_MS = 90_000;
 
 type JudgeRegistry = Pick<ModelRegistry, 'chain' | 'all' | 'status'>;
+
+/**
+ * At most `limit()` Claude Code judge calls at once, across every
+ * fact-check; the rest wait in order. The limit is read as each call asks,
+ * so a new setting applies to the next call.
+ */
+export class JudgeSlots {
+  private busy = 0;
+  private max = 1;
+  private readonly waiting: (() => void)[] = [];
+
+  constructor(private readonly limit: () => Promise<number> | number) {}
+
+  /** Run `fn` once a slot is free. A stop while waiting gives up the place in the queue. */
+  async run<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    try {
+      this.max = Math.max(1, Math.floor(await this.limit()));
+    } catch {
+      /* the last known limit stands */
+    }
+    await this.acquire(signal);
+    try {
+      return await fn();
+    } finally {
+      this.busy -= 1;
+      this.next();
+    }
+  }
+
+  /** Calls running now, and waiting. */
+  get load(): { running: number; waiting: number } {
+    return { running: this.busy, waiting: this.waiting.length };
+  }
+
+  private acquire(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (this.busy < this.max && this.waiting.length === 0) {
+      this.busy += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const go = () => {
+        signal.removeEventListener('abort', stop);
+        this.busy += 1;
+        resolve();
+      };
+      const stop = () => {
+        const at = this.waiting.indexOf(go);
+        if (at >= 0) this.waiting.splice(at, 1);
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', stop, { once: true });
+      this.waiting.push(go);
+      this.next();
+    });
+  }
+
+  private next() {
+    while (this.busy < this.max && this.waiting.length) this.waiting.shift()?.();
+  }
+}
 
 /** The error when no judge can be found, saying each thing that was tried. */
 export function noJudge(taskClass: string): AncileError {
@@ -145,27 +211,43 @@ export function parseJsonObject(text: string): unknown {
  * Errors from the gateway (every model failed) propagate.
  */
 export async function structured<T>(
-  deps: { gateway: Gateway },
+  deps: { gateway: Gateway; judges?: JudgeSlots | undefined },
   chain: ModelConfig[],
   prompt: string,
   schema: z.ZodType<T>,
   signal: AbortSignal,
 ): Promise<{ value: T; modelId: string }> {
   const req: ModelRequest = { system: SYSTEM, messages: [{ role: 'user', content: prompt }], temperature: 0 };
+  const isCc = (m: ModelConfig | undefined) => m?.provider === CLAUDE_CODE_PROVIDER;
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as ModelConfig;
-    // Claude Code as a judge gets a short time limit; the next judge is tried if it fails or runs over.
-    const cc = model.provider === CLAUDE_CODE_PROVIDER;
+    // Claude Code as a judge is asked on its own, through a slot, with a short time limit (started once
+    // the slot is free); the next judge is tried if it fails or runs over. Other models fall through the
+    // gateway together, up to the next Claude Code one, so that one is never reached without its limit.
+    const cc = isCc(model);
     let out: Completion;
     try {
-      out = await complete(
-        deps.gateway,
-        cc ? [model] : chain.slice(i),
-        req,
-        cc ? AbortSignal.any([signal, AbortSignal.timeout(CLAUDE_CODE_JUDGE_TIMEOUT_MS)]) : signal,
-      );
+      if (cc) {
+        const ask = () =>
+          complete(
+            deps.gateway,
+            [model],
+            req,
+            AbortSignal.any([signal, AbortSignal.timeout(CLAUDE_CODE_JUDGE_TIMEOUT_MS)]),
+          );
+        out = deps.judges ? await deps.judges.run(ask, signal) : await ask();
+      } else {
+        const stop = chain.findIndex((m, k) => k > i && isCc(m));
+        out = await complete(deps.gateway, chain.slice(i, stop < 0 ? undefined : stop), req, signal);
+      }
     } catch (err) {
-      if (!cc || signal.aborted || i === chain.length - 1) throw err;
+      if (signal.aborted || i === chain.length - 1) throw err;
+      if (!cc) {
+        // Every model up to the next Claude Code one failed: go on from there.
+        const stop = chain.findIndex((m, k) => k > i && isCc(m));
+        if (stop < 0) throw err;
+        i = stop - 1;
+      }
       continue;
     }
     const parsed = schema.safeParse(parseJsonObject(out.text));
@@ -273,6 +355,8 @@ export interface StepDeps {
   registry: ModelRegistry;
   promptsDir: string;
   kn?: Pick<KnowledgeClient, 'post'>;
+  /** Shared by every fact-check: how many Claude Code judge calls run at once. */
+  judges?: JudgeSlots;
 }
 
 const EXTRACT_FALLBACK = `Split the answer into atomic, verifiable claims. Give each its exact character offsets into the answer, an importance (1, 0.5 or 0.2) and whether it is checkable.

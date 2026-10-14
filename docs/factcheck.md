@@ -26,6 +26,8 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
 
 **When no model is set for a step.** With no provider key (so no model on the utility or `factcheck.verify` chain is ready), the fact-check does not give up at once. It asks, in order: Claude Code's quickest model (`claude-code/haiku`, when Claude Code is installed and verified; one lean call each, with no tools, none of your Claude Code settings and a 90-second limit, so it counts against your Claude plan like any Claude Code use), then the smallest Ollama model you pulled of 14B or less. Only when none of these is there does it stop with `factcheck.no_model`, and the message lists each thing it tried.
 
+**Claude Code judges at once.** Claims are checked four at a time, but every Claude Code judge call (the fallback above, or a `claude-code/<model>` you set for a step) is a Claude Code session on your Claude plan, so at most **Fact-check judges at once** of them run together across every fact-check (Settings → Claude Code, 1 to 4, default 1); the rest wait their turn. Each is asked on its own, never inside another model's fallback, and its 90-second limit starts when its turn comes. Stopping a fact-check gives up its place in the queue. The Evidence panel says "Claude Code judges run on your Claude plan" when one judged.
+
 ## The confidence score
 
 For each claim:

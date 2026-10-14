@@ -21,7 +21,7 @@ import { useContext, useEffect, useState } from 'react';
 import { LoadFailed } from '../ops/common';
 import { Block, matches, SearchContext } from '../routes/settings/rows';
 import { useUi } from '../state/ui';
-import { Switch } from '../ui/controls';
+import { Segmented, Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { Skeleton } from '../ui/primitives';
 import {
@@ -60,6 +60,9 @@ const SWITCHES: { key: 'auto_install' | 'auto_import' | 'claude_telemetry'; labe
       desc: "Claude Code's own reporting, not NVX Ancile's. Off sets DISABLE_TELEMETRY for it.",
     },
   ];
+
+/** Fact-check judges Claude Code may answer at once (Settings → Claude Code). */
+const JUDGES = ['1', '2', '3', '4'].map((n) => ({ value: n, label: n }));
 
 export type ClaudeCodeStage = 'installing' | 'install' | 'update' | 'sign-in' | 'signed-in';
 
@@ -298,6 +301,26 @@ export function ClaudeCodeGroup() {
               </div>
             </div>
           ))}
+          <div className="setting">
+            <div className="setting__words">
+              <div className="setting__label">
+                <span>Fact-check judges at once</span>
+              </div>
+              <p className="setting__desc">
+                When Claude Code checks an answer's claims, each judge is a Claude Code session on your Claude
+                plan. More at once finishes sooner and uses your plan's limits faster.
+              </p>
+            </div>
+            <div className="setting__control">
+              <Segmented
+                label="Fact-check judges at once"
+                value={String(s.settings.factcheck_judges ?? 1)}
+                options={JUDGES}
+                onChange={(v) => patch.mutate({ factcheck_judges: Number(v) })}
+                size="sm"
+              />
+            </div>
+          </div>
         </Block>
       ) : null}
 

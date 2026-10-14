@@ -722,8 +722,16 @@ describe('routes', () => {
       auto_import: true,
       exclude_folders: ['~/.claude-mem', '<temp>'],
       claude_telemetry: false,
+      // One Claude Code fact-check judge at a time unless you choose more.
+      factcheck_judges: 1,
     });
     expect(await svc.cliEnv()).toEqual({ DISABLE_TELEMETRY: '1' });
+    const judges = async (n: unknown) =>
+      app.request('/claude-code/settings', { method: 'PATCH', body: JSON.stringify({ factcheck_judges: n }) });
+    expect(((await (await judges(3)).json()) as { factcheck_judges: number }).factcheck_judges).toBe(3);
+    expect((await svc.settings()).factcheck_judges).toBe(3);
+    for (const bad of [0, 5, 1.5, 'two']) expect((await judges(bad)).status).toBe(400);
+    expect((await svc.settings()).factcheck_judges).toBe(3);
   });
 });
 

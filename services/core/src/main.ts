@@ -82,6 +82,7 @@ import { loadEnv } from './env';
 import { PgEventBus } from './events/bus';
 import { factcheckHandler, startFactcheck } from './factcheck/handler';
 import { trustRoutes } from './factcheck/routes';
+import { JudgeSlots } from './factcheck/steps';
 import { PgFactcheckStore } from './factcheck/store';
 import { nativeProbe as filesProbe, rootSource } from './files/roots';
 import { fileRoutes } from './files/routes';
@@ -1035,6 +1036,8 @@ async function main() {
         registry,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
         kn,
+        // Each Claude Code judge is a session on your Claude plan: Settings → Claude Code caps them.
+        judges: new JudgeSlots(async () => (await claudeCode.service.settings()).factcheck_judges),
         repo: threads,
         store: factchecks,
         config: config.factcheck ?? undefined,

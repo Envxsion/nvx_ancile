@@ -238,6 +238,8 @@ Security software sometimes quarantines files it has not seen before. When the S
 
 Turn **Claude Code usage reporting** off to set `DISABLE_TELEMETRY` for the Claude Code that NVX Ancile runs.
 
+**Fact-check judges at once** (Settings → Claude Code, 1 to 4, default 1) caps how many fact-check judge calls Claude Code answers together. Each is a session on your Claude plan, so more at once finishes a check sooner and uses your plan's limits faster (docs/factcheck.md).
+
 ## Limits in this release
 
 - After a folder moved, the new session is given a digest of the thread (about 2,000 tokens, tool steps as one line each), not Claude Code's own full history, which stays in the old session's file.

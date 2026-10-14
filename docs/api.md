@@ -495,7 +495,7 @@ Under `/api/v1` (docs/claude-code.md, shapes in `packages/contracts/src/claudeco
 | Route | Does |
 |---|---|
 | `GET /claude-code/status?fresh=1` | `ClaudeCodeStatus`: installed, version, path, sign-in (method and plan only, never the account's email or organisation), install state, `verification` of the install, the Agent SDK's state, settings. Cached for 10 s unless `fresh`. |
-| `PATCH /claude-code/settings {auto_install?, auto_import?, exclude_folders?, claude_telemetry?}` | Save and answer `ClaudeCodeSettings`. Changing `exclude_folders` puts away what came from those folders (threads archived, never deleted; `claude_code.changed {what: sessions}`) |
+| `PATCH /claude-code/settings {auto_install?, auto_import?, exclude_folders?, claude_telemetry?, factcheck_judges?}` | Save and answer `ClaudeCodeSettings`. `factcheck_judges` (1 to 4, default 1) is how many fact-check judge calls Claude Code may answer at once (docs/factcheck.md). Changing `exclude_folders` puts away what came from those folders (threads archived, never deleted; `claude_code.changed {what: sessions}`) |
 | `POST /claude-code/install` | 202 `{state, error}`: runs Anthropic's official installer in the background (`claude_code.changed {what: install}` as it goes) |
 | `POST /claude-code/sign-in {method?: claudeai, console or sso}` | 202 `{started}`: opens Claude Code's own sign-in (`claude auth login`); NVX Ancile watches `claude auth status` for up to 5 minutes |
 | `POST /claude-code/sign-out` | 204: `claude auth logout`, only when the person asks |
