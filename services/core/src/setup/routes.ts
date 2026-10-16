@@ -18,6 +18,7 @@
 
 import {
   AncileError,
+  isPersonalAnthropicKey,
   ModelConfig,
   type ProviderId,
   ProviderTestRequest,
@@ -34,7 +35,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { tracedFetch } from '../context';
 import type { CatalogueSource } from '../gateway/catalogue';
-import { DEFAULT_SECRET } from '../gateway/providers';
+import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../gateway/providers';
 import { canChat, type ModelRegistry, ollamaName } from '../gateway/registry';
 import { body } from '../http/body';
 import { notFound } from '../obs/errors';
@@ -54,6 +55,8 @@ const PROVIDERS: { id: ProviderId; display_name: string; needs_key: boolean }[] 
 export type ProviderTester = (input: {
   provider: ProviderId;
   key?: string;
+  /** Anthropic personal keys: the workspace the test call bills. */
+  workspaceId?: string;
   baseUrl?: string;
   model?: ModelConfig;
   /** Ollama: the models it has pulled (its tag names). */
@@ -82,12 +85,28 @@ export function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelCo
     );
 }
 
-export function testFailed(provider: string, err: unknown): AncileError {
-  const msg = err instanceof Error ? err.message : String(err);
-  const auth =
-    (err instanceof ClassifiedError && (err.status === 401 || err.status === 403)) ||
-    /401|403|api key|unauthor|invalid.*key/i.test(msg);
+/** The HTTP status a failed call carries: ours (ClassifiedError), the AI SDK's (statusCode), or a plain `status`. */
+function statusOf(err: unknown): number | undefined {
+  if (err instanceof ClassifiedError) return err.status;
+  if (!err || typeof err !== 'object') return undefined;
+  const e = err as { statusCode?: unknown; status?: unknown };
+  const s = e.statusCode ?? e.status;
+  return typeof s === 'number' ? s : undefined;
+}
+
+/**
+ * A failed key test, in words. A key is only called rejected on a 401 or 403:
+ * matching words like "API key" in the provider's explanation misread other
+ * problems (an unscoped Anthropic key's workspace request) as a bad key.
+ * `hide` is scrubbed from the provider's explanation before it is shown.
+ */
+export function testFailed(provider: string, err: unknown, hide?: string): AncileError {
+  const raw = err instanceof Error ? err.message : String(err);
+  const msg = (hide ? raw.split(hide).join('[hidden]') : raw).slice(0, 300);
+  const status = statusOf(err);
+  const auth = status === 401 || status === 403;
   const name = PROVIDERS.find((p) => p.id === provider)?.display_name ?? provider;
+  if (provider === 'anthropic' && /anthropic-workspace-id/i.test(raw)) return workspaceNeeded(msg);
   if (provider === 'ollama') {
     return new AncileError({
       code: 'provider.unavailable',
@@ -98,15 +117,34 @@ export function testFailed(provider: string, err: unknown): AncileError {
       errorClass: 'transient',
     });
   }
+  const limited = status === 429;
   return new AncileError({
     code: auth ? 'provider.auth_failed' : 'provider.unavailable',
-    title: auth ? `${name} rejected the API key` : `${name} didn't answer the test`,
+    title: auth
+      ? `${name} rejected the API key`
+      : limited
+        ? `${name} is limiting requests right now`
+        : `${name} didn't answer the test`,
     hint: auth
       ? 'Check you copied the whole key, and that it is active in your provider account.'
-      : 'Check your connection, then test again.',
+      : limited
+        ? `The key may well be fine. Wait a minute, then test again; ${name}'s own explanation is below.`
+        : `Check your connection, then test again. ${name}'s own explanation is below.`,
     detail: msg,
     status: 502,
     errorClass: auth ? 'permanent' : 'transient',
+  });
+}
+
+/** A personal Anthropic key (sk-ant-usr-) sent without the workspace it bills. */
+export function workspaceNeeded(detail?: string): AncileError {
+  return new AncileError({
+    code: 'provider.workspace_needed',
+    title: 'Anthropic needs to know which workspace this key bills',
+    hint: 'This is a personal key (sk-ant-usr-), which is not tied to one workspace. In the Claude Console, open Settings → Workspaces, open the workspace and copy its ID (it starts with wrkspc_), then paste it beside the key. Nothing was saved.',
+    status: 400,
+    errorClass: 'permanent',
+    ...(detail && { detail }),
   });
 }
 
@@ -149,6 +187,11 @@ export function setupRoutes(deps: SetupRouteDeps) {
         errorClass: 'permanent',
       });
     }
+    const key = req.key?.trim();
+    // Only a personal Anthropic key takes a workspace; any other key bills its own.
+    const workspaceId =
+      req.provider === 'anthropic' && isPersonalAnthropicKey(key) ? req.workspace_id : undefined;
+    if (req.provider === 'anthropic' && isPersonalAnthropicKey(key) && !workspaceId) throw workspaceNeeded();
     const candidates = modelsOf(registry, req.provider);
     const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
     const started = performance.now();
@@ -156,20 +199,25 @@ export function setupRoutes(deps: SetupRouteDeps) {
     try {
       tested = await deps.tester({
         provider: req.provider,
-        ...(req.key !== undefined && { key: req.key.trim() }),
+        ...(key !== undefined && { key }),
+        ...(workspaceId && { workspaceId }),
         ...((req.base_url ?? (req.provider === 'ollama' ? deps.ollamaUrl : undefined)) && {
           baseUrl: req.base_url ?? deps.ollamaUrl,
         }),
         ...(cheapest && { model: cheapest }),
       });
     } catch (err) {
-      throw testFailed(req.provider, err);
+      throw testFailed(req.provider, err, key);
     }
     const latency = Math.round(performance.now() - started);
     let enabled: string[] = [];
     if (req.save) {
       const secret = DEFAULT_SECRET[req.provider];
-      if (secret && req.key) await secrets.set(secret, req.key.trim());
+      if (secret && key) await secrets.set(secret, key);
+      if (req.provider === 'anthropic' && key) {
+        if (workspaceId) await secrets.set(ANTHROPIC_WORKSPACE_SECRET, workspaceId);
+        else await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
+      }
       // Ollama: only the models it has pulled, wherever they are configured to be
       // served from; one it does not have could not answer. Models found in Ollama
       // are on already, and one you turned off stays off.
@@ -307,9 +355,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
 
 /** The real tester: one token through the AI SDK, or Ollama's tag list. */
 export function liveTester(
-  languageModel: (m: ModelConfig, key: string | undefined) => Promise<import('ai').LanguageModel>,
+  languageModel: (
+    m: ModelConfig,
+    secrets: { get(name: string): Promise<string | undefined> },
+  ) => Promise<import('ai').LanguageModel>,
 ): ProviderTester {
-  return async ({ provider, key, baseUrl, model }) => {
+  return async ({ provider, key, workspaceId, baseUrl, model }) => {
     if (provider === 'ollama') {
       const base = (baseUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '').replace(/\/$/, '');
       const res = await tracedFetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4_000) });
@@ -322,7 +373,10 @@ export function liveTester(
     }
     if (!model) throw new Error(`No ${provider} model is configured in models.yaml to test with`);
     const { generateText } = await import('ai');
-    const lm = await languageModel(ModelConfig.parse({ ...model, enabled: true }), key);
+    // Only the values under test: the key by any name, the workspace by its own.
+    const lm = await languageModel(ModelConfig.parse({ ...model, enabled: true }), {
+      get: async (name) => (name === ANTHROPIC_WORKSPACE_SECRET ? workspaceId : key),
+    });
     await generateText({
       model: lm,
       prompt: 'Reply with OK.',

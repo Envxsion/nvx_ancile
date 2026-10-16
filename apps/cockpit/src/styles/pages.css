@@ -704,6 +704,18 @@ tr[data-expired] td:not(:last-child) {
   font-size: var(--t-small);
   line-height: 1.45;
 }
+/* A second field a key needs (an Anthropic personal key's workspace), aligned under the key. */
+.provider__extra {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 4px 10px;
+  animation: tip-in var(--d-micro) var(--ease-out);
+}
+.provider__extra .provider__note {
+  color: var(--fg-3);
+}
 .provider__note[data-tone='ok'] {
   color: var(--ok);
 }

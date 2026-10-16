@@ -111,6 +111,8 @@ The state is one row in `knowledge.embed_index` (Knowledge migration `0004_embed
 | Row | Environment variable | Checked by |
 |---|---|---|
 | Anthropic, OpenAI, Google, OpenRouter | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `OPENROUTER_API_KEY` | One short request to the provider's cheapest configured model (the setup test). A first key switches that provider's models on; a replacement leaves your choices alone. |
+
+**Anthropic personal keys.** A key that starts `sk-ant-usr-` belongs to a person, not a workspace, so Anthropic asks every call to name the workspace it bills. Pasting one opens a **Workspace ID** field (copy it from the Claude Console, Settings → Workspaces; it starts `wrkspc_`). The ID is kept beside the key and sent as the `anthropic-workspace-id` header on every Anthropic call, the key test included. Saving an organisation key (`sk-ant-api…`) clears it, and removing the key removes it. With the key in the environment, set `ANTHROPIC_WORKSPACE_ID` beside `ANTHROPIC_API_KEY`.
 | RunPod | `RUNPOD_API_KEY` | The Controller, which asks RunPod before Core saves it; Admin → Compute → Connect RunPod opens this row. Saving it connects the Controller at once, and Core gives it back to the Controller whenever it restarts without it. Unavailable when Core has no `CONTROLLER_URL`. |
 | Hugging Face | `HF_TOKEN` | Hugging Face's `whoami`. For gated models on GPU nodes. |
 | GitHub | `GITHUB_TOKEN` | GitHub's `/user`. Used by Repositories when the `gh` command is not signed in. |

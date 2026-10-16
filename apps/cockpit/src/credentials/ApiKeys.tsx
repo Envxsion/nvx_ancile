@@ -17,7 +17,12 @@
  * ------------------------------------------------------------------
  */
 
-import type { CredentialId, CredentialList, CredentialStatus } from '@nvx/contracts';
+import {
+  type CredentialId,
+  type CredentialList,
+  type CredentialStatus,
+  isPersonalAnthropicKey,
+} from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { useContext, useEffect, useId, useRef, useState } from 'react';
@@ -178,10 +183,18 @@ const refresh = (id: CredentialId) => {
   if (id === 'runpod') void queryClient.invalidateQueries({ queryKey: ['compute'] });
 };
 
-const problemOf = (e: unknown) =>
+const problemOf = (e: unknown): { title: string; hint: string; code?: string; detail?: string } =>
   e instanceof ApiCallError
-    ? { title: e.body.error.title, hint: e.body.error.hint }
+    ? {
+        title: e.body.error.title,
+        hint: e.body.error.hint,
+        code: e.body.error.code,
+        ...(e.body.error.detail && { detail: e.body.error.detail }),
+      }
     : { title: 'NVX Ancile did not answer', hint: 'Check that it is running, then try again.' };
+
+/** "wrkspc_01Ab…9xYz": enough to recognise a workspace without a wall of characters. */
+export const shortWorkspace = (id: string) => (id.length > 18 ? `${id.slice(0, 11)}…${id.slice(-4)}` : id);
 
 function CredentialRow({
   meta,
@@ -195,9 +208,12 @@ function CredentialRow({
 }) {
   const [mode, setMode] = useState<'idle' | 'edit' | 'confirm'>('idle');
   const [value, setValue] = useState('');
+  const [workspace, setWorkspace] = useState('');
   const [reveal, setReveal] = useState(false);
   const inputId = useId();
   const hintId = useId();
+  const workspaceId = useId();
+  const workspaceHintId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
   // Once its status is known: a key not set yet that can be typed opens its field.
@@ -210,9 +226,11 @@ function CredentialRow({
   }, [focused, status]);
 
   const save = useMutation({
-    mutationFn: (v: string) => api.put<CredentialStatus>(`/credentials/${meta.id}`, { value: v }),
+    mutationFn: (v: { value: string; workspace_id?: string }) =>
+      api.put<CredentialStatus>(`/credentials/${meta.id}`, v),
     onSuccess: (s) => {
       setValue('');
+      setWorkspace('');
       setReveal(false);
       setMode('idle');
       queryClient.setQueryData<CredentialStatus[]>(KEY, (all) => all?.map((x) => (x.id === s.id ? s : x)));
@@ -248,6 +266,16 @@ function CredentialRow({
   const fromEnv = status?.source === 'environment';
   const unavailable = status && !status.available;
   const problem = save.error ? problemOf(save.error) : null;
+  // A personal Anthropic key bills a workspace you name: its field appears as soon as one is pasted.
+  const needsWorkspace =
+    meta.id === 'anthropic' &&
+    (isPersonalAnthropicKey(value) || problem?.code === 'provider.workspace_needed');
+  const cancel = () => {
+    setMode('idle');
+    setValue('');
+    setWorkspace('');
+    save.reset();
+  };
   const checking =
     meta.id === 'runpod' ? 'Checking with RunPod…' : meta.id === 'memory_remote' ? 'Saving…' : 'Checking…';
 
@@ -282,6 +310,12 @@ function CredentialRow({
           </p>
         ) : null}
         {unavailable ? <p className="setting__desc">{status?.unavailable_reason}</p> : null}
+        {status?.set && status.workspace_id ? (
+          <p className="setting__desc">
+            Personal key, billing workspace{' '}
+            <code title={status.workspace_id}>{shortWorkspace(status.workspace_id)}</code>.
+          </p>
+        ) : null}
       </div>
 
       {mode === 'idle' && !fromEnv ? (
@@ -307,7 +341,11 @@ function CredentialRow({
           className="credential__edit"
           onSubmit={(e) => {
             e.preventDefault();
-            if (value.trim()) save.mutate(value.trim());
+            if (!value.trim() || (needsWorkspace && !workspace.trim())) return;
+            save.mutate({
+              value: value.trim(),
+              ...(needsWorkspace && { workspace_id: workspace.trim() }),
+            });
           }}
         >
           <label htmlFor={inputId} className="sr-only">
@@ -326,9 +364,7 @@ function CredentialRow({
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   e.stopPropagation();
-                  setMode('idle');
-                  setValue('');
-                  save.reset();
+                  cancel();
                 }
               }}
               aria-invalid={problem ? true : undefined}
@@ -351,27 +387,54 @@ function CredentialRow({
               ? 'Any address git can push to. It is kept encrypted, as it may hold a token.'
               : `Checked with ${meta.name} before it is saved, then kept encrypted on this computer. It is never shown again.`}
           </p>
+          {needsWorkspace ? (
+            <div className="credential__workspace">
+              <label htmlFor={workspaceId} className="setting__label">
+                Workspace ID
+              </label>
+              <input
+                id={workspaceId}
+                className="input input--mono"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="wrkspc_…"
+                value={workspace}
+                onChange={(e) => setWorkspace(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    cancel();
+                  }
+                }}
+                aria-describedby={workspaceHintId}
+              />
+              <p id={workspaceHintId} className="setting__desc">
+                This is a personal key, so Anthropic needs to know which workspace to bill. In the Claude
+                Console, open Settings → Workspaces, open the workspace and copy its ID.
+              </p>
+            </div>
+          ) : null}
           {problem ? (
-            <p className="credential__problem" role="alert">
-              <strong>{problem.title}.</strong> {problem.hint}
-            </p>
+            <div className="credential__problem" role="alert">
+              <p>
+                <strong>{problem.title}.</strong> {problem.hint}
+              </p>
+              {problem.detail ? (
+                <p className="credential__said">
+                  {meta.name} said: <q>{problem.detail}</q>
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <div className="credential__actions">
-            <button
-              type="button"
-              className="btn btn--quiet btn--sm"
-              onClick={() => {
-                setMode('idle');
-                setValue('');
-                save.reset();
-              }}
-            >
+            <button type="button" className="btn btn--quiet btn--sm" onClick={cancel}>
               Cancel
             </button>
             <button
               type="submit"
               className="btn btn--primary btn--sm"
-              disabled={!value.trim() || save.isPending}
+              disabled={!value.trim() || (needsWorkspace && !workspace.trim()) || save.isPending}
             >
               {save.isPending ? checking : meta.id === 'memory_remote' ? 'Save remote' : `Check and save`}
             </button>

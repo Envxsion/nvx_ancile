@@ -53,16 +53,34 @@ export const CredentialStatus = z.object({
   available: z.boolean(),
   /** Why it is unavailable, in a sentence. */
   unavailable_reason: z.string().nullable(),
+  /** Anthropic only: the workspace a personal key bills (not a secret). */
+  workspace_id: z.string().nullable().optional(),
 });
 export type CredentialStatus = z.infer<typeof CredentialStatus>;
 
 export const CredentialList = z.object({ items: z.array(CredentialStatus) });
 export type CredentialList = z.infer<typeof CredentialList>;
 
+/**
+ * An Anthropic workspace ID (`wrkspc_…` in the Claude Console). A personal
+ * key (`sk-ant-usr-…`) is not tied to a workspace, so Anthropic asks every
+ * call to name the one to bill in the `anthropic-workspace-id` header.
+ */
+export const AnthropicWorkspaceId = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_-]{4,128}$/, 'Paste the workspace ID only, such as wrkspc_01AbC…');
+
+/** A personal Anthropic key, which needs a workspace ID beside it. */
+export const isPersonalAnthropicKey = (value: string | undefined | null): boolean =>
+  !!value && /^sk-ant-usr-/.test(value.trim());
+
 /** PUT /credentials/:id. The value is checked, then stored encrypted. */
 export const SaveCredentialRequest = z
   .object({
     value: z.string().trim().min(4).max(4000),
+    /** Anthropic personal keys only; ignored for every other key. */
+    workspace_id: AnthropicWorkspaceId.optional(),
   })
   .strict();
 export type SaveCredentialRequest = z.infer<typeof SaveCredentialRequest>;

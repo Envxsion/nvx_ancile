@@ -1632,7 +1632,7 @@ async function main() {
         secrets,
         settings,
         ollamaUrl: env.OLLAMA_BASE_URL,
-        tester: liveTester((m, key) => languageModelFor(m, { get: async () => key }, endpoints)),
+        tester: liveTester((m, keys) => languageModelFor(m, keys, endpoints)),
         onPreset: applyPreset,
       }),
       stateRoutes(new PgStateStore(sql, owner.userId)),
@@ -1642,7 +1642,7 @@ async function main() {
         secrets,
         env: process.env,
         registry,
-        tester: liveTester((m, key) => languageModelFor(m, { get: async () => key }, endpoints)),
+        tester: liveTester((m, keys) => languageModelFor(m, keys, endpoints)),
         ...(compute.configured && {
           runpod: {
             connect: (key: string) => connectRunPod(compute, savedSecrets, key),

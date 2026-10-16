@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { ClaudeCodeBinding } from './claudecode';
 import { ModelHue } from './config';
+import { AnthropicWorkspaceId } from './credentials';
 import { AncileInstructions } from './engines';
 import { RunStatus } from './events';
 import { Message, Part } from './messages';
@@ -428,6 +429,8 @@ export const ProviderTestRequest = z
     provider: ProviderId,
     key: z.string().min(1).max(500).optional(),
     base_url: z.string().url().optional(),
+    /** Anthropic personal keys (sk-ant-usr-): the workspace each call bills. */
+    workspace_id: AnthropicWorkspaceId.optional(),
     /** Store the key once it passes. */
     save: z.boolean().default(true),
   })

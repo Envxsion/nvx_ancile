@@ -182,6 +182,108 @@ describe('API keys', () => {
   });
 });
 
+describe('Anthropic personal keys and honest test errors (AK1)', () => {
+  const PERSONAL = 'sk-ant-usr-01-personal-key-0003';
+  const WS = 'wrkspc_01ABCDEFGHJKMNPQ';
+
+  it('asks for the workspace before calling Anthropic with a personal key', async () => {
+    let calls = 0;
+    h = await harness({
+      models: [claude],
+      tester: async () => {
+        calls++;
+        return { model: 'anthropic/claude-test' };
+      },
+    });
+    const r = await h.call<{ error: { code: string } }>('PUT', '/credentials/anthropic', { value: PERSONAL });
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe('provider.workspace_needed');
+    expect(calls).toBe(0);
+    expect(await h.secrets.get('ANTHROPIC_API_KEY')).toBeUndefined();
+  });
+
+  it('tests with the workspace, keeps it beside the key, and removes both together', async () => {
+    const seen: (string | undefined)[] = [];
+    h = await harness({
+      models: [claude],
+      tester: async ({ workspaceId }) => {
+        seen.push(workspaceId);
+        return { model: 'anthropic/claude-test' };
+      },
+    });
+    const add = await h.call<CredentialStatus>('PUT', '/credentials/anthropic', {
+      value: PERSONAL,
+      workspace_id: WS,
+    });
+    expect(add.status).toBe(200);
+    expect(add.body).toMatchObject({ set: true, workspace_id: WS });
+    expect(seen).toEqual([WS]);
+    expect(await h.secrets.get('ANTHROPIC_WORKSPACE_ID')).toBe(WS);
+
+    // An organisation key bills its own workspace: the saved one goes.
+    const org = await h.call<CredentialStatus>('PUT', '/credentials/anthropic', {
+      value: KEY,
+      workspace_id: WS,
+    });
+    expect(org.body.workspace_id).toBeNull();
+    expect(seen).toEqual([WS, undefined]);
+    expect(await h.secrets.get('ANTHROPIC_WORKSPACE_ID')).toBeUndefined();
+
+    await h.call('PUT', '/credentials/anthropic', { value: PERSONAL, workspace_id: WS });
+    await h.call('DELETE', '/credentials/anthropic');
+    expect(await h.secrets.get('ANTHROPIC_WORKSPACE_ID')).toBeUndefined();
+  });
+
+  it("names Anthropic's workspace request instead of calling the key bad", async () => {
+    h = await harness({
+      models: [claude],
+      tester: async () => {
+        throw Object.assign(
+          new Error(
+            'This API key is not scoped to a workspace. Requests must include the anthropic-workspace-id header.',
+          ),
+          { statusCode: 400 },
+        );
+      },
+    });
+    const r = await h.call<{ error: { code: string; detail?: string } }>('PUT', '/credentials/anthropic', {
+      value: KEY,
+    });
+    expect(r.body.error.code).toBe('provider.workspace_needed');
+    expect(r.body.error.detail).toContain('anthropic-workspace-id');
+  });
+
+  it("only calls a key rejected on a 401 or 403, and shows the provider's words without the key", async () => {
+    h = await harness({
+      models: [claude],
+      tester: async ({ key }) => {
+        // Words that once read as a bad key, on a status that is not one.
+        throw Object.assign(new Error(`Your API key ${key} has hit its rate limit`), { statusCode: 429 });
+      },
+    });
+    const r = await h.call<{ error: { code: string; detail?: string } }>('PUT', '/credentials/anthropic', {
+      value: KEY,
+    });
+    expect(r.body.error.code).toBe('provider.unavailable');
+    expect(r.body.error.detail).toContain('rate limit');
+    expect(JSON.stringify(r.body)).not.toContain(KEY);
+  });
+
+  it('hands the tester only the values under test, the workspace by its own name', async () => {
+    const { liveTester } = await import('../../src/setup/routes');
+    const got: Record<string, string | undefined> = {};
+    const tester = liveTester(async (_m, secrets) => {
+      got.key = await secrets.get('ANTHROPIC_API_KEY');
+      got.workspace = await secrets.get('ANTHROPIC_WORKSPACE_ID');
+      throw new Error('stop before any network');
+    });
+    await expect(
+      tester({ provider: 'anthropic', key: PERSONAL, workspaceId: WS, model: claude as never }),
+    ).rejects.toThrow('stop before any network');
+    expect(got).toEqual({ key: PERSONAL, workspace: WS });
+  });
+});
+
 describe('environment first', () => {
   it('reads the environment before the saved value, and lists it', async () => {
     const inner = new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64')));

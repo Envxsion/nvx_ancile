@@ -2630,3 +2630,13 @@ button.grounding:hover {
   font-size: var(--t-small);
   line-height: 1.5;
 }
+.credential__said {
+  margin-top: 4px;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+}
+.credential__workspace {
+  display: grid;
+  gap: 6px;
+  animation: tip-in var(--d-micro) var(--ease-out);
+}

@@ -125,6 +125,12 @@ export const DEFAULT_SECRET: Record<string, string> = {
   openrouter: 'OPENROUTER_API_KEY',
 };
 
+/**
+ * Where the workspace a personal Anthropic key bills is kept (Settings → API
+ * keys saves it beside the key). Not a secret, but it lives and goes with it.
+ */
+export const ANTHROPIC_WORKSPACE_SECRET = 'ANTHROPIC_WORKSPACE_ID';
+
 export async function languageModelFor(
   m: ModelConfig,
   secrets: ProviderSecrets,
@@ -158,10 +164,15 @@ export async function languageModelFor(
   }
 
   switch (m.provider) {
-    case 'anthropic':
-      return createAnthropic({ apiKey: needKey('Anthropic'), ...(!!m.base_url && { baseURL: m.base_url }) })(
-        m.provider_model,
-      );
+    case 'anthropic': {
+      // A personal key (sk-ant-usr-) names the workspace to bill on every call.
+      const workspace = await secrets.get(ANTHROPIC_WORKSPACE_SECRET);
+      return createAnthropic({
+        apiKey: needKey('Anthropic'),
+        ...(!!m.base_url && { baseURL: m.base_url }),
+        ...(!!workspace && { headers: { 'anthropic-workspace-id': workspace } }),
+      })(m.provider_model);
+    }
     case 'openai':
       return createOpenAI({ apiKey: needKey('OpenAI'), ...(!!m.base_url && { baseURL: m.base_url }) })(
         m.provider_model,

@@ -18,7 +18,7 @@
  */
 
 import { AncileMark } from '@nvx/aperture';
-import type { ProviderId, SetupStatus } from '@nvx/contracts';
+import { isPersonalAnthropicKey, type ProviderId, type SetupStatus } from '@nvx/contracts';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
@@ -84,6 +84,8 @@ export function SetupScreen() {
   const status = useSetup();
   const [step, setStep] = useState(0);
   const [keyText, setKeyText] = useState<Record<string, string>>({});
+  /** The workspace a personal Anthropic key (sk-ant-usr-) bills. */
+  const [workspace, setWorkspace] = useState('');
   const [tests, setTests] = useState<Record<string, TestState | undefined>>({});
   const [preset, setPreset] = useState<(typeof PRESETS)[number]['id']>('balanced');
   const [capture, setCapture] = useState<(typeof CAPTURE)[number]['id']>('auto_confident');
@@ -111,6 +113,9 @@ export function SetupScreen() {
       const r = await api.post<{ latency_ms: number; enabled: string[] }>('/setup/providers/test', {
         provider,
         ...(keyText[provider] && { key: keyText[provider] }),
+        ...(provider === 'anthropic' &&
+          isPersonalAnthropicKey(keyText.anthropic) &&
+          workspace.trim() && { workspace_id: workspace.trim() }),
       });
       setTests((t) => ({
         ...t,
@@ -120,6 +125,7 @@ export function SetupScreen() {
         },
       }));
       setKeyText((k) => ({ ...k, [provider]: '' }));
+      if (provider === 'anthropic') setWorkspace('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.models });
     } catch (error) {
       if (quiet) return;
@@ -273,6 +279,31 @@ export function SetupScreen() {
                         <p className="provider__note" data-tone="ok">
                           <Icon name="check" size={12} /> {t.detail}
                         </p>
+                      ) : null}
+                      {p.id === 'anthropic' && isPersonalAnthropicKey(keyText.anthropic) ? (
+                        <div className="provider__extra">
+                          <label htmlFor="workspace-anthropic" className="provider__name">
+                            Workspace ID
+                          </label>
+                          <input
+                            id="workspace-anthropic"
+                            className="input input--mono"
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="wrkspc_…"
+                            value={workspace}
+                            onChange={(e) => setWorkspace(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && workspace.trim()) void test('anthropic');
+                            }}
+                            aria-describedby="workspace-anthropic-hint"
+                          />
+                          <p id="workspace-anthropic-hint" className="provider__note">
+                            A personal key bills the workspace you name. In the Claude Console, open Settings
+                            → Workspaces, open the workspace and copy its ID.
+                          </p>
+                        </div>
                       ) : null}
                       {t?.state === 'failed' ? (
                         <p className="provider__note" data-tone="fail" role="alert">

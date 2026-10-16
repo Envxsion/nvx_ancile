@@ -31,7 +31,8 @@ Rules for new codes:
 
 | Code | HTTP | Title / hint |
 |---|---|---|
-| `provider.auth_failed` | 502 | "<Provider> rejected the API key." / Update it in Settings → API keys → <Provider>. |
+| `provider.auth_failed` | 502 | "<Provider> rejected the API key." / Update it in Settings → API keys → <Provider>. Only raised when the provider answers 401 or 403; any other failed key test is `provider.unavailable`, with the provider's own explanation (the key scrubbed out) in `detail`. |
+| `provider.workspace_needed` | 400 | "Anthropic needs to know which workspace this key bills." / A personal key (`sk-ant-usr-`) is not tied to a workspace: copy the workspace's ID (`wrkspc_…`) from the Claude Console, Settings → Workspaces, and paste it beside the key. Raised before any call when a personal key comes without one, and when Anthropic itself asks for the `anthropic-workspace-id` header. Nothing is saved. |
 | `provider.unavailable` | 503 | "<Model> is unavailable." / Ancile fell back where it could; check Health for the provider's status. |
 | `provider.refused` | 502 | "<Model> declined to answer." / Another model answered if one was available. Rephrase, or pick a model in the switcher. |
 | `provider.context_overflow` | 413 | "This conversation is too long for <model>." / Compact it, or switch to a model with a larger window. |

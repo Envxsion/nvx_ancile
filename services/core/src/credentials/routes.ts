@@ -24,6 +24,7 @@ import {
   type CredentialCheck,
   CredentialId,
   type CredentialStatus,
+  isPersonalAnthropicKey,
   last4,
   SaveCredentialRequest,
 } from '@nvx/contracts';
@@ -32,13 +33,13 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { RUNPOD_KEY_SECRET } from '../compute/routes';
 import { tracedFetch } from '../context';
-import { DEFAULT_SECRET } from '../gateway/providers';
+import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../gateway/providers';
 import type { ModelRegistry } from '../gateway/registry';
 import { body } from '../http/body';
 import { TYPESAFE_KEY_SECRET } from '../permissions/auto/wire';
 import { GITHUB_TOKEN_SECRET } from '../repos/github';
 import type { SecretStore } from '../secrets';
-import { modelsOf, type ProviderTester, testFailed } from '../setup/routes';
+import { modelsOf, type ProviderTester, testFailed, workspaceNeeded } from '../setup/routes';
 
 export const HUGGINGFACE_TOKEN_SECRET = 'huggingface.token';
 export const MEMORY_REMOTE_SECRET = 'memory.remote';
@@ -86,9 +87,11 @@ export const CREDENTIALS: Record<CredentialId, Definition> = {
 };
 
 /** Secret name → the environment variable that wins over it (for EnvFirstSecretStore). */
-export const ENV_FOR_SECRET: Record<string, string> = Object.fromEntries(
-  Object.values(CREDENTIALS).map((d) => [d.secret, d.env]),
-);
+export const ENV_FOR_SECRET: Record<string, string> = {
+  ...Object.fromEntries(Object.values(CREDENTIALS).map((d) => [d.secret, d.env])),
+  // The workspace a personal Anthropic key bills, beside ANTHROPIC_API_KEY.
+  [ANTHROPIC_WORKSPACE_SECRET]: 'ANTHROPIC_WORKSPACE_ID',
+};
 
 /** Checks a token with the service it belongs to. Throws on any failure. */
 export type ServiceCheck = (id: 'huggingface' | 'github', token: string) => Promise<void>;
@@ -220,6 +223,9 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
       check: d.check,
       available: !unavailable,
       unavailable_reason: unavailable ? 'Compute is not set up on this install (no Controller).' : null,
+      ...(id === 'anthropic' && {
+        workspace_id: value ? ((await secrets.get(ANTHROPIC_WORKSPACE_SECRET)) ?? null) : null,
+      }),
     };
   };
 
@@ -238,20 +244,33 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
   r.put('/credentials/:id', async (c) => {
     const [id, d] = definition(c.req.param('id'));
     if (env[d.env]?.trim()) throw fromEnvironment(d);
-    const { value } = await body(c, SaveCredentialRequest);
+    const { value, workspace_id } = await body(c, SaveCredentialRequest);
     const wasSet = (await secrets.names()).includes(d.secret);
 
     try {
       if (d.check === 'provider') {
         const provider = id as 'anthropic' | 'openai' | 'google' | 'openrouter';
+        // Only a personal Anthropic key takes a workspace; any other key bills its own.
+        const personal = provider === 'anthropic' && isPersonalAnthropicKey(value);
+        const workspaceId = personal ? workspace_id : undefined;
+        if (personal && !workspaceId) throw workspaceNeeded();
         const candidates = modelsOf(registry, provider);
         const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
         try {
-          await deps.tester({ provider, key: value, ...(cheapest && { model: cheapest }) });
+          await deps.tester({
+            provider,
+            key: value,
+            ...(workspaceId && { workspaceId }),
+            ...(cheapest && { model: cheapest }),
+          });
         } catch (err) {
-          throw testFailed(provider, err);
+          throw testFailed(provider, err, value);
         }
         await secrets.set(d.secret, value);
+        if (provider === 'anthropic') {
+          if (workspaceId) await secrets.set(ANTHROPIC_WORKSPACE_SECRET, workspaceId);
+          else await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
+        }
         // A first key switches its provider's models on, as setup does; a
         // replacement leaves your choices alone.
         if (!wasSet && candidates.length)
@@ -313,6 +332,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     if (env[d.env]?.trim()) throw fromEnvironment(d);
     if (d.check === 'controller' && deps.runpod) await deps.runpod.disconnect();
     else await secrets.delete(d.secret);
+    if (id === 'anthropic') await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
     await changed(id);
     return c.json(await statusOf(id, new Set(await secrets.names())));
   });
