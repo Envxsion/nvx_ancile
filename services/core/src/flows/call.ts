@@ -15,22 +15,11 @@ import type { ModelConfig } from '@nvx/contracts';
 import type { Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import type { ModelRequest } from '../gateway/types';
+import { priceOf } from '../gateway/usage';
 import type { ModelCallResult } from './execute';
 
-export function priceOf(
-  m: ModelConfig | undefined,
-  u: { inputTokens: number; outputTokens: number; cachedTokens?: number },
-): number {
-  if (!m) return 0;
-  const cached = u.cachedTokens ?? 0;
-  const p = m.price;
-  return (
-    ((u.inputTokens - cached) * p.input_per_mtok +
-      cached * (p.cached_per_mtok ?? p.input_per_mtok) +
-      u.outputTokens * p.output_per_mtok) /
-    1_000_000
-  );
-}
+// One price function for every cost Ancile shows (gateway/usage.ts).
+export { priceOf };
 
 export async function streamCall(
   deps: { gateway: Gateway; registry: ModelRegistry },

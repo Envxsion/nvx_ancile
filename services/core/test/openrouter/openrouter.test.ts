@@ -320,6 +320,8 @@ describe('which provider served', () => {
     x.processChunk({ choices: [], usage: { prompt_tokens: 1, cost: 0.0012 } });
     expect(x.buildMetadata()).toEqual({
       openrouter: { provider: 'DeepInfra', model: 'qwen/qwen3-coder', cost: 0.0012 },
+      // The raw usage rides along, so cache hits under any name are counted (CA0).
+      raw: { usage: { prompt_tokens: 1, cost: 0.0012 } },
     });
     const s = { provider: null, model: null, cost: null };
     readServed(s, 'nonsense');

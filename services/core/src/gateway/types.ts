@@ -11,6 +11,7 @@
  */
 
 import type { ErrorClass, ModelConfig, Part, RoutingSettings } from '@nvx/contracts';
+import type { CallUsage } from './usage';
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -51,7 +52,8 @@ export type StreamChunk =
   | {
       type: 'finish';
       finishReason: string;
-      usage: { inputTokens: number; outputTokens: number; cachedTokens?: number };
+      /** Every prompt token in inputTokens, cache reads and writes included (gateway/usage.ts). */
+      usage: CallUsage;
       /** OpenRouter: the provider (and model) that actually answered. */
       served?: { provider: string | null; model: string | null };
       /** What the provider billed, when it says (OpenRouter's usage.cost); else Ancile prices it. */

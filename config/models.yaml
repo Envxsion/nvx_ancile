@@ -16,7 +16,7 @@ models:
     context_window: 200000                 # tokens; drives the context budget meter
     max_output: 64000                      # tokens reserved for the reply
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 3.0, output_per_mtok: 15.0, cached_per_mtok: 0.3 }  # USD per million tokens
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.2, cache_write_per_mtok: 2.5 }  # USD per million tokens
     enabled: true                          # disabled models stay configured but are never routed to
     secret: ANTHROPIC_API_KEY              # name of the secret in the encrypted store
 
@@ -29,7 +29,7 @@ models:
     context_window: 200000
     max_output: 64000
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 15.0, output_per_mtok: 75.0, cached_per_mtok: 1.5 }
+    price: { input_per_mtok: 4.0, output_per_mtok: 20.0, cached_per_mtok: 0.2, cache_write_per_mtok: 5.0 }
     enabled: true
     secret: ANTHROPIC_API_KEY
 
@@ -42,7 +42,7 @@ models:
     context_window: 200000
     max_output: 64000
     capabilities: [tools, vision, json]
-    price: { input_per_mtok: 1.0, output_per_mtok: 5.0, cached_per_mtok: 0.1 }
+    price: { input_per_mtok: 1.0, output_per_mtok: 5.0, cached_per_mtok: 0.1, cache_write_per_mtok: 1.25 }
     enabled: true
     secret: ANTHROPIC_API_KEY
 

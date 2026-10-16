@@ -56,6 +56,7 @@ import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
+import { type CallUsage, priceOf } from '../gateway/usage';
 import { summariesBlock, type TurnLinks } from '../links/service';
 import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
@@ -332,22 +333,10 @@ function resultPreview(result: unknown): string {
   return s.length > 280 ? `${s.slice(0, 280)}…` : s;
 }
 
-function cost(
-  m: ModelConfig | undefined,
-  u: { inputTokens: number; outputTokens: number; cachedTokens?: number },
-  billed?: number,
-): number {
+function cost(m: ModelConfig | undefined, u: CallUsage, billed?: number): number {
   // What the provider billed beats list price (OpenRouter reports it; openrouter/auto has no list price).
   if (billed !== undefined) return billed;
-  if (!m) return 0;
-  const cached = u.cachedTokens ?? 0;
-  const p = m.price;
-  return (
-    ((u.inputTokens - cached) * p.input_per_mtok +
-      cached * (p.cached_per_mtok ?? p.input_per_mtok) +
-      u.outputTokens * p.output_per_mtok) /
-    1_000_000
-  );
+  return priceOf(m, u);
 }
 
 /** Keep who served an OpenRouter call, and flag an answer cut off at the endpoint's output cap. */

@@ -393,10 +393,18 @@ async function main() {
       ]),
   });
   await registry.refresh();
+  // The first raw usage each provider sends is logged (numbers only), so what it
+  // really reports for cache hits and writes can be checked against our counts.
+  const usageSeen = new Set<string>();
   const endpoints = {
     controllerUrl: env.CONTROLLER_URL,
     controllerToken: env.CONTROLLER_TOKEN,
     ollamaUrl: env.OLLAMA_BASE_URL,
+    onRawUsage: (provider: string, usage: Record<string, number>) => {
+      if (usageSeen.has(provider)) return;
+      usageSeen.add(provider);
+      log.info({ provider, usage }, 'first raw usage from this provider');
+    },
   };
   // ---- Phase 5: remote compute (the Controller) ----
   const compute = controllerClient({ url: env.CONTROLLER_URL, token: env.CONTROLLER_TOKEN });

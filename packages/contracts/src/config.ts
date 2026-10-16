@@ -27,6 +27,8 @@ export const ModelConfig = z.object({
       input_per_mtok: z.number(),
       output_per_mtok: z.number(),
       cached_per_mtok: z.number().optional(),
+      /** Writing to the provider's cache (Anthropic charges 1.25× input); the input price when absent. */
+      cache_write_per_mtok: z.number().optional(),
     })
     .default({ input_per_mtok: 0, output_per_mtok: 0 }),
   enabled: z.boolean().default(true),

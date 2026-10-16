@@ -41,6 +41,7 @@ import {
 import { toSdkMessages } from './convert';
 import { isOllama, ollamaChat } from './ollama-chat';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
+import { type CallUsage, cacheFromRaw, usageNumbers } from './usage';
 
 /** Reads a stored image's bytes by id (images/store.ts), for vision models. */
 export type ImageBytes = (id: string) => Promise<{ bytes: Buffer; mime: string } | null>;
@@ -89,17 +90,34 @@ export function readServed(into: Served, raw: unknown): void {
   if (typeof c.usage?.cost === 'number' && Number.isFinite(c.usage.cost)) into.cost = c.usage.cost;
 }
 
+/** The raw `usage` an OpenAI-style answer or stream chunk carries, as it came. */
+const rawUsage = (raw: unknown): Record<string, unknown> | undefined => {
+  const u = raw && typeof raw === 'object' ? (raw as { usage?: unknown }).usage : undefined;
+  return u && typeof u === 'object' ? (u as Record<string, unknown>) : undefined;
+};
+
+/**
+ * Every OpenAI-compatible route: OpenRouter's served provider, model and cost,
+ * and the raw usage, so cache hits under any provider's name are counted
+ * (the AI SDK only reads prompt_tokens_details.cached_tokens; DeepSeek says
+ * prompt_cache_hit_tokens, and every hit read as zero).
+ */
 export const servedExtractor = {
   async extractMetadata({ parsedBody }: { parsedBody: unknown }) {
     const s: Served = { provider: null, model: null, cost: null };
     readServed(s, parsedBody);
-    return { openrouter: { ...s } };
+    const usage = rawUsage(parsedBody);
+    return { openrouter: { ...s }, ...(usage && { raw: { usage: usage as JSONValue } }) };
   },
   createStreamExtractor() {
     const s: Served = { provider: null, model: null, cost: null };
+    let usage: Record<string, unknown> | undefined;
     return {
-      processChunk: (raw: unknown) => readServed(s, raw),
-      buildMetadata: () => ({ openrouter: { ...s } }),
+      processChunk: (raw: unknown) => {
+        readServed(s, raw);
+        usage = rawUsage(raw) ?? usage;
+      },
+      buildMetadata: () => ({ openrouter: { ...s }, ...(usage && { raw: { usage: usage as JSONValue } }) }),
     };
   },
 };
@@ -116,6 +134,8 @@ export interface ProviderEndpoints {
   ollamaUrl?: string | undefined;
   /** The fetch OpenAI-compatible providers use (tests). */
   fetch?: typeof fetch;
+  /** The numbers of a provider's raw usage (main.ts logs the first per provider, to confirm what it reports). */
+  onRawUsage?: (provider: string, usage: Record<string, number>) => void;
 }
 
 export const DEFAULT_SECRET: Record<string, string> = {
@@ -160,6 +180,7 @@ export async function languageModelFor(
       baseURL: `${ep.controllerUrl.replace(/\/$/, '')}/v1`,
       ...(!!ep.controllerToken && { apiKey: ep.controllerToken }),
       ...(ep.fetch && { fetch: ep.fetch }),
+      metadataExtractor: servedExtractor,
     })(m.provider_model);
   }
 
@@ -211,6 +232,8 @@ export async function languageModelFor(
         name: m.provider,
         baseURL: m.base_url,
         ...(!!apiKey && { apiKey }),
+        ...(ep.fetch && { fetch: ep.fetch }),
+        metadataExtractor: servedExtractor,
       })(m.provider_model);
   }
 }
@@ -229,6 +252,13 @@ function wrap(err: unknown): unknown {
   });
 }
 
+/** What a step's provider metadata can carry (servedExtractor, the Anthropic provider). */
+interface StepMetadata {
+  openrouter?: Partial<Served>;
+  raw?: { usage?: unknown };
+  anthropic?: { cacheCreationInputTokens?: number | null; usage?: unknown };
+}
+
 export class AiSdkClient implements ModelClient {
   constructor(
     private readonly secrets: ProviderSecrets,
@@ -236,6 +266,47 @@ export class AiSdkClient implements ModelClient {
     private readonly images?: ImageBytes,
     private readonly openrouter?: OpenRouterRouting,
   ) {}
+
+  /**
+   * One meaning for every provider (gateway/usage.ts): input counts every prompt
+   * token. Anthropic's input_tokens leaves out cache reads and writes, so they
+   * are added back; OpenAI-style providers count them in already, and their hits
+   * are read from the raw usage when the SDK missed them (DeepSeek).
+   */
+  private usageOf(
+    m: ModelConfig,
+    total: {
+      inputTokens?: number | undefined;
+      outputTokens?: number | undefined;
+      cachedInputTokens?: number | undefined;
+    },
+    meta: StepMetadata | undefined,
+  ): CallUsage {
+    const input = total.inputTokens ?? 0;
+    const output = total.outputTokens ?? 0;
+    const sdkCached = total.cachedInputTokens ?? 0;
+    if (m.provider === 'anthropic' && m.via === 'direct') {
+      const written = meta?.anthropic?.cacheCreationInputTokens ?? 0;
+      if (meta?.anthropic?.usage)
+        this.endpoints.onRawUsage?.('anthropic', usageNumbers(meta.anthropic.usage));
+      return {
+        inputTokens: input + sdkCached + written,
+        outputTokens: output,
+        cachedTokens: sdkCached,
+        ...(written > 0 && { cacheWriteTokens: written }),
+      };
+    }
+    const raw = meta?.raw?.usage;
+    if (raw) this.endpoints.onRawUsage?.(m.provider, usageNumbers(raw));
+    const cache = cacheFromRaw(raw);
+    const cached = Math.max(sdkCached, cache.hit ?? 0);
+    return {
+      inputTokens: input,
+      outputTokens: output,
+      cachedTokens: cached,
+      ...(cache.write && { cacheWriteTokens: cache.write }),
+    };
+  }
 
   async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     const vision = m.capabilities.includes('vision');
@@ -287,6 +358,10 @@ export class AiSdkClient implements ModelClient {
       }),
       ...(req.temperature !== undefined && { temperature: req.temperature }),
     });
+    // AI SDK 5 puts provider metadata on 'finish-step', never on 'finish': read
+    // there, OpenRouter's served provider and billed cost, Anthropic's cache
+    // writes and every raw usage were always missing.
+    let meta: StepMetadata | undefined;
     try {
       for await (const part of result.fullStream) {
         switch (part.type) {
@@ -301,9 +376,12 @@ export class AiSdkClient implements ModelClient {
             break;
           case 'error':
             throw wrap(part.error);
+          case 'finish-step':
+            meta = (part.providerMetadata as StepMetadata | undefined) ?? meta;
+            break;
           case 'finish': {
-            const or = (part as { providerMetadata?: { openrouter?: Partial<Served> } }).providerMetadata
-              ?.openrouter;
+            const or = meta?.openrouter;
+            const usage = this.usageOf(m, part.totalUsage, meta);
             yield {
               type: 'finish',
               finishReason: part.finishReason,
@@ -312,11 +390,7 @@ export class AiSdkClient implements ModelClient {
                   served: { provider: or.provider ?? null, model: or.model ?? null },
                   ...(typeof or.cost === 'number' && { costUsd: or.cost }),
                 }),
-              usage: {
-                inputTokens: part.totalUsage.inputTokens ?? 0,
-                outputTokens: part.totalUsage.outputTokens ?? 0,
-                cachedTokens: part.totalUsage.cachedInputTokens ?? 0,
-              },
+              usage,
             };
             break;
           }

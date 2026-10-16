@@ -155,7 +155,7 @@ The Hugging Face token is stored and checked here, but is not yet handed to new 
 | `family` | `anthropic` | Fact-check verifiers prefer a different family from the generator. |
 | `context_window`, `max_output` | `200000`, `64000` | Drive the context meter and compaction. |
 | `capabilities` | `[tools, vision, reasoning, json, embeddings, rerank, audio]` | Used when switching models mid-thread. |
-| `price` | `{input_per_mtok, output_per_mtok, cached_per_mtok}` | USD per million tokens; cost display and budgets. |
+| `price` | `{input_per_mtok, output_per_mtok, cached_per_mtok, cache_write_per_mtok}` | USD per million tokens; cost display and budgets. Cache reads cost `cached_per_mtok` and cache writes `cache_write_per_mtok` (Anthropic: 1.25× input); each falls back to the input price. Every provider's counts are read the same way: input is every prompt token, cache reads and writes included, whatever the provider calls them (DeepSeek's `prompt_cache_hit_tokens`, Anthropic's `cache_read_input_tokens`). Core logs the first raw usage each provider sends (numbers only), to check this against what the provider really reports. |
 | `enabled` | `true` | |
 | `base_url` | `http://localhost:11434/v1` | Any OpenAI-compatible endpoint. |
 | `secret` | `ANTHROPIC_API_KEY` | Name in the secrets store. |
