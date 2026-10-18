@@ -69,6 +69,7 @@ export const PROVIDER_NAME: Record<string, string> = {
   xai: 'xAI',
   mistral: 'Mistral',
   ollama: 'Ollama',
+  claude_code: 'Claude Code',
   controller: 'Your compute',
   node: 'Your GPU node',
   fake: 'Test model',

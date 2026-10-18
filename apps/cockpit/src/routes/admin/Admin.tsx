@@ -9,6 +9,7 @@
  */
 
 import { Link, Navigate, Outlet, useParams } from '@tanstack/react-router';
+import { useEffect, useRef } from 'react';
 import { Icon } from '../../ui/Icon';
 import { EmptyState } from '../../ui/primitives';
 import { ADMIN_SECTIONS, type AdminSection } from './sections';
@@ -17,9 +18,17 @@ const GROUPS: AdminSection['group'][] = ['System', 'Trust', 'Models', 'Extend'];
 
 export function AdminLayout() {
   const { section } = useParams({ strict: false });
+  const nav = useRef<HTMLElement>(null);
+  // On narrow screens the sections are one scrolling row: keep the open one in view.
+  useEffect(() => {
+    if (!section) return;
+    const active = nav.current?.querySelector<HTMLElement>('[data-active]');
+    if (active && nav.current && nav.current.scrollWidth > nav.current.clientWidth)
+      active.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  }, [section]);
   return (
     <div className="admin">
-      <nav className="admin__nav" aria-label="Admin">
+      <nav ref={nav} className="admin__nav" aria-label="Admin">
         {GROUPS.map((g) => (
           <div key={g} className="admin__group">
             <h2 className="admin__group-h">{g}</h2>

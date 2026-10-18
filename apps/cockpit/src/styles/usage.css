@@ -77,6 +77,10 @@
   display: grid;
   gap: 6px;
 }
+/* The bar spans its row wherever the limits are listed (the status bar's own meter stays small). */
+.u-plan .u-meter {
+  width: 100%;
+}
 .u-plan__head {
   display: flex;
   align-items: baseline;
