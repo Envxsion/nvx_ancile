@@ -58,7 +58,7 @@ import type {
  * later phase) is simply empty: sample notebooks in a real session would
  * pass fiction off as yours. Every other error is real.
  */
-async function orDemo<T>(call: () => Promise<T>, fixture: T, notBuilt?: T): Promise<T> {
+export async function orDemo<T>(call: () => Promise<T>, fixture: T, notBuilt?: T): Promise<T> {
   try {
     const value = await call();
     useUi.getState().setDemo(false);

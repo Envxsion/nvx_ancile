@@ -15,6 +15,7 @@
  */
 
 import type { ModelBilling, Part } from '@nvx/contracts';
+import type { OffPeakRates } from '../models/offPeak';
 
 export type Hue = 'coral' | 'amber' | 'jade' | 'cyan' | 'azure' | 'magenta' | 'chalk';
 
@@ -31,7 +32,7 @@ export interface ModelView {
   /** Who pays for an answer (MD3). Absent only in hand-made fixtures. */
   billing?: ModelBilling;
   /** Price per million tokens, in dollars; 0 when not priced (plans, local). */
-  price?: { in: number; out: number };
+  price?: { in: number; out: number; offPeak?: OffPeakRates };
   /** Nothing real behind it yet (no key, not pulled, no node): Settings leaves it out. */
   unlisted?: boolean;
   offline?: boolean;

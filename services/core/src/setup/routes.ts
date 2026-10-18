@@ -209,7 +209,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
     const req = await body(c, ProviderTestRequest);
     const meta = PROVIDERS.find((p) => p.id === req.provider);
     const profile = profileFor(req.provider);
-    if ((meta?.needs_key ?? profile.needsKey) && !req.key) {
+    // "Test the saved key" (a new region for a key already kept): read it here; it is never sent back.
+    const saved =
+      !req.key && req.use_saved && DEFAULT_SECRET[req.provider]
+        ? await secrets.get(DEFAULT_SECRET[req.provider] as string)
+        : undefined;
+    if ((meta?.needs_key ?? profile.needsKey) && !req.key && !saved) {
       throw new AncileError({
         code: 'request.invalid',
         title: 'Paste a key to test',
@@ -218,7 +223,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
         errorClass: 'permanent',
       });
     }
-    const key = req.key?.trim();
+    const key = req.key?.trim() ?? saved;
     // Only a personal Anthropic key takes a workspace; any other key bills its own.
     const workspaceId =
       req.provider === 'anthropic' && isPersonalAnthropicKey(key) ? req.workspace_id : undefined;

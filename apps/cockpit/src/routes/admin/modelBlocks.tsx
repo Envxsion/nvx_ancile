@@ -30,6 +30,7 @@ import { hueVar, usd } from '../../lib/format';
 import type { ModelView } from '../../lib/types';
 import { billingTitle, billingWords, modelBadge } from '../../models/billing';
 import { ModelMenu } from '../../models/EditModel';
+import { OffPeakTag } from '../../models/OffPeakTag';
 import { notify } from '../../state/notify';
 import { Icon } from '../../ui/Icon';
 import { StatusDot } from '../../ui/primitives';
@@ -126,6 +127,12 @@ function ModelRow({ m }: { m: ModelView }) {
       <span className="row__meta">
         {m.provider} · {STATUS_WORDS[m.status ?? 'ready']}
         {price ? ` · ${price}` : ''}
+        {price && m.price?.offPeak ? (
+          <>
+            {' · '}
+            <OffPeakTag price={m.price} offPeak={m.price.offPeak} />
+          </>
+        ) : null}
         {m.note && m.status !== 'needs_key' && m.status !== 'signed_out' ? ` · ${m.note}` : ''}
       </span>
       <span data-num className="mute row__num">

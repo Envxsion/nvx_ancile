@@ -22,16 +22,30 @@ import {
   type CredentialList,
   type CredentialStatus,
   isPersonalAnthropicKey,
+  type ProviderInfo,
 } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
-import { useContext, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
+import * as demo from '../fixtures/demo';
 import { ApiCallError, api } from '../lib/api';
-import { keys as dataKeys } from '../lib/data';
+import { keys as dataKeys, orDemo } from '../lib/data';
 import { queryClient } from '../lib/query';
 import { Block, matches, SearchContext } from '../routes/settings/rows';
 import { notify } from '../state/notify';
+import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import {
+  type FriendlyProblem,
+  friendlyProblem,
+  type KeyNeighbour,
+  type Problem,
+  recogniseKey,
+  regionLabel,
+  safeDocsUrl,
+  useProviders,
+  withArticle,
+} from './providers';
 
 export interface CredentialMeta {
   id: CredentialId;
@@ -98,6 +112,28 @@ export const CREDENTIAL_META: CredentialMeta[] = [
     getLabel: 'Get a key',
     removes: 'Auto mode reviews with OpenRouter, a local model or rules only.',
   },
+  ...(
+    [
+      ['deepseek', 'DeepSeek', 'sk-…', 'https://platform.deepseek.com/api_keys'],
+      ['minimax', 'MiniMax', 'Paste the key', 'https://platform.minimax.io'],
+      ['mistral', 'Mistral', 'Paste the key', 'https://console.mistral.ai/api-keys'],
+      ['moonshot', 'Moonshot (Kimi)', 'sk-…', 'https://platform.kimi.ai/console/api-keys'],
+      ['qwen', 'Qwen (Alibaba Model Studio)', 'sk-…', 'https://modelstudio.console.alibabacloud.com'],
+      ['xai', 'xAI (Grok)', 'xai-…', 'https://console.x.ai'],
+      ['zai', 'Z.ai (GLM)', 'Paste the key', 'https://z.ai/manage-apikey/apikey-list'],
+    ] as const
+  ).map(
+    ([id, name, placeholder, getUrl]): CredentialMeta => ({
+      id,
+      name,
+      desc: `${name} models.`,
+      noun: 'API key',
+      placeholder,
+      getUrl,
+      getLabel: 'Get a key',
+      removes: `${name} models stop answering until you add a key again.`,
+    }),
+  ),
   {
     id: 'runpod',
     name: 'RunPod',
@@ -140,6 +176,11 @@ export const CREDENTIAL_META: CredentialMeta[] = [
   },
 ];
 
+/** The model providers that come first, in this order; every other one Core lists follows, A to Z. */
+const FIRST_PROVIDERS: CredentialId[] = ['anthropic', 'openai', 'google', 'openrouter'];
+/** Shown until Core has listed its providers. */
+const MORE_PROVIDERS: CredentialId[] = ['deepseek', 'minimax', 'mistral', 'moonshot', 'qwen', 'xai', 'zai'];
+
 const GROUPS: { title: string; lede: string; ids: CredentialId[] }[] = [
   {
     title: 'Models',
@@ -164,7 +205,11 @@ const KEY = ['credentials'] as const;
 export function useCredentials() {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => api.get<CredentialList>('/credentials').then((r) => r.items),
+    queryFn: () =>
+      orDemo<CredentialStatus[]>(
+        () => api.get<CredentialList>('/credentials').then((r) => r.items),
+        demo.credentials,
+      ),
     staleTime: 30_000,
   });
 }
@@ -183,7 +228,7 @@ const refresh = (id: CredentialId) => {
   if (id === 'runpod') void queryClient.invalidateQueries({ queryKey: ['compute'] });
 };
 
-const problemOf = (e: unknown): { title: string; hint: string; code?: string; detail?: string } =>
+const problemOf = (e: unknown): Problem =>
   e instanceof ApiCallError
     ? {
         title: e.body.error.title,
@@ -196,24 +241,50 @@ const problemOf = (e: unknown): { title: string; hint: string; code?: string; de
 /** "wrkspc_01Ab…9xYz": enough to recognise a workspace without a wall of characters. */
 export const shortWorkspace = (id: string) => (id.length > 18 ? `${id.slice(0, 11)}…${id.slice(-4)}` : id);
 
+/** A key pasted into a row, handed to another row: its id and the text, once. */
+interface Moved {
+  id: CredentialId;
+  value: string;
+}
+
 function CredentialRow({
   meta,
   status,
+  info,
+  neighbours = [],
   focused = false,
+  incoming,
+  onMove,
+  onTaken,
+  lastCheck,
 }: {
   meta: CredentialMeta;
   status: CredentialStatus | undefined;
+  /** What Core says about this provider (regions, how a key looks, where to get one). */
+  info?: ProviderInfo | undefined;
+  /** The other model-provider rows a pasted key could be moved to. */
+  neighbours?: KeyNeighbour[];
   /** Opened from another screen for this key: brought into view, ready to type. */
   focused?: boolean;
+  /** A key another row recognised as this one's. */
+  incoming?: Moved | null;
+  onMove?: (to: CredentialId, value: string) => void;
+  onTaken?: () => void;
+  /** Demo mode: how a recent check of this key went. */
+  lastCheck?: FriendlyProblem | undefined;
 }) {
   const [mode, setMode] = useState<'idle' | 'edit' | 'confirm'>('idle');
   const [value, setValue] = useState('');
   const [workspace, setWorkspace] = useState('');
+  const [region, setRegion] = useState('');
   const [reveal, setReveal] = useState(false);
   const inputId = useId();
   const hintId = useId();
+  const keyHintId = useId();
   const workspaceId = useId();
   const workspaceHintId = useId();
+  const regionId = useId();
+  const regionHintId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
   // Once its status is known: a key not set yet that can be typed opens its field.
@@ -224,13 +295,27 @@ function CredentialRow({
     // A key already set is shown, not asked for again: Change is one click away.
     if (!status.set && status.source !== 'environment' && status.available) setMode('edit');
   }, [focused, status]);
+  // A key another row recognised as this one's lands here, ready to check and save.
+  useEffect(() => {
+    if (!incoming || incoming.id !== meta.id) return;
+    setValue(incoming.value);
+    setMode('edit');
+    onTaken?.();
+  }, [incoming, meta.id, onTaken]);
+
+  const regions = info?.regions ?? null;
+  // The region in force: what you picked, else the one saved with the key, else the provider's default.
+  const chosenRegion = regions
+    ? region || status?.region || info?.default_region || regions[0]?.id || ''
+    : '';
 
   const save = useMutation({
-    mutationFn: (v: { value: string; workspace_id?: string }) =>
+    mutationFn: (v: { value: string; workspace_id?: string; region?: string }) =>
       api.put<CredentialStatus>(`/credentials/${meta.id}`, v),
     onSuccess: (s) => {
       setValue('');
       setWorkspace('');
+      setRegion('');
       setReveal(false);
       setMode('idle');
       queryClient.setQueryData<CredentialStatus[]>(KEY, (all) => all?.map((x) => (x.id === s.id ? s : x)));
@@ -263,21 +348,51 @@ function CredentialRow({
     },
   });
 
+  // A saved key moved to another region: Core tests the key it already holds there (the key never comes back).
+  const moveRegion = useMutation({
+    mutationFn: (to: string) =>
+      api.post('/setup/providers/test', { provider: meta.id, use_saved: true, region: to, save: true }),
+    onSuccess: (_r, to) => {
+      refresh(meta.id);
+      notify({
+        level: 'success',
+        title: `${meta.name} now uses ${regionLabel(info, to)}`,
+        body: 'The saved key works there.',
+      });
+    },
+  });
+
   const fromEnv = status?.source === 'environment';
   const unavailable = status && !status.available;
-  const problem = save.error ? problemOf(save.error) : null;
+  const failed = save.error ?? moveRegion.error;
+  const raw = failed ? problemOf(failed) : null;
+  // After a failed region move, "try another region" means other than the one just tried.
+  const triedRegion = moveRegion.error ? (moveRegion.variables ?? chosenRegion) : chosenRegion;
+  const problem = raw ? friendlyProblem(raw, { name: meta.name, regions, region: triedRegion }) : null;
   // A personal Anthropic key bills a workspace you name: its field appears as soon as one is pasted.
   const needsWorkspace =
     meta.id === 'anthropic' &&
     (isPersonalAnthropicKey(value) || problem?.code === 'provider.workspace_needed');
+  const suggestion = onMove ? recogniseKey(value, meta.id, neighbours) : null;
   const cancel = () => {
     setMode('idle');
     setValue('');
     setWorkspace('');
+    setRegion('');
     save.reset();
+  };
+  const submit = (inRegion: string) => {
+    if (!value.trim() || (needsWorkspace && !workspace.trim())) return;
+    save.mutate({
+      value: value.trim(),
+      ...(needsWorkspace && { workspace_id: workspace.trim() }),
+      ...(regions && inRegion && { region: inRegion }),
+    });
   };
   const checking =
     meta.id === 'runpod' ? 'Checking with RunPod…' : meta.id === 'memory_remote' ? 'Saving…' : 'Checking…';
+  const getUrl = safeDocsUrl(info?.docs_url) ?? meta.getUrl;
+  const keyHint = info?.needs_key !== false && info?.key_hint ? `Your key ${info.key_hint}.` : null;
 
   return (
     <div
@@ -298,7 +413,7 @@ function CredentialRow({
         </div>
         <p className="setting__desc">
           {meta.desc}{' '}
-          <a className="credential__get" href={meta.getUrl} target="_blank" rel="noreferrer">
+          <a className="credential__get" href={getUrl} target="_blank" rel="noreferrer">
             {meta.getLabel}
             <Icon name="ext" size={10} />
           </a>
@@ -315,6 +430,68 @@ function CredentialRow({
             Personal key, billing workspace{' '}
             <code title={status.workspace_id}>{shortWorkspace(status.workspace_id)}</code>.
           </p>
+        ) : null}
+        {status?.set && regions ? (
+          <div className="setting__desc credential__saved-region">
+            <label htmlFor={`${regionId}-saved`}>Region</label>{' '}
+            <select
+              id={`${regionId}-saved`}
+              className="input input--sm"
+              value={status.region ?? info?.default_region ?? ''}
+              disabled={moveRegion.isPending || fromEnv}
+              onChange={(e) => {
+                save.reset();
+                moveRegion.reset();
+                moveRegion.mutate(e.target.value);
+              }}
+            >
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            {moveRegion.isPending ? <span aria-live="polite"> Testing the key there</span> : null}
+            {status.region_env_var ? (
+              <>
+                {' '}
+                (<code>{status.region_env_var}</code> overrides it)
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {moveRegion.error && problem ? (
+          <div className="credential__problem" role="alert">
+            <p>
+              <strong>{problem.title}.</strong> {problem.hint}
+            </p>
+            {problem.tryRegions.length ? (
+              <p>
+                {problem.tryRegions.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className="btn btn--quiet btn--sm"
+                    onClick={() => moveRegion.mutate(r.id)}
+                  >
+                    Try {r.label}
+                  </button>
+                ))}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {lastCheck && mode === 'idle' && !status?.set ? (
+          <div className="credential__problem">
+            <p>
+              <strong>{lastCheck.title}.</strong> {lastCheck.hint}
+            </p>
+            {lastCheck.detail ? (
+              <p className="credential__said">
+                {meta.name} said: <q>{lastCheck.detail}</q>
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -341,11 +518,7 @@ function CredentialRow({
           className="credential__edit"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!value.trim() || (needsWorkspace && !workspace.trim())) return;
-            save.mutate({
-              value: value.trim(),
-              ...(needsWorkspace && { workspace_id: workspace.trim() }),
-            });
+            submit(chosenRegion);
           }}
         >
           <label htmlFor={inputId} className="sr-only">
@@ -368,7 +541,7 @@ function CredentialRow({
                 }
               }}
               aria-invalid={problem ? true : undefined}
-              aria-describedby={hintId}
+              aria-describedby={keyHint ? `${hintId} ${keyHintId}` : hintId}
               // biome-ignore lint/a11y/noAutofocus: the field appears because you asked to type into it
               autoFocus
             />
@@ -387,6 +560,49 @@ function CredentialRow({
               ? 'Any address git can push to. It is kept encrypted, as it may hold a token.'
               : `Checked with ${meta.name} before it is saved, then kept encrypted on this computer. It is never shown again.`}
           </p>
+          {keyHint ? (
+            <p id={keyHintId} className="setting__desc credential__keyhint">
+              {keyHint}
+            </p>
+          ) : null}
+          {suggestion && onMove ? (
+            <p className="credential__suggest" role="status">
+              This looks like {withArticle(suggestion.name)} key.{' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  onMove(suggestion.id as CredentialId, value.trim());
+                  cancel();
+                }}
+              >
+                Move it there
+              </button>
+            </p>
+          ) : null}
+          {regions ? (
+            <div className="credential__region">
+              <label htmlFor={regionId} className="setting__label">
+                Region
+              </label>
+              <select
+                id={regionId}
+                className="input"
+                value={chosenRegion}
+                onChange={(e) => setRegion(e.target.value)}
+                aria-describedby={regionHintId}
+              >
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              <p id={regionHintId} className="setting__desc">
+                A {meta.name} key only works in the region it was made in.
+              </p>
+            </div>
+          ) : null}
           {needsWorkspace ? (
             <div className="credential__workspace">
               <label htmlFor={workspaceId} className="setting__label">
@@ -424,6 +640,24 @@ function CredentialRow({
                 <p className="credential__said">
                   {meta.name} said: <q>{problem.detail}</q>
                 </p>
+              ) : null}
+              {problem.tryRegions.length ? (
+                <div className="credential__actions credential__actions--start">
+                  {problem.tryRegions.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      disabled={save.isPending}
+                      onClick={() => {
+                        setRegion(r.id);
+                        submit(r.id);
+                      }}
+                    >
+                      Try {r.label}
+                    </button>
+                  ))}
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -473,11 +707,69 @@ function CredentialRow({
   );
 }
 
+/** A row's meta for a provider Core lists that this build has no words for yet. */
+const metaFor = (info: ProviderInfo): CredentialMeta | null => {
+  const known = CREDENTIAL_META.find((m) => m.id === info.credential_id);
+  if (known) return known;
+  if (!info.credential_id) return null;
+  return {
+    id: info.credential_id,
+    name: info.name,
+    desc: `${info.name} models.`,
+    noun: 'API key',
+    placeholder: 'Paste the key',
+    getUrl: safeDocsUrl(info.docs_url) ?? '#',
+    getLabel: 'Get a key',
+    removes: `${info.name} models stop answering until you add a key again.`,
+  };
+};
+
 export function ApiKeysGroup() {
   const q = useContext(SearchContext);
   const focus = (useSearch({ strict: false }) as { key?: string }).key;
   const list = useCredentials();
+  const providers = useProviders();
+  const isDemo = useUi((s) => s.demo);
+  const [moved, setMoved] = useState<Moved | null>(null);
+  const taken = useCallback(() => setMoved(null), []);
   const byId = new Map((list.data ?? []).map((s) => [s.id, s]));
+  const infoById = new Map<string, ProviderInfo>(
+    (providers.data ?? []).filter((p) => p.credential_id).map((p) => [p.id, p]),
+  );
+
+  // Models: the four most people use, then every other provider Core lists, A to Z. Until Core has
+  // listed them, the ones this build knows stand in, without regions.
+  const more: CredentialMeta[] = (
+    infoById.size
+      ? [...infoById.values()]
+          .filter((p) => !FIRST_PROVIDERS.includes(p.credential_id as CredentialId))
+          .sort((a, b) => a.name.localeCompare(b.name, 'en-GB'))
+          .map(metaFor)
+      : CREDENTIAL_META.filter((m) => MORE_PROVIDERS.includes(m.id)).sort((a, b) =>
+          a.name.localeCompare(b.name, 'en-GB'),
+        )
+  ).filter((m): m is CredentialMeta => !!m);
+  // Rows a pasted key could be moved to: model providers that can take a typed key.
+  const neighbours: KeyNeighbour[] = [
+    ...CREDENTIAL_META.filter((m) => FIRST_PROVIDERS.includes(m.id)),
+    ...more,
+  ]
+    .filter((m) => byId.get(m.id) && byId.get(m.id)?.source !== 'environment' && byId.get(m.id)?.available)
+    .map((m) => ({ id: m.id, name: m.name }));
+
+  const blocks = [
+    ...GROUPS.map((g) => ({
+      title: g.title,
+      lede: g.lede,
+      rows: CREDENTIAL_META.filter((m) => g.ids.includes(m.id)),
+    })),
+  ];
+  blocks.splice(1, 0, {
+    title: 'More model providers',
+    lede: 'Each key works only with the provider that made it, and is checked with one short request before it is saved.',
+    rows: more,
+  });
+
   return (
     <>
       {list.isError ? (
@@ -485,17 +777,33 @@ export function ApiKeysGroup() {
           <strong>{problemOf(list.error).title}.</strong> {problemOf(list.error).hint}
         </p>
       ) : null}
-      {GROUPS.map((g) => {
-        const rows = CREDENTIAL_META.filter(
-          (m) =>
-            g.ids.includes(m.id) && matches(q, m.name, m.desc, m.noun, 'api key token secret credential'),
+      {blocks.map((g) => {
+        const rows = g.rows.filter((m) =>
+          matches(q, m.name, m.desc, m.noun, 'api key token secret credential'),
         );
         if (!rows.length) return null;
         return (
           <Block key={g.title} title={g.title} lede={g.lede}>
-            {rows.map((m) => (
-              <CredentialRow key={m.id} meta={m} status={byId.get(m.id)} focused={focus === m.id} />
-            ))}
+            {rows.map((m) => {
+              const modelRow = FIRST_PROVIDERS.includes(m.id) || more.some((x) => x.id === m.id);
+              const demoProblem = isDemo ? demo.providerProblems[m.id] : undefined;
+              return (
+                <CredentialRow
+                  key={m.id}
+                  meta={m}
+                  status={byId.get(m.id)}
+                  info={infoById.get(m.id)}
+                  focused={focus === m.id}
+                  {...(modelRow && {
+                    neighbours: neighbours.filter((n) => n.id !== m.id),
+                    onMove: (to: CredentialId, value: string) => setMoved({ id: to, value }),
+                  })}
+                  incoming={moved}
+                  onTaken={taken}
+                  lastCheck={demoProblem ? friendlyProblem(demoProblem, { name: m.name }) : undefined}
+                />
+              );
+            })}
           </Block>
         );
       })}

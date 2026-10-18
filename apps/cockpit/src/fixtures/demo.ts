@@ -16,7 +16,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { Explain, ModelWatchReport, WatchedModel } from '@nvx/contracts';
+import type { CredentialStatus, Explain, ModelWatchReport, ProviderInfo, WatchedModel } from '@nvx/contracts';
 import { COCKPIT_VERSION } from '../lib/build';
 import type {
   EvidenceView,
@@ -1194,3 +1194,110 @@ export const demoWatch: ModelWatchReport = {
   bundled_prices_date: '2026-10-16',
   openrouter_prices: true,
 };
+
+/* ---- Providers and keys (PV1, PV3) ------------------------------------- */
+
+const provider = (
+  id: string,
+  name: string,
+  key_hint: string,
+  docs_url: string,
+  regions: { id: string; label: string }[] | null = null,
+): ProviderInfo => ({
+  id,
+  name,
+  regions,
+  default_region: regions?.[0]?.id ?? null,
+  key_hint,
+  docs_url,
+  has_models_list: true,
+  credential_id: id as ProviderInfo['credential_id'],
+  needs_key: true,
+});
+
+export const providers: ProviderInfo[] = [
+  provider('anthropic', 'Anthropic', 'starts with sk-ant-', 'https://console.anthropic.com/settings/keys'),
+  provider('openai', 'OpenAI', 'starts with sk-', 'https://platform.openai.com/api-keys'),
+  provider('google', 'Google', 'starts with AIza', 'https://aistudio.google.com/apikey'),
+  provider('openrouter', 'OpenRouter', 'starts with sk-or-v1-', 'https://openrouter.ai/keys'),
+  provider('deepseek', 'DeepSeek', 'starts with sk-', 'https://platform.deepseek.com/api_keys'),
+  provider('minimax', 'MiniMax', 'a long key; copy all of it', 'https://platform.minimax.io', [
+    { id: 'global', label: 'Global (platform.minimax.io)' },
+    { id: 'china', label: 'China (platform.minimax.cn)' },
+  ]),
+  provider('mistral', 'Mistral', 'a 32-character key with no prefix', 'https://console.mistral.ai/api-keys'),
+  provider('moonshot', 'Moonshot (Kimi)', 'starts with sk-', 'https://platform.kimi.ai/console/api-keys', [
+    { id: 'global', label: 'International (platform.kimi.ai)' },
+    { id: 'china', label: 'China (platform.moonshot.cn)' },
+  ]),
+  provider(
+    'qwen',
+    'Qwen (Alibaba Model Studio)',
+    'starts with sk-',
+    'https://modelstudio.console.alibabacloud.com',
+    [
+      { id: 'singapore', label: 'Singapore / international' },
+      { id: 'beijing', label: 'China (Beijing)' },
+      { id: 'us', label: 'US (Virginia)' },
+    ],
+  ),
+  provider('xai', 'xAI (Grok)', 'starts with xai-', 'https://console.x.ai'),
+  provider(
+    'zai',
+    'Z.ai (GLM)',
+    'two parts joined by a dot; copy all of it',
+    'https://z.ai/manage-apikey/apikey-list',
+    [
+      { id: 'international', label: 'International (z.ai)' },
+      { id: 'china', label: 'China (bigmodel.cn)' },
+    ],
+  ),
+];
+
+const status = (
+  id: CredentialStatus['id'],
+  env_var: string,
+  rest: Partial<CredentialStatus> = {},
+): CredentialStatus => ({
+  id,
+  set: false,
+  last4: null,
+  source: null,
+  env_var,
+  check: 'provider',
+  available: true,
+  unavailable_reason: null,
+  ...rest,
+});
+
+/** Settings → API keys in demo mode: Moonshot saved in its China region, the rest not set. */
+export const credentials: CredentialStatus[] = [
+  status('anthropic', 'ANTHROPIC_API_KEY'),
+  status('openai', 'OPENAI_API_KEY'),
+  status('google', 'GOOGLE_API_KEY'),
+  status('openrouter', 'OPENROUTER_API_KEY'),
+  status('deepseek', 'DEEPSEEK_API_KEY'),
+  status('moonshot', 'MOONSHOT_API_KEY', {
+    set: true,
+    source: 'saved',
+    last4: 'c9d2',
+    region: 'china',
+    region_env_var: 'MOONSHOT_REGION',
+  }),
+  status('minimax', 'MINIMAX_API_KEY', { region: null, region_env_var: 'MINIMAX_REGION' }),
+  status('zai', 'ZAI_API_KEY', { region: null, region_env_var: 'ZAI_REGION' }),
+  status('qwen', 'DASHSCOPE_API_KEY', { region: null, region_env_var: 'DASHSCOPE_REGION' }),
+  status('xai', 'XAI_API_KEY'),
+  status('mistral', 'MISTRAL_API_KEY'),
+];
+
+/** What a failed check looked like, for a row in demo mode: DeepSeek's account has no credit. */
+export const providerProblems: Record<string, { code: string; title: string; hint: string; detail: string }> =
+  {
+    deepseek: {
+      code: 'provider.no_credit',
+      title: 'DeepSeek says your account is out of credit',
+      hint: 'Top up there, or use another model.',
+      detail: 'Insufficient Balance',
+    },
+  };

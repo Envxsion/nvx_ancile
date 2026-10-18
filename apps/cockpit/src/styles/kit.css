@@ -2633,3 +2633,26 @@ button.grounding:hover {
   gap: 6px;
   animation: tip-in var(--d-micro) var(--ease-out);
 }
+
+/* ---- Providers: region, key shape, moved keys (PV1, PV3) ----------------- */
+.credential__region {
+  display: grid;
+  gap: 6px;
+  animation: tip-in var(--d-micro) var(--ease-out);
+}
+.credential__keyhint {
+  margin-top: -4px;
+}
+.credential__suggest {
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
+.credential__actions--start {
+  justify-content: flex-start;
+  margin-top: 6px;
+}
+.tag--offpeak {
+  height: 18px;
+  color: var(--fg-2);
+  vertical-align: baseline;
+}

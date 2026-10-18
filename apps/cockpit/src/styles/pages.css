@@ -865,3 +865,20 @@ tr[data-expired] td:not(:last-child) {
   padding: 14px 16px;
   border-radius: var(--r-md);
 }
+
+/* ---- First run: more providers (PV3) -------------------------------------- */
+.setup__more {
+  display: grid;
+  gap: 8px;
+}
+.setup__more-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  font-weight: 560;
+}
+.provider__hint {
+  color: var(--fg-3);
+  gap: 10px;
+}

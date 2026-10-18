@@ -44,6 +44,28 @@ describe('onboarding', () => {
     expect(models.find((m) => m.id === 'anthropic/claude-test')?.status).toBe('ready');
   });
 
+  it('tests the saved key again (a new region) without the key ever being sent back', async () => {
+    h = await harness({ models: [claude], taskClasses: { 'chat.default': ['anthropic/claude-test'] } });
+    await h.secrets.set('ANTHROPIC_API_KEY', 'sk-ant-saved');
+    const r = await h.call<Record<string, unknown>>('POST', '/setup/providers/test', {
+      provider: 'anthropic',
+      use_saved: true,
+    });
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.body)).not.toContain('sk-ant-saved');
+    expect(await h.secrets.get('ANTHROPIC_API_KEY')).toBe('sk-ant-saved');
+  });
+
+  it('asks for a key when there is none saved to test', async () => {
+    h = await harness({ models: [claude] });
+    const r = await h.call<{ error: { title: string } }>('POST', '/setup/providers/test', {
+      provider: 'anthropic',
+      use_saved: true,
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error.title).toBe('Paste a key to test');
+  });
+
   it('switches on only the Ollama models Ollama has, and never offers one it has not pulled', async () => {
     const ollama = (name: string, enabled: boolean) => ({
       ...fakeModel(name, 'echo'),

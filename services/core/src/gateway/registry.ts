@@ -592,7 +592,11 @@ export class ModelRegistry {
       context_window: m.context_window,
       max_output: m.max_output,
       capabilities: m.capabilities,
-      price: { input_per_mtok: m.price.input_per_mtok, output_per_mtok: m.price.output_per_mtok },
+      price: {
+        input_per_mtok: m.price.input_per_mtok,
+        output_per_mtok: m.price.output_per_mtok,
+        ...(m.price.off_peak && { off_peak: m.price.off_peak }),
+      },
       status: this.status(m),
       billing: billingOf(m, this.claudeAuth),
       listed: this.listed(m),

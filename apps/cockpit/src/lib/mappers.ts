@@ -22,6 +22,7 @@ import type {
   ThreadPath,
   ThreadSummary as WireThreadSummary,
 } from '@nvx/contracts';
+import { offPeakOf } from '../models/offPeak';
 import type {
   CcEvent,
   Hue,
@@ -60,6 +61,13 @@ export const PROVIDER_NAME: Record<string, string> = {
   openai: 'OpenAI',
   google: 'Google',
   openrouter: 'OpenRouter',
+  deepseek: 'DeepSeek',
+  moonshot: 'Moonshot',
+  minimax: 'MiniMax',
+  zai: 'Z.ai',
+  qwen: 'Qwen',
+  xai: 'xAI',
+  mistral: 'Mistral',
   ollama: 'Ollama',
   controller: 'Your compute',
   node: 'Your GPU node',
@@ -94,7 +102,14 @@ export function toModelView(m: ModelInfo): ModelView {
     contextWindow: m.context_window,
     status: m.status,
     billing: m.billing,
-    price: { in: m.price.input_per_mtok, out: m.price.output_per_mtok },
+    price: {
+      in: m.price.input_per_mtok,
+      out: m.price.output_per_mtok,
+      // TODO(phase-2): Core's ModelInfo.price drops off_peak today; this reads it once it is sent.
+      ...(offPeakOf((m.price as { off_peak?: unknown }).off_peak) && {
+        offPeak: offPeakOf((m.price as { off_peak?: unknown }).off_peak),
+      }),
+    },
     ...(m.listed === false && { unlisted: true }),
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),

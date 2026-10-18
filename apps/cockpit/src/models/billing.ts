@@ -19,6 +19,7 @@ import { isClaudeCodeModel, type ModelBilling } from '@nvx/contracts';
 import { usd } from '../lib/format';
 import { PROVIDER_NAME } from '../lib/mappers';
 import type { ModelView } from '../lib/types';
+import { type OffPeakRates, offPeakLabel } from './offPeak';
 
 /** Claude Code bills these clouds itself; their names in words. */
 const CLOUD_NAME: Record<string, string> = {
@@ -62,11 +63,16 @@ export function billingBadge(b: ModelBilling): string {
 const perMillion = (n: number) => usd(n, Number.isInteger(n) ? 0 : 2);
 
 /** The badge's tooltip: who bills, and the price for a key. */
-export function billingTitle(b: ModelBilling, price?: { in: number; out: number } | null): string {
+export function billingTitle(
+  b: ModelBilling,
+  price?: { in: number; out: number; offPeak?: OffPeakRates } | null,
+): string {
   const words = billingWords(b);
   if (b.kind === 'plan') return `${words}, counted against its limits`;
-  if (b.kind === 'key' && price && (price.in > 0 || price.out > 0))
-    return `${words}: ${perMillion(price.in)} in, ${perMillion(price.out)} out per million tokens`;
+  if (b.kind === 'key' && price && (price.in > 0 || price.out > 0)) {
+    const line = `${words}: ${perMillion(price.in)} in, ${perMillion(price.out)} out per million tokens`;
+    return price.offPeak ? `${line}. ${offPeakLabel(price, price.offPeak)}` : line;
+  }
   return words;
 }
 

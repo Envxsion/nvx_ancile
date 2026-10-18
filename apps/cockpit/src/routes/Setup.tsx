@@ -18,10 +18,24 @@
  */
 
 import { AncileMark } from '@nvx/aperture';
-import { isPersonalAnthropicKey, type ProviderId, type SetupStatus } from '@nvx/contracts';
+import {
+  isPersonalAnthropicKey,
+  type ProviderId,
+  type ProviderInfo,
+  type ProviderRegion,
+  type SetupStatus,
+} from '@nvx/contracts';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  friendlyProblem,
+  recogniseKey,
+  regionLabel,
+  safeDocsUrl,
+  useProviders,
+  withArticle,
+} from '../credentials/providers';
 import { keyText as bindingText } from '../keys/registry';
 import { ApiCallError, api } from '../lib/api';
 import { keys as queryKeys, useSetup } from '../lib/data';
@@ -78,7 +92,14 @@ const CAPTURE = [
 type TestState =
   | { state: 'testing' }
   | { state: 'ok'; detail: string }
-  | { state: 'failed'; title: string; hint: string };
+  | {
+      state: 'failed';
+      title: string;
+      hint: string;
+      detail?: string;
+      /** Other regions to try in one click (a key made in another region). */
+      tryRegions?: ProviderRegion[];
+    };
 
 export function SetupScreen() {
   const status = useSetup();
@@ -86,6 +107,10 @@ export function SetupScreen() {
   const [keyText, setKeyText] = useState<Record<string, string>>({});
   /** The workspace a personal Anthropic key (sk-ant-usr-) bills. */
   const [workspace, setWorkspace] = useState('');
+  /** The region picked for providers that have them; unset means the provider's default. */
+  const [regionPick, setRegionPick] = useState<Record<string, string>>({});
+  const [moreOpen, setMoreOpen] = useState(false);
+  const providers = useProviders();
   const [tests, setTests] = useState<Record<string, TestState | undefined>>({});
   const [preset, setPreset] = useState<(typeof PRESETS)[number]['id']>('balanced');
   const [capture, setCapture] = useState<(typeof CAPTURE)[number]['id']>('auto_confident');
@@ -107,8 +132,10 @@ export function SetupScreen() {
   }, [status.data]);
 
   /** `quiet`: a background look (Ollama polling) that only speaks up when it succeeds. */
-  const test = async (provider: ProviderId, quiet = false) => {
+  const test = async (provider: ProviderId, quiet = false, regionOverride?: string) => {
     if (!quiet) setTests((t) => ({ ...t, [provider]: { state: 'testing' } }));
+    const info = providers.data?.find((i) => i.id === provider);
+    const region = info?.regions ? (regionOverride ?? regionPick[provider] ?? info.default_region) : null;
     try {
       const r = await api.post<{ latency_ms: number; enabled: string[] }>('/setup/providers/test', {
         provider,
@@ -116,6 +143,7 @@ export function SetupScreen() {
         ...(provider === 'anthropic' &&
           isPersonalAnthropicKey(keyText.anthropic) &&
           workspace.trim() && { workspace_id: workspace.trim() }),
+        ...(region && { region }),
       });
       setTests((t) => ({
         ...t,
@@ -130,18 +158,63 @@ export function SetupScreen() {
     } catch (error) {
       if (quiet) return;
       const e = error instanceof ApiCallError ? error.body.error : null;
+      const words = e
+        ? friendlyProblem(
+            { title: e.title, hint: e.hint, code: e.code, ...(e.detail && { detail: e.detail }) },
+            {
+              name: info?.name ?? PROVIDERS.find((p) => p.id === provider)?.name ?? provider,
+              regions: info?.regions ?? null,
+              region,
+            },
+          )
+        : null;
       setTests((t) => ({
         ...t,
         [provider]: {
           state: 'failed',
-          title: e?.title ?? 'Core did not answer',
-          hint: e?.hint ?? `NVX Ancile's Core did not answer. ${startCoreHint()} Then test again.`,
+          title: words?.title ?? 'Core did not answer',
+          hint: words?.hint ?? `NVX Ancile's Core did not answer. ${startCoreHint()} Then test again.`,
+          ...(words?.detail && { detail: words.detail }),
+          ...(words?.tryRegions.length && { tryRegions: words.tryRegions }),
         },
       }));
     }
   };
 
   const connected = Object.values(tests).some((t) => t?.state === 'ok');
+  // Model providers beyond the original four: listed by Core, kept behind one disclosure so first run stays short.
+  const moreProviders: ProviderInfo[] = (providers.data ?? [])
+    .filter((i) => i.credential_id && !PROVIDERS.some((p) => p.id === i.id))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en-GB'));
+  const neighbours = [
+    ...PROVIDERS.map((p) => ({ id: p.id as string, name: p.name })),
+    ...moreProviders.map((i) => ({ id: i.id, name: i.name })),
+  ];
+  /** What a key row needs beyond its name: Core's facts, the typed value, the region, and where a pasted key may belong. */
+  const rowProps = (id: ProviderId) => {
+    const info = providers.data?.find((i) => i.id === id);
+    const value = keyText[id] ?? '';
+    const near = recogniseKey(value, id, neighbours);
+    return {
+      ...(info && { info }),
+      state: tests[id],
+      value,
+      onValue: (v: string) => setKeyText((k) => ({ ...k, [id]: v })),
+      onTest: (regionOverride?: string) => {
+        if (regionOverride) setRegionPick((r) => ({ ...r, [id]: regionOverride }));
+        void test(id, false, regionOverride);
+      },
+      region: regionPick[id] ?? info?.default_region ?? '',
+      onRegion: (v: string) => setRegionPick((r) => ({ ...r, [id]: v })),
+      ...(near && {
+        suggestion: near,
+        onMove: () => {
+          setKeyText((k) => ({ ...k, [id]: '', [near.id]: value.trim() }));
+          if (!PROVIDERS.some((p) => p.id === near.id)) setMoreOpen(true);
+        },
+      }),
+    };
+  };
 
   // Ollama not found: keep looking every few seconds while this step is open,
   // so installing it is noticed without another click.
@@ -243,76 +316,41 @@ export function SetupScreen() {
                 only used to call that provider.
               </p>
               <div className="setup__providers">
-                {PROVIDERS.map((p) => {
-                  const t = tests[p.id];
-                  return (
-                    <div key={p.id} className="provider" data-state={t?.state}>
-                      <label htmlFor={`key-${p.id}`} className="provider__name">
-                        {p.name}
-                        <span className="sr-only"> API key</span>
-                      </label>
-                      <input
-                        id={`key-${p.id}`}
-                        className="input input--mono"
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        placeholder={
-                          t?.state === 'ok' ? 'Connected. Paste a new key to replace it.' : p.placeholder
-                        }
-                        value={keyText[p.id] ?? ''}
-                        onChange={(e) => setKeyText((k) => ({ ...k, [p.id]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && keyText[p.id]) void test(p.id);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--sm"
-                        disabled={!keyText[p.id] || t?.state === 'testing'}
-                        onClick={() => void test(p.id)}
-                        aria-label={`Test ${p.name} key`}
-                      >
-                        {t?.state === 'testing' ? 'Testing' : 'Test'}
-                      </button>
-                      {t?.state === 'ok' ? (
-                        <p className="provider__note" data-tone="ok">
-                          <Icon name="check" size={12} /> {t.detail}
+                {PROVIDERS.map((p) => (
+                  <SetupKeyRow
+                    key={p.id}
+                    id={p.id}
+                    name={p.name}
+                    placeholder={p.placeholder}
+                    {...rowProps(p.id)}
+                  >
+                    {p.id === 'anthropic' && isPersonalAnthropicKey(keyText.anthropic) ? (
+                      <div className="provider__extra">
+                        <label htmlFor="workspace-anthropic" className="provider__name">
+                          Workspace ID
+                        </label>
+                        <input
+                          id="workspace-anthropic"
+                          className="input input--mono"
+                          type="text"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder="wrkspc_…"
+                          value={workspace}
+                          onChange={(e) => setWorkspace(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && workspace.trim()) void test('anthropic');
+                          }}
+                          aria-describedby="workspace-anthropic-hint"
+                        />
+                        <p id="workspace-anthropic-hint" className="provider__note">
+                          A personal key bills the workspace you name. In the Claude Console, open Settings →
+                          Workspaces, open the workspace and copy its ID.
                         </p>
-                      ) : null}
-                      {p.id === 'anthropic' && isPersonalAnthropicKey(keyText.anthropic) ? (
-                        <div className="provider__extra">
-                          <label htmlFor="workspace-anthropic" className="provider__name">
-                            Workspace ID
-                          </label>
-                          <input
-                            id="workspace-anthropic"
-                            className="input input--mono"
-                            type="text"
-                            autoComplete="off"
-                            spellCheck={false}
-                            placeholder="wrkspc_…"
-                            value={workspace}
-                            onChange={(e) => setWorkspace(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && workspace.trim()) void test('anthropic');
-                            }}
-                            aria-describedby="workspace-anthropic-hint"
-                          />
-                          <p id="workspace-anthropic-hint" className="provider__note">
-                            A personal key bills the workspace you name. In the Claude Console, open Settings
-                            → Workspaces, open the workspace and copy its ID.
-                          </p>
-                        </div>
-                      ) : null}
-                      {t?.state === 'failed' ? (
-                        <p className="provider__note" data-tone="fail" role="alert">
-                          <strong>{t.title}.</strong> {t.hint}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                      </div>
+                    ) : null}
+                  </SetupKeyRow>
+                ))}
                 <div className="provider provider--detected" data-state={tests.ollama?.state}>
                   <span className="provider__name">Ollama</span>
                   <span className="mute">Models running on this computer. No key needed.</span>
@@ -363,6 +401,39 @@ export function SetupScreen() {
                     </div>
                   ) : null}
                 </div>
+                {moreProviders.length ? (
+                  <div className="setup__more">
+                    <button
+                      type="button"
+                      className="link-btn setup__more-toggle"
+                      aria-expanded={moreOpen}
+                      aria-controls="setup-more-providers"
+                      onClick={() => setMoreOpen((o) => !o)}
+                    >
+                      <Icon name={moreOpen ? 'chevronDown' : 'chevronRight'} size={12} />
+                      More providers
+                    </button>
+                    {moreOpen ? (
+                      <div
+                        id="setup-more-providers"
+                        className="setup__providers"
+                        role="group"
+                        aria-label="More providers"
+                      >
+                        {moreProviders.map((info) => (
+                          <SetupKeyRow
+                            key={info.id}
+                            id={info.id as ProviderId}
+                            name={info.name}
+                            placeholder="Paste the key"
+                            showHint
+                            {...rowProps(info.id as ProviderId)}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               {!connected && offline ? (
                 <p className="setup__offline">
@@ -487,6 +558,150 @@ export function SetupScreen() {
           </button>
         </div>
       </main>
+    </div>
+  );
+}
+
+interface SetupKeyRowProps {
+  id: ProviderId;
+  name: string;
+  placeholder: string;
+  info?: ProviderInfo;
+  state: TestState | undefined;
+  value: string;
+  onValue: (v: string) => void;
+  onTest: (regionOverride?: string) => void;
+  region: string;
+  onRegion: (v: string) => void;
+  suggestion?: { id: string; name: string };
+  onMove?: () => void;
+  /** Show how this provider's keys look, and where to make one. */
+  showHint?: boolean;
+  children?: ReactNode;
+}
+
+/** One provider on the first-run list: key, test, region, and what went wrong in words. */
+function SetupKeyRow({
+  id,
+  name,
+  placeholder,
+  info,
+  state: t,
+  value,
+  onValue,
+  onTest,
+  region,
+  onRegion,
+  suggestion,
+  onMove,
+  showHint = false,
+  children,
+}: SetupKeyRowProps) {
+  const docs = safeDocsUrl(info?.docs_url);
+  const regions = info?.regions ?? null;
+  return (
+    <div className="provider" data-state={t?.state}>
+      <label htmlFor={`key-${id}`} className="provider__name">
+        {name}
+        <span className="sr-only"> API key</span>
+      </label>
+      <input
+        id={`key-${id}`}
+        className="input input--mono"
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={t?.state === 'ok' ? 'Connected. Paste a new key to replace it.' : placeholder}
+        value={value}
+        onChange={(e) => onValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && value) onTest();
+        }}
+        aria-describedby={showHint && info?.key_hint ? `hint-${id}` : undefined}
+      />
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm"
+        disabled={!value || t?.state === 'testing'}
+        onClick={() => onTest()}
+        aria-label={`Test ${name} key`}
+      >
+        {t?.state === 'testing' ? 'Testing' : 'Test'}
+      </button>
+      {showHint && (info?.key_hint || docs) ? (
+        <p id={`hint-${id}`} className="provider__note provider__hint">
+          {info?.key_hint && info.needs_key ? `Your key ${info.key_hint}.` : null}
+          {docs ? (
+            <a className="credential__get" href={docs} target="_blank" rel="noreferrer">
+              Get a key
+              <Icon name="ext" size={10} />
+            </a>
+          ) : null}
+        </p>
+      ) : null}
+      {regions ? (
+        <div className="provider__extra">
+          <label htmlFor={`region-${id}`} className="provider__name">
+            Region
+          </label>
+          <select
+            id={`region-${id}`}
+            className="input"
+            value={region}
+            onChange={(e) => onRegion(e.target.value)}
+            aria-describedby={`region-hint-${id}`}
+          >
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <p id={`region-hint-${id}`} className="provider__note">
+            A {name} key only works in the region it was made in.
+          </p>
+        </div>
+      ) : null}
+      {suggestion && onMove ? (
+        <p className="provider__note" role="status">
+          This looks like {withArticle(suggestion.name)} key.{' '}
+          <button type="button" className="link-btn" onClick={onMove}>
+            Move it there
+          </button>
+        </p>
+      ) : null}
+      {t?.state === 'ok' ? (
+        <p className="provider__note" data-tone="ok">
+          <Icon name="check" size={12} /> {t.detail}
+        </p>
+      ) : null}
+      {children}
+      {t?.state === 'failed' ? (
+        <div className="provider__note" data-tone="fail" role="alert">
+          <p>
+            <strong>{t.title}.</strong> {t.hint}
+          </p>
+          {t.detail ? (
+            <p className="credential__said">
+              {name} said: <q>{t.detail}</q>
+            </p>
+          ) : null}
+          {t.tryRegions?.length ? (
+            <div className="provider__ollama-actions">
+              {t.tryRegions.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => onTest(r.id)}
+                >
+                  Try {regionLabel(info, r.id)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

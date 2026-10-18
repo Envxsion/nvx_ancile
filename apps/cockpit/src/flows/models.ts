@@ -19,6 +19,7 @@ import { useNodes } from '../compute/data';
 import { api } from '../lib/api';
 import { hideTryout, hueFor } from '../lib/mappers';
 import type { Hue } from '../lib/types';
+import { type OffPeakRates, offPeakOf } from '../models/offPeak';
 import { usePrefs } from '../state/prefs';
 
 export interface FlowModel {
@@ -32,6 +33,8 @@ export interface FlowModel {
   maxOutput: number;
   priceIn: number;
   priceOut: number;
+  /** Cheaper rates at quiet hours, when the model has them. */
+  priceOffPeak?: OffPeakRates;
   status: ModelInfo['status'];
   /** Who pays for an answer: shown as a badge on every model line. */
   billing: ModelBilling;
@@ -74,6 +77,9 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         maxOutput: m.max_output,
         priceIn: m.price.input_per_mtok,
         priceOut: m.price.output_per_mtok,
+        ...(offPeakOf((m.price as { off_peak?: unknown }).off_peak) && {
+          priceOffPeak: offPeakOf((m.price as { off_peak?: unknown }).off_peak),
+        }),
         status: m.status,
         billing: m.billing,
         offline: m.offline,

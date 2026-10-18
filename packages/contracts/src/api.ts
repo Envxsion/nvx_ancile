@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { ModelBilling } from './billing';
 import { ClaudeCodeBinding, QUEUE_LIMIT, QueuedTurn } from './claudecode';
-import { ModelHue } from './config';
+import { ModelHue, OffPeakPrice } from './config';
 import { AnthropicWorkspaceId, ProviderRegionId } from './credentials';
 import { AncileInstructions } from './engines';
 import { RunStatus } from './events';
@@ -259,7 +259,12 @@ export const ModelInfo = z.object({
   context_window: z.number().int(),
   max_output: z.number().int(),
   capabilities: z.array(z.string()),
-  price: z.object({ input_per_mtok: z.number(), output_per_mtok: z.number() }),
+  price: z.object({
+    input_per_mtok: z.number(),
+    output_per_mtok: z.number(),
+    /** Cheaper hours, where the provider has them (PV1); UTC windows. */
+    off_peak: OffPeakPrice.optional(),
+  }),
   status: ModelStatus,
   /** Who pays for an answer from this model (MD3). */
   billing: ModelBilling,
@@ -464,6 +469,11 @@ export const ProviderTestRequest = z
     workspace_id: AnthropicWorkspaceId.optional(),
     /** Providers with regions (Moonshot, MiniMax, Qwen, Z.ai): the region the key was made in. */
     region: ProviderRegionId.optional(),
+    /**
+     * Test the key already saved instead of a pasted one (for example after
+     * choosing another region). The key never leaves Core.
+     */
+    use_saved: z.boolean().optional(),
     /** Store the key once it passes. */
     save: z.boolean().default(true),
   })

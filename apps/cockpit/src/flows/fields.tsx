@@ -18,6 +18,7 @@ import { hueVar } from '../lib/format';
 import { useAddModel } from '../models/AddModel';
 import { billingTitle, modelBadge } from '../models/billing';
 import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
+import { OffPeakTag } from '../models/OffPeakTag';
 import { Icon } from '../ui/Icon';
 import { rank } from './AddNode';
 import { PROVIDER_NAMES, providerOf } from './kinds';
@@ -231,7 +232,11 @@ export function ModelLine({ m, note }: { m: FlowModel; note?: string | null }) {
       <span
         className="fp-tag"
         data-tone="mute"
-        title={billingTitle(m.billing, { in: m.priceIn, out: m.priceOut })}
+        title={billingTitle(m.billing, {
+          in: m.priceIn,
+          out: m.priceOut,
+          ...(m.priceOffPeak && { offPeak: m.priceOffPeak }),
+        })}
       >
         {modelBadge(m)}
       </span>
@@ -239,6 +244,9 @@ export function ModelLine({ m, note }: { m: FlowModel; note?: string | null }) {
         {note ? `${note} · ` : ''}
         {PROVIDER_NAMES[m.provider] ?? m.provider} · {windowText(m.window)} · {priceText(m)}
       </span>
+      {m.priceOffPeak ? (
+        <OffPeakTag price={{ in: m.priceIn, out: m.priceOut }} offPeak={m.priceOffPeak} />
+      ) : null}
       {m.awake === false ? (
         <span className="fp-tag" data-tone="mute">
           asleep
