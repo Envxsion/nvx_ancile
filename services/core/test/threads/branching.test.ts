@@ -234,8 +234,11 @@ describe('compaction', () => {
     const reply = (await h.repo.getMessage(branch.assistant_message_id)) as Message;
     expect(reply.provenance).toMatchObject({ compaction: { summary_id: c.body.summary_id } });
     const sent = h.provider.calls.at(-1)?.req;
-    expect(sent?.system).toContain('Summary of the earlier part of this conversation');
-    expect(sent?.messages.some((m) => m.content.includes('Question 1'))).toBe(false);
+    // CA2: the summary rides in the context block of the newest question, not the system prompt.
+    expect(sent?.system).not.toContain('Summary of the earlier part of this conversation');
+    expect(sent?.messages.at(-1)?.content).toContain('Summary of the earlier part of this conversation');
+    // The compacted turns are gone from the history (the summary, in the last message, may name them).
+    expect(sent?.messages.slice(0, -1).some((m) => m.content.includes('Question 1'))).toBe(false);
   });
 
   it('compacts by itself past the critical line', async () => {

@@ -395,6 +395,9 @@ export class AiSdkClient implements ModelClient {
             ]),
           ) as ToolSet,
         }),
+      ...(req.tools?.length &&
+        req.toolChoice &&
+        m.capabilities.includes('tools') && { toolChoice: req.toolChoice }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
       ...(maxOutputTokens !== undefined && { maxOutputTokens }),

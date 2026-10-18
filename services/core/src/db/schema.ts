@@ -171,6 +171,10 @@ export const messages = core.table(
     usage: jsonb('usage'),
     runId: text('run_id'),
     traceId: text('trace_id').notNull(),
+    /** The message as it was sent to a model, as text (0034); null on older messages. */
+    sent: text('sent'),
+    /** The prompt epoch an answer was written in (0034). */
+    epochId: text('epoch_id'),
     createdAt: created(),
     deletedAt: ts('deleted_at'),
   },
@@ -1011,4 +1015,32 @@ export const modelChanges = core.table(
     seen: boolean('seen').notNull().default(false),
   },
   (t) => [index('model_changes_seen_at').on(t.seen, t.at)],
+);
+
+// ---- CA2-CA4: prompt epochs (0034) ----
+
+/** The frozen start of a request, per thread and branch; text columns keep exact bytes. */
+export const promptEpochs = core.table(
+  'prompt_epochs',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threads.id),
+    reason: text('reason').notNull(),
+    modelFamily: text('model_family').notNull(),
+    thinking: boolean('thinking').notNull().default(false),
+    systemText: text('system_text').notNull(),
+    toolsJson: text('tools_json').notNull(),
+    toolsHash: text('tools_hash').notNull(),
+    memoryCommit: text('memory_commit'),
+    memoryText: text('memory_text').notNull().default(''),
+    track: text('track').notNull().default('{}'),
+    instructions: text('instructions').notNull().default(''),
+    displayName: text('display_name').notNull().default(''),
+    compactionId: text('compaction_id'),
+    startedAt: ts('started_at').notNull().defaultNow(),
+    lastUsedAt: ts('last_used_at').notNull().defaultNow(),
+  },
+  (t) => [index('prompt_epochs_thread').on(t.threadId, t.startedAt)],
 );

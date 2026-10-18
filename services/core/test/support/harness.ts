@@ -18,6 +18,7 @@ import {
   type RunnerExtras,
 } from '../../src/automations/runner';
 import { userJobs } from '../../src/automations/userJobs';
+import { MemoryEpochStore } from '../../src/conductor/epoch';
 import { chatTurnHandler } from '../../src/conductor/pipeline';
 import { credentialRoutes } from '../../src/credentials/routes';
 import { MemoryEventBus } from '../../src/events/bus';
@@ -111,6 +112,8 @@ export interface HarnessOptions {
     serviceCheck?: import('../../src/credentials/routes').ServiceCheck;
     runpod?: import('../../src/credentials/routes').CredentialRouteDeps['runpod'];
   };
+  /** CA2: the per-family switch for the end-of-request layout (default on for every family). */
+  endContext?: (family: string) => boolean | Promise<boolean>;
   /** The built-in automations' switches the features read (Name new threads, Suggest a branch, …). */
   switches?: import('../../src/automations/settings').JobSwitches;
   /** Automations: built-in jobs and their extras (setup, options, more handlers). */
@@ -173,6 +176,7 @@ export async function harness(opts: HarnessOptions = {}) {
   await workspace.ensure();
   const tools = new ToolRegistry();
   for (const t of fsTools(workspace)) tools.register(t);
+  const epochs = new MemoryEpochStore();
   const policy: PolicyEvaluator = opts.cedar
     ? await loadCedarEvaluator({ files: opts.cedar, preset: 'balanced' })
     : new BuiltinPolicy();
@@ -253,6 +257,9 @@ export async function harness(opts: HarnessOptions = {}) {
           userId: USER_ID,
           promptsDir: join(dir, 'no-prompts'),
           deltaMs: 0,
+          epochs,
+          now: () => clock.now,
+          ...(opts.endContext && { endContext: opts.endContext }),
           ...(opts.retriever && { retriever: opts.retriever }),
           ...(opts.links && { links: opts.links }),
           ...(opts.switches && { switches: opts.switches }),
@@ -559,6 +566,8 @@ export async function harness(opts: HarnessOptions = {}) {
     branches,
     flows,
     flowStore,
+    tools,
+    epochs,
     clock,
     obs,
     obsStore,

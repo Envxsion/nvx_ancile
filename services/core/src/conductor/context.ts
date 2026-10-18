@@ -22,20 +22,31 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, textOf } from '../threads/repo';
 import { BUILTIN_SYSTEM, loadPrompt, render, TOOLS_NOTE } from './prompt';
 
+/** The messages from the root to the one being answered (nothing from sibling branches). */
+export function pathFor(messages: MessageRecord[], userMessageId: string): MessageRecord[] {
+  const byId = new Map(asTree(messages).map((m) => [m.id, m] as const));
+  return ancestorPath(byId, userMessageId);
+}
+
 /** History for the model: root → the user message being answered. */
 export function historyFor(
   messages: MessageRecord[],
   userMessageId: string,
   /** A compaction summary covers the path up to and including this message. */
   skipThrough?: string | null,
+  /** CA4: what each message was sent as (text), by id; a message without one is rebuilt from its parts. */
+  sentOf?: ReadonlyMap<string, { sent: string | null }>,
 ): ModelMessage[] {
-  const byId = new Map(asTree(messages).map((m) => [m.id, m] as const));
-  const path = ancestorPath(byId, userMessageId);
+  const path = pathFor(messages, userMessageId);
   const from = skipThrough ? path.findIndex((m) => m.id === skipThrough) + 1 : 0;
   return path
     .slice(from)
     .filter((m) => m.role !== 'system')
-    .map((m): ModelMessage => ({ role: m.role, content: textOf(m.parts), parts: m.parts }))
+    .map((m): ModelMessage => {
+      // The question being answered is sent fresh; every earlier message as it was sent.
+      const sent = m.id === userMessageId ? null : sentOf?.get(m.id)?.sent;
+      return { role: m.role, content: textOf(m.parts), parts: m.parts, ...(sent && { sent }) };
+    })
     .filter(
       (m) =>
         m.role !== 'assistant' ||
@@ -55,7 +66,7 @@ export function historyFor(
  * always the last thing the model reads (test/conductor/cache-prefix.test.ts).
  */
 export const REFERENCE_HEADER =
-  'Reference material for the latest question only (it is not a question to answer):';
+  'Context for the latest question only. NVX Ancile added it; the user did not write it, and it is not a question to answer:';
 export const LATEST_QUESTION = 'The latest question, to answer now:';
 
 export function withTurnContext(history: ModelMessage[], block: string): ModelMessage[] {
@@ -64,8 +75,10 @@ export function withTurnContext(history: ModelMessage[], block: string): ModelMe
   const q = history[i];
   if (!q) return history;
   const lead = `${REFERENCE_HEADER}\n\n${block}\n\n---\n\n${LATEST_QUESTION}\n\n`;
+  // A stored sent form belongs to the question as it was last answered; this is a new send.
+  const { sent: _old, ...fresh } = q;
   const next: ModelMessage = {
-    ...q,
+    ...fresh,
     content: `${lead}${q.content}`,
     ...(q.parts && { parts: [{ type: 'text', text: lead }, ...q.parts] }),
   };
@@ -82,6 +95,11 @@ export async function systemPrompt(opts: {
   notebookTitle?: string | null;
   tools: boolean;
   now?: Date;
+  /**
+   * With the date in it (default). CA2: a prompt kept for a whole epoch has
+   * none; the date rides in the context block at the end of the request.
+   */
+  dated?: boolean;
 }): Promise<string> {
   const template = await loadPrompt(opts.promptsDir, 'system.base', BUILTIN_SYSTEM);
   // The date only: a clock to the minute at the top of the system prompt made
@@ -89,7 +107,7 @@ export async function systemPrompt(opts: {
   const now = (opts.now ?? new Date()).toISOString().slice(0, 10);
   const base = render(template, {
     user_name: 'the user',
-    now: `${now} (UTC)`,
+    now: opts.dated === false ? '' : `${now} (UTC)`,
     model_name: opts.model?.display_name ?? 'a language model',
     notebook_title: opts.notebookTitle ?? null,
   });

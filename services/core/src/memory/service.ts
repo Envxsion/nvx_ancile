@@ -143,6 +143,11 @@ export interface PackRequest {
   contextWindow: number;
   /** The current request, for picking relevant lessons. */
   query: string;
+  /**
+   * CA2: only the notes that do not depend on the question ('pinned'), or only
+   * those ranked for it ('ranked'). Absent: both, as one block.
+   */
+  part?: 'pinned' | 'ranked';
 }
 
 /** {model} in a path: the model id with "/" replaced by "__". */
@@ -630,6 +635,8 @@ export class MemoryService {
     });
 
     for (const spec of Object.values(this.deps.config.types)) {
+      if (req.part === 'pinned' && spec.scope === 'retrieved') continue;
+      if (req.part === 'ranked' && spec.scope !== 'retrieved') continue;
       if (spec.scope === 'retrieved') {
         const re = globToRegExp(spec.path);
         const scored = ix

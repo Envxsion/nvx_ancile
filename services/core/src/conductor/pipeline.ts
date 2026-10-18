@@ -35,6 +35,9 @@ import {
   type Attempt,
   type CompactionProvenance,
   type EngineContextReport,
+  type EpochProvenance,
+  type EpochReason,
+  ID_PREFIX,
   type ModelConfig,
   type Part,
   type Recovered,
@@ -45,6 +48,7 @@ import {
   type UsageCall,
 } from '@nvx/contracts';
 import { collectRecoveries, type RecoveryInfo } from '@nvx/resilience';
+import { ulid } from 'ulid';
 import type { JobSwitches } from '../automations/settings';
 import type { EventBus } from '../events/bus';
 import { executeFlow, type FlowState, type ModelCallResult, provenanceOf } from '../flows/execute';
@@ -55,6 +59,7 @@ import {
   type RouteAgain,
   withFlow,
 } from '../flows/turn';
+import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
 import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
@@ -81,10 +86,28 @@ import { allowedSources, type ScopeResolver } from '../scopes';
 import type { BranchStore } from '../threads/branches';
 import { contextWatch, prepareTurnContext } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
-import { asTree, type ThreadRepo, textOf } from '../threads/repo';
+import { asTree, type MessageRecord, type SentForm, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { historyFor, systemPrompt, withPartial, withTurnContext } from './context';
+import { historyFor, pathFor, systemPrompt, withPartial, withTurnContext } from './context';
+import {
+  bridgeTarget,
+  cacheTtlMs,
+  contextBlock,
+  type EpochRecord,
+  type EpochStore,
+  epochReason,
+  frozenSystem,
+  logEpochStart,
+  MCP_BRIDGE_NAME,
+  MemoryEpochStore,
+  newTrack,
+  shortSha,
+  toolDrift,
+  toolsBlock,
+  toolsInScope,
+  warnToolsChanged,
+} from './epoch';
 import { explainLinks, searchWithLinks } from './links';
 import { noteCall, noteRecovery, recoveryOf, stopOf, usageOut } from './receipt';
 import {
@@ -208,6 +231,23 @@ export interface TurnCheckpoint {
    * results carry no duration.
    */
   stepStarted?: Record<string, number>;
+  /** CA2: the prompt epoch this turn answers in, fixed before the first model round. */
+  frame?: TurnFrame | null;
+}
+
+/** What a turn's request is built from, fixed at its first model round so every round starts alike. */
+export interface TurnFrame {
+  epochId: string;
+  reason: EpochReason;
+  /** This turn began the epoch. */
+  started: boolean;
+  /** The varying context rides at the end of the request (false: the family's switch is off). */
+  endContext: boolean;
+  lane: string;
+  toolsHash: string;
+  memoryCommit: string | null;
+  /** The context in front of the newest question: the whole block when endContext, else the sources. */
+  block: string;
 }
 
 /** A step's duration from when it was called; undefined when the start was never recorded. */
@@ -306,6 +346,17 @@ export interface ConductorDeps {
   links?: { forTurn(threadId: string): Promise<TurnLinks> };
   /** The built-in automations' switches (Watch the context window); absent: all on. */
   switches?: JobSwitches;
+  /** CA2: where prompt epochs are kept; absent: in memory only (tests). */
+  epochs?: EpochStore;
+  /**
+   * CA2: whether a model family gets what varies (date, memory ranked for the
+   * question, notes, this answer's instructions) at the end of the request
+   * instead of in the system prompt. Default on; the Flow lab can turn it off
+   * for a family whose small models follow end-of-request instructions badly.
+   */
+  endContext?: (family: string) => boolean | Promise<boolean>;
+  /** The clock epochs read (cold points, the date in the context block); tests move it. */
+  now?: () => number;
 }
 
 export interface AnsweredTurn {
@@ -332,6 +383,17 @@ const routeOf = (cp: TurnCheckpoint): AnswerRoute => {
   if (cp.input.threadModelUnready) r = { ...r, thread_model_unready: cp.input.threadModelUnready };
   return r.kind === 'model' && cp.answeredBy ? { ...r, model_id: cp.answeredBy } : r;
 };
+
+/** provenance.epoch: which epoch the answer was written in, and why it began. */
+const epochOut = (f: TurnFrame): EpochProvenance => ({
+  id: f.epochId,
+  reason: f.reason,
+  started: f.started,
+  model_family: f.lane,
+  tools_hash: f.toolsHash,
+  memory_commit: f.memoryCommit,
+  end_context: f.endContext,
+});
 
 const compactionOut = ({ note: _n, skipThrough: _s, ...rest }: NonNullable<TurnCheckpoint['compaction']>) =>
   rest satisfies CompactionProvenance;
@@ -422,6 +484,7 @@ class DeltaBatcher {
 
 export function chatTurnHandler(deps: ConductorDeps): RunHandler {
   const maxRounds = deps.maxRounds ?? 8;
+  const epochs = deps.epochs ?? new MemoryEpochStore();
 
   async function finalise(
     cp: TurnCheckpoint,
@@ -430,6 +493,9 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
     error?: { code: string; title: string; hint: string },
   ) {
     const model = cp.answeredBy ? deps.registry.get(cp.answeredBy) : undefined;
+    // CA4: what the model was sent of this answer, as text, before citations are tidied.
+    // Next turn starts with these bytes. A flow's answer is not built from its parts, so none.
+    const sent = status === 'complete' && !cp.flow ? sentOfAnswer(cp.parts) : null;
     // Hold the answer to its sources: invented citation numbers go.
     let retrieval: Record<string, unknown> = {};
     if (cp.grounding?.trace.hits.length && status !== 'error') {
@@ -476,8 +542,10 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         ...(links.length && { links }),
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
         route: routeOf(cp),
+        ...(cp.frame && { epoch: epochOut(cp.frame) }),
         ...(error && { error }),
       },
+      ...(sent && { sent }),
     });
     await deps.repo.patchThread(cp.input.threadId, {});
     if (cp.answeredBy) await ctx.emit({ type: 'usage', message_id: cp.input.assistantMessageId, usage });
@@ -636,8 +704,38 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         }
       };
 
+      /**
+       * CA3: a call to the mcp_call bridge is the call it names, from here on: the
+       * permission check, the approval and the run all see the real tool and its real
+       * arguments. The stored call stays as the model made it.
+       */
+      const bridge = (call: QueuedCall): { call: QueuedCall } | { refused: string } => {
+        if (call.tool !== MCP_BRIDGE_NAME) return { call };
+        const t = bridgeTarget(call.args);
+        if ('error' in t) return { refused: t.error };
+        const spec = deps.tools.get(t.name);
+        if (!spec) return { refused: `There is no tool called "${t.name}", so nothing was run.` };
+        if (spec.source.kind !== 'mcp')
+          return {
+            refused: `${MCP_BRIDGE_NAME} only reaches tools from connected MCP servers. Call ${t.name} directly.`,
+          };
+        if (spec.notebookId != null && spec.notebookId !== cp.input.notebookId)
+          return { refused: `There is no tool called "${t.name}", so nothing was run.` };
+        return { call: { ...call, tool: t.name, args: t.args } };
+      };
+
+      /** A tool the epoch declared that is gone now (its server went away): refused, with the reason. */
+      const goneReason = async (name: string): Promise<string | null> => {
+        const e = cp.frame ? await epochs.get(cp.frame.epochId) : undefined;
+        return e && name in e.track.tool_hashes
+          ? `The tool "${name}" is not available now: its server has disconnected or been removed, so it was not run. Do not call it again in this conversation; tell the user if you need it.`
+          : null;
+      };
+
       /** Act on an answered approval: run the tool, or tell the model it was declined. */
-      const answer = async (call: QueuedCall, approval: ApprovalRecord) => {
+      const answer = async (queued: QueuedCall, approval: ApprovalRecord) => {
+        const b = bridge(queued);
+        const call = 'call' in b ? b.call : queued;
         const spec = deps.tools.get(call.tool);
         if (approval.status === 'approved' && spec) {
           await runTool(call, spec);
@@ -659,22 +757,28 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       };
 
       /** Settle one queued call: done, waiting on a person, or stopped while asking. */
-      const handleCall = async (call: QueuedCall): Promise<'done' | 'waiting' | 'stopped'> => {
+      const handleCall = async (queued: QueuedCall): Promise<'done' | 'waiting' | 'stopped'> => {
         // ---- Phase 5: a re-run never runs a tool; it is answered from the record ----
         if (cp.input.replay) {
-          const r = replayedResult(cp.input.replay, cp.replayUsed ?? [], call);
+          const r = replayedResult(cp.input.replay, cp.replayUsed ?? [], queued);
           if (r.index !== null) cp.replayUsed = [...(cp.replayUsed ?? []), r.index];
-          await settle(call, { type: 'tool_result', call_id: call.callId, ok: r.ok, result: r.result });
+          await settle(queued, { type: 'tool_result', call_id: queued.callId, ok: r.ok, result: r.result });
           return 'done';
         }
         // ---- end Phase 5 replay ----
+        const b = bridge(queued);
+        if ('refused' in b) {
+          await settle(queued, { type: 'tool_result', call_id: queued.callId, ok: false, result: b.refused });
+          return 'done';
+        }
+        const call = b.call;
         const spec = deps.tools.get(call.tool);
         if (!spec) {
           await settle(call, {
             type: 'tool_result',
             call_id: call.callId,
             ok: false,
-            result: `There is no tool called "${call.tool}".`,
+            result: (await goneReason(call.tool)) ?? `There is no tool called "${call.tool}".`,
           });
           return 'done';
         }
@@ -830,48 +934,66 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         });
       };
 
-      /** The memory pack for the model about to be called; '' when there is none. */
-      const injectMemory = async (target: ModelConfig | undefined): Promise<string> => {
-        if (!deps.memory || !target) return '';
+      type PackOut = Awaited<ReturnType<NonNullable<ConductorDeps['memory']>['pack']>>;
+
+      /** Memory for the model about to be called; null when there is none or it may not be read. */
+      const readPack = async (
+        target: ModelConfig | undefined,
+        part?: 'pinned' | 'ranked',
+      ): Promise<PackOut | null> => {
+        if (!deps.memory || !target) return null;
         try {
           const scope = await deps.scopes?.effective({
             notebookId: cp.input.notebookId,
             threadId: cp.input.threadId,
           });
-          if (scope && !scope.scope.memory_read) return '';
+          if (scope && !scope.scope.memory_read) return null;
           const all = await messages();
           const query =
             [...historyFor(all, cp.input.userMessageId)].reverse().find((m) => m.role === 'user')?.content ??
             '';
-          const pack = await deps.memory.pack({
+          return await deps.memory.pack({
             notebookId: cp.input.notebookId,
             modelId: target.id,
             contextWindow: target.context_window,
             query,
+            ...(part && { part }),
           });
-          const record: MemoryProvenance = {
-            files: pack.files,
-            tokens: pack.tokens,
-            truncated: pack.truncated,
-          };
-          if (JSON.stringify(record) !== JSON.stringify(cp.memory ?? null)) {
-            cp.memory = record;
-            await emit({
-              type: 'memory.injected',
-              files: pack.files.map((f) => ({
-                path: f.path,
-                commit: f.commit,
-                entries: f.entries.length,
-                tokens: f.tokens,
-              })),
-              truncated: pack.truncated,
-            });
-          }
-          return pack.text;
         } catch (err) {
           log.warn({ err }, 'memory could not be read; answering without it');
-          return '';
+          return null;
         }
+      };
+
+      /** What the answer records about the memory it was given (provenance.memory). */
+      const recordMemory = async (packs: (PackOut | null)[]) => {
+        const got = packs.filter((p): p is PackOut => !!p);
+        if (!got.length) return;
+        const record: MemoryProvenance = {
+          files: got.flatMap((p) => p.files),
+          tokens: got.reduce((n, p) => n + p.tokens, 0),
+          truncated: got.reduce((n, p) => n + p.truncated, 0),
+        };
+        if (JSON.stringify(record) !== JSON.stringify(cp.memory ?? null)) {
+          cp.memory = record;
+          await emit({
+            type: 'memory.injected',
+            files: record.files.map((f) => ({
+              path: f.path,
+              commit: f.commit,
+              entries: f.entries.length,
+              tokens: f.tokens,
+            })),
+            truncated: record.truncated,
+          });
+        }
+      };
+
+      /** The memory pack for the model about to be called, as one block; '' when there is none. */
+      const injectMemory = async (target: ModelConfig | undefined): Promise<string> => {
+        const pack = await readPack(target);
+        await recordMemory([pack]);
+        return pack?.text ?? '';
       };
 
       /** Once per turn: summarise an over-full path, and use any summary that covers it. */
@@ -1168,6 +1290,218 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       };
       // ---- end Flows ----
 
+      type EngineOut = Awaited<ReturnType<EngineContextHook>> | null;
+
+      /** Engines: a mixed thread's context fitted for this model, and the thread's instructions. */
+      const callEngine = (
+        chain: ModelConfig[],
+        all: MessageRecord[],
+        fixedTokens: number,
+      ): Promise<EngineOut> =>
+        deps.engineContext
+          ? deps
+              .engineContext({
+                threadId: cp.input.threadId,
+                notebookId: cp.input.notebookId,
+                messages: all,
+                userMessageId: cp.input.userMessageId,
+                model: chain[0],
+                compaction: cp.compaction
+                  ? {
+                      summaryId: cp.compaction.summary_id,
+                      skipThrough: cp.compaction.skipThrough,
+                      note: cp.compaction.note,
+                    }
+                  : null,
+                fixedTokens,
+              })
+              .catch((err: unknown) => {
+                log.warn({ err }, 'engine context could not be assembled; using the plain path');
+                return null;
+              })
+          : Promise.resolve(null);
+
+      /** This turn's passages and linked summaries, or the note that there were none. */
+      const sourcesText = async (): Promise<string> =>
+        [
+          cp.grounding?.block ||
+            (cp.grounding && cp.input.notebookId
+              ? emptyNote((await deps.notebookTitle?.(cp.input.notebookId).catch(() => null)) ?? null)
+              : ''),
+          summariesBlock(cp.linked?.summaries ?? []),
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+
+      /**
+       * CA2 and CA3, once per turn before the first model round: find the epoch this
+       * branch is in (or start one, for a reason on the closed list), and build the
+       * context that goes in front of the newest question. What is frozen (system
+       * prompt, tools, pinned memory) comes from the epoch; what varies is in the block.
+       * Returns the engine's context when it had to be read to freeze the instructions.
+       */
+      const openFrame = async (
+        chain: ModelConfig[],
+        all: MessageRecord[],
+        specs: ToolSpec[],
+        withTools: boolean,
+        sentMap: ReadonlyMap<string, SentForm>,
+      ): Promise<EngineOut> => {
+        const model0 = chain[0];
+        const family = model0?.family ?? 'unknown';
+        const endCtx = (await deps.endContext?.(family)) ?? true;
+        const lane = `${family}${withTools ? '' : ':no-tools'}${endCtx ? '' : ':legacy'}`;
+        const thread = await deps.repo.getThread(cp.input.threadId);
+        const thinking = (thread?.settings as { thinking?: unknown } | undefined)?.thinking === true;
+        // The epoch of the latest answer on this branch.
+        let prev: EpochRecord | undefined;
+        const path = pathFor(all, cp.input.userMessageId);
+        for (let i = path.length - 1; i >= 0 && !prev; i--) {
+          const id = sentMap.get((path[i] as MessageRecord).id)?.epoch_id;
+          if (id) prev = await epochs.get(id);
+        }
+        const now = (deps.now ?? Date.now)();
+        const sources = await sourcesText();
+        const toolsNow = toolsBlock(specs, withTools);
+        const compactionId = cp.compaction?.summary_id ?? null;
+
+        let base = '';
+        let pinned: PackOut | null = null;
+        let ranked: PackOut | null = null;
+        let engine: EngineOut = null;
+        if (endCtx) {
+          [base, pinned, ranked] = await Promise.all([
+            systemPrompt({ promptsDir: deps.promptsDir, model: model0, tools: withTools, dated: false }),
+            readPack(model0, 'pinned'),
+            readPack(model0, 'ranked'),
+          ]);
+          engine = await callEngine(
+            chain,
+            all,
+            approxTokens(
+              [base, pinned?.text ?? '', ranked?.text ?? '', sources, cp.input.instructions ?? ''].join('\n'),
+            ),
+          );
+        }
+        const fresh = endCtx
+          ? frozenSystem({
+              base,
+              memory: pinned?.text ?? '',
+              instructions: engine?.instructions ?? '',
+            })
+          : '';
+        const reason = epochReason(
+          {
+            prev,
+            lane,
+            thinking,
+            specs,
+            compactionId,
+            now,
+            ttlMs: cacheTtlMs(model0?.provider ?? ''),
+            // Something frozen would read differently if it were frozen now.
+            frozenIsStale:
+              !!prev && (toolsNow.hash !== prev.tools_hash || (endCtx && fresh !== prev.system_text)),
+          },
+          withTools,
+        );
+        if (reason === 'tools_changed' && prev) warnToolsChanged(prev, specs, cp.input.threadId);
+
+        const at = new Date(now).toISOString();
+        let epoch: EpochRecord;
+        if (reason || !prev) {
+          const files = pinned?.files ?? [];
+          const snapshot = Object.fromEntries(files.map((f) => [f.path, f.commit]));
+          const commit = files.find((f) => f.commit)?.commit;
+          epoch = {
+            id: `${ID_PREFIX.epoch}_${ulid()}`,
+            thread_id: cp.input.threadId,
+            reason: reason ?? 'new_thread',
+            model_family: lane,
+            thinking,
+            system_text: fresh,
+            tools_json: toolsNow.json,
+            tools_hash: toolsNow.hash,
+            memory_commit: commit ? shortSha(commit) : null,
+            memory_text: pinned?.text ?? '',
+            instructions: engine?.instructions ?? '',
+            display_name: model0?.display_name ?? '',
+            compaction_id: compactionId,
+            track: newTrack({
+              snapshot,
+              sent: snapshot,
+              instructions_sent: engine?.instructions ?? '',
+              tool_hashes: toolsNow.hashes,
+            }),
+            started_at: at,
+            last_used_at: at,
+          };
+          await epochs.create(epoch);
+          logEpochStart(epoch);
+        } else epoch = prev;
+        const started = epoch !== prev;
+
+        // What the model has not been told yet goes at the end, and is remembered as told.
+        const track = structuredClone(epoch.track);
+        let memoryUpdate: { text: string; commits: string[] } | null = null;
+        let instructionsUpdate = '';
+        let note = '';
+        if (endCtx) {
+          if (!started) {
+            const cur = Object.fromEntries((pinned?.files ?? []).map((f) => [f.path, f.commit]));
+            const changed = Object.keys(cur).filter((k) => track.sent[k] !== cur[k]);
+            if (changed.length) {
+              memoryUpdate = {
+                text: pinned?.text || '(No pinned notes remain.)',
+                commits: [...new Set(changed.map((k) => shortSha(cur[k] as string)))],
+              };
+              track.sent = cur;
+            }
+            const instructions = engine?.instructions ?? '';
+            if (instructions !== track.instructions_sent) {
+              instructionsUpdate = instructions || 'No instructions are set now.';
+              track.instructions_sent = instructions;
+            }
+          }
+          if (engine?.history) note = engine.note;
+          else if (cp.compaction && cp.compaction.summary_id !== track.summary_sent) {
+            note = cp.compaction.note;
+            track.summary_sent = cp.compaction.summary_id;
+          }
+        }
+        await epochs.patch(epoch.id, { last_used_at: at, track });
+        if (endCtx) await recordMemory([pinned, ranked]);
+
+        const block = endCtx
+          ? contextBlock({
+              date: at.slice(0, 10),
+              memoryUpdate,
+              memoryRanked: ranked?.text ?? '',
+              instructionsUpdate,
+              note,
+              answerInstructions: cp.input.instructions ?? '',
+              bridged: withTools ? toolDrift(epoch, specs).bridged : [],
+              sources,
+            })
+          : sources;
+        cp.frame = {
+          epochId: epoch.id,
+          reason: epoch.reason,
+          started,
+          endContext: endCtx,
+          lane,
+          toolsHash: epoch.tools_hash,
+          memoryCommit: epoch.memory_commit,
+          block,
+        };
+        pendingWrites.push(
+          deps.repo
+            .updateMessage(msgId, { epoch_id: epoch.id })
+            .catch((err) => log.warn({ err }, 'could not record the epoch of this answer')),
+        );
+        return engine;
+      };
+
       const modelRound = async () => {
         // A later round follows tool calls: read again so nothing is stale.
         if (cp.rounds > 0) historyRead = null;
@@ -1183,60 +1517,35 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           throw err;
         }
         cp.chain = chain.map((m) => m.id);
-        const tools: ToolDef[] = deps.tools.list().map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema as Record<string, unknown>,
-        }));
-        // ---- memory (Phase 4): read beside the system prompt ----
-        const [base, memory] = await Promise.all([
-          systemPrompt({
-            promptsDir: deps.promptsDir,
-            model: chain[0],
-            tools: tools.length > 0,
-          }),
-          injectMemory(chain[0]),
-        ]);
-        // ---- end memory ----
-        const sources =
-          cp.grounding?.block ||
-          (cp.grounding && cp.input.notebookId
-            ? emptyNote((await deps.notebookTitle?.(cp.input.notebookId).catch(() => null)) ?? null)
-            : '');
-        // ---- Engines: a mixed thread's context fitted for this model, and the thread's instructions ----
-        const engine = deps.engineContext
-          ? await deps
-              .engineContext({
-                threadId: cp.input.threadId,
-                notebookId: cp.input.notebookId,
-                messages: all,
-                userMessageId: cp.input.userMessageId,
-                model: chain[0],
-                compaction: cp.compaction
-                  ? {
-                      summaryId: cp.compaction.summary_id,
-                      skipThrough: cp.compaction.skipThrough,
-                      note: cp.compaction.note,
-                    }
-                  : null,
-                fixedTokens: approxTokens([base, memory, sources, cp.input.instructions ?? ''].join('\n')),
-              })
-              .catch((err: unknown) => {
-                log.warn({ err }, 'engine context could not be assembled; using the plain path');
-                return null;
-              })
-          : null;
-        if (engine?.report) cp.engineContext = engine.report;
-        const history = withPartial(
-          engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough),
-          cp.parts,
-        );
-        // ---- end Engines ----
-        const req: ModelRequest = {
-          // What stays the same from turn to turn comes first, so providers' prompt
-          // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
-          // across turns: this turn's passages ride on the question, not the system prompt.
-          system: [
+        // CA3: the tools are one epoch's canonical superset for this notebook, whatever
+        // the permissions say; a model without the tools capability is offered none.
+        const withTools = !!chain[0]?.capabilities.includes('tools');
+        const specs = toolsInScope(deps.tools.list(), cp.input.notebookId);
+        // CA4: what earlier messages were sent as, and the epochs answers were written in.
+        const sentMap = await deps.repo.sentForms(pathFor(all, cp.input.userMessageId).map((m) => m.id));
+        if (cp.frame && !(await epochs.get(cp.frame.epochId))) cp.frame = null;
+        const opened = cp.frame ? null : await openFrame(chain, all, specs, withTools, sentMap);
+        const frame = cp.frame as TurnFrame;
+        const epoch = (await epochs.get(frame.epochId)) as EpochRecord;
+        const tools = withTools ? (JSON.parse(epoch.tools_json) as ToolDef[]) : [];
+        let system: string;
+        let engine: EngineOut;
+        if (frame.endContext) {
+          system = epoch.system_text;
+          engine =
+            opened ?? (await callEngine(chain, all, approxTokens(`${epoch.system_text}\n${frame.block}`)));
+        } else {
+          // The family's switch is off: everything that varies is in the system prompt, as before.
+          const [base, memory] = await Promise.all([
+            systemPrompt({ promptsDir: deps.promptsDir, model: chain[0], tools: withTools }),
+            injectMemory(chain[0]),
+          ]);
+          engine = await callEngine(
+            chain,
+            all,
+            approxTokens([base, memory, frame.block, cp.input.instructions ?? ''].join('\n')),
+          );
+          system = [
             base,
             memory,
             engine?.instructions,
@@ -1244,14 +1553,36 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             cp.input.instructions,
           ]
             .filter(Boolean)
-            .join('\n\n'),
-          messages: withTurnContext(
-            history,
-            [sources, summariesBlock(cp.linked?.summaries ?? [])].filter(Boolean).join('\n\n'),
-          ),
+            .join('\n\n');
+        }
+        if (engine?.report) cp.engineContext = engine.report;
+        const history = withPartial(
+          engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough, sentMap),
+          cp.parts,
+        );
+        const req: ModelRequest = {
+          // What stays the same from turn to turn comes first, so providers' prompt
+          // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
+          // across turns: the tools and the system prompt are frozen for the epoch, and
+          // everything that varies rides on the question (docs/prompt-caching.md).
+          system,
+          messages: withTurnContext(history, frame.block),
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
-          ...(tools.length && { tools }),
+          ...(tools.length && { tools, toolChoice: 'auto' as const }),
         };
+        // CA4: the newest question as it is sent now, stored as text for the turns that follow.
+        if (cp.rounds === 0) {
+          const q = req.messages.findLast((m) => m.role === 'user');
+          if (q && !q.parts?.some((p) => p.type === 'image' || p.type === 'file')) {
+            const text = sentText(toSdkMessages([q], { tools: true }));
+            if (text)
+              pendingWrites.push(
+                deps.repo
+                  .updateMessage(cp.input.userMessageId, { sent: text })
+                  .catch((err) => log.warn({ err }, 'could not store the question as it was sent')),
+              );
+          }
+        }
         let current: ModelConfig | undefined;
         const callStarted = Date.now();
         for await (const ev of watched(deps.gateway.stream(chain, req, ctx.signal), recorder('model'))) {
@@ -1317,14 +1648,17 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 cp.parts.push({ type: 'tool_call', call_id: c.callId, tool: c.tool, args: c.args });
                 cp.queue.push({ callId: c.callId, tool: c.tool, args: c.args, seq });
                 started(c.callId);
-                const spec = deps.tools.get(c.tool);
+                // A bridged call is shown as the tool it reaches.
+                const shown = bridge({ callId: c.callId, tool: c.tool, args: c.args, seq });
+                const real = 'call' in shown ? shown.call : { tool: c.tool, args: c.args };
+                const spec = deps.tools.get(real.tool);
                 await emit({
                   type: 'tool.call',
                   call_id: c.callId,
-                  tool: c.tool,
-                  args_preview: argsPreview(c.args),
+                  tool: real.tool,
+                  args_preview: argsPreview(real.args),
                   tier: spec?.tier ?? 'gated',
-                  title: stepTitle(c.tool, c.args),
+                  title: stepTitle(real.tool, real.args),
                 });
               } else if (c.type === 'warning') {
                 await deltas.flush();

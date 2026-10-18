@@ -34,6 +34,7 @@ export const ID_PREFIX = {
   notebookMerge: 'nbm',
   contextLink: 'lnk',
   contextPack: 'cpk',
+  epoch: 'epc',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

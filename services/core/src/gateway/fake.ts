@@ -38,6 +38,7 @@
 
 import type { ModelConfig, Part } from '@nvx/contracts';
 import { ClassifiedError, classifyStatus } from '@nvx/resilience';
+import { LATEST_QUESTION } from '../conductor/context';
 import { structuredReply } from './fake-structured';
 import { offlineUtility, utilityTask } from './offline-utility';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
@@ -132,10 +133,12 @@ export class FakeProvider implements ModelClient {
     // first word (the load test measures NVX Ancile's overhead above it).
     // The turn's passages ride ahead of the question (conductor/context withTurnContext).
     const whole = textOf(lastUser);
+    const marker = `\n\n---\n\n${LATEST_QUESTION}\n\n`;
+    const at = whole.lastIndexOf(marker);
     const lastQuote = whole.lastIndexOf('\n"""');
     const sep = lastQuote >= 0 ? whole.indexOf('\n\n---\n\n', lastQuote) : -1;
-    const turnContext = sep >= 0 ? whole.slice(0, sep) : '';
-    const raw = sep >= 0 ? whole.slice(sep + 7) : whole;
+    const turnContext = at >= 0 ? whole.slice(0, at) : sep >= 0 ? whole.slice(0, sep) : '';
+    const raw = at >= 0 ? whole.slice(at + marker.length) : sep >= 0 ? whole.slice(sep + 7) : whole;
     const grounding = `${req.system ?? ''}\n${turnContext}`;
     const ttftMs =
       b === 'script' ? Math.min(10_000, Number(/(?:^|\n)\/ttft\s+(\d+)\s*(?:\n|$)/.exec(raw)?.[1] ?? 0)) : 0;

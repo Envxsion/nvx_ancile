@@ -55,7 +55,7 @@ export async function loadPrompt(dir: string, id: string, fallback: string): Pro
 }
 
 export const BUILTIN_SYSTEM =
-  'You are the assistant inside NVX Ancile, a private workspace. It is {{now}}. You are running as {{model_name}}. Be direct and specific, never invent citations, paths or numbers, and say plainly when you are unsure.';
+  'You are the assistant inside NVX Ancile, a private workspace. {{#now}}It is {{now}}. {{/now}}You are running as {{model_name}}. Be direct and specific, never invent citations, paths or numbers, and say plainly when you are unsure.';
 
 /** What the model is told about its tools, appended to the system prompt when tools are offered. */
 export const TOOLS_NOTE =

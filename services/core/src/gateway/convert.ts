@@ -171,18 +171,54 @@ function userText(parts: Part[]): string {
     .join('');
 }
 
+/** The stored sent form of a message (CA4), or null when it is missing or unreadable. */
+function storedForm(m: ModelMessage, role: SdkMessage['role']): SdkMessage[] | null {
+  if (!m.sent) return null;
+  try {
+    const v: unknown = JSON.parse(m.sent);
+    if (!Array.isArray(v) || !v.length) return null;
+    const ok = v.every(
+      (x) => x && typeof x === 'object' && typeof (x as { role?: unknown }).role === 'string',
+    );
+    // A user message was one user message; an answer was assistant and tool messages.
+    const right = role === 'user' ? v.every((x) => x.role === 'user') : v.every((x) => x.role !== 'user');
+    return ok && right ? (v as SdkMessage[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The text of a message as it goes out, as stored JSON (CA4): written once, when it was first sent. */
+export function sentText(messages: SdkMessage[]): string | null {
+  return messages.length ? JSON.stringify(messages) : null;
+}
+
+/** An answer's parts as the provider messages they expand to, as the text to store (CA4). */
+export function sentOfAnswer(parts: Part[]): string | null {
+  return sentText(toSdkMessages([{ role: 'assistant', content: '', parts }], { tools: true }));
+}
+
 export function toSdkMessages(messages: ModelMessage[], caps: TargetCaps = { tools: true }): SdkMessage[] {
   const out: SdkMessage[] = [];
   for (const m of messages) {
     if (m.role === 'system') out.push({ role: 'system', content: m.content });
     else if (m.role === 'user') {
+      const stored = m.parts?.some((p) => p.type === 'image' || p.type === 'file')
+        ? null
+        : storedForm(m, 'user');
+      if (stored) {
+        out.push(...stored);
+        continue;
+      }
       const seen =
         caps.vision && caps.images && m.parts?.some((p) => p.type === 'image' && caps.images?.has(p.url));
       if (seen && m.parts && caps.images)
         out.push({ role: 'user', content: userContent(m.parts, caps.images) });
       else out.push({ role: 'user', content: m.parts ? userText(m.parts) : m.content });
     } else if (m.role === 'assistant') {
-      if (m.parts) out.push(...expandAssistant(caps.tools ? m.parts : toolsAsText(m.parts)));
+      const stored = caps.tools ? storedForm(m, 'assistant') : null;
+      if (stored) out.push(...stored);
+      else if (m.parts) out.push(...expandAssistant(caps.tools ? m.parts : toolsAsText(m.parts)));
       else if (m.content) out.push({ role: 'assistant', content: [{ type: 'text', text: m.content }] });
     }
     // Stored `tool` role messages are folded into the assistant turn above.

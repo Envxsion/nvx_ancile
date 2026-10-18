@@ -59,6 +59,7 @@ import { PgClaudeCodeStore } from './claudecode/store';
 import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './compute/routes';
+import { type EndContextSwitch, endContextOn, PgEpochStore } from './conductor/epoch';
 import { chatTurnHandler } from './conductor/pipeline';
 import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './conductor/retrieval';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
@@ -1059,6 +1060,12 @@ async function main() {
         engineContext: gatewayContextHook({ threads, store: engineStore }),
         links: contextLinks,
         switches: builtinSettings,
+        epochs: new PgEpochStore(sql),
+        endContext: async (family) =>
+          endContextOn(
+            await settings.get<EndContextSwitch>(SETTING.endContext).catch(() => undefined),
+            family,
+          ),
         // Grounded mode (DESIGN.md §10.7): every answer in the notebook is fact-checked.
         afterAnswer: async (a) => {
           // Pro (Flow lab): a shadow flow answers the same question off the record. Never awaited.

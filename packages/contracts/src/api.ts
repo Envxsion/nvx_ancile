@@ -125,6 +125,11 @@ export const ThreadSettings = z
     turn_queue: z.array(QueuedTurn).max(QUEUE_LIMIT).optional(),
     /** NVX Ancile's instructions and persona for this thread, which every engine follows (docs/engines.md). */
     ancile: AncileInstructions.optional(),
+    /**
+     * Extended thinking is on for this thread. Turning it on or off starts a new
+     * prompt epoch (docs/prompt-caching.md). TODO(phase-0.1.1): the Cockpit toggle.
+     */
+    thinking: z.boolean().optional(),
   })
   .partial();
 
@@ -175,6 +180,8 @@ export const PatchThreadRequest = z
     flow_overrides_flow: z.string().nullable().optional(),
     /** Claude Code threads: load only the project's own Claude Code settings (ClaudeCodeBinding.lean). */
     claude_code_lean: z.boolean().optional(),
+    /** Extended thinking on or off; a change starts a new prompt epoch (docs/prompt-caching.md). */
+    thinking: z.boolean().optional(),
   })
   .strict();
 

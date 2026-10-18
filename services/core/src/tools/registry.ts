@@ -36,6 +36,12 @@ export interface ToolSpec {
   timeoutMs?: number;
   source: { kind: 'builtin' } | { kind: 'mcp'; server: string } | { kind: 'plugin'; plugin: string };
   /**
+   * CA3: a tool that exists for one notebook only (a per-notebook extension).
+   * Absent: every notebook, and threads outside one, are offered it. A notebook
+   * never sees another notebook's tool, in a tools block or in a bridge note.
+   */
+  notebookId?: string | null;
+  /**
    * Arguments → the resource URI the permission check runs on. `scope` is
    * where the call happens (thread, notebook), for tools whose target
    * depends on it, like the repository a thread is linked to.

@@ -19,6 +19,13 @@ export interface ModelMessage {
   content: string;
   /** Full parts (tool calls, tool results). Providers that support them get them. */
   parts?: Part[];
+  /**
+   * CA4: this message exactly as it was sent last time, as JSON text of the
+   * provider messages it became. Sent as stored, so a later turn starts with
+   * the same bytes however parts or rules have changed since; absent on older
+   * messages, which are rebuilt from their parts.
+   */
+  sent?: string;
 }
 
 /** A tool as the model sees it: name, description, JSON Schema for its input. */
@@ -34,6 +41,8 @@ export interface ModelRequest {
   maxOutputTokens?: number;
   temperature?: number;
   tools?: ToolDef[];
+  /** CA3: fixed for the whole thread, so the tool choice never changes the request's start. */
+  toolChoice?: 'auto';
   /**
    * Where the call is made from, for clients that act on it (Claude Code as
    * a model gives that thread's notebook tools). Providers never see it.

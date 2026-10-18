@@ -46,6 +46,16 @@ export interface MessagePatch {
   usage?: Usage | null;
   provenance?: Record<string, unknown>;
   run_id?: string | null;
+  /** CA4: the message exactly as it was sent to a model, as text. Internal: never on the wire. */
+  sent?: string | null;
+  /** CA2: the prompt epoch an answer was written in. Internal. */
+  epoch_id?: string | null;
+}
+
+/** What a message was sent as, and the epoch it was written in (ThreadRepo.sentForms). */
+export interface SentForm {
+  sent: string | null;
+  epoch_id: string | null;
 }
 
 export interface ThreadRecord extends Thread {
@@ -122,6 +132,11 @@ export interface ThreadRepo {
   /** These messages of the thread, whole, in the order asked (missing ids are skipped). */
   messagesByIds(threadId: string, ids: string[]): Promise<MessageRecord[]>;
   getMessage(id: string): Promise<MessageRecord | undefined>;
+  /**
+   * CA4: what these messages were sent as (text), and the epoch each answer was
+   * written in. Messages with neither are left out; they are rebuilt from their parts.
+   */
+  sentForms(ids: string[]): Promise<Map<string, SentForm>>;
   insertMessage(m: NewMessage): Promise<MessageRecord>;
   /** Many messages in one statement, parents before children (an import). */
   insertMessages(ms: NewMessage[]): Promise<void>;
@@ -350,6 +365,16 @@ export class PgThreadRepo implements ThreadRepo {
     return rows[0] ? messageFromRow(rows[0]) : undefined;
   }
 
+  async sentForms(ids: string[]) {
+    const out = new Map<string, SentForm>();
+    if (!ids.length) return out;
+    const rows = await this.sql<{ id: string; sent: string | null; epoch_id: string | null }[]>`
+      select id, sent, epoch_id from core.messages
+      where id = any(${ids}) and (sent is not null or epoch_id is not null)`;
+    for (const r of rows) out.set(r.id, { sent: r.sent, epoch_id: r.epoch_id });
+    return out;
+  }
+
   async insertMessage(m: NewMessage) {
     const rows = await this.sql<MessageRow[]>`
       insert into core.messages (id, thread_id, parent_id, role, parts, model_id, requested_model_id, status, edit_of_id, run_id, trace_id)
@@ -397,7 +422,9 @@ export class PgThreadRepo implements ThreadRepo {
         model_id = case when ${p.model_id === undefined} then model_id else ${p.model_id ?? null} end,
         usage = case when ${p.usage === undefined} then usage else ${p.usage ? this.sql.json(pgSafe(p.usage) as never) : null} end,
         provenance = case when ${p.provenance === undefined} then provenance else provenance || ${this.sql.json(pgSafe(p.provenance ?? {}) as never)} end,
-        run_id = case when ${p.run_id === undefined} then run_id else ${p.run_id ?? null} end
+        run_id = case when ${p.run_id === undefined} then run_id else ${p.run_id ?? null} end,
+        sent = case when ${p.sent === undefined} then sent else ${p.sent ?? null} end,
+        epoch_id = case when ${p.epoch_id === undefined} then epoch_id else ${p.epoch_id ?? null} end
       where id = ${id}`;
   }
 
@@ -418,6 +445,8 @@ export class PgThreadRepo implements ThreadRepo {
 export class MemoryThreadRepo implements ThreadRepo {
   readonly threads = new Map<string, ThreadRecord & { deleted_at?: string | null }>();
   readonly msgs = new Map<string, MessageRecord>();
+  /** Sent forms and epochs, kept beside the records so they never reach a route's output. */
+  readonly sentById = new Map<string, SentForm>();
   private tick = 0;
   /** Runs that are live, for listThreads(); tests set this. */
   liveThreads = new Set<string>();
@@ -543,6 +572,15 @@ export class MemoryThreadRepo implements ThreadRepo {
     return m ? structuredClone(m) : undefined;
   }
 
+  async sentForms(ids: string[]) {
+    const out = new Map<string, SentForm>();
+    for (const id of ids) {
+      const f = this.sentById.get(id);
+      if (f && (f.sent !== null || f.epoch_id !== null)) out.set(id, { ...f });
+    }
+    return out;
+  }
+
   async insertMessage(m: NewMessage) {
     const rec: MessageRecord = {
       id: m.id,
@@ -581,6 +619,13 @@ export class MemoryThreadRepo implements ThreadRepo {
     if (p.usage !== undefined) m.usage = p.usage;
     if (p.provenance !== undefined) m.provenance = { ...m.provenance, ...p.provenance };
     if (p.run_id !== undefined) m.run_id = p.run_id;
+    if (p.sent !== undefined || p.epoch_id !== undefined) {
+      const f = this.sentById.get(id) ?? { sent: null, epoch_id: null };
+      this.sentById.set(id, {
+        sent: p.sent === undefined ? f.sent : p.sent,
+        epoch_id: p.epoch_id === undefined ? f.epoch_id : p.epoch_id,
+      });
+    }
   }
 
   async discardMessages(ids: string[]) {

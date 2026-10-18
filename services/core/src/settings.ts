@@ -58,6 +58,12 @@ export const SETTING = {
   modelEnabled: 'models.enabled',
   /** { [modelId]: hue } chip colours chosen for config models (added models keep theirs inline). */
   modelHue: 'models.hue',
+  /**
+   * { [family]: false } keeps what varies (date, ranked memory, notes, answer instructions) in the
+   * system prompt for that model family, as before CA2. Absent or true: it goes at the end of the
+   * request. Read per turn; the Flow lab's evals set it (docs/prompt-caching.md).
+   */
+  endContext: 'cache.end_context',
   /** auto_confident | propose_all | off; read by memory capture (Phase 4). */
   memoryCapture: 'memory.capture',
   /** The mode memory capture goes back to when it is switched on again (Admin → Automations). */
