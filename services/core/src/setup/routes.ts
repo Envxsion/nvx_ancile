@@ -29,12 +29,13 @@ import {
   SetupCompleteRequest,
   type SetupStatus,
 } from '@nvx/contracts';
-import { ClassifiedError } from '@nvx/resilience';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { tracedFetch } from '../context';
 import type { CatalogueSource } from '../gateway/catalogue';
+import { isRegion, knownProfile, type ProviderProfile, profileFor } from '../gateway/profiles';
+import { classifyFailure, failureWords } from '../gateway/provider-errors';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../gateway/providers';
 import { canChat, type ModelRegistry, ollamaName } from '../gateway/registry';
 import { body } from '../http/body';
@@ -57,6 +58,8 @@ export type ProviderTester = (input: {
   key?: string;
   /** Anthropic personal keys: the workspace the test call bills. */
   workspaceId?: string;
+  /** Providers with regions: the region the key was made in. */
+  region?: string;
   baseUrl?: string;
   model?: ModelConfig;
   /** Ollama: the models it has pulled (its tag names). */
@@ -85,27 +88,22 @@ export function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelCo
     );
 }
 
-/** The HTTP status a failed call carries: ours (ClassifiedError), the AI SDK's (statusCode), or a plain `status`. */
-function statusOf(err: unknown): number | undefined {
-  if (err instanceof ClassifiedError) return err.status;
-  if (!err || typeof err !== 'object') return undefined;
-  const e = err as { statusCode?: unknown; status?: unknown };
-  const s = e.statusCode ?? e.status;
-  return typeof s === 'number' ? s : undefined;
-}
-
 /**
- * A failed key test, in words. A key is only called rejected on a 401 or 403:
- * matching words like "API key" in the provider's explanation misread other
- * problems (an unscoped Anthropic key's workspace request) as a bad key.
- * `hide` is scrubbed from the provider's explanation before it is shown.
+ * A failed key test, in words. The provider's profile reads the failure
+ * (gateway/provider-errors.ts): a key is only called rejected on a 401 or 403
+ * whose body sounds like authentication, never on a rate limit, a quota or
+ * credit problem, or a wrong region, each of which has its own words. Matching
+ * "API key" in the explanation misread other problems (an unscoped Anthropic
+ * key's workspace request) as a bad key. `hide` is scrubbed from the provider's
+ * explanation before it is shown; `region` is the one the key was tried in.
  */
-export function testFailed(provider: string, err: unknown, hide?: string): AncileError {
+export function testFailed(provider: string, err: unknown, hide?: string, region?: string): AncileError {
   const raw = err instanceof Error ? err.message : String(err);
   const msg = (hide ? raw.split(hide).join('[hidden]') : raw).slice(0, 300);
-  const status = statusOf(err);
-  const auth = status === 401 || status === 403;
-  const name = PROVIDERS.find((p) => p.id === provider)?.display_name ?? provider;
+  const profile = profileFor(provider);
+  const seen = classifyFailure(profile, err);
+  const name =
+    PROVIDERS.find((p) => p.id === provider)?.display_name ?? knownProfile(provider)?.name ?? provider;
   if (provider === 'anthropic' && /anthropic-workspace-id/i.test(raw)) return workspaceNeeded(msg);
   if (provider === 'ollama') {
     return new AncileError({
@@ -117,23 +115,55 @@ export function testFailed(provider: string, err: unknown, hide?: string): Ancil
       errorClass: 'transient',
     });
   }
-  const limited = status === 429;
+  // Out of credit, wrong region, a model this key may not use, a rejected key: each has a documented code.
+  const words = failureWords(seen.kind, profile, { region, regionHint: seen.regionHint === true });
+  if (words)
+    return new AncileError({
+      code: words.code,
+      title: words.title,
+      hint: words.hint,
+      detail: msg,
+      status: 502,
+      errorClass: 'permanent',
+    });
+  const limited = seen.kind === 'rate_limited' || seen.status === 429;
   return new AncileError({
-    code: auth ? 'provider.auth_failed' : 'provider.unavailable',
-    title: auth
-      ? `${name} rejected the API key`
-      : limited
-        ? `${name} is limiting requests right now`
-        : `${name} didn't answer the test`,
-    hint: auth
-      ? 'Check you copied the whole key, and that it is active in your provider account.'
-      : limited
-        ? `The key may well be fine. Wait a minute, then test again; ${name}'s own explanation is below.`
-        : `Check your connection, then test again. ${name}'s own explanation is below.`,
+    code: 'provider.unavailable',
+    title: limited ? `${name} is limiting requests right now` : `${name} didn't answer the test`,
+    hint: limited
+      ? `The key may well be fine. Wait a minute, then test again; ${name}'s own explanation is below.`
+      : `Check your connection, then test again${seen.suspectBadKey ? ' (and check the key)' : ''}. ${name}'s own explanation is below.`,
     detail: msg,
     status: 502,
-    errorClass: auth ? 'permanent' : 'transient',
+    errorClass: 'transient',
   });
+}
+
+/**
+ * The region named in a request, checked against the provider's own list.
+ * Undefined when the provider has no regions, or none was named (the default is used).
+ */
+export function regionFrom(profile: ProviderProfile, region: string | undefined): string | undefined {
+  if (!profile.regions || !region) return undefined;
+  if (isRegion(profile, region)) return region;
+  throw new AncileError({
+    code: 'request.invalid',
+    title: `${profile.name} has no region called ${region}`,
+    hint: `Pick one of: ${profile.regions.map((r) => r.id).join(', ')}.`,
+    status: 400,
+    errorClass: 'permanent',
+  });
+}
+
+/** Keep (or clear) the region beside a provider's key, as the Anthropic workspace is kept. */
+export async function saveRegion(
+  secrets: Pick<SecretStore, 'set' | 'delete'>,
+  profile: ProviderProfile,
+  region: string | undefined,
+): Promise<void> {
+  if (!profile.regionSecret) return;
+  if (region) await secrets.set(profile.regionSecret, region);
+  else await secrets.delete(profile.regionSecret);
 }
 
 /** A personal Anthropic key (sk-ant-usr-) sent without the workspace it bills. */
@@ -178,11 +208,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
   r.post('/setup/providers/test', async (c) => {
     const req = await body(c, ProviderTestRequest);
     const meta = PROVIDERS.find((p) => p.id === req.provider);
-    if (meta?.needs_key && !req.key) {
+    const profile = profileFor(req.provider);
+    if ((meta?.needs_key ?? profile.needsKey) && !req.key) {
       throw new AncileError({
         code: 'request.invalid',
         title: 'Paste a key to test',
-        hint: `${meta.display_name} needs an API key.`,
+        hint: `${meta?.display_name ?? profile.name} needs an API key.`,
         status: 400,
         errorClass: 'permanent',
       });
@@ -192,6 +223,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
     const workspaceId =
       req.provider === 'anthropic' && isPersonalAnthropicKey(key) ? req.workspace_id : undefined;
     if (req.provider === 'anthropic' && isPersonalAnthropicKey(key) && !workspaceId) throw workspaceNeeded();
+    const region = regionFrom(profile, req.region);
     const candidates = modelsOf(registry, req.provider);
     const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
     const started = performance.now();
@@ -201,13 +233,14 @@ export function setupRoutes(deps: SetupRouteDeps) {
         provider: req.provider,
         ...(key !== undefined && { key }),
         ...(workspaceId && { workspaceId }),
+        ...(region && { region }),
         ...((req.base_url ?? (req.provider === 'ollama' ? deps.ollamaUrl : undefined)) && {
           baseUrl: req.base_url ?? deps.ollamaUrl,
         }),
         ...(cheapest && { model: cheapest }),
       });
     } catch (err) {
-      throw testFailed(req.provider, err, key);
+      throw testFailed(req.provider, err, key, region);
     }
     const latency = Math.round(performance.now() - started);
     let enabled: string[] = [];
@@ -218,6 +251,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
         if (workspaceId) await secrets.set(ANTHROPIC_WORKSPACE_SECRET, workspaceId);
         else await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
       }
+      if (key) await saveRegion(secrets, profile, region);
       // Ollama: only the models it has pulled, wherever they are configured to be
       // served from; one it does not have could not answer. Models found in Ollama
       // are on already, and one you turned off stays off.
@@ -360,7 +394,7 @@ export function liveTester(
     secrets: { get(name: string): Promise<string | undefined> },
   ) => Promise<import('ai').LanguageModel>,
 ): ProviderTester {
-  return async ({ provider, key, workspaceId, baseUrl, model }) => {
+  return async ({ provider, key, workspaceId, region, baseUrl, model }) => {
     if (provider === 'ollama') {
       const base = (baseUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '').replace(/\/$/, '');
       const res = await tracedFetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4_000) });
@@ -373,9 +407,11 @@ export function liveTester(
     }
     if (!model) throw new Error(`No ${provider} model is configured in models.yaml to test with`);
     const { generateText } = await import('ai');
-    // Only the values under test: the key by any name, the workspace by its own.
+    // Only the values under test: the key by any name, the workspace and region by their own.
+    const regionSecret = profileFor(provider).regionSecret;
     const lm = await languageModel(ModelConfig.parse({ ...model, enabled: true }), {
-      get: async (name) => (name === ANTHROPIC_WORKSPACE_SECRET ? workspaceId : key),
+      get: async (name) =>
+        name === ANTHROPIC_WORKSPACE_SECRET ? workspaceId : name === regionSecret ? region : key,
     });
     await generateText({
       model: lm,

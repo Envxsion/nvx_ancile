@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { ModelBilling } from './billing';
 import { ClaudeCodeBinding, QUEUE_LIMIT, QueuedTurn } from './claudecode';
 import { ModelHue } from './config';
-import { AnthropicWorkspaceId } from './credentials';
+import { AnthropicWorkspaceId, ProviderRegionId } from './credentials';
 import { AncileInstructions } from './engines';
 import { RunStatus } from './events';
 import { Message, Part } from './messages';
@@ -421,7 +421,21 @@ export type Approval = z.infer<typeof Approval>;
 
 /* ---- Onboarding (Phase 2) ------------------------------------------------ */
 
-export const ProviderId = z.enum(['anthropic', 'openai', 'google', 'openrouter', 'ollama']);
+export const ProviderId = z.enum([
+  'anthropic',
+  'openai',
+  'google',
+  'openrouter',
+  'ollama',
+  // PV1: first-class key-billed providers (gateway/profiles.ts).
+  'deepseek',
+  'moonshot',
+  'minimax',
+  'zai',
+  'qwen',
+  'xai',
+  'mistral',
+]);
 export type ProviderId = z.infer<typeof ProviderId>;
 
 export const SetupStatus = z.object({
@@ -448,6 +462,8 @@ export const ProviderTestRequest = z
     base_url: z.string().url().optional(),
     /** Anthropic personal keys (sk-ant-usr-): the workspace each call bills. */
     workspace_id: AnthropicWorkspaceId.optional(),
+    /** Providers with regions (Moonshot, MiniMax, Qwen, Z.ai): the region the key was made in. */
+    region: ProviderRegionId.optional(),
     /** Store the key once it passes. */
     save: z.boolean().default(true),
   })

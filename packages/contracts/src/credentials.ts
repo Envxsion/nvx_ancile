@@ -21,6 +21,14 @@ export const CredentialId = z.enum([
   'openai',
   'google',
   'openrouter',
+  // PV1: first-class key-billed providers (services/core/src/gateway/profiles.ts).
+  'deepseek',
+  'moonshot',
+  'minimax',
+  'zai',
+  'qwen',
+  'xai',
+  'mistral',
   'runpod',
   'huggingface',
   'github',
@@ -55,6 +63,15 @@ export const CredentialStatus = z.object({
   unavailable_reason: z.string().nullable(),
   /** Anthropic only: the workspace a personal key bills (not a secret). */
   workspace_id: z.string().nullable().optional(),
+  /**
+   * Providers with regions only (Moonshot, MiniMax, Qwen, Z.ai): the region id
+   * the key is used in (not a secret). Null when none is saved: the provider's
+   * default region is used. An environment variable of the same name as the
+   * `region_env_var` wins.
+   */
+  region: z.string().nullable().optional(),
+  /** The environment variable that overrides the region (e.g. MOONSHOT_REGION), for providers with regions. */
+  region_env_var: z.string().nullable().optional(),
 });
 export type CredentialStatus = z.infer<typeof CredentialStatus>;
 
@@ -75,12 +92,49 @@ export const AnthropicWorkspaceId = z
 export const isPersonalAnthropicKey = (value: string | undefined | null): boolean =>
   !!value && /^sk-ant-usr-/.test(value.trim());
 
+/** A region id as the profile table names it: `global`, `china`, `singapore`... */
+export const ProviderRegionId = z
+  .string()
+  .trim()
+  .regex(/^[a-z][a-z0-9-]{1,23}$/, 'Pick one of the regions listed for this provider');
+
+/** One region a provider's keys can belong to. */
+export const ProviderRegion = z.object({ id: z.string(), label: z.string() });
+export type ProviderRegion = z.infer<typeof ProviderRegion>;
+
+/**
+ * GET /providers: what the Cockpit needs to list model providers without
+ * hard-coding them (PV3). Static facts only; no key or stored value.
+ */
+export const ProviderInfo = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** The regions a key can belong to; null when the provider has one endpoint. */
+  regions: z.array(ProviderRegion).nullable(),
+  default_region: z.string().nullable(),
+  /** What a key looks like, in words ("starts with sk-"); never a real key. */
+  key_hint: z.string(),
+  /** The provider's own page for making an API key. */
+  docs_url: z.string().nullable(),
+  /** The provider answers a list of models (the daily model check can run). */
+  has_models_list: z.boolean(),
+  /** Id to use with /credentials/:id to save a key; null when keys for this provider are added with a model's secret in Admin → Models. */
+  credential_id: CredentialId.nullable(),
+  /** False for local servers and the generic OpenAI-compatible profile: no key is needed to start. */
+  needs_key: z.boolean(),
+});
+export type ProviderInfo = z.infer<typeof ProviderInfo>;
+export const ProviderInfoList = z.object({ items: z.array(ProviderInfo) });
+export type ProviderInfoList = z.infer<typeof ProviderInfoList>;
+
 /** PUT /credentials/:id. The value is checked, then stored encrypted. */
 export const SaveCredentialRequest = z
   .object({
     value: z.string().trim().min(4).max(4000),
     /** Anthropic personal keys only; ignored for every other key. */
     workspace_id: AnthropicWorkspaceId.optional(),
+    /** Providers with regions: where the key was made. Checked against the provider's regions; ignored for the rest. */
+    region: ProviderRegionId.optional(),
   })
   .strict();
 export type SaveCredentialRequest = z.infer<typeof SaveCredentialRequest>;

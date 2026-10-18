@@ -29,7 +29,7 @@ import {
 } from '@nvx/contracts';
 import type { RecoveryInfo } from '@nvx/resilience';
 import type { CallUsage } from '../gateway/usage';
-import { priceOf } from '../gateway/usage';
+import { priceOf, ratesAt } from '../gateway/usage';
 
 /** The running totals a turn keeps (TurnCheckpoint.usage). */
 export interface RunningUsage {
@@ -75,6 +75,8 @@ export function noteCall(
     usage: CallUsage;
     billedUsd?: number | undefined;
     startedMs: number;
+    /** When the call began (epoch ms): the rates in force then price it. Now when absent. */
+    at?: number;
     ms: number;
     stop?: UsageCall['stop'] | undefined;
     served?: { provider: string | null; model: string | null; cut_off?: boolean } | undefined;
@@ -83,7 +85,7 @@ export function noteCall(
   const u = call.usage;
   const cached = Math.max(0, u.cachedTokens ?? 0);
   const written = Math.max(0, u.cacheWriteTokens ?? 0);
-  const list = priceOf(call.model, u);
+  const list = priceOf(call.model, u, call.at ?? Date.now());
   const spent = call.billedUsd ?? list;
   into.input += u.inputTokens;
   into.output += u.outputTokens;
@@ -120,10 +122,13 @@ export function noteCall(
   return spent;
 }
 
-/** The model's prices per million tokens, as they are now: the receipt keeps them with the answer. */
-export function ratesOf(m: ModelConfig | undefined): UsageRates | undefined {
+/**
+ * The model's prices per million tokens at `at` (now unless said): the receipt keeps
+ * them with the answer, so an off-peak price shows as the one that applied.
+ */
+export function ratesOf(m: ModelConfig | undefined, at: number = Date.now()): UsageRates | undefined {
   if (!m) return undefined;
-  const p = m.price;
+  const p = ratesAt(m.price, at);
   return {
     input: p.input_per_mtok,
     cached: p.cached_per_mtok ?? p.input_per_mtok,
@@ -135,9 +140,15 @@ export function ratesOf(m: ModelConfig | undefined): UsageRates | undefined {
 /** The message's Usage from a turn's running totals. */
 export function usageOut(
   u: RunningUsage,
-  extra: { model: ModelConfig | undefined; billing: ModelBilling | null; ms: number | undefined },
+  extra: {
+    model: ModelConfig | undefined;
+    billing: ModelBilling | null;
+    ms: number | undefined;
+    /** When the answer began (epoch ms), for the rates in force then. */
+    at?: number;
+  },
 ): Usage {
-  const rates = ratesOf(extra.model);
+  const rates = ratesOf(extra.model, extra.at);
   return {
     input_tokens: u.input,
     output_tokens: u.output,

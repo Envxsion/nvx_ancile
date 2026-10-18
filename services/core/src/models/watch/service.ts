@@ -36,6 +36,7 @@ import {
   type WatchPrice,
 } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { baseUrlFor, knownProfile } from '../../gateway/profiles';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../../gateway/providers';
 import type { ModelRegistry } from '../../gateway/registry';
 import { notFound } from '../../obs/errors';
@@ -132,6 +133,8 @@ interface Target {
   vendor: string | null;
   baseUrl: string;
   secretName: string | null;
+  /** The model list's path, from the provider's profile. */
+  path?: string | null;
 }
 
 const BUILTIN: Record<string, { kind: ListKind; baseUrl: string }> = {
@@ -333,18 +336,24 @@ export class ModelWatch {
     }
     const seen = new Set(Object.keys(BUILTIN));
     for (const m of models) {
-      if (!m.base_url || seen.has(m.provider) || m.via !== 'direct') continue;
-      const vendor = vendorOf(m.provider, m.base_url);
+      if (seen.has(m.provider) || m.via !== 'direct') continue;
+      // DeepSeek, Kimi, GLM and the rest: the address comes from the provider's profile and saved region.
+      const profile = knownProfile(m.provider);
+      const region = profile?.regionSecret ? await this.deps.secrets.get(profile.regionSecret) : undefined;
+      const baseUrl = m.base_url ?? (profile ? baseUrlFor(profile, region) : null);
+      if (!baseUrl) continue;
+      const vendor = vendorOf(m.provider, baseUrl);
       if (!vendor) continue;
       seen.add(m.provider);
-      const secretName = m.secret ?? null;
+      const secretName = m.secret ?? profile?.secret ?? null;
       if (!secretName || !names.has(secretName)) continue;
       out.push({
         provider: m.provider,
         kind: NO_LIST_VENDORS.has(vendor) ? 'none' : 'compatible',
         vendor,
-        baseUrl: m.base_url,
+        baseUrl,
         secretName,
+        path: profile?.modelsPath ?? null,
       });
     }
     // OpenRouter first: its own list can price the rest without another call.
@@ -416,7 +425,7 @@ export class ModelWatch {
         t.kind === 'anthropic' ? ((await this.deps.secrets.get(ANTHROPIC_WORKSPACE_SECRET)) ?? null) : null;
       this.checks[t.provider] = { ...(prevState ?? this.blank()), attempt_at: at };
       const listed = await list(
-        { kind: t.kind, baseUrl: t.baseUrl, key, workspaceId },
+        { kind: t.kind, baseUrl: t.baseUrl, key, workspaceId, path: t.path ?? null },
         this.get,
         this.abort.signal,
       );

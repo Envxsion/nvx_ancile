@@ -8,9 +8,13 @@
  *           |  AI SDK's stream into Ancile's StreamChunks.
  *  How      |  anthropic / openai / google use their first-party AI SDK
  *           |  providers. Everything else that speaks OpenAI (Ollama,
- *           |  OpenRouter, vLLM, LM Studio, the Controller's data plane)
- *           |  goes through the openai-compatible provider, so a new
- *           |  endpoint is configuration, not code.
+ *           |  OpenRouter, DeepSeek, Kimi, vLLM, LM Studio, the
+ *           |  Controller's data plane) goes through the
+ *           |  openai-compatible provider, so a new endpoint is a
+ *           |  profile row (profiles.ts), not code: its address by
+ *           |  region, its headers, its cache fields. A failed call is
+ *           |  read through the provider's profile (provider-errors.ts)
+ *           |  before the gateway decides to retry, wait or move on.
  *  Note     |  Written against AI SDK 5 stream parts (text-delta.text,
  *           |  reasoning-delta, tool-call.input, finish.totalUsage).
  *           |  Tools are passed without execute(): the model proposes a
@@ -40,6 +44,14 @@ import {
 } from 'ai';
 import { toSdkMessages } from './convert';
 import { isOllama, ollamaChat } from './ollama-chat';
+import {
+  ANTHROPIC_WORKSPACE_SECRET,
+  baseUrlFor,
+  DEFAULT_SECRET,
+  type ProviderProfile,
+  profileFor,
+} from './profiles';
+import { classifyFailure, errorClassFor, failureWords } from './provider-errors';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
 import { type CallUsage, cacheFromRaw, usageNumbers } from './usage';
 
@@ -138,18 +150,19 @@ export interface ProviderEndpoints {
   onRawUsage?: (provider: string, usage: Record<string, number>) => void;
 }
 
-export const DEFAULT_SECRET: Record<string, string> = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY',
-};
-
 /**
- * Where the workspace a personal Anthropic key bills is kept (Settings → API
- * keys saves it beside the key). Not a secret, but it lives and goes with it.
+ * Which secret holds each provider's key, and where the workspace a personal
+ * Anthropic key bills is kept: both come from the profile table (profiles.ts).
  */
-export const ANTHROPIC_WORKSPACE_SECRET = 'ANTHROPIC_WORKSPACE_ID';
+export { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET };
+
+/** The region saved for a provider (a non-secret value beside the key), or undefined. */
+export async function regionFor(
+  profile: ProviderProfile,
+  secrets: ProviderSecrets,
+): Promise<string | undefined> {
+  return profile.regionSecret ? ((await secrets.get(profile.regionSecret)) ?? undefined) : undefined;
+}
 
 export async function languageModelFor(
   m: ModelConfig,
@@ -188,10 +201,11 @@ export async function languageModelFor(
     case 'anthropic': {
       // A personal key (sk-ant-usr-) names the workspace to bill on every call.
       const workspace = await secrets.get(ANTHROPIC_WORKSPACE_SECRET);
+      const headers = profileFor('anthropic').headers({ workspaceId: workspace });
       return createAnthropic({
         apiKey: needKey('Anthropic'),
         ...(!!m.base_url && { baseURL: m.base_url }),
-        ...(!!workspace && { headers: { 'anthropic-workspace-id': workspace } }),
+        ...(Object.keys(headers).length > 0 && { headers }),
       })(m.provider_model);
     }
     case 'openai':
@@ -219,35 +233,61 @@ export async function languageModelFor(
         baseURL: m.base_url ?? `${(ep.ollamaUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
         ...(ep.fetch && { fetch: ep.fetch }),
       })(m.provider_model);
-    default:
-      if (!m.base_url)
+    default: {
+      // A model's own base_url wins; else the profile's address for the saved region (profiles.ts).
+      const profile = profileFor(m.provider);
+      const baseURL = m.base_url ?? baseUrlFor(profile, await regionFor(profile, secrets));
+      if (!baseURL)
         throw new ClassifiedError(
           'permanent',
           `${m.display_name} has no base_url; any OpenAI-compatible endpoint needs one.`,
         );
+      // A provider that bills a key needs one, unless the model points at its own endpoint.
+      if (profile.needsKey && !m.base_url) needKey(profile.name);
+      const headers = profile.headers({ key: apiKey });
       return createOpenAICompatible({
         // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
         // and every token count and cost for them read zero.
         includeUsage: true,
         name: m.provider,
-        baseURL: m.base_url,
+        baseURL,
         ...(!!apiKey && { apiKey }),
+        ...(Object.keys(headers).length > 0 && { headers }),
         ...(ep.fetch && { fetch: ep.fetch }),
         metadataExtractor: servedExtractor,
       })(m.provider_model);
+    }
   }
 }
 
-/** Wrap whatever the SDK threw so classify() sees status codes and causes. */
-function wrap(err: unknown): unknown {
+/**
+ * Wrap whatever the SDK threw so classify() sees status codes and causes, read
+ * through the provider's profile (GW1): out of credit is permanent for that
+ * provider (the chain moves on, nothing is retried), a rate limit or overload
+ * is transient and carries the provider's Retry-After (seconds or a date), a
+ * wrong region or a model the key may not use is permanent with its own words.
+ * Anything the profile cannot place keeps the generic status rules.
+ */
+export function wrap(
+  err: unknown,
+  provider = 'generic',
+  ctx: { model?: string; region?: string | undefined } = {},
+): unknown {
   if (err instanceof ClassifiedError) return err;
-  const e = err as { statusCode?: number; responseHeaders?: Record<string, string>; message?: string };
-  const cls = classify(err);
-  const retryAfter = e.responseHeaders?.['retry-after'];
+  const e = err as { statusCode?: number; message?: string };
+  const profile = profileFor(provider);
+  const seen = classifyFailure(profile, err);
+  const cls = errorClassFor(seen.kind) ?? classify(err);
+  const words = failureWords(seen.kind, profile, {
+    ...(ctx.model && { model: ctx.model }),
+    region: ctx.region,
+    ...(seen.regionHint && { regionHint: true }),
+  });
+  const status = seen.status || e.statusCode;
   return new ClassifiedError(cls, e.message ?? String(err), {
-    ...(e.statusCode !== undefined && { status: e.statusCode }),
-    ...(retryAfter !== undefined &&
-      Number.isFinite(Number(retryAfter)) && { retryAfterMs: Number(retryAfter) * 1000 }),
+    ...(status !== undefined && status !== 0 && { status }),
+    ...(seen.retryAfterMs !== undefined && { retryAfterMs: seen.retryAfterMs }),
+    ...(words && { code: words.code, title: words.title, hint: words.hint }),
     cause: err,
   });
 }
@@ -299,7 +339,9 @@ export class AiSdkClient implements ModelClient {
     }
     const raw = meta?.raw?.usage;
     if (raw) this.endpoints.onRawUsage?.(m.provider, usageNumbers(raw));
-    const cache = cacheFromRaw(raw);
+    // The provider's own field names first; any name providers are known to use if it named none.
+    const own = cacheFromRaw(raw, profileFor(m.provider).usage);
+    const cache = own.hit !== undefined ? { ...cacheFromRaw(raw), ...own } : cacheFromRaw(raw);
     const cached = Math.max(sdkCached, cache.hit ?? 0);
     return {
       inputTokens: input,
@@ -324,6 +366,8 @@ export class AiSdkClient implements ModelClient {
       return;
     }
     const model = await languageModelFor(m, this.secrets, this.endpoints);
+    const region = await regionFor(profileFor(m.provider), this.secrets).catch(() => undefined);
+    const failed = (err: unknown) => wrap(err, m.provider, { model: m.display_name, region });
     // A routing problem never stops the call: it goes out as OpenRouter's default.
     const routing =
       m.provider === 'openrouter' && this.openrouter ? await this.openrouter(m, req).catch(() => null) : null;
@@ -378,7 +422,7 @@ export class AiSdkClient implements ModelClient {
             yield { type: 'tool_call', callId: part.toolCallId, tool: part.toolName, args: part.input };
             break;
           case 'error':
-            throw wrap(part.error);
+            throw failed(part.error);
           case 'finish-step':
             meta = (part.providerMetadata as StepMetadata | undefined) ?? meta;
             break;
@@ -402,7 +446,7 @@ export class AiSdkClient implements ModelClient {
         }
       }
     } catch (err) {
-      throw wrap(err);
+      throw failed(err);
     }
   }
 }

@@ -26,6 +26,8 @@ import {
   type CredentialStatus,
   isPersonalAnthropicKey,
   last4,
+  type ProviderId,
+  type ProviderInfoList,
   SaveCredentialRequest,
 } from '@nvx/contracts';
 import { CircuitBreaker, ClassifiedError, classifyStatus, guarded } from '@nvx/resilience';
@@ -33,13 +35,21 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { RUNPOD_KEY_SECRET } from '../compute/routes';
 import { tracedFetch } from '../context';
+import { knownProfile, PROFILES, providerInfo, recogniseKey } from '../gateway/profiles';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../gateway/providers';
 import type { ModelRegistry } from '../gateway/registry';
 import { body } from '../http/body';
 import { TYPESAFE_KEY_SECRET } from '../permissions/auto/wire';
 import { GITHUB_TOKEN_SECRET } from '../repos/github';
 import type { SecretStore } from '../secrets';
-import { modelsOf, type ProviderTester, testFailed, workspaceNeeded } from '../setup/routes';
+import {
+  modelsOf,
+  type ProviderTester,
+  regionFrom,
+  saveRegion,
+  testFailed,
+  workspaceNeeded,
+} from '../setup/routes';
 
 export const HUGGINGFACE_TOKEN_SECRET = 'huggingface.token';
 export const MEMORY_REMOTE_SECRET = 'memory.remote';
@@ -49,6 +59,13 @@ interface Definition {
   secret: string;
   env: string;
   check: CredentialCheck;
+}
+
+/** A key-billed provider's row, from its profile. */
+function providerCredential(id: string): Definition {
+  const p = knownProfile(id);
+  const secret = p?.secret ?? DEFAULT_SECRET[id] ?? '';
+  return { name: p?.name ?? id, secret, env: secret, check: 'provider' };
 }
 
 export const CREDENTIALS: Record<CredentialId, Definition> = {
@@ -83,6 +100,14 @@ export const CREDENTIALS: Record<CredentialId, Definition> = {
   },
   // Auto mode's reviewer, called directly (docs/auto-mode.md). Checked by shape only:
   // a test call would itself be a paid decision.
+  // PV1: the profile table (gateway/profiles.ts) names each one's secret; the environment variable is the same name.
+  deepseek: providerCredential('deepseek'),
+  moonshot: providerCredential('moonshot'),
+  minimax: providerCredential('minimax'),
+  zai: providerCredential('zai'),
+  qwen: providerCredential('qwen'),
+  xai: providerCredential('xai'),
+  mistral: providerCredential('mistral'),
   typesafe: { name: 'TypeSafe (Jev)', secret: TYPESAFE_KEY_SECRET, env: 'TYPESAFE_API_KEY', check: 'format' },
 };
 
@@ -91,6 +116,10 @@ export const ENV_FOR_SECRET: Record<string, string> = {
   ...Object.fromEntries(Object.values(CREDENTIALS).map((d) => [d.secret, d.env])),
   // The workspace a personal Anthropic key bills, beside ANTHROPIC_API_KEY.
   [ANTHROPIC_WORKSPACE_SECRET]: 'ANTHROPIC_WORKSPACE_ID',
+  // The region of a provider that has them (Moonshot, MiniMax, Qwen, Z.ai), beside its key.
+  ...Object.fromEntries(
+    PROFILES.flatMap((p) => (p.regionSecret ? [[p.regionSecret, p.regionSecret] as const] : [])),
+  ),
 };
 
 /** Checks a token with the service it belongs to. Throws on any failure. */
@@ -214,6 +243,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     const envValue = env[d.env]?.trim() || undefined;
     const value = envValue ?? (saved.has(d.secret) ? await secrets.get(d.secret) : undefined);
     const unavailable = id === 'runpod' && !deps.runpod;
+    const profile = d.check === 'provider' ? knownProfile(id) : undefined;
     return {
       id,
       set: !!value,
@@ -225,6 +255,10 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
       unavailable_reason: unavailable ? 'Compute is not set up on this install (no Controller).' : null,
       ...(id === 'anthropic' && {
         workspace_id: value ? ((await secrets.get(ANTHROPIC_WORKSPACE_SECRET)) ?? null) : null,
+      }),
+      ...(profile?.regionSecret && {
+        region: value ? ((await secrets.get(profile.regionSecret)) ?? null) : null,
+        region_env_var: profile.regionSecret,
       }),
     };
   };
@@ -241,15 +275,38 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
 
   r.get('/credentials', async (c) => c.json({ items: await list() }));
 
+  // What the Cockpit needs to list model providers without hard-coding them (PV3, PV1).
+  r.get('/providers', (c) => c.json({ items: PROFILES.map(providerInfo) } as ProviderInfoList));
+
   r.put('/credentials/:id', async (c) => {
     const [id, d] = definition(c.req.param('id'));
     if (env[d.env]?.trim()) throw fromEnvironment(d);
-    const { value, workspace_id } = await body(c, SaveCredentialRequest);
+    const { value, workspace_id, region: askedRegion } = await body(c, SaveCredentialRequest);
     const wasSet = (await secrets.names()).includes(d.secret);
 
     try {
       if (d.check === 'provider') {
-        const provider = id as 'anthropic' | 'openai' | 'google' | 'openrouter';
+        const provider = id as ProviderId;
+        const profile = knownProfile(provider);
+        // The key's own shape can tell it is for another provider, or cannot send a message (an admin key).
+        const shape = recogniseKey(value, provider);
+        if (shape?.confirmed && shape.provider !== provider)
+          throw new AncileError({
+            code: 'credentials.invalid',
+            title: `That key is for ${knownProfile(shape.provider)?.name ?? shape.provider}, not ${d.name}`,
+            hint: `Paste a ${d.name} key here, or add this one under ${knownProfile(shape.provider)?.name ?? shape.provider}. Nothing was saved.`,
+            status: 400,
+            errorClass: 'permanent',
+          });
+        if (shape && !shape.usable)
+          throw new AncileError({
+            code: 'credentials.invalid',
+            title: `That is an ${shape.kind} key, which cannot send messages`,
+            hint: `Make a normal API key at ${profile?.docsUrl ?? "the provider's site"} and paste that. Nothing was saved.`,
+            status: 400,
+            errorClass: 'permanent',
+          });
+        const region = profile ? regionFrom(profile, askedRegion) : undefined;
         // Only a personal Anthropic key takes a workspace; any other key bills its own.
         const personal = provider === 'anthropic' && isPersonalAnthropicKey(value);
         const workspaceId = personal ? workspace_id : undefined;
@@ -261,12 +318,14 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
             provider,
             key: value,
             ...(workspaceId && { workspaceId }),
+            ...(region && { region }),
             ...(cheapest && { model: cheapest }),
           });
         } catch (err) {
-          throw testFailed(provider, err, value);
+          throw testFailed(provider, err, value, region);
         }
         await secrets.set(d.secret, value);
+        if (profile) await saveRegion(secrets, profile, region);
         if (provider === 'anthropic') {
           if (workspaceId) await secrets.set(ANTHROPIC_WORKSPACE_SECRET, workspaceId);
           else await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
@@ -333,6 +392,8 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     if (d.check === 'controller' && deps.runpod) await deps.runpod.disconnect();
     else await secrets.delete(d.secret);
     if (id === 'anthropic') await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
+    const gone = d.check === 'provider' ? knownProfile(id)?.regionSecret : null;
+    if (gone) await secrets.delete(gone);
     await changed(id);
     return c.json(await statusOf(id, new Set(await secrets.names())));
   });

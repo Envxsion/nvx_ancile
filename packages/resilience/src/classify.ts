@@ -31,17 +31,32 @@ export class ClassifiedError extends Error {
   readonly errorClass: ErrorClass;
   readonly status: number | undefined;
   readonly retryAfterMs: number | undefined;
+  /** A documented AncileError code this failure maps to (`provider.no_credit`), when the adapter knows. */
+  readonly code: string | undefined;
+  /** The plain words for `code`, ready to show. */
+  readonly title: string | undefined;
+  readonly hint: string | undefined;
 
   constructor(
     errorClass: ErrorClass,
     message: string,
-    opts: { status?: number; retryAfterMs?: number; cause?: unknown } = {},
+    opts: {
+      status?: number;
+      retryAfterMs?: number;
+      cause?: unknown;
+      code?: string;
+      title?: string;
+      hint?: string;
+    } = {},
   ) {
     super(message, { cause: opts.cause });
     this.name = 'ClassifiedError';
     this.errorClass = errorClass;
     this.status = opts.status;
     this.retryAfterMs = opts.retryAfterMs;
+    this.code = opts.code;
+    this.title = opts.title;
+    this.hint = opts.hint;
   }
 }
 

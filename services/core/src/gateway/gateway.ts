@@ -41,12 +41,41 @@ export interface GatewayOptions {
    * loading a large model can take longer than the usual wait (ms).
    */
   computeEtaMarginMs?: number;
+  /** Wait before asking the same model again after a short Retry-After (tests replace it). */
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
+
+/**
+ * A provider that says "try again in this long" with this much or less is
+ * waited for, and asked again, before the chain moves on to another model.
+ */
+export const SHORT_RETRY_AFTER_MS = 10_000;
+
+/** How many times one model is asked again after a short Retry-After, per call. */
+const SAME_MODEL_RETRIES = 1;
+
+const abortableSleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(signal.reason ?? new Error('aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 
 export interface FailedAttempt {
   model: string;
   errorClass: ErrorClass;
   detail: string;
+  /** A documented provider.* code the adapter recognised (no credit, wrong region...), with its words. */
+  code?: string;
+  title?: string;
+  hint?: string;
 }
 
 export class ChainFailedError extends Error {
@@ -70,6 +99,7 @@ export class Gateway {
   private readonly computeWaitMs: number;
   private readonly computePollMs: number;
   private readonly computeEtaMarginMs: number | null;
+  private readonly sleep: (ms: number, signal: AbortSignal) => Promise<void>;
 
   constructor(opts: GatewayOptions) {
     this.client = opts.client;
@@ -78,6 +108,7 @@ export class Gateway {
     this.computeWaitMs = opts.computeWaitMs ?? 5 * 60_000;
     this.computePollMs = opts.computePollMs ?? 2_000;
     this.computeEtaMarginMs = opts.computeEtaMarginMs ?? null;
+    this.sleep = opts.sleep ?? abortableSleep;
   }
 
   /**
@@ -151,6 +182,8 @@ export class Gateway {
     const attempts: FailedAttempt[] = [];
     let shown = ''; // text the user has already seen, across models
     let shownBy: string | null = null;
+    // How often each model was asked again after a short Retry-After (GW1).
+    const asked = new Map<string, number>();
 
     for (let i = 0; i < chain.length; i++) {
       const model = chain[i] as ModelConfig;
@@ -243,7 +276,30 @@ export class Gateway {
         if (signal.aborted) throw err;
         const cls = classify(err);
         const detail = err instanceof Error ? err.message : String(err);
-        attempts.push({ model: model.id, errorClass: cls, detail });
+        // A rate limit with a short Retry-After: wait, then ask the same model again, before any fallback.
+        const wait = err instanceof ClassifiedError ? err.retryAfterMs : undefined;
+        if (
+          !state.committed &&
+          cls === 'transient' &&
+          wait !== undefined &&
+          wait <= SHORT_RETRY_AFTER_MS &&
+          (asked.get(model.id) ?? 0) < SAME_MODEL_RETRIES
+        ) {
+          asked.set(model.id, (asked.get(model.id) ?? 0) + 1);
+          // A little extra, so the retry does not land on the very edge of the window.
+          await this.sleep(wait + 250, signal);
+          i -= 1;
+          continue;
+        }
+        const named = err instanceof ClassifiedError && err.code ? err : null;
+        attempts.push({
+          model: model.id,
+          errorClass: cls,
+          detail,
+          ...(named?.code && { code: named.code }),
+          ...(named?.title && { title: named.title }),
+          ...(named?.hint && { hint: named.hint }),
+        });
         if (!next || !FALLBACKABLE.has(cls)) throw new ChainFailedError(attempts);
         yield { type: 'fallback', from: model.id, to: next.id, reason: cls, detail };
       }

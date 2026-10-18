@@ -452,6 +452,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       // Who paid, as it is now: a later sign-in change must not rewrite this answer's receipt.
       billing: cp.answeredBy ? (deps.registry.billingFor?.(cp.answeredBy) ?? null) : null,
       ms: cp.startedAt !== undefined ? Date.now() - cp.startedAt : undefined,
+      // The rates in force when the answer began (a model can have off-peak prices).
+      ...(cp.startedAt !== undefined && { at: cp.startedAt }),
     });
     await deps.repo.updateMessage(cp.input.assistantMessageId, {
       parts: cp.parts,
@@ -522,6 +524,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           usage: c.usage,
           billedUsd: c.costUsd,
           startedMs: callStarted - turnStarted,
+          at: callStarted,
           ms: now - callStarted,
           ...(stop && { stop }),
           ...(c.served && { served: { ...c.served, cut_off: c.finishReason === 'length' } }),
@@ -1550,6 +1553,10 @@ function describeFailure(
       ms: 0,
       note: a.detail.slice(0, 300),
     }));
+    // The last model's trouble, when its provider's adapter named it (no credit, wrong region...).
+    const named = err.attempts.at(-1);
+    if (named?.code && named.title && named.hint)
+      return { event: { code: named.code, title: named.title, hint: named.hint, attempts } };
     const auth = err.attempts.some((a) => /401|403|api key|x-api-key|unauthor/i.test(a.detail));
     return {
       event: {

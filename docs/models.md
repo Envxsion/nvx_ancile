@@ -126,6 +126,10 @@ A live price replaces the shipped one for costs and for Usage. When one differs 
 
 **Privacy.** The price lookup fetches OpenRouter's public list with no key and nothing about you. Your provider keys are sent only to that provider's own address, to read its model list. Keys and responses are never logged.
 
+### Off-peak prices
+
+A model's `price` can carry an `off_peak` block: a second set of rates that applies inside weekly windows, in UTC (no daylight saving), and the normal `price` at every other time. Each window lists weekdays (`mon` to `sun`) and a `from` and `to` as `HH:MM`, from the start up to but not including the end; `24:00` ends a day, and a window never crosses midnight (write two). A rate the off-peak block leaves out keeps the normal one. DeepSeek charges half price outside 01:00 to 04:00 and 06:00 to 10:00 UTC on Monday to Friday, so its off-peak windows are every other hour plus Saturday and Sunday; Chinese public holidays are also off-peak and are not modelled. Every call is priced at the rate in force when it began, and the receipt shows the rate that applied. A live price that comes out lower than the shipped off-peak rate drops the off-peak block, rather than make off-peak dearer than normal.
+
 ### Lines and tiers
 
 A **line** is one family of a provider's models that gets newer versions, such as Claude Opus, Claude Sonnet, GPT, GPT mini or Gemini Flash. Each line has a tier:

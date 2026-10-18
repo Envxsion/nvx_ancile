@@ -21,6 +21,7 @@
  * ------------------------------------------------------------------
  */
 import type { ModelTier } from '@nvx/contracts';
+import { knownProfile } from '../../gateway/profiles';
 
 export interface LineInfo {
   /** `<provider>/<line>`, e.g. anthropic/opus. */
@@ -139,8 +140,36 @@ export function lineOf(provider: string, providerModel: string): LineInfo | null
         ? mk('xai', 'grok-mini', 'Grok mini', 'fast', m[1] as string, id)
         : mk('xai', 'grok', 'Grok', 'best', m[1] as string, id);
     }
+    case 'qwen': {
+      // qwen-max, qwen-plus, qwen-flash, and the numbered ones: qwen3.8-max, qwen3.7-plus, qwen3.8-flash.
+      const m = /^qwen-?(\d+(?:\.\d+)?)?-(max|plus|flash)$/.exec(id);
+      if (!m) return null;
+      const t: Record<string, { name: string; tier: ModelTier }> = {
+        max: { name: 'Qwen Max', tier: 'best' },
+        plus: { name: 'Qwen Plus', tier: 'balanced' },
+        flash: { name: 'Qwen Flash', tier: 'fast' },
+      };
+      const x = t[m[2] as string] as { name: string; tier: ModelTier };
+      return mk('qwen', m[2] as string, x.name, x.tier, m[1] ?? null, id);
+    }
+    case 'zai': {
+      // glm-5.3, glm-5.3-flash, glm-5.3-flashx. Display names such as GLM-5.3-FlashX are lower-cased ids.
+      const m = /^glm-(\d+(?:\.\d+)?)(?:-(flashx|flash))?$/.exec(id);
+      if (!m) return null;
+      return m[2]
+        ? mk('zai', 'glm-flash', 'GLM Flash', 'fast', m[1] as string, id)
+        : mk('zai', 'glm', 'GLM', 'best', m[1] as string, id);
+    }
+    case 'minimax': {
+      // MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M3.1-Flash-Preview.
+      const m = /^minimax-m(\d+(?:\.\d+)?)(?:-(highspeed|flash))?(?:-preview)?$/.exec(id);
+      if (!m) return null;
+      return m[2]
+        ? mk('minimax', 'm-fast', 'MiniMax fast', 'fast', m[1] as string, id)
+        : mk('minimax', 'm', 'MiniMax', 'best', m[1] as string, id);
+    }
     case 'mistral': {
-      const m = /^mistral-(large|medium|small)-(\d{4})$/.exec(id);
+      const m = /^mistral-(large|medium|small)-(\d{4}|\d+(?:\.\d+)?)$/.exec(id);
       if (!m) return null;
       const t: Record<string, { name: string; tier: ModelTier }> = {
         large: { name: 'Mistral Large', tier: 'best' },
@@ -163,7 +192,7 @@ const HOSTS: [RegExp, string][] = [
   [/(^|\.)x\.ai$/, 'xai'],
   [/(^|\.)aliyuncs\.com$/, 'qwen'],
   [/(^|\.)(z\.ai|bigmodel\.cn)$/, 'zai'],
-  [/(^|\.)minimaxi?\.(io|com)$/, 'minimax'],
+  [/(^|\.)minimaxi?\.(io|com|cn)$/, 'minimax'],
   [/(^|\.)groq\.com$/, 'groq'],
   [/(^|\.)together\.(ai|xyz)$/, 'together'],
 ];
@@ -172,6 +201,9 @@ const HOSTS: [RegExp, string][] = [
 export function vendorOf(provider: string, baseUrl?: string | null): string | null {
   if (provider === 'anthropic' || provider === 'openai' || provider === 'google' || provider === 'openrouter')
     return provider;
+  // A provider with a profile (gateway/profiles.ts) is its own vendor, whatever address it is reached at.
+  const known = knownProfile(provider);
+  if (known?.vendor && known.id !== 'ollama') return known.vendor;
   if (!baseUrl) return null;
   try {
     const host = new URL(baseUrl).hostname.toLowerCase();

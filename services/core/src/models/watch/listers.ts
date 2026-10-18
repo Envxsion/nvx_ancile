@@ -22,6 +22,7 @@ type Capability = ModelConfig['capabilities'][number];
 
 import { ClassifiedError, retry } from '@nvx/resilience';
 import { tracedFetch } from '../../context';
+import { PROFILES } from '../../gateway/profiles';
 import { dateOf, stripDate } from './lines';
 
 export type ListKind = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'compatible';
@@ -123,14 +124,19 @@ export function parseAnthropic(body: unknown): { models: Listed[]; next: string 
 
 export function parseOpenAi(body: unknown): { models: Listed[]; next: null } {
   const models: Listed[] = [];
-  for (const raw of arr(rec(body).data)) {
+  // Together answers a bare array; everyone else, {data: [...]}.
+  for (const raw of Array.isArray(body) ? body : arr(rec(body).data)) {
     const m = rec(raw);
     const id = str(m.id);
     if (!id) continue;
     const created = typeof m.created === 'number' ? new Date(m.created * 1000).toISOString() : null;
     models.push({
       ...base(id),
-      context_window: posInt(m.context_length) ?? posInt(m.context_window) ?? posInt(m.max_model_len),
+      context_window:
+        posInt(m.context_length) ??
+        posInt(m.context_window) ??
+        posInt(m.max_model_len) ??
+        posInt(m.max_context_length),
       created_at: created,
     });
   }
@@ -341,6 +347,8 @@ export interface ListTarget {
   key: string | null;
   /** Anthropic personal keys name their workspace. */
   workspaceId?: string | null;
+  /** The model list's path under the base URL, from the provider's profile (default /models). */
+  path?: string | null;
 }
 
 const trim = (u: string) => u.replace(/\/+$/, '');
@@ -380,7 +388,7 @@ export async function list(t: ListTarget, get: JsonGetter, signal?: AbortSignal)
       out.push(...parseOpenRouter(await get(`${root}/models`, auth, signal)).models);
     } else {
       const auth: Record<string, string> = t.key ? { authorization: `Bearer ${t.key}` } : {};
-      out.push(...parseOpenAi(await get(`${root}/models`, auth, signal)).models);
+      out.push(...parseOpenAi(await get(`${root}${t.path ?? '/models'}`, auth, signal)).models);
     }
   } catch (err) {
     throw listError(err, host);
@@ -397,7 +405,9 @@ export async function listOpenRouterPublic(get: JsonGetter, signal?: AbortSignal
   }
 }
 
-/** Providers with no model list at all: no call is made. */
-export const NO_LIST_VENDORS = new Set(['zai']);
+/** Providers with no model list at all: no call is made (from the profile table: Z.ai has none). */
+export const NO_LIST_VENDORS = new Set(
+  PROFILES.filter((p) => p.vendor && p.modelsPath === null).map((p) => p.vendor as string),
+);
 
 export { dateOf, stripDate };

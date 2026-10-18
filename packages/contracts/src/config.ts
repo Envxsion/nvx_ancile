@@ -12,6 +12,37 @@ export const Capability = z.enum(['tools', 'vision', 'reasoning', 'json', 'audio
 export const ModelHue = z.enum(['coral', 'amber', 'jade', 'cyan', 'azure', 'magenta', 'chalk']);
 export type ModelHue = z.infer<typeof ModelHue>;
 
+export const Weekday = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+export type Weekday = z.infer<typeof Weekday>;
+
+/** "HH:MM" on the 24-hour clock in UTC; "24:00" is allowed as the end of a day. */
+const ClockTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$/, 'HH:MM in UTC, such as 06:00');
+
+/**
+ * A stretch of the week, in UTC (so no daylight saving), on the listed days:
+ * from the start up to but not including the end. A window never crosses
+ * midnight; split it in two ("22:00-24:00" on one day, "00:00-06:00" on the next).
+ */
+export const PriceWindow = z
+  .object({ days: z.array(Weekday).min(1), from: ClockTime, to: ClockTime })
+  .refine((w) => w.from < w.to, 'from must be earlier than to; split a window that crosses midnight');
+export type PriceWindow = z.infer<typeof PriceWindow>;
+
+/**
+ * Rates that apply only inside `windows` (UTC), instead of the model's normal
+ * price. These are the OFF-PEAK windows: where a provider names its peak hours
+ * (DeepSeek), list everything else here. Costs, receipts and the receipt's
+ * rates use the rate in force when the call was made (gateway/usage.ts).
+ */
+export const OffPeakPrice = z.object({
+  input_per_mtok: z.number(),
+  output_per_mtok: z.number(),
+  cached_per_mtok: z.number().optional(),
+  cache_write_per_mtok: z.number().optional(),
+  windows: z.array(PriceWindow).min(1),
+});
+export type OffPeakPrice = z.infer<typeof OffPeakPrice>;
+
 export const ModelConfig = z.object({
   id: z.string().regex(/^[a-z0-9-]+\/[A-Za-z0-9._:-]+$/, 'provider/model'),
   provider: z.string(),
@@ -29,6 +60,8 @@ export const ModelConfig = z.object({
       cached_per_mtok: z.number().optional(),
       /** Writing to the provider's cache (Anthropic charges 1.25× input); the input price when absent. */
       cache_write_per_mtok: z.number().optional(),
+      /** A cheaper rate inside certain weekly windows (UTC). The fields above are the rate at all other times. */
+      off_peak: OffPeakPrice.optional(),
     })
     .default({ input_per_mtok: 0, output_per_mtok: 0 }),
   enabled: z.boolean().default(true),

@@ -431,10 +431,18 @@ export class ModelRegistry {
       const mine = !this.customIds.has(orig.id) || this.watchAdded.has(orig.id);
       let next = orig;
       if (row && mine && orig.provider !== 'fake') {
-        const price =
+        let price =
           row.price && row.price_source && row.price_source !== 'bundled'
             ? { ...orig.price, ...row.price }
             : orig.price;
+        // A live price that is lower than the off-peak rate shipped beside it (a list that already shows
+        // the off-peak price) would make "off-peak" dearer than normal: keep the live price, drop the discount.
+        if (
+          price.off_peak &&
+          (price.input_per_mtok < price.off_peak.input_per_mtok ||
+            price.output_per_mtok < price.off_peak.output_per_mtok)
+        )
+          price = (({ off_peak: _dropped, ...rest }) => rest)(price);
         next = {
           ...orig,
           price,
