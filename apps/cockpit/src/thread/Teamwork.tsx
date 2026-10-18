@@ -22,7 +22,7 @@
 
 import type { FlowGraph } from '@nvx/contracts';
 import { AnimatePresence, motion } from 'motion/react';
-import { type CSSProperties, memo, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useModels } from '../lib/data';
 import { hueVar, modelById, usd } from '../lib/format';
 import { useReducedMotion } from '../lib/motion';
@@ -138,6 +138,16 @@ export function Teamwork({ m, threadId }: { m: MessageView; threadId: string }) 
   const initial = pref === 'flow' ? (graph?.settings?.show_teamwork ?? 'collapsed') : pref;
   const [open, setOpen] = useState<boolean | null>(null);
   const expanded = open ?? initial === 'open';
+  // The receipt's "Show the flow's steps" opens this fold and brings it into view.
+  const asked = useUi((st) => st.teamworkOpen);
+  const sectionRef = useRef<HTMLElement>(null);
+  const askedAt = asked?.id === m.id ? asked.at : 0;
+  useEffect(() => {
+    if (!askedAt) return;
+    setOpen(true);
+    const t = requestAnimationFrame(() => sectionRef.current?.scrollIntoView?.({ block: 'nearest' }));
+    return () => cancelAnimationFrame(t);
+  }, [askedAt]);
   const running = !!team && !team.done && team.active.length > 0;
   const failed = !!team?.done && team.steps.some((s) => s.status === 'failed');
   const now = useNow(!!team && !team.done);
@@ -150,6 +160,7 @@ export function Teamwork({ m, threadId }: { m: MessageView; threadId: string }) 
 
   return (
     <section
+      ref={sectionRef}
       className="teamwork"
       data-open={expanded || undefined}
       data-running={running || undefined}
@@ -219,8 +230,8 @@ export function Teamwork({ m, threadId }: { m: MessageView; threadId: string }) 
               <span>
                 {team.name} · version <span data-num>{team.version}</span>
               </span>
-              <button type="button" className="link-btn" onClick={() => useUi.getState().explain(m.id)}>
-                Why this route?
+              <button type="button" className="link-btn" onClick={() => useUi.getState().showReceipt(m.id)}>
+                Open the receipt
               </button>
             </p>
           </motion.div>

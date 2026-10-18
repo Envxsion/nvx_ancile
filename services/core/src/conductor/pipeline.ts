@@ -37,11 +37,14 @@ import {
   type EngineContextReport,
   type ModelConfig,
   type Part,
+  type Recovered,
   type RetrievalTrace,
   type RunEvent,
   stepTitle,
   type Usage,
+  type UsageCall,
 } from '@nvx/contracts';
+import { collectRecoveries, type RecoveryInfo } from '@nvx/resilience';
 import type { JobSwitches } from '../automations/settings';
 import type { EventBus } from '../events/bus';
 import { executeFlow, type FlowState, type ModelCallResult, provenanceOf } from '../flows/execute';
@@ -55,8 +58,7 @@ import {
 import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
-import type { ModelMessage, ModelRequest, ToolDef } from '../gateway/types';
-import { type CallUsage, priceOf } from '../gateway/usage';
+import type { ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
 import { summariesBlock, type TurnLinks } from '../links/service';
 import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
@@ -84,6 +86,7 @@ import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
 import { historyFor, systemPrompt, withPartial, withTurnContext } from './context';
 import { explainLinks, searchWithLinks } from './links';
+import { noteCall, noteRecovery, recoveryOf, stopOf, usageOut } from './receipt';
 import {
   capPerSource,
   DEFAULT_LIMITS,
@@ -160,10 +163,21 @@ export interface TurnCheckpoint {
     input: number;
     output: number;
     cached: number;
+    /** What the answer cost: provider-billed where it said, else list price (Usage.cost_usd). */
     costUsd: number;
+    /** Roadmap WY1, all absent on older checkpoints: cache writes, list price, the provider's bill, and each call. */
+    written?: number;
+    listUsd?: number;
+    billedUsd?: number;
+    cacheReported?: boolean;
+    calls?: UsageCall[];
     /** OpenRouter: who served the last call, and whether it hit the output cap. */
     served?: { provider: string | null; model: string | null; cut_off: boolean };
   };
+  /** When the turn began (epoch ms), so each call records its start as an offset (Usage.calls). */
+  startedAt?: number;
+  /** Retries that worked, for the receipt's "Worth knowing" (provenance.recovered). */
+  recovered?: Recovered[];
   /** Retrieval ran for this turn (notebook threads only); absent on older checkpoints. */
   retrieved?: boolean;
   grounding?: Grounding | null;
@@ -333,12 +347,6 @@ function resultPreview(result: unknown): string {
   return s.length > 280 ? `${s.slice(0, 280)}…` : s;
 }
 
-function cost(m: ModelConfig | undefined, u: CallUsage, billed?: number): number {
-  // What the provider billed beats list price (OpenRouter reports it; openrouter/auto has no list price).
-  if (billed !== undefined) return billed;
-  return priceOf(m, u);
-}
-
 /** Keep who served an OpenRouter call, and flag an answer cut off at the endpoint's output cap. */
 function noteServed(
   cp: TurnCheckpoint,
@@ -346,6 +354,24 @@ function noteServed(
 ) {
   if (!c.served) return;
   cp.usage.served = { ...c.served, cut_off: c.finishReason === 'length' };
+}
+
+/**
+ * Iterate `source` with every step run inside a recovery collector, so a retry
+ * that worked anywhere under the model call is noted. Async iteration resumes in
+ * the caller's context, which is why each `next()` is wrapped, not the loop.
+ */
+async function* watched<T>(source: AsyncIterable<T>, sink: (info: RecoveryInfo) => void): AsyncGenerator<T> {
+  const it = source[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      const step = await collectRecoveries(sink, () => it.next());
+      if (step.done) return;
+      yield step.value;
+    }
+  } finally {
+    await it.return?.().catch(() => undefined);
+  }
 }
 
 function appendText(parts: Part[], type: 'text' | 'reasoning', delta: string) {
@@ -421,13 +447,12 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       cp.linked ?? null,
       (retrieval.retrieval as RetrievalTrace | undefined) ?? null,
     );
-    const usage: Usage = {
-      input_tokens: cp.usage.input,
-      output_tokens: cp.usage.output,
-      cached_tokens: cp.usage.cached,
-      cost_usd: cp.usage.costUsd,
-      ...(cp.usage.served && { served: cp.usage.served }),
-    };
+    const usage: Usage = usageOut(cp.usage, {
+      model,
+      // Who paid, as it is now: a later sign-in change must not rewrite this answer's receipt.
+      billing: cp.answeredBy ? (deps.registry.billingFor?.(cp.answeredBy) ?? null) : null,
+      ms: cp.startedAt !== undefined ? Date.now() - cp.startedAt : undefined,
+    });
     await deps.repo.updateMessage(cp.input.assistantMessageId, {
       parts: cp.parts,
       status,
@@ -437,6 +462,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         ...cp.input.provenanceExtra,
         chain: cp.chain,
         attempts: cp.attempts,
+        ...(cp.recovered?.length && { recovered: cp.recovered }),
         model_name: model?.display_name ?? null,
         ...retrieval,
         ...(cp.memory && { memory: cp.memory }),
@@ -464,6 +490,43 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const deltas = new DeltaBatcher(emit, msgId, deps.deltaMs ?? 40);
       // Bookkeeping writes that need not hold up the stream; awaited at the end of each round.
       const pendingWrites: Promise<unknown>[] = [];
+      // Roadmap WY1: when the turn began, so each model call records its start as an offset.
+      cp.startedAt ??= Date.now();
+      const turnStarted = cp.startedAt;
+      /** Where retries that worked are noted (provenance.recovered): the model call or a tool. */
+      const recorder = (what: Recovered['what'], tool?: string) => (info: RecoveryInfo) => {
+        cp.recovered = noteRecovery(
+          cp.recovered,
+          recoveryOf(
+            what,
+            what === 'tool'
+              ? (tool ?? 'tool')
+              : (deps.registry.get(cp.answeredBy ?? '')?.display_name ?? 'model'),
+            info,
+          ),
+        );
+      };
+      /** Add a finished model call to the answer's usage; returns what it cost. */
+      const countCall = (
+        model: ModelConfig | undefined,
+        modelId: string,
+        c: Extract<StreamChunk, { type: 'finish' }>,
+        callStarted: number,
+      ): number => {
+        noteServed(cp, c);
+        const now = Date.now();
+        const stop = stopOf(c.finishReason);
+        return noteCall(cp.usage, {
+          model,
+          modelId: model?.id ?? modelId,
+          usage: c.usage,
+          billedUsd: c.costUsd,
+          startedMs: callStarted - turnStarted,
+          ms: now - callStarted,
+          ...(stop && { stop }),
+          ...(c.served && { served: { ...c.served, cut_off: c.finishReason === 'length' } }),
+        });
+      };
       // Retrieval, compaction, memory and the model round all read the same
       // history before the first word; nothing in this step changes it.
       let historyRead: ReturnType<typeof deps.repo.messages> | null = null;
@@ -531,12 +594,14 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             async () => {
               const timeout = AbortSignal.timeout(spec.timeoutMs ?? deps.toolTimeoutMs ?? 60_000);
               const signal = AbortSignal.any([ctx.signal, timeout]);
-              return spec.execute(call.args, {
-                idempotencyKey: `${run.id}:${call.seq}`,
-                signal,
-                scope,
-                callId: call.callId,
-              });
+              return collectRecoveries(recorder('tool', call.tool), () =>
+                spec.execute(call.args, {
+                  idempotencyKey: `${run.id}:${call.seq}`,
+                  signal,
+                  scope,
+                  callId: call.callId,
+                }),
+              );
             },
             // A read can safely run again after a crash; anything else is not
             // repeated without a person (DESIGN.md §5.5).
@@ -860,7 +925,11 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           costUsd: 0,
         };
         let current: ModelConfig | undefined = chain[0];
-        for await (const ev of deps.gateway.stream(chain, req, ctx.signal, opts)) {
+        let callStarted = Date.now();
+        for await (const ev of watched(
+          deps.gateway.stream(chain, req, ctx.signal, opts),
+          recorder('model'),
+        )) {
           if (ev.type === 'model') {
             current = deps.registry.get(ev.modelId);
             out.modelId = ev.modelId;
@@ -893,15 +962,11 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             } else if (c.type === 'tool_call') {
               out.toolCalls = [...(out.toolCalls ?? []), { callId: c.callId, tool: c.tool, args: c.args }];
             } else if (c.type === 'finish') {
-              const spent = cost(current, c.usage, c.costUsd);
-              noteServed(cp, c);
+              const spent = countCall(current, out.modelId, c, callStarted);
+              callStarted = Date.now();
               out.tokensIn += c.usage.inputTokens;
               out.tokensOut += c.usage.outputTokens;
               out.costUsd += spent;
-              cp.usage.input += c.usage.inputTokens;
-              cp.usage.output += c.usage.outputTokens;
-              cp.usage.cached += c.usage.cachedTokens ?? 0;
-              cp.usage.costUsd += spent;
             }
           }
         }
@@ -1185,7 +1250,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           ...(tools.length && { tools }),
         };
         let current: ModelConfig | undefined;
-        for await (const ev of deps.gateway.stream(chain, req, ctx.signal)) {
+        const callStarted = Date.now();
+        for await (const ev of watched(deps.gateway.stream(chain, req, ctx.signal), recorder('model'))) {
           switch (ev.type) {
             case 'model':
               current = deps.registry.get(ev.modelId);
@@ -1261,11 +1327,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 await deltas.flush();
                 await emit({ type: 'warning', code: c.code, message: c.message });
               } else if (c.type === 'finish') {
-                cp.usage.input += c.usage.inputTokens;
-                cp.usage.output += c.usage.outputTokens;
-                cp.usage.cached += c.usage.cachedTokens ?? 0;
-                cp.usage.costUsd += cost(current, c.usage, c.costUsd);
-                noteServed(cp, c);
+                countCall(current, cp.answeredBy ?? '', c, callStarted);
               }
               break;
             }

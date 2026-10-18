@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { FlowProvenance } from './flows';
 import { RetrievalTrace } from './knowledge';
-import { Usage } from './messages';
+import { Recovered, Usage } from './messages';
 import { ExplainLink } from './notebooks';
 import { EffectiveScope } from './scopes';
 
@@ -193,6 +193,8 @@ export const ExplainTool = z.object({
   /** What happened, in words: the result preview, or why it did not run. */
   result: z.string().nullable(),
   declined_reason: z.string().nullable(),
+  /** How long the step took, when it was measured (tool_result.duration_ms); null on older answers. */
+  duration_ms: z.number().int().nonnegative().nullable().default(null),
   /** The permission decision behind it, when one was recorded. */
   decision: z
     .object({
@@ -234,6 +236,8 @@ export const Explain = z.object({
   usage: Usage.nullable(),
   factcheck: Factcheck.nullable(),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
+  /** Problems that fixed themselves while the answer was written (provenance.recovered); empty on older answers. */
+  recovered: z.array(Recovered).default([]),
   /** Flows (Phase 5b): the flow that answered, its path, decisions and steps. */
   flow: FlowProvenance.nullable().default(null),
   /** The scope in force for the thread now, with the level behind each field (docs/scopes.md). */

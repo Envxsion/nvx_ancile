@@ -2,6 +2,7 @@ export * from './activity';
 export * from './api';
 export * from './artifacts';
 export * from './auto';
+export * from './billing';
 export * from './branching';
 export * from './claudecode';
 export * from './config';

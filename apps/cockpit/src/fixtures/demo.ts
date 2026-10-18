@@ -16,11 +16,10 @@
  * ------------------------------------------------------------------
  */
 
-import type { ModelWatchReport, WatchedModel } from '@nvx/contracts';
+import type { Explain, ModelWatchReport, WatchedModel } from '@nvx/contracts';
 import { COCKPIT_VERSION } from '../lib/build';
 import type {
   EvidenceView,
-  ExplainView,
   LiveState,
   ModelView,
   NotebookView,
@@ -267,7 +266,61 @@ export const thread: ThreadView = {
       fallback: { from: 'anthropic/claude-sonnet-5-5', reason: 'timed out twice' },
       siblings: { index: 2, count: 3 },
       confidence: 0.74,
-      usage: { tokens: 3_412, costUsd: 0.031, ms: 6_400 },
+      usage: { tokens: 3_412, costUsd: 0.00872, ms: 6_400 },
+      // A key answer with a search, a retry that worked and some cache (roadmap WY1).
+      rawUsage: {
+        input_tokens: 2_840,
+        output_tokens: 572,
+        cached_tokens: 1_600,
+        cache_write_tokens: 400,
+        cache_reported: true,
+        cost_usd: 0.00872,
+        billing: { kind: 'key', payer: 'openai' },
+        rates: { input: 2, cached: 0.2, cache_write: 2.5, output: 10 },
+        ms: 6_400,
+        calls: [
+          {
+            model_id: 'openai/gpt-5.5',
+            started_ms: 700,
+            ms: 1_500,
+            input_tokens: 1_000,
+            cached_tokens: 0,
+            cache_write_tokens: 400,
+            output_tokens: 90,
+            cost_usd: 0.0031,
+            stop: 'tool_calls',
+          },
+          {
+            model_id: 'openai/gpt-5.5',
+            started_ms: 3_300,
+            ms: 1_200,
+            input_tokens: 900,
+            cached_tokens: 700,
+            cache_write_tokens: 0,
+            output_tokens: 110,
+            cost_usd: 0.00164,
+            stop: 'tool_calls',
+          },
+          {
+            model_id: 'openai/gpt-5.5',
+            started_ms: 4_600,
+            ms: 1_800,
+            input_tokens: 940,
+            cached_tokens: 900,
+            cache_write_tokens: 0,
+            output_tokens: 372,
+            cost_usd: 0.00398,
+            stop: 'end',
+          },
+        ],
+      },
+      provenance: {
+        attempts: [{ model: 'anthropic/claude-sonnet-5-5', reason: 'transient', detail: 'timed out twice' }],
+        recovered: [
+          { what: 'tool', name: 'search_sources', attempts: 2, waited_ms: 1_200, reason: 'timeout' },
+          { what: 'model', name: 'GPT-5.5', attempts: 2, waited_ms: 2_000, reason: 'rate_limited' },
+        ],
+      },
       createdAt: '2026-10-07T08:31:12Z',
       status: 'complete',
       blocks: [
@@ -362,8 +415,92 @@ export const thread: ThreadView = {
       ],
     },
     {
-      id: 'msg_u2',
+      id: 'msg_u1p',
       parentId: 'msg_a1',
+      role: 'user',
+      modelId: null,
+      createdAt: '2026-10-07T08:33:00Z',
+      blocks: [
+        {
+          kind: 'p',
+          spans: [{ text: 'Check the separation distances against FE-12 once more, on my Claude plan.' }],
+        },
+      ],
+    },
+    {
+      id: 'msg_a1p',
+      parentId: 'msg_u1p',
+      role: 'assistant',
+      modelId: 'claude-code/claude-opus-5-5',
+      modelName: 'Claude Opus 5.5',
+      usage: { tokens: 5_940, costUsd: 0.19, ms: 21_400 },
+      // A plan answer: tokens only, with Claude Code's own estimate at API prices.
+      rawUsage: {
+        input_tokens: 5_200,
+        output_tokens: 740,
+        cached_tokens: 4_100,
+        cache_write_tokens: 600,
+        cache_reported: true,
+        cost_usd: 0.19,
+        billing: { kind: 'plan', payer: 'max' },
+        ms: 21_400,
+      },
+      provenance: { route: { kind: 'model', from: 'thread' } },
+      createdAt: '2026-10-07T08:33:40Z',
+      status: 'complete',
+      blocks: [
+        {
+          kind: 'p',
+          spans: [
+            {
+              text: 'The 3.0 m separation for LFP enclosures holds. The sodium-ion figure of 1.5 m depends on the supplier test report, which is not in the notebook yet.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'msg_u1l',
+      parentId: 'msg_a1p',
+      role: 'user',
+      modelId: null,
+      createdAt: '2026-10-07T08:36:10Z',
+      blocks: [{ kind: 'p', spans: [{ text: 'Give me a one-line summary I can paste into chat.' }] }],
+    },
+    {
+      id: 'msg_a1l',
+      parentId: 'msg_u1l',
+      role: 'assistant',
+      modelId: 'ollama/qwen3:14b',
+      usage: { tokens: 2_310, costUsd: 0, ms: 18_200 },
+      // A local answer: tokens only, nothing to pay, and no cache figures reported.
+      rawUsage: {
+        input_tokens: 1_900,
+        output_tokens: 410,
+        cached_tokens: 0,
+        cache_write_tokens: 0,
+        cache_reported: false,
+        cost_usd: 0,
+        billing: { kind: 'local', payer: null },
+        ms: 18_200,
+      },
+      provenance: { route: { kind: 'model', from: 'message' } },
+      createdAt: '2026-10-07T08:36:30Z',
+      status: 'complete',
+      blocks: [
+        {
+          kind: 'p',
+          spans: [
+            {
+              text: 'Both quotes fit the 2 MWh need; LFP is cheaper to site, sodium-ion is steadier in winter, and FE-12 separation is open.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'msg_u2',
+      parentId: 'msg_a1l',
       role: 'user',
       modelId: null,
       createdAt: '2026-10-07T08:40:02Z',
@@ -539,60 +676,128 @@ export const evidence: EvidenceView[] = [
   },
 ];
 
-export const explain: ExplainView = {
-  answered: 'openai/gpt-5.5',
-  requested: 'anthropic/claude-sonnet-5-5',
-  attempts: [
-    {
-      model: 'anthropic/claude-sonnet-5-5',
-      outcome: 'timeout',
-      reason: 'No first token after 30 s',
-      ms: 30_000,
+/**
+ * What GET /messages/:id/explain would say for a demo answer, for the receipt:
+ * the first answer drew on memory, sources and a search; the others are plain.
+ */
+export function demoExplain(m: { id: string; modelId: string | null }): Explain {
+  const base: Explain = {
+    message_id: m.id,
+    thread_id: thread.id,
+    status: 'complete',
+    trace_id: '9c2a01d4b5e64f0c8e9d3b1a7f6e5d40',
+    run_id: null,
+    model: { id: m.modelId, name: null, requested: null, chain: m.modelId ? [m.modelId] : [] },
+    attempts: [],
+    memory: null,
+    retrieval: null,
+    retrieval_error: null,
+    tools: [],
+    compaction: null,
+    usage: null,
+    factcheck: null,
+    error: null,
+    recovered: [],
+    flow: null,
+    scope: null,
+    links: [],
+    origin: 'ancile',
+    trace_url: '/admin/traces?trace=9c2a01d4b5e64f0c8e9d3b1a7f6e5d40',
+  };
+  if (m.id !== 'msg_a1') return base;
+  return {
+    ...base,
+    attempts: [{ model: 'anthropic/claude-sonnet-5-5', reason: 'transient', detail: 'timed out twice' }],
+    memory: {
+      files: [
+        {
+          path: 'AGENTS.md',
+          commit: '8c1f2e0',
+          entries: ['Cite sources inline', 'Say when a figure is an estimate'],
+          tokens: 184,
+          dropped: 0,
+        },
+        {
+          path: 'USER.md',
+          commit: '8c1f2e0',
+          entries: ['Use British spelling', 'Prefers a recommendation at the end'],
+          tokens: 96,
+          dropped: 0,
+        },
+        {
+          path: 'PROJECTS/kingsford-depot.md',
+          commit: 'b72d9a1',
+          entries: ['Business case runs 15 years', 'Peak to shave is 06:00 winter charging'],
+          tokens: 312,
+          dropped: 0,
+        },
+      ],
+      tokens: 592,
+      truncated: 0,
     },
-    {
-      model: 'anthropic/claude-sonnet-5-5',
-      outcome: 'timeout',
-      reason: 'Retry, no first token after 30 s',
-      ms: 30_000,
+    retrieval: {
+      query: 'sodium-ion and LFP quotes, cold-morning capacity, separation',
+      notebook_id: DEPOT,
+      mode: 'hybrid',
+      embedder: 'local/bge-small',
+      ms: 212,
+      invalid_markers: 0,
+      grounded: false,
+      hits: [
+        ['NA-280 datasheet', 4, 0.82, 0.94, true],
+        ['LF-305 datasheet', 3, 0.8, 0.91, true],
+        ['Fire engineering note FE-12', 2, 0.71, 0.88, true],
+        ['Depot load survey', 12, 0.69, 0.77, true],
+        ['Grid connection offer', 2, 0.58, 0.31, false],
+      ].map(([title, page, score, rerank, cited], i) => ({
+        marker: i + 1,
+        kind: 'chunk' as const,
+        chunk_id: `chk_demo_${i}`,
+        source_id: `src_demo_${i}`,
+        source_title: title as string,
+        page: page as number,
+        score: score as number,
+        rerank_score: rerank as number,
+        ranks: { vector: i + 1, text: i + 2 },
+        cited: cited as boolean,
+      })),
     },
-    { model: 'openai/gpt-5.5', outcome: 'answered', reason: null, ms: 6_400 },
-  ],
-  memory: [
-    {
-      path: 'AGENTS.md',
-      commit: '8c1f2e0',
-      entries: ['Cite sources inline', 'Say when a figure is an estimate'],
-      tokens: 184,
-    },
-    {
-      path: 'USER.md',
-      commit: '8c1f2e0',
-      entries: ['Use British spelling', 'Prefers a recommendation at the end'],
-      tokens: 96,
-    },
-    {
-      path: 'PROJECTS/kingsford-depot.md',
-      commit: 'b72d9a1',
-      entries: ['Business case runs 15 years', 'Peak to shave is 06:00 winter charging'],
-      tokens: 312,
-    },
-    {
-      path: 'MODELS/gpt-5.5.md',
-      commit: '4e0aa13',
-      entries: ['Keep lists to five items or fewer'],
-      tokens: 41,
-    },
-  ],
-  retrieval: [
-    { title: 'NA-280 datasheet · p. 4', score: 0.82, rerank: 0.94, cited: true },
-    { title: 'LF-305 datasheet · p. 3', score: 0.8, rerank: 0.91, cited: true },
-    { title: 'Fire engineering note FE-12 · §3.2', score: 0.71, rerank: 0.88, cited: true },
-    { title: 'Depot load survey · p. 12', score: 0.69, rerank: 0.77, cited: true },
-    { title: 'Grid connection offer · §2', score: 0.58, rerank: 0.31, cited: false },
-  ],
-  tools: [],
-  usage: { input: 2_840, output: 572, costUsd: 0.031 },
-};
+    tools: [
+      {
+        call_id: 'call_demo_1',
+        tool: 'search_sources',
+        args: { query: 'separation distance' },
+        ok: true,
+        result: 'Found 5 passages',
+        declined_reason: null,
+        duration_ms: 1_100,
+        decision: null,
+      },
+      {
+        call_id: 'call_demo_2',
+        tool: 'fs_write',
+        args: { path: 'notes.md' },
+        ok: true,
+        result: 'Wrote notes.md',
+        declined_reason: null,
+        duration_ms: 240,
+        decision: {
+          outcome: 'approved',
+          tier: 'gated',
+          action: 'fs.write',
+          resource: 'fs:/workspace/kingsford-depot/notes.md',
+          at: '2026-10-07T08:31:08Z',
+          rule: null,
+          scope: null,
+        },
+      },
+    ],
+    recovered: [
+      { what: 'tool', name: 'search_sources', attempts: 2, waited_ms: 1_200, reason: 'timeout' },
+      { what: 'model', name: 'GPT-5.5', attempts: 2, waited_ms: 2_000, reason: 'rate_limited' },
+    ],
+  };
+}
 
 export const approval: PendingApproval = {
   id: 'apr_01J9ZK000000000000000000A1',
@@ -815,21 +1020,6 @@ export const logs = [
     msg: 'ollama unreachable · 3 consecutive failures · restart adapter is "none"',
   },
 ];
-
-/** What a gateway model was given in a mixed thread (docs/engines.md), for the Why panel. */
-export const engineContext: import('@nvx/contracts').EngineContextReport = {
-  engine: 'gateway',
-  window: 400_000,
-  reserve: 32_000,
-  tokens: 18_400,
-  summary_id: 'cmp_01J9ZK0000000000000000SUMM',
-  verbatim: 6,
-  digested: 14,
-  recalled: ['msg_01J9ZK00000000000000000R01', 'msg_01J9ZK00000000000000000R02'],
-  dropped: 3,
-  foreign_turns: 0,
-  seeded_from_summary: false,
-};
 
 /* ---- Model updates (MD4, MD5) ---------------------------------------------- */
 

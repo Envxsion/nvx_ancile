@@ -2522,13 +2522,6 @@ button.grounding:hover {
   display: flex;
   width: fit-content;
 }
-.why__sealed {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--t-small);
-  color: var(--fg-3);
-}
 .md-image-blocked {
   display: inline-flex;
   align-items: center;

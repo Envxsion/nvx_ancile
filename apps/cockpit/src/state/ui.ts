@@ -21,7 +21,7 @@ import * as demo from '../fixtures/demo';
 import type { LiveState } from '../lib/types';
 import { usePrefs } from './prefs';
 
-export type DrawerTab = 'sources' | 'notes' | 'tree' | 'why' | 'evidence' | 'repo';
+export type DrawerTab = 'sources' | 'notes' | 'tree' | 'evidence' | 'repo';
 /** Nothing known yet: no model chosen, no node, nothing waiting. */
 export const EMPTY_LIVE: LiveState = {
   modelId: '',
@@ -66,8 +66,12 @@ interface UiState {
   helpArticle: string | null;
   /** Focus mode: rail and drawer away, the work alone. */
   focusMode: boolean;
-  /** The answer the Why panel explains; null means the latest. */
-  whyMessage: string | null;
+  /** The answer whose receipt is open (one at a time), or null. */
+  receiptOpen: string | null;
+  /** Something asked to see a receipt (W, the Grounding chip): it opens and scrolls into view. */
+  receiptScroll: { id: string; at: number } | null;
+  /** The receipt's "Show the flow's steps": that answer's Teamwork fold opens. */
+  teamworkOpen: { id: string; at: number } | null;
   /** The note the Notes panel has open; null shows the list. */
   noteOpen: string | null;
   /** The source viewer: which source, and the span to show. */
@@ -97,7 +101,11 @@ interface UiState {
   setHelp: (open: boolean, article?: string | null) => void;
   toggleFocus: () => void;
   openViewer: (v: UiState['viewer']) => void;
-  explain: (messageId: string) => void;
+  /** Open or close one answer's receipt where it is (no scrolling). */
+  setReceipt: (messageId: string | null) => void;
+  /** Open that answer's receipt and bring it into view. */
+  showReceipt: (messageId: string) => void;
+  showTeamwork: (messageId: string) => void;
   closePalette: () => void;
   setShortcuts: (open: boolean) => void;
   setApproval: (open: boolean, approvalId?: string | null) => void;
@@ -133,7 +141,9 @@ export const useUi = create<UiState>()(
       helpArticle: null,
       focusMode: false,
       viewer: null,
-      whyMessage: null,
+      receiptOpen: null,
+      receiptScroll: null,
+      teamworkOpen: null,
       noteOpen: null,
       evidenceMessage: null,
       lastThreadId: null,
@@ -186,14 +196,10 @@ export const useUi = create<UiState>()(
         set({ paletteOpen: true, paletteScope: scope, paletteQuery: query }),
       setHelp: (open, article = null) => set({ helpOpen: open, helpArticle: open ? article : null }),
       toggleFocus: () => set((s) => ({ focusMode: !s.focusMode })),
-      explain: (messageId) =>
-        set({
-          whyMessage: messageId,
-          drawerOpen: true,
-          sheetOpen: true,
-          drawerTab: 'why',
-          drawerTabAt: Date.now(),
-        }),
+      setReceipt: (messageId) => set({ receiptOpen: messageId }),
+      showReceipt: (messageId) =>
+        set({ receiptOpen: messageId, receiptScroll: { id: messageId, at: Date.now() } }),
+      showTeamwork: (messageId) => set({ teamworkOpen: { id: messageId, at: Date.now() } }),
       openViewer: (viewer) =>
         set(
           viewer

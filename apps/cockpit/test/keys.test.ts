@@ -76,7 +76,10 @@ describe('shortcut nudge', () => {
     expect(noteClick('message.why')).toBe(true);
     const toasts = useNotify.getState().toasts;
     expect(toasts.length).toBe(before + 1);
-    expect(toasts.at(-1)).toMatchObject({ title: 'Next time, press W', body: 'Why did it say this?' });
+    expect(toasts.at(-1)).toMatchObject({
+      title: 'Next time, press W',
+      body: 'Open the receipt for this answer',
+    });
     for (let i = 0; i < 5; i++) expect(noteClick('message.why')).toBe(false);
   });
 });

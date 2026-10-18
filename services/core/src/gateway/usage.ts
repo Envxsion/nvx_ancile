@@ -30,6 +30,11 @@ export interface CallUsage {
   cachedTokens?: number;
   /** Prompt tokens written to the provider's cache (Anthropic, some OpenRouter routes). */
   cacheWriteTokens?: number;
+  /**
+   * The provider sent cache figures (even zeros). False or absent: the cache
+   * counts are unknown, and the receipt says "not reported" instead of 0.
+   */
+  cacheReported?: boolean;
 }
 
 /** List-price cost in USD. Cache writes cost the input price unless the model says otherwise. */

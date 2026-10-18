@@ -114,7 +114,7 @@ Ollama on this computer is found from the setup screen: press **Find it**. If it
 
 Press **M** anywhere to change the model for the thread you are in. The next message uses it, and the conversation so far carries over.
 
-If a model fails or declines, NVX Ancile asks the next one in its chain without interrupting you. The answer says which model wrote it, and **Why** shows every attempt.
+If a model fails or declines, NVX Ancile asks the next one in its chain without interrupting you. The answer says which model wrote it, and its **receipt** says which models were tried first.
 
 To change who answers first, open **Admin → Routing**. Drag a model by its grip, or use its **⋯** menu to move it up, move it down or remove it, and **Add model** to put another in the chain. Changes save at once. **Reset to default** brings back the original order, and you can undo it.
 
@@ -138,7 +138,7 @@ For tool calls OpenRouter runs Auto Exacto, which prefers providers that handle 
 
 **Recommended** is the safe default: it leaves out providers too small for the job, asks only providers that support every setting in the request, and sets a sensible answer length. **Best quality** sticks to trusted providers at the lab's own precision. **Pinned** uses only the providers you choose. **Advanced** shows every OpenRouter field.
 
-Every OpenRouter answer records which provider served it, and Why shows it. If an answer stopped at the provider's output limit, Why says "Cut off by this endpoint's output limit" and offers **Retry on an endpoint with more room**. Usage can show your spending by provider.
+Every OpenRouter answer records which provider served it, and its receipt shows it. If an answer stopped at the provider's output limit, the receipt says "Cut off by this endpoint's output limit" and offers **Retry on an endpoint with more room**. Usage can show your spending by provider.
 
 Open a model's **⋯** menu in Admin → Models and choose **Providers, routing and cost** to see all of this for that model.`,
       },
@@ -217,7 +217,7 @@ A source's menu (**⋯**, or right-click) can **Rename** it, which changes its t
 - **Summary**: only the source's summary is used. Good for background reading.
 - **Off**: ignored, but kept in the notebook.
 
-Change it from the source's row in the Sources panel. **Why** on an answer shows which passages were found, which were cited, and how each scored.`,
+Change it from the source's row in the Sources panel. The **receipt** on an answer shows which passages were found, which were cited, and how each scored.`,
       },
       {
         id: 'citations',
@@ -227,7 +227,7 @@ Change it from the source's row in the Sources panel. **Why** on an answer shows
         tour: 'cite',
         body: `In a grounded answer, numbers like **[1]** mark where a statement came from. Hover one to see the passage. Click it to open the source with the passage highlighted, scrolled into view, with its page for PDFs.
 
-A citation the model made up (a number that matches no passage it was given) is removed before you see the answer, and **Why** counts how many were removed.
+A citation the model made up (a number that matches no passage it was given) is removed before you see the answer, and the receipt counts how many were removed.
 
 When every statement in an answer is backed by a citation, it carries a small gilt seal.`,
       },
@@ -252,17 +252,19 @@ Hover or focus a claim to see the passage behind its verdict, and open it in the
       },
       {
         id: 'why',
-        title: 'Why did it say this?',
-        summary: 'The model, memory, passages, tools and cost behind one answer.',
-        keywords: 'why explain provenance trace attempts fallback memory retrieval tools decisions cost',
-        body: `Press **W** on an answer, or choose **Why** under it, to open the full story of how it was made:
+        title: 'The receipt under an answer',
+        summary: 'The model, who paid, the cost, what went in and what went wrong, for one answer.',
+        keywords:
+          'receipt why explain provenance trace attempts fallback memory retrieval tools decisions cost cache',
+        body: `Under every finished answer is one quiet line: the model, who paid (**Plan**, **Key** or **Local**), how long it took and what it cost. Click it, or press **W** on the answer, to open its receipt:
 
-- which model answered, and every model tried before it with the reason it was passed over
-- the memory it was given: each file, the commit it was read at, and the entries that fitted
-- the passages retrieved from your sources, how each ranked before and after reranking, and which it cited
-- each tool it used and the permission decision that let it run, or stopped it
-- whether older turns were compacted into a summary to make room
-- tokens, cost and the latest fact-check
+- **Answered by**: the model, who pays for it, and why this model was used
+- **What it cost**: fresh input, cache reads and writes, and output, with the rate per million tokens at the time. A plan answer shows tokens only; a local one costs nothing. **Step by step** lists each model call and tool in order
+- **What went in**: the memory it was given, the passages it read (**Show scores** lists how each ranked) and how many earlier turns were sent
+- **Worth knowing**: problems that fixed themselves, tool requests that asked you first, and the fact-check
+- **Open the trace** for the full record
+
+Press **Escape** to close the receipt and return to the line.
 
 Nothing here is reconstructed after the fact: it is what Core recorded while the answer was written.`,
       },
@@ -471,7 +473,7 @@ Any key can be changed in Settings → Keyboard.`,
 
 Open it in **Admin → Memory**. Every change is a commit: **History** shows who changed what and when, and **Undo this change** takes any of it back.
 
-To see exactly what a thread's next answer will be given, open **Why** on any answer: the memory it used is listed with the version of each file.`,
+To see exactly what a thread's next answer will be given, open the **receipt** on any answer: the memory it used is listed with the version of each file.`,
       },
       {
         id: 'memory-learning',
@@ -709,7 +711,7 @@ With no flow at all, answers come from the model you pick, as in a plain chat. S
 - **Context**, **Search sources**, **Fact-check**, **Tool**, **Template**, **Ask me** and **Subflow**.
 - **Notes** and **Groups** keep a big canvas readable.
 
-Every answer records which flow and path made it. Open **Why** on the answer to see each step.`,
+Every answer records which flow and path made it. Open the **receipt** on the answer, then **Show the flow's steps**.`,
       },
       {
         id: 'flow-and-model',
@@ -727,9 +729,9 @@ While a flow answers, the model chip is dimmed: it is the model for plain chat.
 - **Regenerate** goes through the flow that made the answer. **Regenerate with another model** answers alone, without the flow.
 - **Moving a thread** to another notebook switches it to that notebook's flow; steps you changed for the thread stay with the old flow.
 - **Deleting a notebook or thread** keeps its flows as switched-off drafts.
-- If a thread's model loses its key, your default answers instead, and **Why** says so.
+- If a thread's model loses its key, your default answers instead, and its receipt says so.
 
-**Why** on any answer says what answered, who chose it, and any flow that was set aside.`,
+The **receipt** on any answer says what answered, who chose it, and any flow that was set aside.`,
       },
       {
         id: 'flow-editor',

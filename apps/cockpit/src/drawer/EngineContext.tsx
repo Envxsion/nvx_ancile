@@ -1,6 +1,6 @@
 /**
  * ------------------------------------------------------------------
- *  Title    |  Why: what the engine was given
+ *  Title    |  What the engine was given, in words
  *  Ref      |  docs/engines.md (Context for each engine)
  *  ID       |  cockpit
  * ------------------------------------------------------------------
@@ -18,15 +18,11 @@
  * ------------------------------------------------------------------
  */
 
-import type { EffectiveScope, EngineContextReport } from '@nvx/contracts';
-import { Link } from '@tanstack/react-router';
-import { LEVEL_WORDS, scopeChip, scopeSummary } from '../scopes/api';
-import { Icon } from '../ui/Icon';
+import type { EngineContextReport } from '@nvx/contracts';
+import { LEVEL_WORDS } from '../scopes/api';
 
 const n = (v: number) => v.toLocaleString('en-GB');
 const plural = (v: number, one: string, many = `${one}s`) => `${n(v)} ${v === 1 ? one : many}`;
-
-const ENGINE_NAME: Record<string, string> = { gateway: 'NVX Ancile', claude_code: 'Claude Code' };
 
 /** The facts, as lines; pure, so the tests read the same words the panel shows. */
 export function engineContextLines(r: EngineContextReport): string[] {
@@ -52,45 +48,6 @@ export function engineContextLines(r: EngineContextReport): string[] {
     lines.push(`${plural(r.recalled.length, 'earlier message')} recalled because they bear on the question`);
   if (r.dropped) lines.push(`${plural(r.dropped, 'message')} left out to fit`);
   return lines;
-}
-
-export function EngineContextSection({
-  report,
-  threadId,
-}: {
-  report: EngineContextReport;
-  threadId: string | null;
-}) {
-  const lines = engineContextLines(report);
-  return (
-    <section className="why__section">
-      <h3 className="why__h">What {ENGINE_NAME[report.engine] ?? report.engine} was given</h3>
-      <ul className="why__ctx">
-        {lines.map((l) => (
-          <li key={l}>
-            <Icon name="dot" size={10} />
-            <span>{l}</span>
-          </li>
-        ))}
-      </ul>
-      {report.recalled.length && threadId ? (
-        <p className="why__links">
-          <span className="mute">Recalled: </span>
-          {report.recalled.slice(0, 8).map((id, i) => (
-            <span key={id}>
-              {i ? ', ' : ''}
-              <Link to="/t/$threadId" params={{ threadId }} hash={id} className="link-btn link-btn--quiet">
-                message {i + 1}
-              </Link>
-            </span>
-          ))}
-          {report.recalled.length > 8 ? (
-            <span className="mute"> and {report.recalled.length - 8} more</span>
-          ) : null}
-        </p>
-      ) : null}
-    </section>
-  );
 }
 
 /** A decision's rule in words: "Scope: network", "Floor: recursive delete". */
@@ -125,19 +82,5 @@ export function DecisionRule({
         </span>
       ) : null}
     </p>
-  );
-}
-
-/** The thread's scope, when it is narrower than the default. */
-export function ScopeLine({ scope }: { scope: EffectiveScope | null | undefined }) {
-  if (!scope || !scopeChip(scope)) return null;
-  return (
-    <section className="why__section">
-      <h3 className="why__h">What this thread may use</h3>
-      <p>{scopeSummary(scope)}</p>
-      {scope.clamped.length ? (
-        <p className="mute">Some of the thread's own limits were clamped to the notebook's.</p>
-      ) : null}
-    </section>
   );
 }

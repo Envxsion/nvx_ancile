@@ -5,6 +5,7 @@
  * TODO(phase-2..5): grow with each route; every route gets a contract test.
  */
 import { z } from 'zod';
+import { ModelBilling } from './billing';
 import { ClaudeCodeBinding, QUEUE_LIMIT, QueuedTurn } from './claudecode';
 import { ModelHue } from './config';
 import { AnthropicWorkspaceId } from './credentials';
@@ -246,17 +247,6 @@ export const EditMessageRequest = z
  * signed_out: a Claude Code model while Claude Code is installed but not signed in.
  */
 export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled', 'signed_out']);
-
-/** How answers from a model are paid for (MD3). */
-export const ModelBilling = z
-  .object({
-    /** plan: a subscription you are signed in to (counted against its limits); key: pay per use on an API key or cloud account; local: your own computer or network; rented: a GPU node you pay for by the hour; none: offline test models. */
-    kind: z.enum(['plan', 'key', 'local', 'rented', 'none']),
-    /** Who bills. plan: the plan name as Claude Code reports it ('max', 'pro', 'team', 'enterprise'…), null if unknown. key: the provider id ('anthropic', 'openai', 'openrouter'…) or the cloud ('bedrock', 'vertex', 'foundry') when Claude Code bills one. Otherwise null. */
-    payer: z.string().max(60).nullable(),
-  })
-  .strict();
-export type ModelBilling = z.infer<typeof ModelBilling>;
 
 export const ModelInfo = z.object({
   id: z.string(),

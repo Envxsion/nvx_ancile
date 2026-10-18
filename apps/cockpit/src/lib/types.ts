@@ -123,6 +123,8 @@ export interface MessageView {
   citations?: CitationView[];
   confidence?: number;
   usage?: { tokens: number; costUsd: number; ms?: number };
+  /** The usage as Core recorded it (cache figures, rates, calls): the receipt reads this. */
+  rawUsage?: import('@nvx/contracts').Usage;
   createdAt: string;
   status?: 'complete' | 'streaming' | 'pending' | 'stopped' | 'error';
   /** The run producing this message, while it is still running. */
@@ -232,16 +234,6 @@ export interface EvidenceView {
   confidence: number;
   support: { source: string; quote: string; stance: 'supports' | 'contradicts' }[];
   rationale: string;
-}
-
-export interface ExplainView {
-  answered: string;
-  requested: string | null;
-  attempts: { model: string; outcome: string; reason: string | null; ms: number }[];
-  memory: { path: string; commit: string; entries: string[]; tokens: number }[];
-  retrieval: { title: string; score: number; rerank: number; cited: boolean }[];
-  tools: { tool: string; outcome: string }[];
-  usage: { input: number; output: number; costUsd: number };
 }
 
 export interface PendingApproval {

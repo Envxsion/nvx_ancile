@@ -29,15 +29,13 @@ import { partsText, reasonWords, unknownCount } from '../lib/mappers';
 import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { aliasAnswered } from '../models/lines';
+import { receiptFacts } from '../receipt/facts';
+import { Receipt } from '../receipt/Receipt';
+import { ReceiptStrip } from '../receipt/ReceiptStrip';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
-import {
-  claudeCodeCostWords,
-  isClaudeCodeAnswer,
-  isClaudeCodeModel,
-  useClaudeBilling,
-} from '../usage/planCost';
+import { claudeCodeCostWords, isClaudeCodeModel } from '../usage/planCost';
 import { CiteProvider } from './Citations';
 import { Cite, Claim, ClaimsProvider } from './Claims';
 import { FactcheckChip } from './Factcheck';
@@ -111,7 +109,7 @@ function Grounding({ trace, onWhy }: { trace: RetrievalTrace; onWhy: () => void 
           ? ` · ${cited.length} ${cited.length === 1 ? 'passage' : 'passages'} from ${sources.size} ${sources.size === 1 ? 'source' : 'sources'}`
           : ''}
       </span>
-      <span className="grounding__why">Why</span>
+      <span className="grounding__why">Receipt</span>
     </button>
   );
 }
@@ -255,8 +253,8 @@ export const Message = memo(function Message({
   const flow = m.provenance?.flow;
   const hasText = (m.parts ?? []).some((p) => (p.type === 'text' && p.text) || p.type === 'tool_call');
   const showCost = usePrefs((s) => s.prefs.reading.cost);
-  const fromClaude = m.role === 'assistant' && isClaudeCodeAnswer(m);
-  const billedTo = useClaudeBilling(fromClaude && showCost && !!m.usage);
+  // The receipt's strip stands where the cost line was; it appears once the answer is done.
+  const receipt = m.role === 'assistant' && !streaming ? receiptFacts(m) : null;
   // "When finished": the answer is held back until it is whole.
   const whole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
   const writingHidden = streaming && whole && hasText;
@@ -347,13 +345,13 @@ export const Message = memo(function Message({
       ) : null}
 
       {m.role === 'assistant' && m.provenance?.retrieval && !streaming && m.status !== 'error' ? (
-        <Grounding trace={m.provenance.retrieval} onWhy={() => useUi.getState().explain(m.id)} />
+        <Grounding trace={m.provenance.retrieval} onWhy={() => useUi.getState().showReceipt(m.id)} />
       ) : null}
 
       {m.role === 'assistant' && m.fallback && !streaming && !aliasAnswered(m.fallback.from, m.modelId) ? (
         <p
           className="msg__fallback"
-          title="NVX Ancile switched models without interrupting you. Open Why for the details."
+          title="NVX Ancile switched models without interrupting you. Open the receipt for the details."
         >
           <Icon name="model" size={12} />
           <span>
@@ -524,8 +522,8 @@ export const Message = memo(function Message({
             <button
               type="button"
               className="msg__route"
-              title={`Answered by the flow "${flow.name}", version ${flow.version}. Open Why for the route.`}
-              onClick={() => useUi.getState().explain(m.id)}
+              title={`Answered by the flow "${flow.name}", version ${flow.version}. Open the receipt for the route.`}
+              onClick={() => useUi.getState().showReceipt(m.id)}
             >
               <Icon name="tree" size={11} />
               {flow.name} <span data-num>v{flow.version}</span>
@@ -541,15 +539,11 @@ export const Message = memo(function Message({
               <span data-num>{percent(m.confidence)}</span> grounded
             </span>
           ) : null}
-          {m.usage && showCost ? (
-            <span className="msg__usage" data-num>
-              {m.usage.tokens.toLocaleString('en-GB')} tokens ·{' '}
-              {costText(m.usage.costUsd, m.modelId, { answer: fromClaude, billedTo })}
-              {m.usage.ms !== undefined ? ` · ${(m.usage.ms / 1000).toFixed(1)} s` : null}
-            </span>
-          ) : null}
+          {receipt ? <ReceiptStrip messageId={m.id} facts={receipt} showCost={showCost} /> : null}
         </footer>
       ) : null}
+
+      {m.role === 'assistant' && !streaming ? <Receipt m={m} threadId={threadId} /> : null}
 
       {m.role === 'user' && !editing ? (
         <footer className="msg__foot msg__foot--user">

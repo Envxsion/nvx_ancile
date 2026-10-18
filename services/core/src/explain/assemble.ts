@@ -8,8 +8,10 @@
  *           |  that answered and what was tried before it, the memory
  *           |  it was given, the passages retrieved and which it cited,
  *           |  each tool call and the decision that let it run (or
- *           |  not), compaction, tokens and cost, the latest fact-check,
- *           |  and where the full trace is.
+ *           |  not), compaction, tokens and cost, retries that worked,
+ *           |  the latest fact-check, and where the full trace is.
+ *           |  The cockpit's answer receipt (roadmap WY1) is built from
+ *           |  this and the message itself.
  *  How      |  Pure assembly over what is already recorded: the
  *           |  message's provenance (written by the conductor, the
  *           |  memory module and compaction), its parts, the run's
@@ -31,6 +33,7 @@ import {
   type Factcheck,
   FlowProvenance,
   type Part,
+  Recovered,
   RetrievalTrace,
 } from '@nvx/contracts';
 import type { MessageRecord } from '../threads/repo';
@@ -86,6 +89,7 @@ export function pairTools(
         ok: r ? r.ok && r.declined_reason === undefined : null,
         result: r ? preview(r.result) : null,
         declined_reason: r?.declined_reason ?? null,
+        duration_ms: r?.duration_ms ?? null,
         decision: decision
           ? {
               outcome: decision.outcome,
@@ -120,6 +124,13 @@ export function assembleExplain(input: {
     ? p.links.flatMap((l) => {
         const r = ExplainLink.safeParse(l);
         return r.success ? [r.data] : [];
+      })
+    : [];
+  // Retries that worked; an entry that no longer parses is left out, never trusted.
+  const recovered = Array.isArray(p.recovered)
+    ? p.recovered.flatMap((r) => {
+        const parsed = Recovered.safeParse(r);
+        return parsed.success ? [parsed.data] : [];
       })
     : [];
   const attempts = Array.isArray(p.attempts)
@@ -162,6 +173,7 @@ export function assembleExplain(input: {
     error: err?.code
       ? { code: String(err.code), title: String(err.title ?? ''), hint: String(err.hint ?? '') }
       : null,
+    recovered,
     flow: flow.success ? flow.data : null,
     scope: input.scope ?? null,
     links,

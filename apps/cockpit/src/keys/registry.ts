@@ -97,7 +97,6 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'drawer.sources', keys: 'alt+1', label: 'Sources panel', group: 'View', scope: 'global' },
   { id: 'drawer.notes', keys: 'alt+2', label: 'Notes panel', group: 'View', scope: 'global' },
   { id: 'drawer.tree', keys: 'alt+3', label: 'Branch tree panel', group: 'View', scope: 'global' },
-  { id: 'drawer.why', keys: 'alt+4', label: 'Why panel', group: 'View', scope: 'global' },
 
   { id: 'go.notebooks', keys: 'g n', label: 'Notebooks', group: 'Go to', scope: 'global' },
   { id: 'go.threads', keys: 'g t', label: 'Threads', group: 'Go to', scope: 'global' },
@@ -118,7 +117,13 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'message.branch', keys: 'b', label: 'Branch from here', group: 'Thread', scope: 'thread' },
   { id: 'message.beam', keys: 'shift+b', label: 'Beam this question', group: 'Thread', scope: 'thread' },
   { id: 'message.factcheck', keys: 'f', label: 'Fact-check', group: 'Thread', scope: 'thread' },
-  { id: 'message.why', keys: 'w', label: 'Why did it say this?', group: 'Thread', scope: 'thread' },
+  {
+    id: 'message.why',
+    keys: 'w',
+    label: 'Open the receipt for this answer',
+    group: 'Thread',
+    scope: 'thread',
+  },
   { id: 'message.copy', keys: 'c', label: 'Copy', group: 'Thread', scope: 'thread' },
   { id: 'message.cite', keys: 's', label: 'Show sources', group: 'Thread', scope: 'thread' },
   { id: 'message.note', keys: 'shift+n', label: 'Save as note', group: 'Thread', scope: 'thread' },

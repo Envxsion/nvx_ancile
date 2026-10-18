@@ -223,7 +223,14 @@ describe('importing', () => {
     expect(a?.parts[1]).toMatchObject({ call_id: 'call1', tool: 'Read', args: { file_path: 'auth.ts' } });
     expect(a?.parts[2]).toMatchObject({ call_id: 'call1', ok: true, result: 'export const x = 1;' });
     // One API response spans entries a1 and a2: its usage counts once.
-    expect(a?.usage).toEqual({ input_tokens: 13, output_tokens: 12, cached_tokens: 100, cost_usd: 0 });
+    expect(a?.usage).toEqual({
+      input_tokens: 13,
+      output_tokens: 12,
+      cached_tokens: 100,
+      cache_write_tokens: 0,
+      cache_reported: true,
+      cost_usd: 0,
+    });
     expect(a?.provenance).toMatchObject({
       claude_code: { session_id: 's1', uuid: 'a3', uuids: ['a1', 'a2', 'r1', 'a3'] },
     });

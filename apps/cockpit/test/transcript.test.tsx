@@ -18,12 +18,12 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 });
 
 import { CcEventRow } from '../src/claudecode/ThreadMarker';
-import { Retrieval } from '../src/drawer/WhyPanel';
 import { api } from '../src/lib/api';
 import { highlight } from '../src/lib/highlight';
 import { toMessageViews } from '../src/lib/mappers';
 import { queryClient } from '../src/lib/query';
 import type { CcEvent, MessageView } from '../src/lib/types';
+import { Retrieval } from '../src/receipt/Sections';
 import { budgetWords, ComposerHints } from '../src/thread/ComposerHints';
 import { Message as MessageRow } from '../src/thread/Message';
 import { Parts } from '../src/thread/Parts';
@@ -207,7 +207,7 @@ describe("Claude Code's events are quiet rows, not bubbles", () => {
     expect(screen.getByText('Stopped by you')).toBeInTheDocument();
   });
 
-  it('Why says an answer brought in from the terminal has no citation record', () => {
+  it('The receipt says an answer brought in from the terminal has no citation record', () => {
     const base = {
       retrieval: null,
       retrieval_error: null,

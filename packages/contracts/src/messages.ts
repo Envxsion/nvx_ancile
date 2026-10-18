@@ -4,6 +4,7 @@
  * makes switching model mid-thread lossless (DESIGN.md §8.6).
  */
 import { z } from 'zod';
+import { ModelBilling } from './billing';
 import { ServedBy } from './openrouter';
 
 export const Role = z.enum(['system', 'user', 'assistant', 'tool']);
@@ -103,15 +104,86 @@ export type Part = z.infer<typeof Part>;
 
 export const MessageStatus = z.enum(['pending', 'streaming', 'complete', 'stopped', 'error']);
 
+/**
+ * One model call inside an answer (roadmap WY1). A tool-using answer makes
+ * several; the receipt lists them. Token counts follow the canonical meaning
+ * (gateway/usage.ts): input counts every prompt token, cache reads and
+ * writes included.
+ */
+export const UsageCall = z.object({
+  model_id: z.string(),
+  /** When the call began, in ms after the turn started. */
+  started_ms: z.number().int().nonnegative(),
+  ms: z.number().int().nonnegative(),
+  input_tokens: z.number().int().nonnegative(),
+  cached_tokens: z.number().int().nonnegative(),
+  cache_write_tokens: z.number().int().nonnegative(),
+  output_tokens: z.number().int().nonnegative(),
+  /** List price for this call. */
+  cost_usd: z.number().nonnegative(),
+  /** What the provider says it billed, when it says (OpenRouter). */
+  billed_usd: z.number().nonnegative().optional(),
+  served: ServedBy.optional(),
+  /** Why the call ended: it asked for tools, finished its answer, hit the output cap, or failed. */
+  stop: z.enum(['tool_calls', 'end', 'length', 'error']).optional(),
+});
+export type UsageCall = z.infer<typeof UsageCall>;
+
+/** Prices per million tokens in force when the answer was written. */
+export const UsageRates = z.object({
+  input: z.number().nonnegative(),
+  cached: z.number().nonnegative(),
+  cache_write: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+});
+export type UsageRates = z.infer<typeof UsageRates>;
+
+export const MAX_USAGE_CALLS = 50;
+
 export const Usage = z.object({
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
   cached_tokens: z.number().int().nonnegative().default(0),
+  /** The list-price cost (tokens times the model's rates). The receipt total uses `billed_usd` when it is set. */
   cost_usd: z.number().nonnegative(),
   /** OpenRouter only: which provider (and, under openrouter/auto, which model) answered. */
   served: ServedBy.optional(),
+  /** Tokens written to the provider's cache. Absent on answers from before the receipt. */
+  cache_write_tokens: z.number().int().nonnegative().optional(),
+  /** False when the provider reported no cache figures at all: "not reported", never zero. Absent on older answers. */
+  cache_reported: z.boolean().optional(),
+  /** What the provider billed for the whole answer: its calls' billed cost, plus list price for any call it did not bill. Set only when a provider billed at least one call (OpenRouter); it then equals `cost_usd`. */
+  billed_usd: z.number().nonnegative().optional(),
+  /** The list price of the whole answer (its tokens at the model's rates), set with `billed_usd` so a difference can be shown. */
+  list_usd: z.number().nonnegative().optional(),
+  /** Who paid, as it was when the answer was written; a later sign-in change does not rewrite it. */
+  billing: ModelBilling.optional(),
+  rates: UsageRates.optional(),
+  /** Every model call the answer made, in order (at most 50). */
+  calls: z.array(UsageCall).max(MAX_USAGE_CALLS).optional(),
+  /** Wall time of the whole turn, in ms. */
+  ms: z.number().int().nonnegative().optional(),
 });
 export type Usage = z.infer<typeof Usage>;
+
+/**
+ * A problem that fixed itself while the answer was written (provenance.recovered):
+ * a model call or a tool call that failed, was retried inside the resilience
+ * layer, and then succeeded.
+ */
+export const Recovered = z.object({
+  what: z.enum(['model', 'tool']),
+  name: z.string(),
+  /** Attempts in all, the successful one included. */
+  attempts: z.number().int().min(2),
+  /** Time spent waiting between attempts, in ms. */
+  waited_ms: z.number().int().nonnegative(),
+  /** A short code: rate_limited, timeout, server_error or network. */
+  reason: z.string().max(40),
+});
+export type Recovered = z.infer<typeof Recovered>;
+
+export const MAX_RECOVERED = 20;
 
 export const Message = z.object({
   id: z.string(),

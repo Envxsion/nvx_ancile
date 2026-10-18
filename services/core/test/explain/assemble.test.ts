@@ -57,3 +57,21 @@ describe('where an answer was written', () => {
     expect(explain(message({ model_id: 'openai/gpt-5' })).origin).toBe('ancile');
   });
 });
+
+describe('the receipt data', () => {
+  it('passes on the retries that worked and drops any that no longer parse', () => {
+    const good = { what: 'tool', name: 'web_search', attempts: 2, waited_ms: 1200, reason: 'timeout' };
+    const x = explain(message({ provenance: { recovered: [good, { what: 'nonsense' }] } }));
+    expect(x.recovered).toEqual([good]);
+  });
+
+  it('is empty, not invented, for an older answer', () => {
+    const x = explain(
+      message({ usage: { input_tokens: 10, output_tokens: 5, cached_tokens: 0, cost_usd: 0.01 } }),
+    );
+    expect(x.recovered).toEqual([]);
+    expect(x.usage).toEqual({ input_tokens: 10, output_tokens: 5, cached_tokens: 0, cost_usd: 0.01 });
+    expect(x.usage?.calls).toBeUndefined();
+    expect(x.usage?.cache_reported).toBeUndefined();
+  });
+});

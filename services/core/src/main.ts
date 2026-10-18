@@ -891,6 +891,7 @@ async function main() {
         mcpTools: mcpGuard,
       }),
     tools,
+    billing: (id) => registry.billingFor(id),
     passes: claudePasses,
     mcp: {
       url: `http://${ccHost.includes(':') ? `[${ccHost}]` : ccHost}:${env.ANCILE_PORT}/mcp/claude`,

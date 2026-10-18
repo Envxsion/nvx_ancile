@@ -35,7 +35,6 @@ vi.mock('../src/lib/api', async (importOriginal) => {
   return { ...real, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() } };
 });
 
-import { LinksUsed } from '../src/drawer/WhyPanel';
 import { api } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
 import { LinksDialog } from '../src/notebooks/LinksDialog';
@@ -43,6 +42,7 @@ import { MergeDialog } from '../src/notebooks/MergeDialog';
 import { MergeHistory } from '../src/notebooks/MergeHistory';
 import { ContextPacksLocked } from '../src/pro/ContextPacksLocked';
 import { PRO_SURFACES } from '../src/pro/slot';
+import { LinksUsed } from '../src/receipt/Sections';
 
 const mocked = api as unknown as Record<'get' | 'post' | 'del', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) =>
@@ -204,7 +204,7 @@ describe('context links', () => {
     await waitFor(() => expect(mocked.del).toHaveBeenCalledWith('/context-links/lnk_1'));
   });
 
-  it('shows in the Why view which links contributed and which were refused', () => {
+  it('shows in the receipt which links contributed and which were refused', () => {
     const links: Explain['links'] = [
       {
         link_id: 'lnk_1',

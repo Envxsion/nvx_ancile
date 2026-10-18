@@ -33,7 +33,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 
 import { AutoRanBadge, BatchCard, PlanCard, PlanLine } from '../src/auto/AutoCards';
 import { openBatch, useAuto } from '../src/auto/store';
-import { DecisionRule, EngineContextSection, engineContextLines } from '../src/drawer/EngineContext';
+import { DecisionRule, engineContextLines } from '../src/drawer/EngineContext';
 import { InstructionsEditor } from '../src/editors/InstructionsEditor';
 import { ApiCallError, api, localError } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
@@ -487,9 +487,9 @@ describe('Auto mode in a thread', () => {
   });
 });
 
-/* ---- Why ---------------------------------------------------------------- */
+/* ---- Receipt ---------------------------------------------------------------- */
 
-describe('Why: the engine context and each decision’s rule', () => {
+describe('Receipt: the engine context and each decision’s rule', () => {
   it('says what a gateway model was given: recalled, digested and dropped', () => {
     const report = {
       engine: 'gateway',
@@ -512,9 +512,6 @@ describe('Why: the engine context and each decision’s rule', () => {
       '2 earlier messages recalled because they bear on the question',
       '3 messages left out to fit',
     ]);
-    wrap(<EngineContextSection report={report} threadId="thr_1" />);
-    expect(screen.getByRole('heading', { name: 'What NVX Ancile was given' })).toBeInTheDocument();
-    expect(screen.getByText('message 2')).toBeInTheDocument();
   });
 
   it('says when Claude Code was started afresh from the summary', () => {

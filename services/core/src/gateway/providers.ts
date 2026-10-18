@@ -294,6 +294,7 @@ export class AiSdkClient implements ModelClient {
         outputTokens: output,
         cachedTokens: sdkCached,
         ...(written > 0 && { cacheWriteTokens: written }),
+        cacheReported: true,
       };
     }
     const raw = meta?.raw?.usage;
@@ -305,6 +306,8 @@ export class AiSdkClient implements ModelClient {
       outputTokens: output,
       cachedTokens: cached,
       ...(cache.write && { cacheWriteTokens: cache.write }),
+      // Said so by the provider: the SDK read a figure, or the raw usage carried one.
+      cacheReported: total.cachedInputTokens !== undefined || cache.hit !== undefined,
     };
   }
 

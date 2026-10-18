@@ -15,6 +15,7 @@
 import { classify, type ErrorClass, RETRYABLE, retryAfterOf } from './classify';
 import { abortReason, type Clock, systemClock } from './clock';
 import { Deadline } from './deadline';
+import { reportRecovery } from './recovery';
 
 export interface RetryPolicy {
   baseMs: number;
@@ -57,10 +58,15 @@ export async function retry<T>(
   const random = opts.random ?? Math.random;
   const deadline = opts.deadline ?? Deadline.never(clock);
 
+  let waitedMs = 0;
+  let last: { error: unknown; errorClass: ErrorClass } | undefined;
   for (let attempt = 1; ; attempt++) {
     if (opts.signal?.aborted) throw abortReason(opts.signal);
     try {
-      return await fn(attempt, opts.signal);
+      const value = await fn(attempt, opts.signal);
+      if (last)
+        reportRecovery({ attempts: attempt, waitedMs, errorClass: last.errorClass, error: last.error });
+      return value;
     } catch (err) {
       const cls = classify(err);
       const wanted = opts.shouldRetry ? opts.shouldRetry(err, cls, attempt) : RETRYABLE.has(cls);
@@ -73,6 +79,8 @@ export async function retry<T>(
       if (delayMs >= deadline.remaining()) throw err;
 
       opts.onRetry?.({ attempt, delayMs, error: err, errorClass: cls });
+      last = { error: err, errorClass: cls };
+      waitedMs += delayMs;
       await clock.sleep(delayMs, opts.signal);
     }
   }

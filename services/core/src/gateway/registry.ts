@@ -34,6 +34,7 @@ import {
   isLineAlias,
   lineAlias,
   lineOfAlias,
+  type ModelBilling,
   ModelConfig,
   type ModelHue,
   type ModelInfo,
@@ -511,6 +512,12 @@ export class ModelRegistry {
   /** Tell the registry how Claude Code is signed in: its models are ready only while it is, and bill by it. */
   setClaudeAuth(auth: ClaudeAuth | null): void {
     this.claudeAuth = auth;
+  }
+
+  /** Who pays for a model, as it is now (roadmap WY1 keeps this with each answer). Null for an unknown id. */
+  billingFor(id: string): ModelBilling | null {
+    const m = this.get(id);
+    return m ? billingOf(m, this.claudeAuth) : null;
   }
 
   all(): ModelConfig[] {

@@ -216,9 +216,18 @@ describe('a tool result joins the answer holding its call', () => {
       input_tokens: 10,
       output_tokens: 5,
       cached_tokens: 100,
+      cache_write_tokens: 0,
+      cache_reported: true,
       cost_usd: 0,
     });
-    expect(planned[3]?.usage).toEqual({ input_tokens: 3, output_tokens: 7, cached_tokens: 0, cost_usd: 0 });
+    expect(planned[3]?.usage).toEqual({
+      input_tokens: 3,
+      output_tokens: 7,
+      cached_tokens: 0,
+      cache_write_tokens: 0,
+      cache_reported: true,
+      cost_usd: 0,
+    });
   });
 
   it('when a command came between them: its output still folds into the command', () => {

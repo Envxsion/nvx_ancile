@@ -58,7 +58,13 @@ const ACTIONS: Action[] = [
     roles: ['assistant'],
   },
   { id: 'cite', binding: 'message.cite', label: 'Show sources', icon: 'cite', roles: ['assistant'] },
-  { id: 'why', binding: 'message.why', label: 'Why did it say this?', icon: 'why', roles: ['assistant'] },
+  {
+    id: 'why',
+    binding: 'message.why',
+    label: 'Open the receipt for this answer',
+    icon: 'why',
+    roles: ['assistant'],
+  },
   { id: 'edit', binding: 'message.edit', label: 'Edit', icon: 'edit', roles: ['user'] },
   { id: 'lab', binding: 'message.lab', label: 'Run in the lab', icon: 'node', roles: ['user'] },
   // Several models answer the question (an answer's question, for an answer) as its new versions.
@@ -175,7 +181,7 @@ export function MessageActions({
       case 'cite':
         return openDrawer('sources');
       case 'why':
-        return useUi.getState().explain(message.id);
+        return useUi.getState().showReceipt(message.id);
       case 'note': {
         const nb = queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.notebookId;
         if (demo || !nb)
@@ -358,7 +364,7 @@ export function MessageActions({
             }
           />
         ) : (
-          <Tip key={a.id} label={a.id === 'why' && flow ? 'Why this route?' : a.label} binding={a.binding}>
+          <Tip key={a.id} label={a.id === 'why' && flow ? 'Receipt and route' : a.label} binding={a.binding}>
             <button
               type="button"
               className="icon-btn icon-btn--sm"

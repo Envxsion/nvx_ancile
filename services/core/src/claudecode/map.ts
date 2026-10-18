@@ -322,6 +322,9 @@ export function usageOf(e: CcSessionMessage): Usage | null {
     input_tokens: n(u.input_tokens) + n(u.cache_creation_input_tokens),
     output_tokens: n(u.output_tokens),
     cached_tokens: n(u.cache_read_input_tokens),
+    // Claude Code counts a cache write inside input_tokens (above); this says how much of it was.
+    cache_write_tokens: n(u.cache_creation_input_tokens),
+    cache_reported: true,
     cost_usd: 0,
   };
 }
@@ -333,6 +336,12 @@ export function addUsage(a: Usage | null, b: Usage | null): Usage | null {
     input_tokens: a.input_tokens + b.input_tokens,
     output_tokens: a.output_tokens + b.output_tokens,
     cached_tokens: a.cached_tokens + b.cached_tokens,
+    ...(a.cache_write_tokens !== undefined || b.cache_write_tokens !== undefined
+      ? { cache_write_tokens: (a.cache_write_tokens ?? 0) + (b.cache_write_tokens ?? 0) }
+      : {}),
+    ...(a.cache_reported !== undefined || b.cache_reported !== undefined
+      ? { cache_reported: a.cache_reported === true || b.cache_reported === true }
+      : {}),
     cost_usd: a.cost_usd + b.cost_usd,
   };
 }
@@ -1021,6 +1030,9 @@ export function planRepair(
       input_tokens: Math.max(0, u.input_tokens - over.input_tokens),
       output_tokens: Math.max(0, u.output_tokens - over.output_tokens),
       cached_tokens: Math.max(0, (u.cached_tokens ?? 0) - over.cached_tokens),
+      ...(u.cache_write_tokens !== undefined && {
+        cache_write_tokens: Math.max(0, u.cache_write_tokens - (over.cache_write_tokens ?? 0)),
+      }),
     };
     w.changed.add('usage');
     counts.recounted++;

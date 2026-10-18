@@ -1,0 +1,278 @@
+/* ---------------------------------------------------------------------------
+   The answer's receipt (roadmap WY1): a quiet strip under a finished answer
+   that opens into what the answer was. Tokens only. Signal violet appears
+   for focus and for a model call that is still being written, nowhere else.
+   ------------------------------------------------------------------------ */
+
+.rc-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--mute);
+  font-size: 11px;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.rc-strip:hover,
+.rc-strip[aria-expanded='true'] {
+  background: var(--lift);
+  color: var(--fg-2);
+}
+.rc-strip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.rc-strip__model {
+  color: var(--fg-2);
+  font-weight: 560;
+}
+.rc-strip__fig {
+  font-stretch: 87.5%;
+}
+.rc-strip__saved {
+  color: var(--fg-2);
+}
+.rc-strip__chev {
+  transition: transform var(--d-short) var(--ease);
+}
+.rc-strip[aria-expanded='true'] .rc-strip__chev {
+  transform: rotate(180deg);
+}
+:root[data-motion='reduced'] .rc-strip__chev {
+  transition: none;
+}
+
+.rc-badge {
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  color: var(--fg-2);
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 16px;
+}
+
+.rc {
+  margin: 4px 0 10px;
+  border-radius: var(--r-md);
+  background: var(--lift);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+.rc:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.rc__inner {
+  display: grid;
+  gap: 14px;
+  padding: 12px 14px 14px;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.rc__section {
+  display: grid;
+  gap: 4px;
+}
+.rc__section p {
+  margin: 0;
+}
+.rc__h {
+  margin: 0;
+  color: var(--mute);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rc__who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+}
+.rc__total {
+  color: var(--fg);
+  font-weight: 560;
+}
+.rc__note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.rc__sealed {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.rc__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.rc-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: baseline;
+}
+.rc-line--error {
+  color: var(--fail);
+}
+
+.rc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.rc-table th,
+.rc-table td {
+  padding: 3px 0;
+  text-align: left;
+  font-weight: 400;
+}
+.rc-table thead th {
+  color: var(--mute);
+  font-size: 11px;
+}
+.rc-table .rc-table__n {
+  text-align: right;
+  padding-left: 12px;
+}
+.rc-table tfoot th,
+.rc-table tfoot td {
+  border-top: 1px solid var(--hair);
+  color: var(--fg);
+  font-weight: 560;
+}
+
+.rc-fold__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
+.rc-fold__btn:hover {
+  color: var(--fg);
+}
+.rc-fold__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+.rc-fold__chev {
+  transition: transform var(--d-short) var(--ease);
+}
+.rc-fold__btn[aria-expanded='true'] .rc-fold__chev {
+  transform: rotate(90deg);
+}
+.rc-fold__body {
+  padding: 4px 0 4px 16px;
+}
+:root[data-motion='reduced'] .rc-fold__chev {
+  transition: none;
+}
+
+.rc-calls,
+.rc-steps,
+.rc-memory,
+.rc-memory__entries,
+.rc-links,
+.rc-scores {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rc-calls li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-steps {
+  padding: 4px 0 4px 4px;
+}
+.rc-step {
+  display: grid;
+  grid-template-columns: 10px auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+}
+.rc-step__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mute-2);
+}
+.rc-step[data-kind='model'] .rc-step__dot {
+  background: var(--fg-2);
+}
+.rc-step[data-live] .rc-step__dot {
+  background: var(--signal);
+}
+.rc-step__label {
+  color: var(--fg);
+  text-transform: capitalize;
+}
+.rc-step__end {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-memory__file {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.rc-memory__entries {
+  padding-left: 20px;
+  color: var(--mute);
+}
+
+.rc-links li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+.rc-links li[data-state='refused'] {
+  color: var(--mute);
+}
+
+.rc-scores li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 2px 4px;
+}
+.rc-scores__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-sm);
+  background: var(--chalk);
+  opacity: 0.6;
+  pointer-events: none;
+}
+.rc-scores li > :not(.rc-scores__bar) {
+  position: relative;
+}
+.rc-scores li[data-cited] .rc-scores__cited {
+  color: var(--fg);
+}
+.rc-scores__title {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

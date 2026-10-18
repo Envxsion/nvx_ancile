@@ -58,6 +58,7 @@ import {
   claudeCodeLean,
   type EngineContextReport,
   type ImagePart,
+  type ModelBilling,
   type Part,
   type ResumeCommand,
   type RetrievalTrace,
@@ -276,6 +277,8 @@ export interface LiveDeps {
   /** A gate whose root is the session's folder (writes outside it are critical). */
   gateFor(root: string): Gate;
   tools?: Pick<ToolRegistry, 'get'>;
+  /** Who pays for a model now (registry.billingFor); recorded with each answer's usage (roadmap WY1). */
+  billing?: (modelId: string) => ModelBilling | null;
   passes?: LabPasses;
   /** Ancile's MCP server for sessions (/mcp/claude), when it is served. */
   mcp?: { url: string; secret: string } | null;
@@ -1381,10 +1384,17 @@ export class ClaudeCodeLive {
             if (part.type === 'citation_ref')
               await emit({ type: 'citation', message_id: cp.assistantMessageId, part });
         }
+        const billing = p.model_id ? (this.deps.billing?.(p.model_id) ?? null) : null;
         const usage: Usage | null = p.usage
-          ? { ...p.usage, cost_usd: turnCost ?? 0 }
+          ? { ...p.usage, cost_usd: turnCost ?? 0, ...(billing && { billing }) }
           : turnCost !== null
-            ? { input_tokens: 0, output_tokens: 0, cached_tokens: 0, cost_usd: turnCost }
+            ? {
+                input_tokens: 0,
+                output_tokens: 0,
+                cached_tokens: 0,
+                cost_usd: turnCost,
+                ...(billing && { billing }),
+              }
             : null;
         main = { parts, usage };
         const setup = await this.setupReport(cp, p.usage ?? null);

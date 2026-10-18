@@ -24,7 +24,6 @@ import { EvidencePanel } from '../drawer/EvidencePanel';
 import { NotesPanel } from '../drawer/NotesPanel';
 import { SourcesPanel } from '../drawer/SourcesPanel';
 import { LiveTree, TreePanel } from '../drawer/TreePanel';
-import { WhyPanel } from '../drawer/WhyPanel';
 import { useBinding } from '../keys/dispatch';
 import { useThreadIdFromRoute } from '../lib/models';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -37,11 +36,10 @@ import { useBranchLayer } from '../tree/store';
 import { Icon, type IconName } from '../ui/Icon';
 import { Tip } from '../ui/primitives';
 
-const TABS: { id: DrawerTab; label: string; icon: IconName; binding?: string }[] = [
+export const TABS: { id: DrawerTab; label: string; icon: IconName; binding?: string }[] = [
   { id: 'sources', label: 'Sources', icon: 'sources', binding: 'drawer.sources' },
   { id: 'notes', label: 'Notes', icon: 'note', binding: 'drawer.notes' },
   { id: 'tree', label: 'Tree', icon: 'tree', binding: 'drawer.tree' },
-  { id: 'why', label: 'Why', icon: 'why', binding: 'drawer.why' },
   { id: 'evidence', label: 'Evidence', icon: 'evidence' },
   { id: 'repo', label: 'Repo', icon: 'branch' },
 ];
@@ -85,9 +83,6 @@ function Body({ onHide }: { onHide: () => void }) {
         <Tabs.Content value="tree" className="drawer__pane">
           {demo ? <TreePanel /> : <LiveTree />}
         </Tabs.Content>
-        <Tabs.Content value="why" className="drawer__pane">
-          <WhyPanel />
-        </Tabs.Content>
         <Tabs.Content value="repo" className="drawer__pane">
           <RepoPanel />
         </Tabs.Content>
@@ -128,7 +123,6 @@ export function Drawer() {
   useBinding('drawer.sources', () => openDrawer('sources'));
   useBinding('drawer.notes', () => openDrawer('notes'));
   useBinding('drawer.tree', () => openDrawer('tree'));
-  useBinding('drawer.why', () => openDrawer('why'));
 
   const onResize = (e: ReactPointerEvent<HTMLDivElement>) => {
     const startX = e.clientX;

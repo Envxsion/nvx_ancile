@@ -233,6 +233,8 @@ export interface Provenance {
   route?: AnswerRoute;
   /** What its engine was given and why (docs/engines.md): recalled, digested, dropped, seeded. */
   engine_context?: import('@nvx/contracts').EngineContextReport;
+  /** Problems that fixed themselves while it was written (retries that worked). */
+  recovered?: import('@nvx/contracts').Recovered[];
   /**
    * Mirrored from a Claude Code session. `kind: 'compact_boundary'` marks where
    * Claude Code compacted; `subagent` carries a subagent's transcript (one or a
@@ -398,7 +400,12 @@ export function toMessageView(m: Message): MessageView | null {
         },
       }),
     ...(m.usage && {
-      usage: { tokens: m.usage.input_tokens + m.usage.output_tokens, costUsd: m.usage.cost_usd },
+      usage: {
+        tokens: m.usage.input_tokens + m.usage.output_tokens,
+        costUsd: m.usage.cost_usd,
+        ...(m.usage.ms !== undefined && { ms: m.usage.ms }),
+      },
+      rawUsage: m.usage,
     }),
     createdAt: m.created_at,
     provenance: prov,

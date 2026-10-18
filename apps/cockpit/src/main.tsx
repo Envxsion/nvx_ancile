@@ -39,6 +39,7 @@ import './styles/code.css';
 import './styles/artifacts.css';
 import './styles/interpreter.css';
 import './styles/images.css';
+import './styles/receipt.css';
 
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';

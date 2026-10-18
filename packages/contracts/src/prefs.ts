@@ -40,7 +40,10 @@ export const AppearancePrefs = z.object({
 export const LayoutPrefs = z.object({
   density: z.enum(['compact', 'comfortable', 'spacious']).default('comfortable'),
   rail: z.enum(['expanded', 'hidden']).default('expanded'),
-  drawerTab: z.enum(['sources', 'tree', 'why', 'evidence', 'notes']).default('sources'),
+  // 'why' was a tab until the answer's receipt replaced it (WY1): a saved choice of it opens Sources.
+  drawerTab: z
+    .preprocess((v) => (v === 'why' ? 'sources' : v), z.enum(['sources', 'tree', 'evidence', 'notes']))
+    .default('sources'),
   drawerWidth: z.number().int().min(280).max(560).default(380),
   railWidth: z.number().int().min(200).max(360).default(248),
   status: z

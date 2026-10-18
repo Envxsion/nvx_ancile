@@ -501,51 +501,6 @@
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
 }
 
-/* Why panel: the route section */
-.why__path {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  margin: 6px 0;
-}
-.why__hop {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-  font-size: var(--t-small);
-  color: var(--fg);
-  background: var(--gilt-wash);
-  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
-}
-.why__hop > svg {
-  color: var(--fg-3);
-}
-.why__decisions {
-  display: grid;
-  gap: 6px;
-  margin: 6px 0 10px;
-  padding: 0;
-  list-style: none;
-}
-.why__links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-}
-.why__links > .mute {
-  margin-left: auto;
-  font-size: 11.5px;
-}
-.why__path {
-  padding: 0;
-  list-style: none;
-}
-
 .tw-step__sub {
   display: flex;
   flex-wrap: wrap;

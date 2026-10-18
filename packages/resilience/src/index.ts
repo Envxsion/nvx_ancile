@@ -5,4 +5,5 @@ export * from './clock';
 export * from './deadline';
 export * from './fallback';
 export * from './policy';
+export * from './recovery';
 export * from './retry';

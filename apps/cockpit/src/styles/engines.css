@@ -431,25 +431,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-
-/* ---- Why: context and rules -------------------------------------------- */
-
-.why__ctx {
-  display: grid;
-  gap: 4px;
-  list-style: none;
-}
-.why__ctx li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--fg-2);
-  line-height: 1.45;
-}
-.why__ctx .icon {
-  flex: none;
-  color: var(--mute);
-}
 .why__rule {
   margin-top: 2px;
   font-size: var(--t-small);

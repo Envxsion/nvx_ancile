@@ -394,7 +394,6 @@ export function LayoutGroup() {
               { value: 'sources', label: 'Sources' },
               { value: 'notes', label: 'Notes' },
               { value: 'tree', label: 'Tree' },
-              { value: 'why', label: 'Why' },
               { value: 'evidence', label: 'Evidence' },
             ]}
           />

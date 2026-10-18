@@ -360,7 +360,14 @@ describe('sending a turn', () => {
       uuids: ['a2'],
       cost_estimate: { usd: 0.02 },
     });
-    expect(answer?.usage).toEqual({ input_tokens: 10, output_tokens: 4, cached_tokens: 100, cost_usd: 0.02 });
+    expect(answer?.usage).toEqual({
+      input_tokens: 10,
+      output_tokens: 4,
+      cached_tokens: 100,
+      cache_write_tokens: 0,
+      cache_reported: true,
+      cost_usd: 0.02,
+    });
     expect((await threads.getThread('thr_1'))?.active_head_id).toBe(cp.assistantMessageId);
     expect(synced).toContain(S);
 

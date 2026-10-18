@@ -147,9 +147,9 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
   },
   {
     id: 'provenance',
-    term: 'Why',
+    term: 'Receipt',
     plain:
-      'The record of how an answer was made: the model, the passages and memory it was given, the route through a flow and the cost. Open it with W on any answer.',
+      'The record of how an answer was made: the model, who paid, the cost, the passages and memory it was given and anything that went wrong. Click the line under an answer, or press W.',
     article: 'why',
   },
   {
