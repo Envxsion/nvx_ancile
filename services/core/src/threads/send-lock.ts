@@ -67,7 +67,7 @@ export interface SendLocks {
  * window sending again while its own turn runs hears "already answering",
  * as before; another window hears thread.busy.
  */
-export async function withSendLock<T extends { run_id: string }>(
+export async function withSendLock<T extends { run_id: string } | { queued: unknown }>(
   locks: SendLocks | null | undefined,
   threadId: string,
   holder: string,
@@ -84,7 +84,9 @@ export async function withSendLock<T extends { run_id: string }>(
     await locks.release(threadId, holder).catch(() => undefined);
     throw err;
   }
-  await locks.attach(threadId, holder, out.run_id).catch(() => undefined);
+  // A message that waits in the queue started nothing: let go at once.
+  if (!('run_id' in out)) await locks.release(threadId, holder).catch(() => undefined);
+  else await locks.attach(threadId, holder, out.run_id).catch(() => undefined);
   return out;
 }
 

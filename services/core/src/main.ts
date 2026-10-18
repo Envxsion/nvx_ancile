@@ -52,6 +52,7 @@ import { ClaudeCodeMcpList } from './claudecode/mcp-list';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { PlanLimits } from './claudecode/plan-limits';
 import { PgPlanSampleStore, PlanSamples } from './claudecode/plan-samples';
+import { TurnQueue } from './claudecode/queue';
 import { claudeCodeRoutes } from './claudecode/routes';
 import { PgRepoPairStore, SameRepoFinder } from './claudecode/same-repo';
 import { PgClaudeCodeStore } from './claudecode/store';
@@ -914,6 +915,18 @@ async function main() {
     foreignHandle: (h) => modeAHandles.has(h),
     keepAlive: () => modeAHandles.size > 0,
   });
+  // One writer at a time (CC6): messages sent while a thread answers, or while its
+  // session is open in a terminal, wait here and go into the same session when free.
+  const turnQueue = new TurnQueue({
+    threads,
+    workspaceId: owner.workspaceId,
+    busy: (thread) => claudeLive.waitingFor(thread),
+    send: (threadId, req) => claudeLive.send(threadId, req),
+  });
+  claudeLive.attachQueue(turnQueue);
+  void turnQueue
+    .start()
+    .catch((err: unknown) => log.warn({ err: (err as Error).message }, 'the turn queue did not start'));
   /** An answered approval goes to whoever is waiting on it: the lab, or a live Claude Code turn. */
   const relayAnswer = async (
     a: Parameters<ClaudeCodeLive['resolved']>[0],
@@ -1693,6 +1706,7 @@ async function main() {
         }),
       }),
       claudeCodeRoutes({
+        queue: () => turnQueue,
         service: () => claudeCode.service,
         live: () => claudeLive,
         sendLocks,
@@ -1834,6 +1848,7 @@ async function main() {
     await labMcp?.close();
     repos.stop();
     activity.stop();
+    turnQueue.stop();
     claudeLive.stop();
     localModels.stop();
     claudeCode.stop();

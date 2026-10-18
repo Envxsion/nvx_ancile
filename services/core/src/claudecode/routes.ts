@@ -37,6 +37,7 @@ import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import { ccErrors } from './errors';
 import type { ClaudeCodeLive } from './live';
 import type { ClaudeCodeMcpList } from './mcp-list';
+import type { TurnQueue } from './queue';
 import type { SameRepoFinder } from './same-repo';
 import type { ClaudeCodeService } from './service';
 
@@ -45,6 +46,8 @@ const SignInRequest = z.object({ method: z.enum(['claudeai', 'console', 'sso']).
 export function claudeCodeRoutes(deps: {
   service: () => ClaudeCodeService;
   live?: () => ClaudeCodeLive | null;
+  /** Messages waiting for their session to be free (queue.ts, CC6). */
+  queue?: () => TurnQueue | null;
   /** One sender per thread across windows (threads/send-lock.ts). */
   sendLocks?: SendLocks;
   /** One repository in two folders: matches between folder notebooks (same-repo.ts). */
@@ -76,7 +79,28 @@ export function claudeCodeRoutes(deps: {
     const req = await body(c, SendClaudeCodeRequest);
     const id = c.req.param('id');
     const out = await withSendLock(deps.sendLocks, id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
-      live().send(id, req),
+      live().sendOrQueue(id, req),
+    );
+    return c.json(out, 202);
+  });
+
+  const queue = (): TurnQueue => {
+    const q = deps.queue?.();
+    if (!q) throw ccErrors.notLive();
+    return q;
+  };
+
+  // A waiting message: remove it, send it again after a failure, or send it now as a branch.
+  r.delete('/claude-code/threads/:id/queue/:qid', async (c) =>
+    c.json({ items: await queue().remove(c.req.param('id'), c.req.param('qid')) }),
+  );
+  r.post('/claude-code/threads/:id/queue/:qid/retry', async (c) =>
+    c.json({ items: await queue().retry(c.req.param('id'), c.req.param('qid')) }),
+  );
+  r.post('/claude-code/threads/:id/queue/:qid/branch', async (c) => {
+    const id = c.req.param('id');
+    const out = await withSendLock(deps.sendLocks, id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
+      queue().branchNow(id, c.req.param('qid')),
     );
     return c.json(out, 202);
   });

@@ -20,9 +20,11 @@
 
 import type {
   ClaudeCodeEffort,
+  ClaudeCodeQueuedResult,
   EngineCapabilities,
   EngineKind,
   ImagePart,
+  ResumeCommand,
   SendTurnResult,
 } from '@nvx/contracts';
 import type { ThreadRecord } from '../threads/repo';
@@ -42,6 +44,8 @@ export interface EngineTurn {
   images?: ImagePart[];
   asBranch?: boolean;
   taskClass?: string;
+  /** Wait instead of failing or branching while the session is busy (CC6). */
+  queueIfBusy?: boolean;
   idempotencyKey: string;
 }
 
@@ -60,6 +64,22 @@ export interface Engine {
   readonly modelPrefix: string | null;
   capabilities(modelId?: string | null): EngineCapabilities;
   status(): Promise<EngineStatus>;
+  /**
+   * CLI engines with sessions a terminal can also open (CC6): what the next
+   * turn would wait for (its own turn, or a terminal holding the session),
+   * and how to carry the session on in a terminal. The turn queue and the
+   * cockpit's "in a terminal" badge use only these, so any CLI that
+   * provides them gets one writer at a time.
+   */
+  waitingFor?(thread: ThreadRecord): Promise<'turn' | 'terminal' | null>;
+  resumeCommand?(thread: ThreadRecord): ResumeCommand | null;
+  /** Start the turn, or queue it while the session is busy (queueIfBusy). */
+  startOrQueue?(
+    turn: EngineTurn,
+  ): Promise<
+    | (Omit<SendTurnResult, 'engine' | 'context_notice'> & { context_notice?: string | null })
+    | ClaudeCodeQueuedResult
+  >;
   /** Start the turn as a run; resolves once it is queued (202). */
   start(
     turn: EngineTurn,

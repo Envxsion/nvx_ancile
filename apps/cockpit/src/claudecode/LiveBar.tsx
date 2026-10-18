@@ -10,7 +10,9 @@
  *           |  and Claude Code's own context meter and its usage
  *           |  popover), the one notice
  *           |  that needs you (busy elsewhere, signed out, a restart),
- *           |  a queued message, the model and effort pickers, and
+ *           |  the messages waiting in Core's queue (CC6: sent while a
+ *           |  turn ran, or while a terminal held the session), Open in
+ *           |  terminal, the model and effort pickers, and
  *           |  what NVX Ancile does for the "/" commands it handles.
  *  How      |  Live state from useClaudeCodeLive; the step running now
  *           |  from the turn's run (thread/WorkingNow.tsx), as the live
@@ -52,7 +54,16 @@ import { claudeCodeCostWords, useClaudeBilling } from '../usage/planCost';
 import { startClaudeCodeSignIn } from './api';
 import { FolderMissingNotice } from './FolderMissing';
 import { CcLeanToggle } from './LeanToggle';
-import { continueAsBranch, liveWords, tokensShort, useClaudeCodeLive } from './live';
+import {
+  branchQueued,
+  continueAsBranch,
+  copyResume,
+  liveWords,
+  removeQueued,
+  retryQueued,
+  tokensShort,
+  useClaudeCodeLive,
+} from './live';
 import { type CcNotice, EFFORTS, type Effort, isEffort, patchCc, useCcThread } from './store';
 import { folderName } from './ThreadMarker';
 import '../styles/claudecode.css';
@@ -122,6 +133,17 @@ export function CcLiveLine({
         <span className="cc-live__now" title={now}>
           {now}
         </span>
+      ) : null}
+      {live?.resume && state !== 'working' ? (
+        <button
+          type="button"
+          className="cc-live__terminal"
+          title={`Copy the command that carries this session on in a terminal: ${live.resume.command}`}
+          onClick={() => void copyResume(live.resume as NonNullable<typeof live.resume>)}
+        >
+          <Icon name="terminal" size={11} />
+          <span>Open in terminal</span>
+        </button>
       ) : null}
       {model || effort ? (
         <span className="cc-live__meta" data-num>
@@ -344,6 +366,45 @@ export function CcNotices({ threadId }: { threadId: string }) {
   return (
     <div className="cc-notices" aria-live="polite">
       <AnimatePresence initial={false}>
+        {(live?.queue ?? []).map((q, i) => (
+          <motion.div
+            key={q.id}
+            className="hint-line cc-queued"
+            data-failed={q.error ? true : undefined}
+            layout
+            {...rise}
+          >
+            <Icon name={q.error ? 'warn' : 'clock'} size={12} className="hint-line__icon" />
+            <span className="hint-line__text">
+              <strong>{q.error ? q.error.title : i === 0 ? 'Next' : `${i + 1} in line`}</strong> {q.text}
+            </span>
+            <span className="mute cc-queued__when">
+              {q.error
+                ? q.error.hint
+                : q.waiting_for === 'terminal'
+                  ? 'Sends when the terminal closes'
+                  : 'Sends when this turn ends'}
+            </span>
+            {q.error ? (
+              <button type="button" className="link-btn" onClick={() => void retryQueued(threadId, q.id)}>
+                Try again
+              </button>
+            ) : null}
+            {q.waiting_for === 'terminal' || q.error ? (
+              <button type="button" className="link-btn" onClick={() => void branchQueued(threadId, q.id)}>
+                Send as a branch now
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="icon-btn icon-btn--xs hint-line__close"
+              aria-label="Remove this waiting message"
+              onClick={() => void removeQueued(threadId, q.id)}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </motion.div>
+        ))}
         {st.queued ? (
           <motion.div key="queued" className="hint-line cc-queued" {...rise}>
             <Icon name="clock" size={12} className="hint-line__icon" />

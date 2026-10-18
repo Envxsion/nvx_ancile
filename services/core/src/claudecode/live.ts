@@ -50,6 +50,7 @@ import {
   type ClaudeCodeFolderRequest,
   type ClaudeCodeFolderResult,
   type ClaudeCodeLiveState,
+  type ClaudeCodeSendOutcome,
   type ClaudeCodeSetupReport,
   type CreateClaudeCodeThreadRequest,
   type CreateClaudeCodeThreadResult,
@@ -58,6 +59,7 @@ import {
   type EngineContextReport,
   type ImagePart,
   type Part,
+  type ResumeCommand,
   type RetrievalTrace,
   type SearchHit,
   type SendClaudeCodeRequest,
@@ -107,6 +109,7 @@ import {
   type MappedTool,
   mapTool,
 } from './permission-map';
+import { TurnQueue } from './queue';
 import { applyExtension } from './service';
 import type { ClaudeCodeStore } from './store';
 
@@ -115,6 +118,14 @@ const log = logFor('claude-code-live');
 export const CC_MODEL_NAME = 'Claude Code';
 /** A transcript written to more recently than this, by someone else, is open elsewhere. */
 export const BUSY_WINDOW_MS = 60_000;
+/**
+ * A waiting message goes once the session has been quiet this long, when no
+ * terminal process was seen holding it (only its recent writes): long enough
+ * for a terminal turn to finish writing, short enough not to keep you waiting.
+ */
+export const QUEUE_QUIET_MS = 15_000;
+/** The live tail: how often a session open in a terminal is read again while its thread is open. */
+export const TAIL_MS = 1_500;
 /** How long one turn may take before it is stopped. */
 export const TURN_DEADLINE_MS = 60 * 60_000;
 export const IDLE_CLOSE_MS = 3 * 60_000;
@@ -490,6 +501,10 @@ export class ClaudeCodeLive {
   );
   /** When Ancile itself last saw a session written (so its own writes are not "someone else"). */
   private readonly ownWrites = new Map<string, number>();
+  /** Messages waiting for the session to be free (CC6); set once Core has built it. */
+  private queue: TurnQueue | null = null;
+  /** When each session open in a terminal was last read for the live tail. */
+  private readonly tailedAt = new Map<string, number>();
   /** Each bridge session's events, handled in order (by handle). */
   private readonly inOrder = new Map<string, Promise<void>>();
   private readonly now: () => number;
@@ -576,14 +591,18 @@ export class ClaudeCodeLive {
    * outside NVX Ancile holds it (seen running); 'recent': another process
    * wrote its transcript within the last minute (the fallback guess).
    */
-  private async heldElsewhere(sessionId: string, cwd: string | null): Promise<'process' | 'recent' | null> {
+  private async heldElsewhere(
+    sessionId: string,
+    cwd: string | null,
+    windowMs = BUSY_WINDOW_MS,
+  ): Promise<'process' | 'recent' | null> {
     if (isPendingSession(sessionId)) return null;
     const mtime = await this.deps.service.transcriptModified(sessionId).catch(() => null);
     const held = await this.deps.holders?.holder({ sessionId, cwd, modifiedMs: mtime }).catch(() => null);
     if (held) return 'process';
     if (mtime === null) return null;
     const own = this.ownWrites.get(sessionId) ?? 0;
-    return this.now() - mtime < BUSY_WINDOW_MS && mtime > own + 5_000 ? 'recent' : null;
+    return this.now() - mtime < windowMs && mtime > own + 5_000 ? 'recent' : null;
   }
 
   /** Throw the error that says what to do when Claude Code cannot run sessions here. */
@@ -1171,6 +1190,8 @@ export class ClaudeCodeLive {
       if (l.state === 'working') l.state = l.handle ? 'ready' : 'idle';
       const sid = turn.sessionId ?? cp.sessionId;
       this.ownWrites.set(sid, this.now());
+      // A message queued while this turn ran goes next.
+      this.queue?.nudge(cp.threadId);
       // A question still open when its turn ends is withdrawn, never left for a later turn.
       await this.withdrawWaiting(l, 'turn_ended');
       this.closeWhenIdle(l);
@@ -1967,6 +1988,78 @@ export class ClaudeCodeLive {
     if (plan.head === cmd.id) plan.head = cp.userMessageId;
   }
 
+  /* ---- one writer at a time (CC6) ------------------------------------------ */
+
+  /** Core built the queue: the live sessions send what waits in it. */
+  attachQueue(queue: TurnQueue): void {
+    this.queue = queue;
+  }
+
+  /**
+   * What a thread's next turn would wait for now: its own turn (a run going,
+   * or another thread answering in the same session), a terminal (a Claude
+   * Code process outside NVX Ancile holds the session, or wrote it within the
+   * quiet window), or nothing.
+   */
+  async waitingFor(thread: ThreadRecord): Promise<'turn' | 'terminal' | null> {
+    const cc = thread.settings.claude_code;
+    if (!cc?.session_id) return null;
+    if (this.lives.get(thread.id)?.turn) return 'turn';
+    if ((await this.deps.runs.activeForThread(thread.id)).length) return 'turn';
+    if (isPendingSession(cc.session_id)) return null;
+    for (const other of this.lives.values())
+      if (other.threadId !== thread.id && other.turn && other.sessionId === cc.session_id) return 'turn';
+    const held = await this.heldElsewhere(cc.session_id, cc.cwd, QUEUE_QUIET_MS);
+    return held ? 'terminal' : null;
+  }
+
+  /**
+   * Send, or wait (queue_if_busy): while the thread answers, or a terminal
+   * holds the session, the message is queued and goes into the same session
+   * when it is free, never written alongside the terminal.
+   */
+  async sendOrQueue(threadId: string, req: SendClaudeCodeRequest): Promise<ClaudeCodeSendOutcome> {
+    if (!req.queue_if_busy || req.as_branch || !this.queue) return this.send(threadId, req);
+    const { queue_if_busy: _q, ...plain } = req;
+    const thread = await this.thread(threadId);
+    // Something already waits: this goes behind it, whatever the session is doing.
+    const reason = TurnQueue.of(thread).length ? 'turn' : await this.waitingFor(thread);
+    if (reason) return this.queue.enqueue(thread, plain, reason);
+    try {
+      return await this.send(threadId, plain);
+    } catch (err) {
+      // It became busy between the look and the send (another window, a terminal starting).
+      const code = err instanceof AncileError ? err.code : null;
+      if (code === 'claude_code.session_busy') return this.queue.enqueue(thread, plain, 'terminal');
+      if (code === 'run.already_running') return this.queue.enqueue(thread, plain, 'turn');
+      throw err;
+    }
+  }
+
+  /** How to carry the session on in a terminal; null before the session exists. */
+  resumeCommand(thread: ThreadRecord): ResumeCommand | null {
+    const cc = thread.settings.claude_code;
+    if (!cc?.session_id || isPendingSession(cc.session_id)) return null;
+    const cwd = cc.no_files ? (this.deps.noFilesDir ?? null) : cc.cwd;
+    const command = `claude --resume ${cc.session_id}`;
+    // `;` chains in PowerShell, bash and zsh alike.
+    const shell = cwd ? `cd "${cwd.replace(/"/g, '\\"')}"; ${command}` : command;
+    return { cli: 'claude-code', cwd, command, shell };
+  }
+
+  /**
+   * The live tail: while a thread is open and a terminal writes its session,
+   * read the transcript again every TAIL_MS (the file watcher batches every 2 s
+   * and waits while you type), so terminal turns show up almost at once.
+   */
+  private async tail(sessionId: string): Promise<void> {
+    const at = this.tailedAt.get(sessionId) ?? 0;
+    if (this.now() - at < TAIL_MS || this.writing(sessionId)) return;
+    this.tailedAt.set(sessionId, this.now());
+    const info = await this.deps.sessionInfo(sessionId).catch(() => null);
+    if (info) await this.deps.service.syncSession(info, undefined, { force: true }).catch(() => undefined);
+  }
+
   /* ---- interrupt, state, commands ------------------------------------------ */
 
   async interrupt(threadId: string): Promise<{ interrupted: boolean }> {
@@ -2006,6 +2099,8 @@ export class ClaudeCodeLive {
         };
     }
     const held = cc?.session_id ? await this.heldElsewhere(cc.session_id, cc.cwd) : null;
+    if (held && cc?.session_id) await this.tail(cc.session_id);
+    const fresh = held ? ((await this.deps.threads.getThread(threadId)) ?? thread) : thread;
     const noFiles = cc?.no_files === true;
     const availability = (await this.deps.service.availability?.().catch(() => null)) ?? 'ready';
     return {
@@ -2020,6 +2115,9 @@ export class ClaudeCodeLive {
       permission_mode: l?.permissionMode ?? null,
       cwd: cc?.cwd ?? null,
       context,
+      queue: TurnQueue.of(fresh),
+      resume: this.resumeCommand(fresh),
+      synced_at: fresh.settings.claude_code?.synced_at ?? null,
     };
   }
 

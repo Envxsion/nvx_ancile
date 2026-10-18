@@ -20,6 +20,7 @@
  */
 
 import { z } from 'zod';
+import { ClaudeCodeQueuedResult } from './claudecode';
 
 /** Model ids with this prefix are answered by Claude Code (`claude-code/opus`, `claude-code/default`). */
 export const CLAUDE_CODE_MODEL_PREFIX = 'claude-code/';
@@ -89,6 +90,12 @@ export const SendTurnRequest = z
     as_branch: z.boolean().optional(),
     /** Gateway only. */
     task_class: z.string().max(80).optional(),
+    /**
+     * CLI session engines (Claude Code): wait instead of failing or
+     * branching while the thread answers or a terminal holds the session.
+     * The answer is then a ClaudeCodeQueuedResult (CC6).
+     */
+    queue_if_busy: z.boolean().optional(),
     idempotency_key: z.string().min(8).max(200),
   })
   .strict();
@@ -115,6 +122,10 @@ export const SendTurnResult = z.object({
   branched: z.enum(['open_in_terminal']).nullable().optional(),
 });
 export type SendTurnResult = z.infer<typeof SendTurnResult>;
+
+/** POST /threads/:id/turns: a turn that started, or (queue_if_busy) one that waits. */
+export const SendTurnOutcome = z.union([SendTurnResult, ClaudeCodeQueuedResult]);
+export type SendTurnOutcome = z.infer<typeof SendTurnOutcome>;
 
 /** The notice text, one line, for the composer and the run event. */
 export const CLAUDE_CODE_CONTEXT_NOTICE = "This thread's context will be sent to Claude Code";

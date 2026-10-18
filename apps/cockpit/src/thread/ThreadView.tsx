@@ -39,8 +39,9 @@ import { ClaudeCodeUnavailable, unavailableLine } from '../claudecode/Unavailabl
 import { ContextNotice } from '../engines/ContextNotice';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
-import { useThread, useThreads } from '../lib/data';
+import { keys, useThread, useThreads } from '../lib/data';
 import { useCurrentModel } from '../lib/models';
+import { queryClient } from '../lib/query';
 import { attachRun, detachThread, type LiveTurn, resumeThread, useRuns } from '../lib/run';
 import {
   ensureLoaded,
@@ -315,6 +316,16 @@ export function ThreadView({ threadId }: { threadId: string }) {
     if (cc) refreshLive(threadId);
   }, [busy, cc, threadId]);
 
+  // The live tail (CC6): a terminal wrote the session and Core took it in, so show the new turns.
+  const syncedAt = ccLive.data?.synced_at ?? null;
+  const seenSync = useRef<string | null>(null);
+  useEffect(() => {
+    if (!syncedAt) return;
+    if (seenSync.current && seenSync.current !== syncedAt)
+      void queryClient.invalidateQueries({ queryKey: keys.thread(threadId) });
+    seenSync.current = syncedAt;
+  }, [syncedAt, threadId]);
+
   // The queued message goes as soon as the running turn ends.
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires when the turn ends or a message is queued
   useEffect(() => {
@@ -383,7 +394,9 @@ export function ThreadView({ threadId }: { threadId: string }) {
     }
     if (cc) {
       const sourceIds = extras?.mentions.filter((m) => m.kind === 'source').map((m) => m.id);
-      if (ccWorking) {
+      // Another model answering this turn keeps the window's own queue; a Claude Code turn
+      // goes to Core's (CC6), which keeps it through a reload and waits for a terminal too.
+      if (ccWorking && ccState.other) {
         if (extras?.images?.length) {
           notify({
             level: 'info',

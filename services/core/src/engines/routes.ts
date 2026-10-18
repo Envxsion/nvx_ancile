@@ -60,7 +60,7 @@ export function engineRoutes(deps: {
     const t = await thread(c.req.param('id'));
     const req = await body(c, SendTurnRequest);
     const out = await withSendLock(deps.sendLocks, t.id, holderOf(c.req.header(CLIENT_ID_HEADER)), () =>
-      deps.engines().send(t, {
+      deps.engines()[req.queue_if_busy ? 'sendOrQueue' : 'send'](t, {
         text: req.text,
         parentId: req.parent_id,
         model: req.model ?? null,

@@ -481,7 +481,7 @@ describe('the status line', () => {
     expect(liveWords({ ...LIVE, state: 'starting' }, 'cyberfolio')).toBe('Starting Claude Code…');
     expect(liveWords({ ...LIVE, state: 'working' }, 'cyberfolio')).toBe('Working…');
     expect(liveWords({ ...LIVE, locked_elsewhere: true, open_in_terminal: true }, 'cyberfolio')).toBe(
-      'Open in a terminal: your next message starts a branch',
+      'Open in a terminal: messages wait here until it closes',
     );
     expect(liveWords({ ...LIVE, folder_missing: true }, 'cyberfolio')).toBe(
       "This session's folder has moved or been deleted",

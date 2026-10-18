@@ -89,6 +89,42 @@
     background var(--d-micro) var(--ease),
     color var(--d-micro) var(--ease);
 }
+/* Open in terminal: quiet until hovered, then a pill like the usage button. */
+.cc-live__terminal {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--fg-3);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background var(--d-micro) var(--ease),
+    color var(--d-micro) var(--ease);
+}
+.cc-live__terminal:hover,
+.cc-live__terminal:focus-visible {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.cc-live[data-state='elsewhere'] .cc-live__terminal {
+  display: none; /* already open in one */
+}
+@container thread (max-width: 560px) {
+  .cc-live__terminal span {
+    display: none;
+  }
+}
+/* A waiting message that failed to send: says so, in the failure tone, until you act on it. */
+.cc-queued[data-failed] .hint-line__icon,
+.cc-queued[data-failed] strong {
+  color: var(--fail);
+}
 .cc-live__usage:hover,
 .cc-live__usage[data-state='open'] {
   background: var(--chalk);

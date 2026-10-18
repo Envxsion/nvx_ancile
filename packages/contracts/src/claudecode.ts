@@ -144,6 +144,43 @@ export const ImportClaudeCodeSessionsResult = z.object({
 export type ImportClaudeCodeSessionsResult = z.infer<typeof ImportClaudeCodeSessionsResult>;
 
 /**
+ * How hard Claude Code thinks. "auto" sends no effort at all, so Claude
+ * Code picks its own default for the model (and a session that had an
+ * effort set goes back to that default).
+ */
+export const ClaudeCodeEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']);
+export type ClaudeCodeEffort = z.infer<typeof ClaudeCodeEffort>;
+
+/**
+ * A message waiting to go into a coding CLI's session (CC6): it was sent
+ * while a turn was running, or while the session was open in a terminal.
+ * NVX Ancile never writes alongside a terminal; it waits for the terminal
+ * to close, then continues the same session, in queue order. Kept on the
+ * thread (ThreadSettings.turn_queue, its own key so a session sync never
+ * writes over it), so it survives a restart. Only the computer that queued it sends
+ * it (`host`), so a thread synced elsewhere is never answered twice.
+ */
+export const QueuedTurn = z.object({
+  id: z.string(),
+  text: z.string().min(1).max(200_000),
+  source_ids: z.array(z.string()).max(50).optional(),
+  model: z.string().nullable().optional(),
+  effort: ClaudeCodeEffort.nullable().optional(),
+  image_ids: z.array(z.string().max(60)).max(8).optional(),
+  queued_at: z.string(),
+  /** What it waits for: the thread's own turn to end, or the terminal holding the session to close. */
+  waiting_for: z.enum(['turn', 'terminal']),
+  /** The computer that queued it (only it sends the message). */
+  host: z.string(),
+  /** The last try failed: why, in words. It stays queued until you send, branch or remove it. */
+  error: z.object({ title: z.string(), hint: z.string() }).nullable().optional(),
+});
+export type QueuedTurn = z.infer<typeof QueuedTurn>;
+
+/** The most messages that wait in one thread's queue. */
+export const QUEUE_LIMIT = 5;
+
+/**
  * What a thread knows about the Claude Code session behind it. Kept in
  * ThreadSettings.claude_code (see api.ts) and in each mirrored message's
  * provenance as { claude_code: { session_id, uuid } }.
@@ -277,14 +314,6 @@ export const ClaudeCodeCommand = z.object({
 export type ClaudeCodeCommand = z.infer<typeof ClaudeCodeCommand>;
 
 /**
- * How hard Claude Code thinks. "auto" sends no effort at all, so Claude
- * Code picks its own default for the model (and a session that had an
- * effort set goes back to that default).
- */
-export const ClaudeCodeEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']);
-export type ClaudeCodeEffort = z.infer<typeof ClaudeCodeEffort>;
-
-/**
  * POST /claude-code/threads: a new thread bound to a new Claude Code
  * session in a folder on this computer. The session itself starts with
  * the thread's first turn (Claude Code names it then).
@@ -362,6 +391,13 @@ export const SendClaudeCodeRequest = z
     as_branch: z.boolean().optional(),
     /** Images attached to this turn (docs/images.md); Claude Code receives them as image input. */
     image_ids: z.array(z.string().max(60)).max(8).optional(),
+    /**
+     * Wait instead of failing or branching (CC6): while the thread is
+     * answering, or the session is open in a terminal, the message is
+     * queued and goes into the same session when it is free. Without it,
+     * a session open elsewhere goes on in a branch by itself, as before.
+     */
+    queue_if_busy: z.boolean().optional(),
     idempotency_key: z.string().min(8).max(200),
   })
   .strict();
@@ -389,6 +425,34 @@ export const SendClaudeCodeResult = z.object({
   branched: z.enum(['open_in_terminal']).optional(),
 });
 export type SendClaudeCodeResult = z.infer<typeof SendClaudeCodeResult>;
+
+/** The message waits (queue_if_busy): where it is in the thread's queue. */
+export const ClaudeCodeQueuedResult = z.object({
+  queued: QueuedTurn,
+  /** 1 for the next to go. */
+  position: z.number().int().positive(),
+});
+export type ClaudeCodeQueuedResult = z.infer<typeof ClaudeCodeQueuedResult>;
+
+/** POST /claude-code/threads/:id/messages: a turn that started, or one that waits. */
+export const ClaudeCodeSendOutcome = z.union([SendClaudeCodeResult, ClaudeCodeQueuedResult]);
+export type ClaudeCodeSendOutcome = z.infer<typeof ClaudeCodeSendOutcome>;
+
+/**
+ * Carry a session on in a terminal: the folder and the command to run
+ * there. Generic over coding CLIs (Claude Code today; others through
+ * their engine adapter).
+ */
+export const ResumeCommand = z.object({
+  /** The CLI it is for, e.g. "claude-code". */
+  cli: z.string(),
+  cwd: z.string().nullable(),
+  /** The command alone, e.g. `claude --resume 1f2e…`. */
+  command: z.string(),
+  /** Ready to paste into PowerShell, bash or zsh: change folder, then the command. */
+  shell: z.string(),
+});
+export type ResumeCommand = z.infer<typeof ResumeCommand>;
 
 /** GET /claude-code/threads/:id/live */
 export const ClaudeCodeLiveState = z.object({
@@ -426,6 +490,12 @@ export const ClaudeCodeLiveState = z.object({
       compacts_at: z.number().nullable().optional(),
     })
     .nullable(),
+  /** Messages waiting to go into the session (CC6). Absent from an older Core. */
+  queue: z.array(QueuedTurn).optional(),
+  /** How to carry this session on in a terminal; null before the session exists. */
+  resume: ResumeCommand.nullable().optional(),
+  /** When the thread last took in the session's transcript; a change means new turns to show. */
+  synced_at: z.string().nullable().optional(),
 });
 export type ClaudeCodeLiveState = z.infer<typeof ClaudeCodeLiveState>;
 

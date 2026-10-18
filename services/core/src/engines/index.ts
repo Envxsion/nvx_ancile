@@ -22,6 +22,9 @@ import {
   type EffectiveScope,
   type EngineInfo,
   type ImagePart,
+  type SendClaudeCodeRequest,
+  type SendClaudeCodeResult,
+  type SendTurnOutcome,
   type SendTurnResult,
 } from '@nvx/contracts';
 import type { Sql } from 'postgres';
@@ -32,6 +35,12 @@ import type { ThreadRecord } from '../threads/repo';
 import { startTurn, type TurnDeps } from '../threads/service';
 import { assertAllowed, selectEngine } from './select';
 import type { Engine, EngineStatus, EngineTurn } from './types';
+
+/** What a caller asks for: the turn, before the engine and its model are chosen. */
+type TurnRequest = Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId' | 'images'> & {
+  model: string | null;
+  imageIds?: string[];
+};
 
 export type { Engine, EngineTurn } from './types';
 
@@ -105,10 +114,29 @@ export class ClaudeCodeEngine implements Engine {
     return this.deps.installed();
   }
 
+  async waitingFor(thread: ThreadRecord) {
+    return (await this.deps.live()?.waitingFor(thread)) ?? null;
+  }
+
+  resumeCommand(thread: ThreadRecord) {
+    return this.deps.live()?.resumeCommand(thread) ?? null;
+  }
+
+  async startOrQueue(t: EngineTurn) {
+    const live = this.deps.live();
+    if (!live) throw new Error('live Claude Code sessions are not running in this Core');
+    const r = await live.sendOrQueue(t.thread.id, { ...this.request(t), queue_if_busy: true });
+    return 'queued' in r ? r : this.result(t, r);
+  }
+
   async start(t: EngineTurn) {
     const live = this.deps.live();
     if (!live) throw new Error('live Claude Code sessions are not running in this Core');
-    const r = await live.send(t.thread.id, {
+    return this.result(t, await live.send(t.thread.id, this.request(t)));
+  }
+
+  private request(t: EngineTurn): SendClaudeCodeRequest {
+    return {
       text: t.text,
       ...(t.parentId !== undefined && { parent_id: t.parentId }),
       ...(t.modelId && { model: t.modelId }),
@@ -117,7 +145,10 @@ export class ClaudeCodeEngine implements Engine {
       ...(t.images?.length && { image_ids: t.images.flatMap((p) => (p.image_id ? [p.image_id] : [])) }),
       ...(t.asBranch && { as_branch: true }),
       idempotency_key: t.idempotencyKey,
-    });
+    };
+  }
+
+  private result(t: EngineTurn, r: SendClaudeCodeResult) {
     return {
       run_id: r.run_id,
       user_message_id: r.user_message_id,
@@ -187,13 +218,18 @@ export class Engines {
     });
   }
 
-  async send(
-    thread: ThreadRecord,
-    req: Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId' | 'images'> & {
-      model: string | null;
-      imageIds?: string[];
-    },
-  ): Promise<SendTurnResult> {
+  async send(thread: ThreadRecord, req: TurnRequest): Promise<SendTurnResult> {
+    const r = await this.run(thread, { ...req, queueIfBusy: false });
+    if ('queued' in r) throw new Error('a turn sent without queue_if_busy never waits');
+    return r;
+  }
+
+  /** Send, or wait while a CLI session is busy (answering, or open in a terminal): CC6. */
+  sendOrQueue(thread: ThreadRecord, req: TurnRequest): Promise<SendTurnOutcome> {
+    return this.run(thread, { ...req, queueIfBusy: true });
+  }
+
+  private async run(thread: ThreadRecord, req: TurnRequest): Promise<SendTurnOutcome> {
     const s = selectEngine(thread, req.model, {
       registry: this.deps.registry,
       ...(req.taskClass && { taskClass: req.taskClass }),
@@ -207,13 +243,17 @@ export class Engines {
       if (!this.deps.images || !engine.capabilities(s.checkModel).images) throw noVision(s.checkModel);
       images = await this.deps.images.partsFor(thread.id, imageIds);
     }
-    const r = await engine.start({
+    const turn: EngineTurn = {
       ...rest,
       ...(images.length && { images }),
       thread,
       modelId: s.mode === 'session' ? s.engineModel : s.modelId,
       requestedModelId: s.modelId,
-    });
+    };
+    // A CLI session that is busy (answering, or open in a terminal): the turn waits its turn (CC6).
+    const r =
+      req.queueIfBusy && engine.startOrQueue ? await engine.startOrQueue(turn) : await engine.start(turn);
+    if ('queued' in r) return r;
     return { ...r, engine: s.engine, context_notice: r.context_notice ?? null };
   }
 }

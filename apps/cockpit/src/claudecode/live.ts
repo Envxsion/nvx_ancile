@@ -30,6 +30,9 @@ import {
   type ClaudeCodeCommandList,
   type ClaudeCodeLiveState,
   type Part,
+  type ResumeCommand,
+  type SendClaudeCodeResult,
+  type SendTurnOutcome,
   type SendTurnRequest,
   type SendTurnResult,
 } from '@nvx/contracts';
@@ -60,8 +63,12 @@ export function useClaudeCodeLive(threadId: string | undefined) {
     staleTime: 2_000,
     refetchOnWindowFocus: true,
     refetchInterval: (q) => {
-      const s = q.state.data?.state;
-      return s === 'working' || s === 'starting' ? 2_500 : 20_000;
+      const d = q.state.data;
+      if (d?.state === 'working' || d?.state === 'starting') return 2_500;
+      // Open in a terminal, or messages waiting: watch closely, so terminal turns show
+      // up as they happen and a waiting message's state stays current (CC6).
+      if (d?.locked_elsewhere || d?.queue?.length) return 2_000;
+      return 20_000;
     },
   });
 }
@@ -202,10 +209,18 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     ...(o.sourceIds?.length && { source_ids: o.sourceIds }),
     ...(o.imageIds?.length && { image_ids: o.imageIds }),
     ...(!other && o.asBranch && { as_branch: true }),
+    // Busy (answering, or open in a terminal): the message waits in Core's queue and goes
+    // into the same session when it is free, instead of failing or forking (CC6).
+    ...(!other && !o.asBranch && { queue_if_busy: true }),
   };
   let s: SendTurnResult;
   try {
-    s = await api.post<SendTurnResult>(`/threads/${o.threadId}/turns`, body);
+    const out = await api.post<SendTurnOutcome>(`/threads/${o.threadId}/turns`, body);
+    if ('queued' in out) {
+      refreshLive(o.threadId);
+      return true;
+    }
+    s = out;
   } catch (error) {
     const retry: CcRetry = {
       text: o.text,
@@ -483,8 +498,8 @@ export function liveWords(live: ClaudeCodeLiveState | undefined, folder: string 
   const where = live?.no_files ? ' without files' : folder ? ` in ${folder}` : '';
   if (!live) return `Claude Code${where}`;
   if (live.folder_missing && !live.no_files) return "This session's folder has moved or been deleted";
-  if (live.open_in_terminal) return 'Open in a terminal: your next message starts a branch';
-  if (live.locked_elsewhere) return 'Open in Claude Code somewhere else';
+  if (live.open_in_terminal) return 'Open in a terminal: messages wait here until it closes';
+  if (live.locked_elsewhere) return 'Written from somewhere else just now: messages wait a moment';
   switch (live.state) {
     case 'starting':
       return 'Starting Claude Code…';
@@ -515,4 +530,61 @@ export function modelOptions(
   return current && !opts.some((o) => o.value === current)
     ? [{ value: current, description: 'What the session uses now' }, ...opts]
     : opts;
+}
+
+/* ---- Waiting messages and the terminal (CC6) -------------------------------- */
+
+const queueFailed = (error: unknown) =>
+  notify({
+    level: 'error',
+    title: error instanceof ApiCallError ? error.body.error.title : 'NVX Ancile did not answer',
+    body: error instanceof ApiCallError ? error.body.error.hint : 'Check that it is running, then try again.',
+  });
+
+/** Take a waiting message off the queue; Undo puts its words back in the composer's hands. */
+export async function removeQueued(threadId: string, id: string): Promise<boolean> {
+  try {
+    await api.del(`/claude-code/threads/${threadId}/queue/${id}`);
+    refreshLive(threadId);
+    return true;
+  } catch (error) {
+    queueFailed(error);
+    return false;
+  }
+}
+
+/** A message that failed to send: try it again once the session is free. */
+export async function retryQueued(threadId: string, id: string): Promise<void> {
+  try {
+    await api.post(`/claude-code/threads/${threadId}/queue/${id}/retry`, {});
+    refreshLive(threadId);
+  } catch (error) {
+    queueFailed(error);
+  }
+}
+
+/** Don't wait: send a waiting message now, as a branch of the session (the terminal's line is left alone). */
+export async function branchQueued(threadId: string, id: string): Promise<void> {
+  try {
+    const r = await api.post<SendClaudeCodeResult>(`/claude-code/threads/${threadId}/queue/${id}/branch`, {});
+    attachRun({ runId: r.run_id, threadId, messageId: r.assistant_message_id });
+    void queryClient.invalidateQueries({ queryKey: keys.thread(threadId) });
+    refreshLive(threadId);
+  } catch (error) {
+    queueFailed(error);
+  }
+}
+
+/** Copy what carries this session on in a terminal (folder, then `claude --resume <id>`). */
+export async function copyResume(resume: ResumeCommand): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(resume.shell);
+    notify({
+      level: 'success',
+      title: 'Command copied',
+      body: 'Paste it into a terminal to carry this session on there. Messages sent here meanwhile wait for it to close.',
+    });
+  } catch {
+    notify({ level: 'info', title: 'Copy this into a terminal', body: resume.shell });
+  }
 }

@@ -5,7 +5,7 @@
  * TODO(phase-2..5): grow with each route; every route gets a contract test.
  */
 import { z } from 'zod';
-import { ClaudeCodeBinding } from './claudecode';
+import { ClaudeCodeBinding, QUEUE_LIMIT, QueuedTurn } from './claudecode';
 import { ModelHue } from './config';
 import { AnthropicWorkspaceId } from './credentials';
 import { AncileInstructions } from './engines';
@@ -120,6 +120,8 @@ export const ThreadSettings = z
     lab_session: z.string().optional(),
     /** The Claude Code session this thread continues (docs/claude-code.md). */
     claude_code: ClaudeCodeBinding.optional(),
+    /** Messages waiting to go into a coding CLI's session, oldest first (CC6). */
+    turn_queue: z.array(QueuedTurn).max(QUEUE_LIMIT).optional(),
     /** NVX Ancile's instructions and persona for this thread, which every engine follows (docs/engines.md). */
     ancile: AncileInstructions.optional(),
   })
