@@ -127,9 +127,13 @@ export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
     case 'install':
       useInstallProgress.getState().set(e.detail ?? null);
       void qc.invalidateQueries({ queryKey: CC_KEYS.status });
+      invalidateSoon(qc, keys.models);
       break;
     case 'auth':
       void qc.invalidateQueries({ queryKey: CC_KEYS.status });
+      // Its models turn ready or signed out with the sign-in, and their billing follows the plan.
+      invalidateSoon(qc, keys.models);
+      invalidateSoon(qc, ['flows', 'models']);
       break;
     case 'sessions': {
       const d = readSessionsDetail(e.detail);

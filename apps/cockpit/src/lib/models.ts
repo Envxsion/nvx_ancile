@@ -93,9 +93,11 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
       body:
         model.status === 'needs_key'
           ? 'Add its key in Settings → API keys first.'
-          : model.status === 'not_pulled'
-            ? 'Download it in Admin → Models, or pull it into Ollama, first.'
-            : 'Turn it on in Admin → Models first.',
+          : model.status === 'signed_out'
+            ? 'Sign in to Claude Code in Settings → Claude Code first.'
+            : model.status === 'not_pulled'
+              ? 'Download it in Admin → Models, or pull it into Ollama, first.'
+              : 'Turn it on in Admin → Models first.',
     });
     return;
   }

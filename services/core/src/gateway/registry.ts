@@ -27,6 +27,7 @@ import { ModelConfig, type ModelHue, type ModelInfo } from '@nvx/contracts';
 import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
+import { billingOf, type ClaudeAuth } from './billing';
 import { OFFLINE_MODELS } from './fake';
 import {
   discoveredModel,
@@ -105,6 +106,8 @@ export class ModelRegistry {
   /** The models found in Ollama (ollama/<name>), and their ids; replaced on every refresh. */
   private discovered: ModelConfig[] = [];
   private discoveredIds = new Set<string>();
+  /** What Claude Code says about its sign-in; null until it has been asked. */
+  private claudeAuth: ClaudeAuth | null = null;
 
   constructor(private readonly opts: RegistryOptions) {
     // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
@@ -283,6 +286,11 @@ export class ModelRegistry {
     this.models.push(...models.map((m) => ({ ...m, provider })));
   }
 
+  /** Tell the registry how Claude Code is signed in: its models are ready only while it is, and bill by it. */
+  setClaudeAuth(auth: ClaudeAuth | null): void {
+    this.claudeAuth = auth;
+  }
+
   all(): ModelConfig[] {
     return this.models;
   }
@@ -293,6 +301,7 @@ export class ModelRegistry {
 
   status(m: ModelConfig): ModelInfo['status'] {
     if (!this.enabled(m)) return 'disabled';
+    if (m.provider === 'claude_code' && this.claudeAuth && !this.claudeAuth.signed_in) return 'signed_out';
     const secret = secretFor(m);
     if (secret && !this.secretNames.has(secret)) return 'needs_key';
     // Ollama's models answer only once Ollama has said it has them (never, while it has not answered).
@@ -328,6 +337,7 @@ export class ModelRegistry {
       capabilities: m.capabilities,
       price: { input_per_mtok: m.price.input_per_mtok, output_per_mtok: m.price.output_per_mtok },
       status: this.status(m),
+      billing: billingOf(m, this.claudeAuth),
       listed: this.listed(m),
       secret: secretFor(m),
       offline: m.provider === 'fake',

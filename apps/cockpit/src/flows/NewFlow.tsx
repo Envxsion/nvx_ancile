@@ -37,7 +37,12 @@ function unready(t: FlowTemplate, byId: Map<string, FlowModel>): string[] {
     if (!id) continue;
     const m = byId.get(id);
     if (!m) out.add(id.split('/').pop() ?? id);
-    else if (m.status === 'needs_key' || m.status === 'disabled' || m.status === 'not_pulled')
+    else if (
+      m.status === 'needs_key' ||
+      m.status === 'disabled' ||
+      m.status === 'not_pulled' ||
+      m.status === 'signed_out'
+    )
       out.add(m.name);
   }
   return [...out];

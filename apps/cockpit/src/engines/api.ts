@@ -36,6 +36,7 @@ import { useCcThread } from '../claudecode/store';
 import { api } from '../lib/api';
 import { canAnswer, useModels, useThread } from '../lib/data';
 import type { Hue, ModelView } from '../lib/types';
+import { billingTitle, displayName, modelBadge, sameModelBothWays } from '../models/billing';
 import { checkModel, type ModelKind, useThreadScope } from '../scopes/api';
 import { useUi } from '../state/ui';
 
@@ -72,8 +73,10 @@ export interface ModelEntry {
   name: string;
   hue: Hue;
   kind: ModelKind;
-  /** The engine badge: "Claude Code", "Local", "Cloud", "GPU node". */
+  /** Who pays: "Plan", "Key", "Local", "GPU node", "Rented", "Test" (the engine's name when Core sent no billing). */
   badge: string;
+  /** The badge in words, for its tooltip and accessible label; null when not known. */
+  badgeTitle: string | null;
   note: string | null;
   /** Why it cannot be chosen here, in a sentence; null when it can. */
   disabled: string | null;
@@ -84,6 +87,8 @@ export interface ModelEntry {
 export interface ModelGroup {
   kind: ModelKind;
   label: string;
+  /** One line under the label saying how this group's models run; null for none. */
+  note: string | null;
   items: ModelEntry[];
 }
 
@@ -91,6 +96,12 @@ export const GROUP_LABEL: Record<ModelKind, string> = {
   claude_code: 'Claude Code models',
   cloud: 'Cloud models',
   local: 'Local models',
+};
+
+export const GROUP_NOTE: Record<ModelKind, string | null> = {
+  claude_code: 'Runs as Claude Code, with its own tools and session.',
+  cloud: "Runs through NVX Ancile, with your notebook's tools, memory and sources.",
+  local: null,
 };
 
 /** The Claude Code model name a `claude-code/…` id asks for; null for the session's default. */
@@ -116,14 +127,17 @@ interface GroupInput {
 export function modelGroups(input: GroupInput): ModelGroup[] {
   const cc = input.engines?.find((e) => e.kind === 'claude_code');
   const ccOff = cc && !cc.available ? (cc.reason ?? 'Claude Code cannot answer now') : null;
+  // The same Claude model on your plan and on an API key: each name says which.
+  const dupes = sameModelBothWays(input.models);
   const entry = (m: ModelView): ModelEntry => {
     const kind = modelKind(m);
     return {
       id: m.id,
-      name: m.name,
+      name: displayName(m, dupes),
       hue: m.hue,
       kind,
-      badge: kind === 'local' && m.via === 'controller' ? 'GPU node' : BADGE[kind],
+      badge: modelBadge(m) ?? (kind === 'local' && m.via === 'controller' ? 'GPU node' : BADGE[kind]),
+      badgeTitle: m.billing ? billingTitle(m.billing, m.price) : null,
       note: m.note ?? null,
       disabled: (kind === 'claude_code' ? ccOff : null) ?? checkModel(input.scope, kind, m.id),
       current: m.id === input.currentId,
@@ -137,6 +151,8 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
     const opts = input.session.options.length
       ? input.session.options
       : [{ value: 'default', description: 'The session default' }];
+    // The session runs on whatever Claude Code is signed in with: plan or key.
+    const ccBilling = input.models.find((m) => modelKind(m) === 'claude_code' && m.billing)?.billing;
     claude = opts.map((o) => {
       const id = `${CLAUDE_CODE_MODEL_PREFIX}${o.value}`;
       return {
@@ -144,7 +160,10 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
         name: o.value === 'default' ? 'Default model' : o.value,
         hue: 'coral',
         kind: 'claude_code',
-        badge: BADGE.claude_code,
+        badge: ccBilling
+          ? modelBadge({ billing: ccBilling, via: 'direct' }) || BADGE.claude_code
+          : BADGE.claude_code,
+        badgeTitle: ccBilling ? billingTitle(ccBilling) : null,
         note: o.description,
         disabled: ccOff ?? checkModel(input.scope, 'claude_code', id),
         current:
@@ -159,9 +178,19 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
   }
   const rest = chat.filter((m) => modelKind(m) !== 'claude_code').map(entry);
   const groups: ModelGroup[] = [
-    { kind: 'claude_code', label: GROUP_LABEL.claude_code, items: claude },
-    { kind: 'cloud', label: GROUP_LABEL.cloud, items: rest.filter((e) => e.kind === 'cloud') },
-    { kind: 'local', label: GROUP_LABEL.local, items: rest.filter((e) => e.kind === 'local') },
+    { kind: 'claude_code', label: GROUP_LABEL.claude_code, note: GROUP_NOTE.claude_code, items: claude },
+    {
+      kind: 'cloud',
+      label: GROUP_LABEL.cloud,
+      note: GROUP_NOTE.cloud,
+      items: rest.filter((e) => e.kind === 'cloud'),
+    },
+    {
+      kind: 'local',
+      label: GROUP_LABEL.local,
+      note: GROUP_NOTE.local,
+      items: rest.filter((e) => e.kind === 'local'),
+    },
   ];
   return groups.filter((g) => g.items.length > 0);
 }

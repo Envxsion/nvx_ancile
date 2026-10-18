@@ -16,6 +16,7 @@ import { Command } from 'cmdk';
 import { type CSSProperties, type ReactNode, useId, useRef, useState } from 'react';
 import { hueVar } from '../lib/format';
 import { useAddModel } from '../models/AddModel';
+import { billingTitle, modelBadge } from '../models/billing';
 import { Icon } from '../ui/Icon';
 import { rank } from './AddNode';
 import { PROVIDER_NAMES, providerOf } from './kinds';
@@ -221,6 +222,13 @@ export function ModelLine({ m }: { m: FlowModel }) {
     <span className="fp-modelline">
       <span className="fp-modelline__dot" style={{ '--hue': hueVar(m.hue) } as CSSProperties} />
       <span className="fp-modelline__name">{m.name}</span>
+      <span
+        className="fp-tag"
+        data-tone="mute"
+        title={billingTitle(m.billing, { in: m.priceIn, out: m.priceOut })}
+      >
+        {modelBadge(m)}
+      </span>
       <span className="fp-modelline__meta">
         {PROVIDER_NAMES[m.provider] ?? m.provider} · {windowText(m.window)} · {priceText(m)}
       </span>
@@ -242,6 +250,11 @@ export function ModelLine({ m }: { m: FlowModel }) {
       {m.status === 'disabled' ? (
         <span className="fp-tag" data-tone="mute">
           off
+        </span>
+      ) : null}
+      {m.status === 'signed_out' ? (
+        <span className="fp-tag" data-tone="warn">
+          sign in
         </span>
       ) : null}
     </span>

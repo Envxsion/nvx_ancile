@@ -103,12 +103,24 @@ export function claudeCodeModels(): ModelConfig[] {
   }));
 }
 
-/** Offer Claude Code's models when it is installed, up to date and verified; withdraw them otherwise. */
+/**
+ * Offer Claude Code's models when it is installed, up to date and verified;
+ * withdraw them otherwise. While it is installed but not signed in they stay
+ * listed as 'signed_out' (Settings shows them with "Sign in"; routing and the
+ * pickers skip them). The registry also learns how it is signed in, so each
+ * model can say whether a plan or a key pays for it.
+ */
 export function syncClaudeCodeModels(
-  registry: Pick<ModelRegistry, 'setProviderModels'>,
-  status: Pick<ClaudeCodeStatus, 'installed' | 'version_ok' | 'verification'>,
+  registry: Pick<ModelRegistry, 'setProviderModels'> & Partial<Pick<ModelRegistry, 'setClaudeAuth'>>,
+  status: Pick<ClaudeCodeStatus, 'installed' | 'version_ok' | 'verification'> &
+    Partial<Pick<ClaudeCodeStatus, 'signed_in' | 'auth_method' | 'plan'>>,
 ): boolean {
   const ok = status.installed && status.version_ok && status.verification.state !== 'failed';
+  registry.setClaudeAuth?.(
+    ok && status.signed_in !== undefined
+      ? { signed_in: status.signed_in, auth_method: status.auth_method ?? null, plan: status.plan ?? null }
+      : null,
+  );
   registry.setProviderModels(CLAUDE_CODE_PROVIDER, ok ? claudeCodeModels() : []);
   return ok;
 }

@@ -114,7 +114,11 @@ describe('two windows, one thread (turns and Claude Code send)', () => {
     const engines = {
       send: async (t: { id: string }) => ({ ...(await start(t.id)), engine: 'gateway' }),
     } as unknown as Engines;
-    const live = { send: async (id: string) => start(id) } as unknown as ClaudeCodeLive;
+    // The send route goes through sendOrQueue (CC6); without queue_if_busy it is a plain send.
+    const live = {
+      send: async (id: string) => start(id),
+      sendOrQueue: async (id: string) => start(id),
+    } as unknown as ClaudeCodeLive;
     const app = new Hono();
     app.onError(errorHandler);
     app.route(

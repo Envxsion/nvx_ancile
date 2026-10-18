@@ -55,7 +55,7 @@ export function hueFor(family: string): Hue {
   return HUES[h % HUES.length] as Hue;
 }
 
-const PROVIDER_NAME: Record<string, string> = {
+export const PROVIDER_NAME: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google',
@@ -93,11 +93,14 @@ export function toModelView(m: ModelInfo): ModelView {
     via: m.via,
     contextWindow: m.context_window,
     status: m.status,
+    billing: m.billing,
+    price: { in: m.price.input_per_mtok, out: m.price.output_per_mtok },
     ...(m.listed === false && { unlisted: true }),
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
+    ...(m.status === 'signed_out' && { note: 'Sign in to Claude Code first' }),
     ...(m.status === 'not_pulled' && {
       note: 'Not in Ollama yet: download it in Admin → Models, or run ollama pull',
     }),

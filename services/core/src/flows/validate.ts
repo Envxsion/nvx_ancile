@@ -150,6 +150,12 @@ export function validateFlow(
         warn('flow.model_unready', `${m.display_name} is switched off in Settings → Models.`, {
           node_id: n.id,
         });
+      else if (s === 'signed_out')
+        warn(
+          'flow.model_unready',
+          `${m.display_name} needs Claude Code to be signed in. Sign in in Settings → Claude Code.`,
+          { node_id: n.id },
+        );
       else if (s === 'not_pulled')
         warn(
           'flow.model_unready',

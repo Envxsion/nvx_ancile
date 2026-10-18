@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { Part } from '@nvx/contracts';
+import type { ModelBilling, Part } from '@nvx/contracts';
 
 export type Hue = 'coral' | 'amber' | 'jade' | 'cyan' | 'azure' | 'magenta' | 'chalk';
 
@@ -27,7 +27,11 @@ export interface ModelView {
   contextWindow: number;
   note?: string;
   /** From Core: whether it can answer now. Fixtures are always ready. */
-  status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled';
+  status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled' | 'signed_out';
+  /** Who pays for an answer (MD3). Absent only in hand-made fixtures. */
+  billing?: ModelBilling;
+  /** Price per million tokens, in dollars; 0 when not priced (plans, local). */
+  price?: { in: number; out: number };
   /** Nothing real behind it yet (no key, not pulled, no node): Settings leaves it out. */
   unlisted?: boolean;
   offline?: boolean;

@@ -141,6 +141,14 @@ A Claude Code thread can take a turn from any other model (pick it in the compos
 
 With Claude Code installed and verified, `claude-code/default`, `claude-code/opus`, `claude-code/sonnet` and `claude-code/haiku` are in the model list for any thread, routing chain or flow. Each call is one Claude Code turn with its built-in tools off and none of your Claude Code settings loaded; its only tools are NVX Ancile's own for that thread, each decided by the permission gate. Free in chat and routing; inside Beam and the Flow lab it is Pro. See docs/engines.md.
 
+### Plan or key
+
+The same Claude model can answer two ways: as Claude Code on your Claude plan, or through NVX Ancile on an Anthropic API key. Every model carries a `billing` field saying which bills it: `plan` (a subscription you are signed in to, counted against its limits), `key` (pay per use on an API key or a cloud account), `local`, `rented` (a GPU node you pay for by the hour) or `none` (the offline test models). Claude Code's models follow how Claude Code is signed in: a claude.ai sign-in is a plan, and an API key, Bedrock, Vertex AI or Foundry sign-in is pay per use.
+
+Lists show a badge (Plan, Key, Local, GPU node, Rented, Test) with the details on hover. When a Claude line exists both ways, both names get a suffix ("Claude Code: Opus · Max plan", "Claude Opus 5.5 · API key"). Admin → Models groups the list into subscriptions, API keys, and your own computer and GPU nodes. While Claude Code is installed but signed out, its models stay listed greyed with a Sign in button, and routing skips them.
+
+Claude Code models run as Claude Code, with its own tools and session. Key models run through NVX Ancile, with your notebook's tools, memory and sources. So that nothing is billed by surprise, a thread on an Anthropic API key model shows one notice per thread when the same Claude line is ready on your plan: "Use my plan" switches that thread to the matching Claude Code model, "Keep the API key" dismisses it. NVX Ancile never switches by itself, including when a plan's limit is reached: it offers other models as an explicit choice and says when one bills an API key per use.
+
 ### Approvals
 
 Every tool call Claude Code makes is asked about before it runs, on its real arguments, and NVX Ancile's permission engine decides, as the principal `agent:claude-code`. The same grants, policies and presets apply as for the assistant and the lab. NVX Ancile never answers with Claude Code's own "always allow" choices: what you remember lives in NVX Ancile's grants (Admin → Permissions), so Claude Code asks again next time and the grant answers.

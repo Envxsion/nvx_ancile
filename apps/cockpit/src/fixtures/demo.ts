@@ -41,6 +41,8 @@ export const models: ModelView[] = [
     hue: 'azure',
     via: 'direct',
     contextWindow: 400_000,
+    billing: { kind: 'key', payer: 'anthropic' },
+    price: { in: 3, out: 15 },
   },
   {
     id: 'anthropic/claude-opus-5-5',
@@ -49,6 +51,8 @@ export const models: ModelView[] = [
     hue: 'cyan',
     via: 'direct',
     contextWindow: 400_000,
+    billing: { kind: 'key', payer: 'anthropic' },
+    price: { in: 5, out: 25 },
   },
   {
     id: 'openai/gpt-5.5',
@@ -57,6 +61,8 @@ export const models: ModelView[] = [
     hue: 'jade',
     via: 'direct',
     contextWindow: 400_000,
+    billing: { kind: 'key', payer: 'openai' },
+    price: { in: 2, out: 10 },
   },
   {
     id: 'google/gemini-3-pro',
@@ -65,6 +71,8 @@ export const models: ModelView[] = [
     hue: 'magenta',
     via: 'direct',
     contextWindow: 1_000_000,
+    billing: { kind: 'key', payer: 'google' },
+    price: { in: 2, out: 12 },
   },
   {
     id: 'anthropic/claude-haiku-4-5',
@@ -73,6 +81,8 @@ export const models: ModelView[] = [
     hue: 'coral',
     via: 'direct',
     contextWindow: 200_000,
+    billing: { kind: 'key', payer: 'anthropic' },
+    price: { in: 1, out: 5 },
   },
   {
     id: 'controller/qwen3-72b',
@@ -81,6 +91,7 @@ export const models: ModelView[] = [
     hue: 'amber',
     via: 'controller',
     contextWindow: 128_000,
+    billing: { kind: 'local', payer: null },
     note: 'Runs on your RunPod node',
   },
   {
@@ -90,6 +101,7 @@ export const models: ModelView[] = [
     hue: 'chalk',
     via: 'direct',
     contextWindow: 32_000,
+    billing: { kind: 'local', payer: null },
   },
 ];
 

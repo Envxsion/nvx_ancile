@@ -33,7 +33,7 @@ describe('version and sign-in parsing', () => {
     expect(olderThan('2.10.0', '2.9.9')).toBe(false);
   });
 
-  it('keeps only the fields Ancile uses: never email or organisation', () => {
+  it('keeps only the fields Ancile uses: the email as account, never the organisation', () => {
     const a = parseAuthStatus(
       JSON.stringify({
         loggedIn: true,
@@ -48,15 +48,16 @@ describe('version and sign-in parsing', () => {
       signed_in: true,
       auth_method: 'claude.ai',
       plan: 'pro',
+      account: 'a@b.c',
       projects_dir: null,
       config_dir: null,
     });
-    expect(JSON.stringify(a)).not.toMatch(/a@b\.c|Org/);
+    expect(JSON.stringify(a)).not.toMatch(/Org/);
   });
 });
 
 describe('status through the CLI', () => {
-  it('reports an installed, signed-in Claude Code without account details', async () => {
+  it('reports an installed, signed-in Claude Code with its account email but not its organisation', async () => {
     const s = await fakeCli().status();
     expect(s).toMatchObject({
       installed: true,
@@ -64,9 +65,10 @@ describe('status through the CLI', () => {
       version_ok: true,
       signed_in: true,
       plan: 'max',
+      account: 'person@example.com',
     });
     expect(s.projects_dir).toBe('/home/person/.claude/projects');
-    expect(JSON.stringify(s)).not.toMatch(/person@example\.com|Secret Org|org-secret-id/);
+    expect(JSON.stringify(s)).not.toMatch(/Secret Org|org-secret-id/);
   });
 
   it('reports a version that is too old', async () => {

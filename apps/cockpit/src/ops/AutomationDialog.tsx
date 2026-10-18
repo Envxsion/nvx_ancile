@@ -24,7 +24,9 @@ import { useFlows } from '../flows/api';
 import { useLayer } from '../keys/dispatch';
 import { api } from '../lib/api';
 import { useNotebooks } from '../lib/data';
+import { toModelView } from '../lib/mappers';
 import { queryClient } from '../lib/query';
+import { billingTitle, billingWords, displayName, planTwinOf, sameModelBothWays } from '../models/billing';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
 import { AUTOMATIONS_KEY } from './builtins';
@@ -342,6 +344,11 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
   const chatModels = (models.data ?? []).filter(
     (m) => !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
   );
+  // Who pays for the chosen model (MD3): a plan or a key, and when a plan could do the same.
+  const modelViews = chatModels.map(toModelView);
+  const dupes = sameModelBothWays(modelViews);
+  const chosenModel = modelViews.find((m) => m.id === model);
+  const planTwin = planTwinOf(chosenModel, modelViews);
   const notebookList = notebooks.data ?? [];
   const flowList = flows.data ?? [];
   // A required pick falls back to the first one there is.
@@ -497,12 +504,20 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
                   <span>Model</span>
                   <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
                     <option value="">Default model</option>
-                    {chatModels.map((m) => (
+                    {modelViews.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.display_name}
+                        {displayName(m, dupes)}
                       </option>
                     ))}
                   </select>
+                  {chosenModel?.billing ? (
+                    <span className="field__hint">
+                      {billingTitle(chosenModel.billing, chosenModel.price)}.
+                      {planTwin?.billing
+                        ? ` ${billingWords(planTwin.billing)} can run this as Claude Code instead, which uses its own tools.`
+                        : ''}
+                    </span>
+                  ) : null}
                 </label>
               ) : null}
             </div>

@@ -88,6 +88,13 @@ export function localLint(g: FlowGraph, models: Map<string, FlowModel>): Validat
           message: `${info.name} needs an API key (Settings → Models).`,
           node_id: n.id,
         });
+      else if (info?.status === 'signed_out')
+        issues.push({
+          level: 'error',
+          code: 'flow.model_unready',
+          message: `${info.name} needs Claude Code signed in (Settings → Claude Code).`,
+          node_id: n.id,
+        });
       else if (info?.status === 'disabled')
         issues.push({
           level: 'error',

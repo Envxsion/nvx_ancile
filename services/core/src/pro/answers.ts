@@ -172,7 +172,14 @@ export function proAnswers(deps: {
               provider: m.provider,
               local: isLocalModel(m),
               ready: status === 'ready',
-              problem: status === 'ready' ? null : status === 'needs_key' ? 'needs its key' : 'switched off',
+              problem:
+                status === 'ready'
+                  ? null
+                  : status === 'needs_key'
+                    ? 'needs its key'
+                    : status === 'signed_out'
+                      ? 'needs Claude Code signed in'
+                      : 'switched off',
               price: { input_per_mtok: m.price.input_per_mtok, output_per_mtok: m.price.output_per_mtok },
             };
           });

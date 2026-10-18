@@ -35,6 +35,7 @@ const info = (p: Partial<ModelInfo> & Pick<ModelInfo, 'id' | 'display_name'>): M
   capabilities: ['tools'],
   price: { input_per_mtok: 1, output_per_mtok: 5 },
   status: 'ready',
+  billing: { kind: 'key', payer: 'anthropic' },
   secret: null,
   offline: false,
   ...p,

@@ -28,6 +28,7 @@ import { ApiCallError, api } from '../../lib/api';
 import { useModels } from '../../lib/data';
 import { queryClient } from '../../lib/query';
 import type { ModelView } from '../../lib/types';
+import { billingTitle, displayName, modelBadge, sameModelBothWays } from '../../models/billing';
 import { notify } from '../../state/notify';
 import { type ConfirmCopy, ConfirmDialog } from '../../ui/Confirm';
 import { ErrorState } from '../../ui/ErrorState';
@@ -51,6 +52,7 @@ const STATUS_NOTE: Record<NonNullable<ModelView['status']>, string> = {
   needs_key: 'Skipped until its key is added',
   disabled: 'Skipped while it is off',
   not_pulled: 'Skipped until Ollama has it',
+  signed_out: 'Skipped until Claude Code is signed in',
 };
 
 function failed(error: unknown, what: string) {
@@ -182,7 +184,12 @@ function ChainCard({
   useEffect(() => setOrder(item.configured), [savedKey]);
 
   const byId = new Map(models.map((m) => [m.id, m]));
-  const name = (id: string) => byId.get(id)?.name ?? id;
+  // A chain can mix a plan and a key: each link says which, and a Claude model on both says so in its name.
+  const dupes = sameModelBothWays(models);
+  const name = (id: string) => {
+    const m = byId.get(id);
+    return m ? displayName(m, dupes) : id;
+  };
   const tc = item.task_class;
 
   const commit = (next: string[]) => {
@@ -202,7 +209,7 @@ function ChainCard({
   const candidates = offered.filter((m) => !order.includes(m.id));
   const addItems: MenuEntry[] = candidates.length
     ? candidates.map((m) => ({
-        label: m.name,
+        label: displayName(m, dupes),
         icon: 'model',
         onSelect: () => commit(addModel(orderRef.current, m.id)),
       }))
@@ -344,6 +351,14 @@ function ChainLink({
       <span className="row__title" title={id}>
         {name}
       </span>
+      {model && modelBadge(model) ? (
+        <span
+          className="model-badge route-link__badge"
+          {...(model.billing && { title: billingTitle(model.billing, model.price) })}
+        >
+          {modelBadge(model)}
+        </span>
+      ) : null}
       <span className="row__meta">{note}</span>
       <DropMenu
         items={items}

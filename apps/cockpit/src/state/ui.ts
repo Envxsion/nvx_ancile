@@ -111,6 +111,9 @@ interface UiState {
   resetDrawerTab: () => void;
   setModel: (modelId: string) => void;
   setLastThread: (threadId: string) => void;
+  /** Threads whose "use my plan instead" notice was answered; it shows once per thread (MD3). */
+  planNoticeDone: Record<string, true>;
+  dismissPlanNotice: (threadId: string) => void;
 }
 
 export const useUi = create<UiState>()(
@@ -144,6 +147,7 @@ export const useUi = create<UiState>()(
       theme: typeof window === 'undefined' ? 'system' : getThemeChoice(),
       mark: 'idle',
       live: EMPTY_LIVE,
+      planNoticeDone: {},
 
       toggleRail: () => set((s) => ({ railOpen: !s.railOpen })),
       toggleDrawer: () => set((s) => ({ drawerOpen: !s.drawerOpen })),
@@ -223,6 +227,8 @@ export const useUi = create<UiState>()(
         ),
       setModel: (modelId) => set((s) => ({ live: { ...s.live, modelId } })),
       setLastThread: (threadId) => set({ lastThreadId: threadId }),
+      dismissPlanNotice: (threadId) =>
+        set((s) => ({ planNoticeDone: { ...s.planNoticeDone, [threadId]: true } })),
     }),
     {
       name: 'nvx.ancile.ui',
@@ -232,18 +238,26 @@ export const useUi = create<UiState>()(
         drawerOpen: s.drawerOpen,
         focusMode: s.focusMode,
         live: { modelId: s.live.modelId },
+        planNoticeDone: s.planNoticeDone,
       }),
       // Only these come back. Older copies also held the demo's live status
       // and the last tab; neither is let back in.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<
-          Pick<UiState, 'railOpen' | 'drawerOpen' | 'focusMode'> & { live: { modelId?: unknown } }
+          Pick<UiState, 'railOpen' | 'drawerOpen' | 'focusMode'> & {
+            live: { modelId?: unknown };
+            planNoticeDone?: unknown;
+          }
         >;
         return {
           ...current,
           railOpen: typeof p.railOpen === 'boolean' ? p.railOpen : current.railOpen,
           drawerOpen: typeof p.drawerOpen === 'boolean' ? p.drawerOpen : current.drawerOpen,
           focusMode: typeof p.focusMode === 'boolean' ? p.focusMode : current.focusMode,
+          planNoticeDone:
+            p.planNoticeDone && typeof p.planNoticeDone === 'object' && !Array.isArray(p.planNoticeDone)
+              ? (p.planNoticeDone as Record<string, true>)
+              : {},
           live: {
             ...EMPTY_LIVE,
             modelId: typeof p.live?.modelId === 'string' ? p.live.modelId : '',

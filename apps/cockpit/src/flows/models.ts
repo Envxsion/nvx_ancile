@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ModelInfo } from '@nvx/contracts';
+import type { ModelBilling, ModelInfo } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useNodes } from '../compute/data';
@@ -33,6 +33,8 @@ export interface FlowModel {
   priceIn: number;
   priceOut: number;
   status: ModelInfo['status'];
+  /** Who pays for an answer: shown as a badge on every model line. */
+  billing: ModelBilling;
   offline: boolean;
   /** For GPU node models: awake (true), asleep (false); null for everything else. */
   awake: boolean | null;
@@ -69,6 +71,7 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         priceIn: m.price.input_per_mtok,
         priceOut: m.price.output_per_mtok,
         status: m.status,
+        billing: m.billing,
         offline: m.offline,
         awake: m.via === 'controller' ? node?.observed_state === 'running' : null,
         nodeName: node?.name ?? null,

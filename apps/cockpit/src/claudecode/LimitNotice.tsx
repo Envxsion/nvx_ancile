@@ -25,6 +25,7 @@ import * as DM from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
 import { useModels } from '../lib/data';
 import type { MessageView, ModelView } from '../lib/types';
+import { billingTitle, modelBadge } from '../models/billing';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { usePlanLimits } from '../usage/api';
@@ -102,7 +103,8 @@ export function LimitNotice({
       <Icon name="clock" size={14} className="cc-notice__icon" />
       <div className="cc-notice__text">
         <p>
-          <strong>{limitTitle(limit.resetsAt)}</strong> What it wrote so far is kept.
+          <strong>{limitTitle(limit.resetsAt)}</strong> What it wrote so far is kept. Nothing switches by
+          itself: pick a model to finish, and one on an API key bills that key per use.
         </p>
       </div>
       <div className="cc-notice__acts">
@@ -126,6 +128,11 @@ export function LimitNotice({
                         <span className="cc-pick__desc">Your default</span>
                       ) : null}
                     </span>
+                    {m.billing ? (
+                      <span className="model-badge" title={billingTitle(m.billing, m.price)}>
+                        {modelBadge(m)}
+                      </span>
+                    ) : null}
                   </DM.Item>
                 ))}
               </DM.Content>

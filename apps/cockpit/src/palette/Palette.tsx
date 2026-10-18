@@ -735,7 +735,11 @@ export function Palette() {
                             {e.disabled ??
                               (e.model?.offline ? 'Test model · no AI' : (e.note ?? e.model?.provider ?? ''))}
                           </span>
-                          <span className="model-badge" data-kind={e.kind}>
+                          <span
+                            className="model-badge"
+                            data-kind={e.kind}
+                            {...(e.badgeTitle && { title: e.badgeTitle })}
+                          >
                             {e.badge}
                           </span>
                           {e.current ? <span className="palette__current">Current</span> : null}

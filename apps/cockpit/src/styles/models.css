@@ -504,3 +504,62 @@
 :root[data-motion='reduced'] .local-models__bar > span[data-indeterminate] {
   animation: none;
 }
+
+/* Admin → Models, grouped by who pays. Quiet blocks; the primary action is the one Sign in. */
+.model-blocks {
+  display: grid;
+  gap: 22px;
+}
+.model-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.model-block__title {
+  margin: 0;
+}
+.model-block__lede {
+  margin: 2px 0 8px;
+  max-width: 64ch;
+  font-size: 12.5px;
+}
+.model-block__key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: 12.5px;
+}
+.model-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.model-plan__who {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.model-plan__name {
+  font-weight: 600;
+}
+.model-plan__limits {
+  margin-bottom: 10px;
+}
+.row--model[data-signed-out] {
+  color: var(--mute);
+}
+.row--model[data-signed-out] .model-hue {
+  opacity: 0.4;
+}
+.row--model .model-badge {
+  margin-left: 0;
+}
+.route-link__badge {
+  margin-left: 0;
+}

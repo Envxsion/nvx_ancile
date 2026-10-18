@@ -472,6 +472,13 @@ export class ClaudeCodeService {
     return (await this.settings()).claude_telemetry ? {} : { DISABLE_TELEMETRY: '1' };
   }
 
+  /** Told every time the status is read, so the model list follows sign-in without another process. */
+  private readonly statusWatchers: ((s: ClaudeCodeStatus) => void)[] = [];
+
+  onStatus(fn: (s: ClaudeCodeStatus) => void): void {
+    this.statusWatchers.push(fn);
+  }
+
   async status(fresh = false): Promise<ClaudeCodeStatus> {
     const [cli, settings] = await Promise.all([this.deps.cli.status(fresh), this.settings()]);
     const install = this.deps.installer.state();
@@ -485,7 +492,7 @@ export class ClaudeCodeService {
       this.kickSdk(fresh);
     }
     const sdk = this.deps.source.lastSdkStatus();
-    return {
+    const out: ClaudeCodeStatus = {
       installed: cli.installed,
       version: cli.version,
       path: cli.path,
@@ -494,6 +501,7 @@ export class ClaudeCodeService {
       signed_in: cli.signed_in,
       auth_method: cli.auth_method,
       plan: cli.plan,
+      account: cli.account,
       projects_dir: cli.projects_dir,
       config_dir: cli.config_dir,
       install: { state: install.state, error: install.error },
@@ -501,6 +509,14 @@ export class ClaudeCodeService {
       sdk: { ready: !!sdk?.ready, version: sdk?.version ?? null, error: sdk?.error ?? null },
       settings,
     };
+    for (const fn of this.statusWatchers) {
+      try {
+        fn(out);
+      } catch (err) {
+        log.warn({ err: (err as Error).message }, 'a status watcher failed');
+      }
+    }
+    return out;
   }
 
   /** Fetch the SDK (through the bridge) the first time Claude Code is used. */

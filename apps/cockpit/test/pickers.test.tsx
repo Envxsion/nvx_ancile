@@ -141,6 +141,7 @@ describe('the flow model picker', () => {
     priceIn: 3,
     priceOut: 15,
     status: 'ready',
+    billing: { kind: 'key', payer: 'anthropic' },
     offline: false,
     awake: null,
     nodeName: null,

@@ -18,6 +18,7 @@ import type { FlowNodeKind, FlowSummary } from '@nvx/contracts';
 import { Command } from 'cmdk';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { hueVar } from '../lib/format';
+import { modelBadge } from '../models/billing';
 import { Icon } from '../ui/Icon';
 import { FAMILIES, KINDS, PROVIDER_NAMES } from './kinds';
 import type { FlowModel } from './models';
@@ -155,8 +156,8 @@ export function AddNode({
                       {m.awake === false ? <span className="fadd__sleep">asleep</span> : null}
                     </span>
                     <span className="fadd__blurb">
-                      {PROVIDER_NAMES[m.provider] ?? m.provider} · {windowText(m.window)} context ·{' '}
-                      {priceText(m)}
+                      {PROVIDER_NAMES[m.provider] ?? m.provider} · {modelBadge(m)} · {windowText(m.window)}{' '}
+                      context · {priceText(m)}
                     </span>
                   </span>
                 </Command.Item>

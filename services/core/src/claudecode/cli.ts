@@ -11,8 +11,10 @@
  *           |  withTimeout) and an output cap, and is an argv array,
  *           |  never a shell string. Status is cached for ten seconds.
  *  Note     |  `auth status` also reports the account's email and
- *           |  organisation. Those are dropped on parse: never returned,
- *           |  logged or stored. Ancile never reads Claude Code's
+ *           |  organisation. The organisation is dropped on parse. The
+ *           |  email is kept as `account` for the owner to see in
+ *           |  Settings only: never logged, never in telemetry, never
+ *           |  sent anywhere. Ancile never reads Claude Code's
  *           |  credential files.
  * ------------------------------------------------------------------
  */
@@ -204,6 +206,8 @@ export interface AuthInfo {
   signed_in: boolean;
   auth_method: string | null;
   plan: string | null;
+  /** The email Claude Code is signed in as: for Settings only, never logged or sent. */
+  account: string | null;
   projects_dir: string | null;
   config_dir: string | null;
 }
@@ -211,8 +215,9 @@ export interface AuthInfo {
 const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
 
 /**
- * The fields Ancile uses from `claude auth status --json`. Everything else
- * (email, organisation) is dropped here and never leaves this function.
+ * The fields Ancile uses from `claude auth status --json`. The email is kept
+ * as `account` and shown to the owner in Settings only: never logged, never in
+ * telemetry, never sent anywhere. Everything else (organisation) is dropped here.
  */
 export function parseAuthStatus(stdout: string): AuthInfo | null {
   let j: Record<string, unknown>;
@@ -227,6 +232,7 @@ export function parseAuthStatus(stdout: string): AuthInfo | null {
     signed_in: j.loggedIn === true,
     auth_method: str(j.authMethod),
     plan: str(j.subscriptionType),
+    account: str(j.email),
     projects_dir: str(j.projectsDirectory),
     config_dir: str(j.configDirectory),
   };
@@ -314,6 +320,7 @@ export class ClaudeCli {
       signed_in: false,
       auth_method: null,
       plan: null,
+      account: null,
       projects_dir: null,
       config_dir: null,
     };

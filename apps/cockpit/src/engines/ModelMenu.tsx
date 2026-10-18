@@ -5,7 +5,9 @@
  *  ID       |  cockpit
  * ------------------------------------------------------------------
  *  Purpose  |  One menu for every thread: Claude Code models, cloud
- *           |  models and local models, each with its engine badge.
+ *           |  models and local models, each with a badge saying who
+ *           |  bills it (plan, key, local, GPU node) and a note saying
+ *           |  how the group runs.
  *           |  An entry the thread's scope (or the engine) rules out
  *           |  stays in view, greyed, with the reason in words
  *           |  ("This notebook is private: local models only").
@@ -68,6 +70,7 @@ export function ModelMenuContent({
         <DM.Group key={g.kind} aria-label={g.label}>
           {gi > 0 ? <DM.Separator className="menu__sep" /> : null}
           <DM.Label className="menu__label model-menu__group">{g.label}</DM.Label>
+          {g.note ? <div className="model-menu__note">{g.note}</div> : null}
           {g.items.map((e) => (
             <DM.Item
               key={e.id}
@@ -90,7 +93,11 @@ export function ModelMenuContent({
                   <span className="cc-pick__desc">{e.note}</span>
                 ) : null}
               </span>
-              <span className="model-badge" data-kind={e.kind}>
+              <span
+                className="model-badge"
+                data-kind={e.kind}
+                {...(e.badgeTitle && { title: e.badgeTitle, 'aria-label': e.badgeTitle })}
+              >
                 {e.badge}
               </span>
             </DM.Item>

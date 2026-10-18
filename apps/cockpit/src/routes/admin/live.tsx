@@ -16,17 +16,16 @@
 
 import type { Decision, Grant } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { type CSSProperties, useState } from 'react';
+import { useState } from 'react';
 import { GRANT_SCOPE_WORDS, GrantMenu } from '../../approvals/GrantMenu';
 import { expiryWords, filterGrants, type GrantFilter, isExpired } from '../../approvals/grantState';
 import { PresetPicker } from '../../approvals/preset';
 import { ApiCallError, api } from '../../lib/api';
 import { useModels, useSystemHealth } from '../../lib/data';
-import { hueVar, relative } from '../../lib/format';
+import { relative } from '../../lib/format';
 import { shortResource } from '../../lib/mappers';
 import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
-import { ModelMenu } from '../../models/EditModel';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
 import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
@@ -35,6 +34,7 @@ import { Icon } from '../../ui/Icon';
 // A read that failed says so, with a retry, rather than passing for an empty list.
 import { LoadFailed } from '../../ui/LoadFailed';
 import { EmptyState, Skeleton, StatusDot } from '../../ui/primitives';
+import { ModelBlocksView } from './modelBlocks';
 
 const SERVICE_LABEL: Record<string, string> = {
   postgres: 'Database',
@@ -278,13 +278,6 @@ export function LiveDecisions() {
   );
 }
 
-const STATUS_WORDS = {
-  ready: 'Ready',
-  needs_key: 'Needs its key',
-  disabled: 'Off',
-  not_pulled: 'Not pulled',
-} as const;
-
 export function LiveModels() {
   const models = useModels({ all: true });
   const showAdd = useAddModel((s) => s.show);
@@ -299,8 +292,8 @@ export function LiveModels() {
     <>
       <div className="admin__bar">
         <p className="mute admin__lede">
-          Models you can use: Claude Code's, the ones Ollama has, your GPU nodes', and those of each provider
-          you have added a key for.
+          Models you can use, grouped by who pays: your Claude plan, each provider's API key, and your own
+          computer and GPU nodes.
           {waiting > 0 ? ' Add a key in Settings → API keys to see that provider’s models.' : ''}
         </p>
         <div className="admin__bar-actions">
@@ -317,39 +310,7 @@ export function LiveModels() {
       </div>
       <AddModelDialog />
       <LocalModelsDialog />
-      <ul className="rows">
-        {shown.map((m) => (
-          <li
-            key={m.id}
-            className="row row--health row--model"
-            data-status={m.status === 'ready' ? 'ok' : 'idle'}
-          >
-            <StatusDot
-              status={m.status === 'ready' ? 'ok' : 'idle'}
-              label={STATUS_WORDS[m.status ?? 'ready']}
-            />
-            <span className="row__title">
-              <span
-                className="model-hue"
-                aria-hidden="true"
-                style={{ '--hue': hueVar(m.hue) } as CSSProperties}
-              />
-              <span className="row__name" title={m.name}>
-                {m.name}
-              </span>
-              {m.custom ? <span className="tag model-added">Added</span> : null}
-            </span>
-            <span className="row__meta">
-              {m.provider} · {STATUS_WORDS[m.status ?? 'ready']}
-              {m.note && m.status !== 'needs_key' ? ` · ${m.note}` : ''}
-            </span>
-            <span data-num className="mute row__num">
-              {m.contextWindow.toLocaleString('en-GB')} tok
-            </span>
-            <ModelMenu model={m} />
-          </li>
-        ))}
-      </ul>
+      <ModelBlocksView models={shown} />
     </>
   );
 }

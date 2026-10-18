@@ -91,11 +91,18 @@ export interface StartedTurn {
 export function modelNotReady(id: string, status: string): AncileError {
   return new AncileError({
     code: 'model.not_configured',
-    title: status === 'needs_key' ? `${id} has no key yet` : `${id} is switched off`,
+    title:
+      status === 'needs_key'
+        ? `${id} has no key yet`
+        : status === 'signed_out'
+          ? `${id} needs Claude Code signed in`
+          : `${id} is switched off`,
     hint:
       status === 'needs_key'
         ? 'Add its key in Settings → Models, or pick another model.'
-        : 'Turn it on in Settings → Models, or pick another model.',
+        : status === 'signed_out'
+          ? 'Sign in to Claude Code in Settings → Claude Code, or pick another model.'
+          : 'Turn it on in Settings → Models, or pick another model.',
     status: 422,
     errorClass: 'permanent',
   });

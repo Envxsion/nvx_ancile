@@ -241,8 +241,22 @@ export const EditMessageRequest = z
 
 /* ---- Models (Phase 2) ---------------------------------------------------- */
 
-/** not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models). */
-export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled']);
+/**
+ * not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models).
+ * signed_out: a Claude Code model while Claude Code is installed but not signed in.
+ */
+export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled', 'signed_out']);
+
+/** How answers from a model are paid for (MD3). */
+export const ModelBilling = z
+  .object({
+    /** plan: a subscription you are signed in to (counted against its limits); key: pay per use on an API key or cloud account; local: your own computer or network; rented: a GPU node you pay for by the hour; none: offline test models. */
+    kind: z.enum(['plan', 'key', 'local', 'rented', 'none']),
+    /** Who bills. plan: the plan name as Claude Code reports it ('max', 'pro', 'team', 'enterprise'…), null if unknown. key: the provider id ('anthropic', 'openai', 'openrouter'…) or the cloud ('bedrock', 'vertex', 'foundry') when Claude Code bills one. Otherwise null. */
+    payer: z.string().max(60).nullable(),
+  })
+  .strict();
+export type ModelBilling = z.infer<typeof ModelBilling>;
 
 export const ModelInfo = z.object({
   id: z.string(),
@@ -257,6 +271,8 @@ export const ModelInfo = z.object({
   capabilities: z.array(z.string()),
   price: z.object({ input_per_mtok: z.number(), output_per_mtok: z.number() }),
   status: ModelStatus,
+  /** Who pays for an answer from this model (MD3). */
+  billing: ModelBilling,
   /**
    * False while nothing real stands behind it: a provider with no key, an
    * Ollama model not pulled, a node model with no node. Settings lists only

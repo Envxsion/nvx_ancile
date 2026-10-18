@@ -1804,8 +1804,11 @@ async function main() {
       .then((st) => syncClaudeCodeModels(registry, st))
       .catch((err: unknown) => log.warn({ err }, "Claude Code's models could not be offered"));
   void offerClaudeModels();
+  // Signing in or out, installing, or any read of the status keeps the models and their billing current.
+  claudeCode.service.onStatus((st) => syncClaudeCodeModels(registry, st));
   events.subscribe(Number.MAX_SAFE_INTEGER, (e) => {
-    if (e.type === 'claude_code.changed' && e.what === 'install') void offerClaudeModels();
+    if (e.type === 'claude_code.changed' && (e.what === 'install' || e.what === 'auth'))
+      void offerClaudeModels();
   });
   // Claude Code's "/" list for the latest folders, read once Core has settled,
   // so the first "/" in a Claude Code thread is already complete.

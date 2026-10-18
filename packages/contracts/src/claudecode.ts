@@ -61,6 +61,8 @@ export const ClaudeCodeStatus = z.object({
   auth_method: z.string().nullable(),
   /** e.g. "pro", "max", "team"; null when not reported. */
   plan: z.string().nullable(),
+  /** The email Claude Code is signed in as. Shown to the owner in Settings only; never logged or sent anywhere. */
+  account: z.string().max(320).nullable().optional(),
   /** Claude Code's own folders, as it reports them. */
   projects_dir: z.string().nullable(),
   config_dir: z.string().nullable(),
