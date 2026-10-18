@@ -17,6 +17,7 @@ import { type CSSProperties, type ReactNode, useId, useRef, useState } from 'rea
 import { hueVar } from '../lib/format';
 import { useAddModel } from '../models/AddModel';
 import { billingTitle, modelBadge } from '../models/billing';
+import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
 import { Icon } from '../ui/Icon';
 import { rank } from './AddNode';
 import { PROVIDER_NAMES, providerOf } from './kinds';
@@ -217,11 +218,16 @@ export function Select<T extends string>({
   );
 }
 
-export function ModelLine({ m }: { m: FlowModel }) {
+export function ModelLine({ m, note }: { m: FlowModel; note?: string | null }) {
   return (
     <span className="fp-modelline">
       <span className="fp-modelline__dot" style={{ '--hue': hueVar(m.hue) } as CSSProperties} />
       <span className="fp-modelline__name">{m.name}</span>
+      {m.aliasOf ? (
+        <span className="fp-tag" data-tone="mute">
+          {LATEST_TAG}
+        </span>
+      ) : null}
       <span
         className="fp-tag"
         data-tone="mute"
@@ -230,6 +236,7 @@ export function ModelLine({ m }: { m: FlowModel }) {
         {modelBadge(m)}
       </span>
       <span className="fp-modelline__meta">
+        {note ? `${note} · ` : ''}
         {PROVIDER_NAMES[m.provider] ?? m.provider} · {windowText(m.window)} · {priceText(m)}
       </span>
       {m.awake === false ? (
@@ -283,7 +290,8 @@ export function ModelPicker({
   // The current choice shows whatever its state ("needs a key", "off"); the list offers only models that can answer now.
   const current = models.find((m) => m.id === value);
   const groups = new Map<string, FlowModel[]>();
-  for (const m of models.filter((x) => x.chat && x.status === 'ready')) {
+  // A line shows once, not the model it answers with now; retired models go. The selected one stays.
+  for (const m of offerable(models, [value]).filter((x) => x.chat && x.status === 'ready')) {
     const g = m.via === 'controller' ? 'GPU nodes' : (PROVIDER_NAMES[m.provider] ?? m.provider);
     groups.set(g, [...(groups.get(g) ?? []), m]);
   }
@@ -292,7 +300,7 @@ export function ModelPicker({
       <Popover.Trigger asChild>
         <button type="button" className="fp-picker" aria-label={label} aria-controls={id}>
           {current ? (
-            <ModelLine m={current} />
+            <ModelLine m={current} note={retiredNote(current, models) ?? nowNote(current, models)} />
           ) : value ? (
             <span className="fp-picker__missing">
               {value}{' '}
@@ -346,7 +354,7 @@ export function ModelPicker({
                         setOpen(false);
                       }}
                     >
-                      <ModelLine m={m} />
+                      <ModelLine m={m} note={nowNote(m, models)} />
                     </Command.Item>
                   ))}
                 </Command.Group>

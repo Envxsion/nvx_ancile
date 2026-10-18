@@ -45,7 +45,7 @@ async function world(keys: string[] = [], pulled: string[] = []) {
   const listed = () =>
     registry
       .info()
-      .filter((m) => m.listed)
+      .filter((m) => m.listed && !m.alias_of)
       .map((m) => m.id);
   return { registry, listed };
 }

@@ -27,6 +27,7 @@ import { useNotebooks } from '../lib/data';
 import { toModelView } from '../lib/mappers';
 import { queryClient } from '../lib/query';
 import { billingTitle, billingWords, displayName, planTwinOf, sameModelBothWays } from '../models/billing';
+import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
 import { notify } from '../state/notify';
 import { Segmented, Switch } from '../ui/controls';
 import { AUTOMATIONS_KEY } from './builtins';
@@ -504,9 +505,11 @@ function AutomationForm({ automation, onDone }: { automation: AutomationView | n
                   <span>Model</span>
                   <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
                     <option value="">Default model</option>
-                    {modelViews.map((m) => (
+                    {offerable(modelViews, [model]).map((m) => (
                       <option key={m.id} value={m.id}>
                         {displayName(m, dupes)}
+                        {m.aliasOf ? ` (${LATEST_TAG}, ${nowNote(m, modelViews)})` : ''}
+                        {m.lifecycle === 'retired' ? ` (${retiredNote(m, modelViews)})` : ''}
                       </option>
                     ))}
                   </select>

@@ -107,6 +107,9 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.custom && { custom: true, baseUrl: m.base_url ?? null, keyName: m.secret }),
     local: isLocalWire(m.provider, m.via, m.base_url ?? null),
     ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
+    ...(m.alias_of && { aliasOf: m.alias_of }),
+    ...(m.line_id && { lineId: m.line_id }),
+    ...(m.lifecycle && { lifecycle: m.lifecycle }),
   };
 }
 

@@ -33,6 +33,7 @@ import { useApprovals, useNotebooks, useSetup, useThread, useThreads } from '../
 import { useGlobalEvents } from '../lib/events';
 import { useRuns } from '../lib/run';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { useModelChangeToasts } from '../models/watch';
 import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
 import { Palette } from '../palette/Palette';
@@ -164,6 +165,7 @@ export function AppShell() {
     if (onScreen) useUi.getState().setLastThread(onScreen);
   }, [onScreen]);
   useGlobalEvents();
+  useModelChangeToasts();
   useMarkState(approvals.data?.length ?? 0);
 
   useEffect(() => installKeys(), []);

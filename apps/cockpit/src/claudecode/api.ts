@@ -121,6 +121,13 @@ export function invalidateSoon(qc: QueryClient, queryKey: readonly unknown[]): v
   }, CC_INVALIDATE_MS);
 }
 
+/** Drop anything waiting to be refreshed (tests: a timer left by one test must not swallow the next one's). */
+export function resetInvalidateSoon(): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  pending.clear();
+}
+
 /** What a claude_code.changed event makes stale. */
 export function onClaudeCodeChanged(e: CcChanged, qc: QueryClient): void {
   switch (e.what) {

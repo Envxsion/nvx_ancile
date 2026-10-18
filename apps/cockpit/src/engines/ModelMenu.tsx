@@ -86,7 +86,10 @@ export function ModelMenuContent({
                 aria-hidden="true"
               />
               <span className="menu__text model-menu__text">
-                <span className="model-menu__name">{e.name}</span>
+                <span className="model-menu__name">
+                  {e.name}
+                  {e.tag ? <span className="model-menu__tag">{e.tag}</span> : null}
+                </span>
                 {e.disabled ? (
                   <span className="model-menu__why">{e.disabled}</span>
                 ) : e.note ? (

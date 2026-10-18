@@ -49,6 +49,12 @@ export interface ModelView {
   local?: boolean;
   /** OpenRouter models: the OpenRouter id, for the endpoint explorer and routing. */
   openrouter?: string;
+  /** A line's "latest" entry: the concrete model it answers with now (MD4). */
+  aliasOf?: string;
+  /** The line this model belongs to (`<provider>/<line>`). */
+  lineId?: string;
+  /** Retired models are not offered in pickers (MD5). */
+  lifecycle?: 'active' | 'deprecated' | 'retired';
 }
 
 export interface NotebookView {

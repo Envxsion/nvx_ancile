@@ -144,6 +144,10 @@ import { GitMemoryProvider } from './memory/repo';
 import { memoryRoutes } from './memory/routes';
 import { DEFAULT_MEMORY_CONFIG, MemoryService } from './memory/service';
 import { MemoryTransfer } from './memory/transfer';
+import { modelWatchRoutes } from './models/watch/routes';
+import { ModelWatch } from './models/watch/service';
+import { PgWatchStore } from './models/watch/store';
+import { gatewayTestCall } from './models/watch/testcall';
 import { NotebookMergeService } from './notebooks/merge';
 import { PgMergeStore } from './notebooks/merge-store';
 import { PgNotebookRepo } from './notebooks/repo';
@@ -457,11 +461,24 @@ async function main() {
     // A cold node says how long it needs; wait that long plus two minutes.
     computeEtaMarginMs: 120_000,
   });
+  // The daily model watch (MD4, MD5): live model lists, prices, and "follow latest" lines.
+  const modelWatch = new ModelWatch({
+    registry,
+    store: new PgWatchStore(sql),
+    settings,
+    secrets,
+    testCall: gatewayTestCall(gateway),
+    publish: (e) => events.publish(e),
+    bundledPricesDate: config.models?.prices_as_of ?? null,
+  });
   const chatReady = registry
     .info()
     .filter(
       (m) =>
-        m.status === 'ready' && !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
+        !m.alias_of &&
+        m.status === 'ready' &&
+        !m.capabilities.includes('embeddings') &&
+        !m.capabilities.includes('rerank'),
     );
   log.info(
     { models: chatReady.map((m) => m.id), offline: env.ANCILE_OFFLINE_MODELS },
@@ -1460,6 +1477,8 @@ async function main() {
     runs: runStore,
     allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     routes: [
+      // Before the general /models/:id routes, which would take PUT /models/lines/... (MD4, MD5).
+      modelWatchRoutes(modelWatch),
       updateRoutes({ settings, offer: updateOffer }),
       // Start-up status and database backups (docs/desktop.md, Updates and your data).
       startupRoutes(startupDeps),
@@ -1824,6 +1843,7 @@ async function main() {
   // Laptop sleep (system/wake.ts): on wake, runs, the Claude bridge and the health view pick up again.
   const wake = new WakeWatch();
   wake.onWake(async () => {
+    void modelWatch.onWake();
     await worker.wake();
     await claudeCode.bridge
       .wake()
@@ -1833,10 +1853,12 @@ async function main() {
     await supervisor.checkNow();
   });
   wake.start();
+  modelWatch.start();
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');
     wake.stop();
+    modelWatch.stop();
     supervisor.stop();
     automations.stop();
     builtinSettings.stop();

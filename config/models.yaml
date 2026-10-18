@@ -5,6 +5,7 @@
 #  hand is fine; boot tests validate it and name the exact key that is wrong.
 # =============================================================================
 version: 1                       # file format version; always 1 for now
+prices_as_of: 2026-10-16         # when the prices below were last checked by hand; live checks overlay them (docs/models.md)
 
 models:
   - id: anthropic/claude-sonnet-5-5        # provider/model, unique; referenced by routing.yaml

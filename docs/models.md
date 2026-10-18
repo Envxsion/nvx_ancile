@@ -105,3 +105,61 @@ The most specific choice wins:
 A thread's model is the model for plain chat in that thread. It does not override a flow: to use it instead of the notebook's flow, choose **This thread instead of the flow** when you switch. If a thread's model loses its key or is removed, your default answers instead and the Why panel says so.
 
 The Why panel (`w`) names the model that answered, who chose it, the route a flow took, any flow that was set aside, and any fallback. See [flows](flows.md#changing-the-model-while-a-flow-answers).
+
+## Staying current: the daily model check
+
+Once a day, 60 seconds after NVX Ancile starts, and when the computer wakes from sleep, NVX Ancile reads the live model list of every provider you have a key for (Anthropic, OpenAI, Google, OpenRouter, and DeepSeek, Moonshot, Mistral, xAI and similar providers you added as an endpoint). It does this to keep prices, context sizes and abilities true, to offer new models, and to tell you when a model is going away. What it found is listed under **Settings → Models**.
+
+**What is checked.** Each model's id, its context window and output limit, the abilities the provider reports (tools, images, reasoning, JSON), and whether the provider has deprecated or retired it. Providers differ. Anthropic's list has limits, abilities and retirement dates but no prices. OpenAI's list has ids only. Google's has limits. OpenRouter's has prices, limits and abilities. Z.ai has no model list, so nothing is checked there and the page says so.
+
+**When.** Each provider is checked when its last good check is over 24 hours old. A failed check is tried again after 1 hour, then 2, 4, 8 and so on, up to 24 hours. **Check now** asks a provider at most once a minute. Only one check runs at a time.
+
+**A key that cannot list models** is not a rejected key. Some keys are allowed to answer but not to list. The page says "This key can't list models" (`models.list_forbidden`), your answers carry on as before, and prices and lists for that provider stay as shipped.
+
+### Where prices come from
+
+1. The provider's own live price, when its list has one (OpenRouter).
+2. OpenRouter's public list, for direct providers whose lists carry no price (Anthropic, OpenAI, Google, DeepSeek, Moonshot, Mistral, xAI, Qwen, Z.ai, MiniMax). A model is matched by vendor and name, lowercased, with dots turned into dashes and any date at the end removed. Only an exact match counts, so a model that is merely similar never borrows a price.
+3. The prices shipped in `config/models.yaml`, which carry a date (`prices_as_of`) shown beside them.
+
+A live price replaces the shipped one for costs and for Usage. When one differs from what was in use, a **Price** change shows the old and new price per million tokens. The setting **Check prices against OpenRouter** (on by default) turns step 2 off. When it is off, OpenRouter's list is never fetched unless you have an OpenRouter key, and prices from OpenRouter already stored are dropped so the shipped ones apply again.
+
+**Privacy.** The price lookup fetches OpenRouter's public list with no key and nothing about you. Your provider keys are sent only to that provider's own address, to read its model list. Keys and responses are never logged.
+
+### Lines and tiers
+
+A **line** is one family of a provider's models that gets newer versions, such as Claude Opus, Claude Sonnet, GPT, GPT mini or Gemini Flash. Each line has a tier:
+
+| Tier | Examples |
+|---|---|
+| Best | Claude Fable and Opus, GPT, Gemini Pro, DeepSeek Pro, Kimi, Grok, Mistral Large |
+| Balanced | Claude Sonnet, GPT mini, Gemini Flash, Mistral Medium |
+| Fast | Claude Haiku, GPT nano, Gemini Flash-Lite, DeepSeek Flash, Grok mini, Mistral Small |
+
+A line's id is `<provider>/<line>`, for example `anthropic/opus`, and its alias is `anthropic/opus:latest`. The alias works anywhere a model id does: in routing chains, a thread's model, a flow step, an automation or a persona. It answers with the line's **current model**. Before any check, that is the newest stable model in your model list. A dated snapshot such as `gpt-5.5-2026-08-01` is the same version as `gpt-5.5`, never newer, and the undated id is preferred. A preview, experimental or beta model is never the newest stable one.
+
+An answer records the model that actually answered. The message keeps the alias you asked for as the model you requested, so the Why panel can say "asked for Claude Opus (latest), answered by Claude Opus 5.5".
+
+A model that matches no line (an unknown name) can still be offered as new and added, but it is never followed.
+
+### Follow latest
+
+Each line has **Follow latest**, off until you turn it on. When it is on and a newer stable model appears:
+
+1. NVX Ancile sends a **test call** through the normal model path: "Reply with the single word: ready", at most 16 tokens, no tools, with 30 seconds to answer. The call is billed like any other.
+2. If it comes back with some text and no error, the line moves to the new model. The new model is added to your list, and the change shows in the feed.
+3. If it fails, the line stays where it is, the page says why, and the check is tried again at the next daily run.
+
+Following never goes to a preview. With Follow off, a newer model is only offered. You can always choose a model of the line yourself (**Use this one**): that moves at once, with no test call, and previews are allowed because you chose it. **Go back** returns to the model the line used before its last move, and a second **Go back** returns again.
+
+### Retirements
+
+When a provider marks a model deprecated or retired, a **Retired** change says so. A model that is missing from three successful checks in a row is treated as retired too. A retired model stays in your list, and its id keeps working: a call to it is answered by its line's current model, with a note. If the line's current model is the retired one, the line moves to the newest stable model of the line (after a passing test call, when you are following). Nothing is ever deleted.
+
+### New abilities
+
+Models also gain abilities over time. When a model you have gains or loses an ability NVX Ancile uses, a **Capability** change says so and the live list is used from then on. When it gains one NVX Ancile does not use yet (reading PDFs, say), a separate change says that, so you know without anything being switched on.
+
+### Changes and the first check
+
+Changes are kept as a feed of the newest 200. Seen ones older than 30 days are dropped. A provider's first check records every model quietly and only mentions the newest stable model of a line you already use, so adding a key does not open with a hundred "new" models. OpenRouter's list never offers new models: the catalogue in **Add a model** does that.

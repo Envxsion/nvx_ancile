@@ -46,7 +46,15 @@ export const ModelConfig = z.object({
 });
 export type ModelConfig = z.infer<typeof ModelConfig>;
 
-export const ModelsFile = z.object({ version: z.literal(1), models: z.array(ModelConfig) });
+export const ModelsFile = z.object({
+  version: z.literal(1),
+  /** The date the prices below were last checked by hand (ISO); live checks show it when they fall back (MD5). */
+  prices_as_of: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  models: z.array(ModelConfig),
+});
 
 export const TaskClass = z.string().regex(/^[a-z]+(\.[a-z_]+)*$/);
 

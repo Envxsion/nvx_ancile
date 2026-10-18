@@ -212,7 +212,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
         .catch(() => undefined);
     }
     const id = `${provider}/${idPart(req.provider_model)}`;
-    if (registry.get(id)) throw conflict(id);
+    if (registry.getExact(id)) throw conflict(id);
     const d = req.source === 'openai-compatible' ? { ctx: 32_000, max: 4_096 } : DEFAULTS[req.source];
     const config = ModelConfig.parse({
       id,
@@ -244,7 +244,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
 
   r.patch('/models/:id{.+}', async (c) => {
     const id = c.req.param('id');
-    const m = registry.get(id);
+    const m = registry.getExact(id);
     if (!m) throw notFound('That model');
     const req = await body(c, PatchModelRequest);
     if (!registry.isCustom(id)) {
@@ -295,7 +295,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
 
   r.delete('/models/:id{.+}', async (c) => {
     const id = c.req.param('id');
-    const m = registry.get(id);
+    const m = registry.getExact(id);
     if (!m) throw notFound('That model');
     if (registry.isDiscovered(id)) throw fromOllama(m);
     if (!registry.isCustom(id)) throw notCustom(m.display_name);
@@ -316,7 +316,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
     const { id } = await body(c, RestoreModel);
     const hit = removed.get(id);
     if (!hit || Date.now() - hit.at > RESTORE_WINDOW_MS) throw restoreExpired();
-    if (registry.get(id)) throw conflict(id);
+    if (registry.getExact(id)) throw conflict(id);
     if (hit.key && hit.config.secret) await secrets.set(hit.config.secret, hit.key);
     await registry.saveCustom([...registry.custom(), hit.config]);
     removed.delete(id);

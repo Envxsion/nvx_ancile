@@ -71,4 +71,23 @@ describe('loadConfig', () => {
       message: '"ghost/model" is not defined in models.yaml',
     });
   });
+
+  it('accepts a :latest alias when a model in models.yaml belongs to that line, and refuses one that none does', async () => {
+    const dir = await copyOf('models.yaml', 'memory.yaml');
+    const routing = parse(await readFile(join(CONFIG, 'routing.yaml'), 'utf8')) as {
+      task_classes: Record<string, string[] | { chain: string[] }>;
+    };
+    expect(JSON.stringify(routing)).toContain('anthropic/sonnet:latest');
+    routing.task_classes['chat.default'] = ['anthropic/opus:latest', 'anthropic/fable:latest'];
+    await writeFile(join(dir, 'routing.yaml'), stringify(routing));
+    await mkdir(join(dir, 'policies'));
+    const problems = await problemsOf(dir);
+    expect(problems).toEqual([
+      {
+        file: 'routing.yaml',
+        key: 'task_classes.chat.default',
+        message: '"anthropic/fable:latest" points at a line that no model in models.yaml belongs to',
+      },
+    ]);
+  });
 });

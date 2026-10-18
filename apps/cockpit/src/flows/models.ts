@@ -42,6 +42,10 @@ export interface FlowModel {
   chat: boolean;
   /** OpenRouter models: the OpenRouter id, for routing and cost on a step. */
   openrouter?: string;
+  /** A line's "latest" entry: the concrete model it answers with now (MD4). */
+  aliasOf?: string;
+  lineId?: string;
+  lifecycle?: 'active' | 'deprecated' | 'retired';
 }
 
 export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowModel>; loading: boolean } {
@@ -77,6 +81,9 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         nodeName: node?.name ?? null,
         chat: !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
         ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
+        ...(m.alias_of && { aliasOf: m.alias_of }),
+        ...(m.line_id && { lineId: m.line_id }),
+        ...(m.lifecycle && { lifecycle: m.lifecycle }),
       };
     });
     // A flow that already names a try-out model still resolves it; only the picker list hides it.

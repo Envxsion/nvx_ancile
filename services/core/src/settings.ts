@@ -68,6 +68,14 @@ export const SETTING = {
   customModels: 'models.custom',
   /** { [taskClass]: modelId[] } chains saved in Admin → Routing; they win over config/routing.yaml. */
   routingChains: 'routing.chains',
+  /** { [lineId]: LineState }: follow, current, previous and pending per model line (models/watch/linebook.ts). */
+  modelLines: 'models.lines',
+  /** Ids of models added from the model watch (they are stored with the added models). */
+  watchAdded: 'models.watch_added',
+  /** { [provider]: ProviderCheckState }: how the last check of each provider went. */
+  watchChecks: 'models.watch.checks',
+  /** { openrouter_prices: boolean }: the model watch's own settings. */
+  watchSettings: 'models.watch.settings',
   /** ClaudeCodeSettings: Settings → Claude Code (docs/claude-code.md). */
   claudeCode: 'claude_code',
   /** { tokens, at }: the input of the latest Claude Code first turn that loaded the whole setup (lean comparison). */

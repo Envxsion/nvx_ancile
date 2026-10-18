@@ -16,6 +16,7 @@
  * ------------------------------------------------------------------
  */
 
+import type { ModelWatchReport, WatchedModel } from '@nvx/contracts';
 import { COCKPIT_VERSION } from '../lib/build';
 import type {
   EvidenceView,
@@ -828,4 +829,178 @@ export const engineContext: import('@nvx/contracts').EngineContextReport = {
   dropped: 3,
   foreign_turns: 0,
   seeded_from_summary: false,
+};
+
+/* ---- Model updates (MD4, MD5) ---------------------------------------------- */
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+
+const watched = (
+  m: Pick<WatchedModel, 'id' | 'provider' | 'provider_model' | 'display_name' | 'line_id' | 'version'> &
+    Partial<WatchedModel>,
+): WatchedModel => ({
+  preview: false,
+  context_window: 400_000,
+  max_output: 64_000,
+  capabilities: ['tools', 'vision', 'json'],
+  other_abilities: [],
+  price: null,
+  price_source: null,
+  price_checked_at: null,
+  lifecycle: 'active',
+  retires_at: null,
+  first_seen: hoursAgo(24 * 30),
+  last_seen: hoursAgo(3),
+  in_catalogue: true,
+  ...m,
+});
+
+const checked = (provider: string, hours: number, models: number) => ({
+  provider,
+  checked_at: hoursAgo(hours),
+  ok: true,
+  error_code: null,
+  error_title: null,
+  unsupported: false,
+  next_at: hoursAgo(hours - 24),
+  models,
+});
+
+export const demoWatch: ModelWatchReport = {
+  providers: [
+    checked('anthropic', 3, 5),
+    checked('openai', 5, 8),
+    {
+      provider: 'zai',
+      checked_at: null,
+      ok: false,
+      error_code: null,
+      error_title: null,
+      unsupported: true,
+      next_at: null,
+      models: 0,
+    },
+  ],
+  lines: [
+    {
+      id: 'anthropic/opus',
+      provider: 'anthropic',
+      name: 'Claude Opus',
+      tier: 'best',
+      latest_id: 'anthropic/claude-opus-5-6',
+      current_id: 'anthropic/claude-opus-5-5',
+      follow: false,
+      previous_id: null,
+      pending: { model_id: 'anthropic/claude-opus-5-6', state: 'offered', detail: null, at: hoursAgo(3) },
+    },
+    {
+      id: 'anthropic/sonnet',
+      provider: 'anthropic',
+      name: 'Claude Sonnet',
+      tier: 'balanced',
+      latest_id: 'anthropic/claude-sonnet-5-5',
+      current_id: 'anthropic/claude-sonnet-5-5',
+      follow: true,
+      previous_id: 'anthropic/claude-sonnet-5-4',
+      pending: null,
+    },
+    {
+      id: 'openai/gpt',
+      provider: 'openai',
+      name: 'GPT',
+      tier: 'best',
+      latest_id: 'openai/gpt-5.5',
+      current_id: 'openai/gpt-5.5',
+      follow: true,
+      previous_id: null,
+      pending: null,
+    },
+  ],
+  models: [
+    watched({
+      id: 'anthropic/claude-opus-5-5',
+      provider: 'anthropic',
+      provider_model: 'claude-opus-5-5',
+      display_name: 'Claude Opus 5.5',
+      line_id: 'anthropic/opus',
+      version: '5.5',
+      price: { input_per_mtok: 5, output_per_mtok: 25 },
+      price_source: 'provider',
+      price_checked_at: hoursAgo(3),
+    }),
+    watched({
+      id: 'anthropic/claude-opus-5-6',
+      provider: 'anthropic',
+      provider_model: 'claude-opus-5-6',
+      display_name: 'Claude Opus 5.6',
+      line_id: 'anthropic/opus',
+      version: '5.6',
+      capabilities: ['tools', 'vision', 'json', 'reasoning'],
+      other_abilities: ['pdf_input'],
+      price: { input_per_mtok: 5, output_per_mtok: 25 },
+      price_source: 'provider',
+      price_checked_at: hoursAgo(3),
+      in_catalogue: false,
+      first_seen: hoursAgo(3),
+    }),
+    watched({
+      id: 'anthropic/claude-sonnet-5-5',
+      provider: 'anthropic',
+      provider_model: 'claude-sonnet-5-5',
+      display_name: 'Claude Sonnet 5.5',
+      line_id: 'anthropic/sonnet',
+      version: '5.5',
+      price: { input_per_mtok: 2, output_per_mtok: 10 },
+      price_source: 'provider',
+      price_checked_at: hoursAgo(3),
+    }),
+    watched({
+      id: 'openai/gpt-5.5',
+      provider: 'openai',
+      provider_model: 'gpt-5.5',
+      display_name: 'GPT-5.5',
+      line_id: 'openai/gpt',
+      version: '5.5',
+      price: { input_per_mtok: 1.25, output_per_mtok: 10 },
+      price_source: 'openrouter',
+      price_checked_at: hoursAgo(5),
+    }),
+  ],
+  changes: [
+    {
+      id: 'chg-new-opus',
+      kind: 'new_model',
+      model_id: 'anthropic/claude-opus-5-6',
+      line_id: 'anthropic/opus',
+      before: null,
+      after: null,
+      reason: null,
+      at: hoursAgo(3),
+      seen: false,
+    },
+    {
+      id: 'chg-price-sonnet',
+      kind: 'price',
+      model_id: 'anthropic/claude-sonnet-5-5',
+      line_id: 'anthropic/sonnet',
+      before: { input_per_mtok: 3, output_per_mtok: 15 },
+      after: { input_per_mtok: 2, output_per_mtok: 10 },
+      reason: null,
+      at: hoursAgo(3),
+      seen: false,
+    },
+    {
+      id: 'chg-pdf-opus',
+      kind: 'unsupported_capability',
+      model_id: 'anthropic/claude-opus-5-6',
+      line_id: 'anthropic/opus',
+      before: [],
+      after: ['pdf_input'],
+      reason: null,
+      at: hoursAgo(3),
+      seen: false,
+    },
+  ],
+  bundled_prices_date: '2026-10-16',
+  openrouter_prices: true,
 };

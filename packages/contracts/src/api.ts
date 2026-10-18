@@ -274,6 +274,15 @@ export const ModelInfo = z.object({
   /** Who pays for an answer from this model (MD3). */
   billing: ModelBilling,
   /**
+   * A line's "latest" alias (`<provider>/<line>:latest`, MD4): the model it
+   * answers with now. Null or absent for every ordinary model.
+   */
+  alias_of: z.string().nullable().optional(),
+  /** The line this model belongs to (`<provider>/<line>`), when it has one. */
+  line_id: z.string().nullable().optional(),
+  /** Retired or deprecated by its provider (MD5); calls to a retired model go to its line's current model. */
+  lifecycle: z.enum(['active', 'deprecated', 'retired']).optional(),
+  /**
    * False while nothing real stands behind it: a provider with no key, an
    * Ollama model not pulled, a node model with no node. Settings lists only
    * listed models; routing and traces still find the rest by id. Absent means listed.

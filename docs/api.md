@@ -207,6 +207,13 @@ Every PATCH field is optional (`PatchGrantRequest`); `ttl_seconds: null` never e
 PATCH  /api/v1/models/<id>    { "display_name": "Pod coder", "context_window": 131072, "hue": "jade", "enabled": true }
 DELETE /api/v1/models/<id>    → 204 (added models only, else 409 model.not_custom)
 POST   /api/v1/models/restore { "id": "<id>" } → 201, the model (within ten minutes, else 410 model.restore_expired)
+GET    /api/v1/models/watch → ModelWatchReport (providers, lines, models, changes; docs/models.md, Staying current)
+POST   /api/v1/models/watch/check { "provider"?: "anthropic" } → ModelWatchReport (429 models.check_too_soon within a minute)
+PUT    /api/v1/models/watch/settings { "openrouter_prices": true } → ModelWatchReport
+POST   /api/v1/models/watch/seen { "ids": ["mchg_…"] } → 204
+POST   /api/v1/models/watch/add { "model_id": "anthropic/claude-opus-5-6" } → 201, the model (404 if the watch has not seen it)
+PUT    /api/v1/models/lines/anthropic/opus { "follow"?: true, "use"?: "<model id of that line>" } → ModelLine (400 models.line_model_not_in_line)
+POST   /api/v1/models/lines/anthropic/opus/back → ModelLine (409 models.line_no_previous)
 ```
 
 `PatchModelRequest` also takes `family`, `max_output`, `capabilities`, `price`, and for OpenAI-compatible models `base_url`, `api_key` (replace the key) or `secret` (a stored key's name; `null` for none). A model from `config/models.yaml` takes only `enabled` and `hue` (`hue: null` follows the family).

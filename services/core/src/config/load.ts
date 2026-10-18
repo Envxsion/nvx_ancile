@@ -20,7 +20,9 @@ import {
   AutomationsFile,
   FactcheckFile,
   ImagesFile,
+  isLineAlias,
   LocalModelsFile,
+  lineOfAlias,
   McpFile,
   MemoryFile,
   ModelsFile,
@@ -32,6 +34,7 @@ import {
 } from '@nvx/contracts';
 import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
+import { lineFor } from '../models/watch/lines';
 
 const FILES = {
   models: { file: 'models.yaml', schema: ModelsFile, required: true },
@@ -129,14 +132,23 @@ export async function loadConfig(dir: string): Promise<AncileConfig> {
   const routing = out.routing as z.infer<typeof RoutingFile> | null;
   if (models && routing) {
     const known = new Set(models.models.map((m) => m.id));
+    // `<provider>/<line>:latest` is fine when a model in models.yaml belongs to that line (MD4).
+    const lines = new Set(
+      models.models.flatMap((m) => {
+        const l = lineFor(m.provider, m.base_url, m.provider_model);
+        return l ? [l.line_id] : [];
+      }),
+    );
     for (const [tc, spec] of Object.entries(routing.task_classes)) {
       const ids = Array.isArray(spec) ? spec : spec.chain;
       for (const id of ids) {
-        if (!known.has(id) && !id.startsWith('local/')) {
+        if (!known.has(id) && !id.startsWith('local/') && !(isLineAlias(id) && lines.has(lineOfAlias(id)))) {
           problems.push({
             file: 'routing.yaml',
             key: `task_classes.${tc}`,
-            message: `"${id}" is not defined in models.yaml`,
+            message: isLineAlias(id)
+              ? `"${id}" points at a line that no model in models.yaml belongs to`
+              : `"${id}" is not defined in models.yaml`,
           });
         }
       }

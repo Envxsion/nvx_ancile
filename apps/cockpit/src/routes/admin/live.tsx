@@ -34,6 +34,7 @@ import { Icon } from '../../ui/Icon';
 // A read that failed says so, with a retry, rather than passing for an empty list.
 import { LoadFailed } from '../../ui/LoadFailed';
 import { EmptyState, Skeleton, StatusDot } from '../../ui/primitives';
+import { ModelUpdates } from './ModelUpdates';
 import { ModelBlocksView } from './modelBlocks';
 
 const SERVICE_LABEL: Record<string, string> = {
@@ -310,6 +311,7 @@ export function LiveModels() {
       </div>
       <AddModelDialog />
       <LocalModelsDialog />
+      <ModelUpdates />
       <ModelBlocksView models={shown} />
     </>
   );

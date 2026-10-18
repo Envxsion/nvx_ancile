@@ -29,6 +29,7 @@ import { useModels } from '../../lib/data';
 import { queryClient } from '../../lib/query';
 import type { ModelView } from '../../lib/types';
 import { billingTitle, displayName, modelBadge, sameModelBothWays } from '../../models/billing';
+import { LATEST_TAG, nowNote, offerable, retiredNote } from '../../models/lines';
 import { notify } from '../../state/notify';
 import { type ConfirmCopy, ConfirmDialog } from '../../ui/Confirm';
 import { ErrorState } from '../../ui/ErrorState';
@@ -206,7 +207,8 @@ function ChainCard({
     });
   };
 
-  const candidates = offered.filter((m) => !order.includes(m.id));
+  // A line is offered once ("Latest"), not the model it answers with now; retired models are not offered.
+  const candidates = offerable(offered).filter((m) => !order.includes(m.id));
   const addItems: MenuEntry[] = candidates.length
     ? candidates.map((m) => ({
         label: displayName(m, dupes),
@@ -260,6 +262,10 @@ function ChainCard({
               count={order.length}
               name={name(id)}
               model={byId.get(id)}
+              lineNote={(() => {
+                const m = byId.get(id);
+                return m ? (retiredNote(m, models) ?? nowNote(m, models)) : null;
+              })()}
               busy={busy}
               onDrop={() => commit(orderRef.current)}
               onMove={(step) => commit(moveBy(orderRef.current, id, step))}
@@ -283,6 +289,7 @@ function ChainLink({
   count,
   name,
   model,
+  lineNote,
   busy,
   onDrop,
   onMove,
@@ -293,6 +300,8 @@ function ChainLink({
   count: number;
   name: string;
   model: ModelView | undefined;
+  /** "now Claude Opus 5.6" on a line, or why a retired model still answers. */
+  lineNote: string | null;
   busy: boolean;
   onDrop: () => void;
   onMove: (step: -1 | 1) => void;
@@ -351,6 +360,7 @@ function ChainLink({
       <span className="row__title" title={id}>
         {name}
       </span>
+      {model?.aliasOf ? <span className="tag mu-latest">{LATEST_TAG}</span> : null}
       {model && modelBadge(model) ? (
         <span
           className="model-badge route-link__badge"
@@ -359,7 +369,7 @@ function ChainLink({
           {modelBadge(model)}
         </span>
       ) : null}
-      <span className="row__meta">{note}</span>
+      <span className="row__meta">{[lineNote, note].filter(Boolean).join(' · ')}</span>
       <DropMenu
         items={items}
         trigger={

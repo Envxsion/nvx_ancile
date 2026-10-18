@@ -979,3 +979,36 @@ export const imageRemoteHosts = core.table(
   },
   (t) => [primaryKey({ columns: [t.scopeKey, t.host] })],
 );
+
+// ---- MD4, MD5: the model watch (0033) ----
+
+/** What each provider's live model list said, one row per model id; never deleted. */
+export const modelWatch = core.table(
+  'model_watch',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider').notNull(),
+    data: jsonb('data').notNull(),
+    firstSeen: ts('first_seen').notNull().defaultNow(),
+    lastSeen: ts('last_seen').notNull().defaultNow(),
+    missed: integer('missed').notNull().default(0),
+  },
+  (t) => [index('model_watch_provider').on(t.provider)],
+);
+
+/** New models, prices, context, abilities, retirements and lines moving. */
+export const modelChanges = core.table(
+  'model_changes',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull(),
+    modelId: text('model_id').notNull(),
+    lineId: text('line_id'),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    reason: text('reason'),
+    at: ts('at').notNull().defaultNow(),
+    seen: boolean('seen').notNull().default(false),
+  },
+  (t) => [index('model_changes_seen_at').on(t.seen, t.at)],
+);

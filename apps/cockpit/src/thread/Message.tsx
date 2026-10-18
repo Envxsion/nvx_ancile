@@ -28,6 +28,7 @@ import { hueVar, modelById, modelName, percent, stamp, usd } from '../lib/format
 import { partsText, reasonWords, unknownCount } from '../lib/mappers';
 import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
+import { aliasAnswered } from '../models/lines';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -349,7 +350,7 @@ export const Message = memo(function Message({
         <Grounding trace={m.provenance.retrieval} onWhy={() => useUi.getState().explain(m.id)} />
       ) : null}
 
-      {m.role === 'assistant' && m.fallback && !streaming ? (
+      {m.role === 'assistant' && m.fallback && !streaming && !aliasAnswered(m.fallback.from, m.modelId) ? (
         <p
           className="msg__fallback"
           title="NVX Ancile switched models without interrupting you. Open Why for the details."

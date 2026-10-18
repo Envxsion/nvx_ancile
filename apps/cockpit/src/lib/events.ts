@@ -23,6 +23,7 @@ import { onReviewerStatus } from '../auto/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
 import { onInterpreterRequested } from '../interpreter/host';
 import { onMemoryProposal } from '../memory/api';
+import { refreshModels } from '../models/watch';
 import { decisionChime } from '../notify/chime';
 import { onMcpServerChanged, onMcpToolsChanged } from '../ops/mcp';
 import { notify } from '../state/notify';
@@ -87,6 +88,9 @@ export function useGlobalEvents(): void {
             break;
           case 'claude_code.changed':
             onClaudeCodeChanged(e, queryClient);
+            break;
+          case 'models.changed':
+            refreshModels();
             break;
           case 'activity.changed':
             onActivityChanged(e, queryClient);

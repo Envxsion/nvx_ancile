@@ -37,6 +37,7 @@ import { api } from '../lib/api';
 import { canAnswer, useModels, useThread } from '../lib/data';
 import type { Hue, ModelView } from '../lib/types';
 import { billingTitle, displayName, modelBadge, sameModelBothWays } from '../models/billing';
+import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
 import { checkModel, type ModelKind, useThreadScope } from '../scopes/api';
 import { useUi } from '../state/ui';
 
@@ -78,6 +79,8 @@ export interface ModelEntry {
   /** The badge in words, for its tooltip and accessible label; null when not known. */
   badgeTitle: string | null;
   note: string | null;
+  /** A small tag after the name: "Latest" on a line that follows its newest model. */
+  tag?: string | null;
   /** Why it cannot be chosen here, in a sentence; null when it can. */
   disabled: string | null;
   current: boolean;
@@ -138,14 +141,16 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
       kind,
       badge: modelBadge(m) ?? (kind === 'local' && m.via === 'controller' ? 'GPU node' : BADGE[kind]),
       badgeTitle: m.billing ? billingTitle(m.billing, m.price) : null,
-      note: m.note ?? null,
+      note: retiredNote(m, input.models) ?? nowNote(m, input.models) ?? m.note ?? null,
+      ...(m.aliasOf && { tag: LATEST_TAG }),
       disabled: (kind === 'claude_code' ? ccOff : null) ?? checkModel(input.scope, kind, m.id),
       current: m.id === input.currentId,
       model: m,
     };
   };
   // Only models that can answer now; one that needs its key, is off or is not in Ollama is set up in Admin → Models.
-  const chat = input.models.filter(canAnswer);
+  // A line shows once ("Latest"), not the model it answers with now; retired models go. The selected one always stays.
+  const chat = offerable(input.models, [input.currentId]).filter(canAnswer);
   let claude: ModelEntry[];
   if (input.session) {
     const opts = input.session.options.length

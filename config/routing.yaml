@@ -7,17 +7,18 @@
 version: 1
 
 task_classes:
+  # <provider>/<line>:latest means the line's current model (docs/models.md, Lines and tiers).
   chat.default:                     # ordinary chat turns
-    - anthropic/claude-sonnet-5-5
-    - openai/gpt-5.5
+    - anthropic/sonnet:latest
+    - openai/gpt:latest
     - controller/qwen3-72b
     - ollama/qwen3-14b
   chat.deep:                        # "think harder" turns and research synthesis
-    - anthropic/claude-opus-5-5
-    - openai/gpt-5.5
-    - anthropic/claude-sonnet-5-5
+    - anthropic/opus:latest
+    - openai/gpt:latest
+    - anthropic/sonnet:latest
   utility:                          # titles, tags, memory capture, summaries
-    - anthropic/claude-haiku-4-5
+    - anthropic/haiku:latest
     - ollama/qwen3-14b
   embed:                            # chunk and memory embeddings
     - local/bge-small-en-v1.5
@@ -26,9 +27,9 @@ task_classes:
   factcheck.verify:                 # the verifier must be independent of the generator
     prefer_different_family: true   # skip the generator's family when another is available
     chain:
-      - openai/gpt-5.5
-      - google/gemini-3-pro
-      - anthropic/claude-sonnet-5-5
+      - openai/gpt:latest
+      - google/gemini-pro:latest
+      - anthropic/sonnet:latest
 
 resilience:
   retry:

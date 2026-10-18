@@ -24,6 +24,7 @@ export * from './localmodels';
 export * from './mcp';
 export * from './memory';
 export * from './messages';
+export * from './modelwatch';
 export * from './notebooks';
 export * from './notifications';
 export * from './openrouter';

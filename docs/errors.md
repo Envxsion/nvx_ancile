@@ -45,6 +45,12 @@ Rules for new codes:
 | `model.not_custom` | 409 | "<Model> comes from models.yaml." / Only models you added in Settings → Models can be edited or removed; you can still switch it on or off and change its colour. |
 | `model.from_ollama` | 409 | "<Model> comes from Ollama." / It is listed because Ollama has it pulled (docs/models.md, Ollama). To take it off the list, remove it in Ollama (`ollama rm <name>`); you can still switch it on or off and change its colour. Raised when a model found in Ollama is edited or removed. |
 | `model.needs_base_url` | 400 | "An OpenAI-compatible model needs the server address." / Give its base URL ending in /v1, for example https://abc123-8000.proxy.runpod.net/v1. |
+| `models.list_forbidden` | 502 (shown on the provider's check) | "This key can't list models at <host>." / The key still works for answers. Prices and new models for this provider stay as shipped. A key allowed to list models, or a different key, turns the daily check on. Never reported as a rejected key. |
+| `models.list_unavailable` | 502 (shown on the check) | "<Host> did not give its model list." / It answered with an error or was busy (429, 5xx). NVX Ancile asks again later: after 1 hour, then 2, 4, 8, up to 24. |
+| `models.list_failed` | 502 (shown on the check) | "The model list from <host> could not be read." / Check your connection, or the address in Settings → Models, then Check now. Asked again later. |
+| `models.check_too_soon` | 429 | "<Provider> was checked a moment ago." / Each provider can be checked once a minute (POST /models/watch/check). |
+| `models.line_model_not_in_line` | 400 | "<id> is not a model of <line>." / Pick one of the models listed for the line (PUT /models/lines/:provider/:line, `use`). |
+| `models.line_no_previous` | 409 | "There is no earlier model to go back to." / A line remembers the model it used before its last move; it has not moved yet. |
 | `routing.task_class_unknown` | 404 | "There is no task class called <class>." / Pick one of the task classes listed in Admin → Routing. |
 | `routing.chain_empty` | 400 | "A chain needs at least one model." / Add a model before saving, or reset the chain to its default. |
 | `routing.model_unknown` | 400 | "<id> isn't one of your models." / Add it in Admin → Models first, or pick a model from the list. |

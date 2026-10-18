@@ -20,10 +20,37 @@
  *           |  refresh() caches them, so chain() stays synchronous.
  *           |  RoutingClient sends `fake` models to the FakeProvider
  *           |  and everything else through the AI SDK.
+ *           |  Model lines (MD4): `<provider>/<line>:latest` ids resolve
+ *           |  to the line's current model, and a retired model's id to
+ *           |  its line's current model; get() and chain() do it, so
+ *           |  every place that checks a model id accepts an alias, and
+ *           |  an answer records the concrete model. The model watch
+ *           |  hands live prices, windows and abilities to setWatch(),
+ *           |  laid over the bundled values without touching the YAML.
  * ------------------------------------------------------------------
  */
 
-import { ModelConfig, type ModelHue, type ModelInfo } from '@nvx/contracts';
+import {
+  isLineAlias,
+  lineAlias,
+  lineOfAlias,
+  ModelConfig,
+  type ModelHue,
+  type ModelInfo,
+  type ModelLine,
+} from '@nvx/contracts';
+import {
+  currentOf,
+  emptyState,
+  groupLines,
+  type LineGroup,
+  type LineState,
+  lineReport,
+  type Member,
+  newestStable,
+} from '../models/watch/linebook';
+import { dateOf, lineFor } from '../models/watch/lines';
+import type { StoredModel } from '../models/watch/store';
 import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
@@ -82,8 +109,28 @@ const isLocalOllama = (m: ModelConfig) => m.provider === 'ollama' && m.via === '
 /** The provider name for models discovered on your GPU nodes. */
 export const NODE_PROVIDER = 'node';
 
+/** What a model id turned into: the model that answers, and how. */
+export interface Resolved {
+  model: ModelConfig;
+  requested: string;
+  via: 'exact' | 'alias' | 'retired';
+  /** For a retired model: the sentence to show. */
+  note: string | null;
+}
+
 export class ModelRegistry {
   private readonly models: ModelConfig[];
+  /** Saved per line: follow, current, previous, pending. */
+  private lineStates: Record<string, LineState> = {};
+  /** Ids of models added from the watch. */
+  private watchAdded = new Set<string>();
+  /** What the watch saw, by model id. */
+  private watch = new Map<string, StoredModel>();
+  /** The model objects the watch's live values were laid over, back to the originals. */
+  private readonly overlaid = new WeakMap<ModelConfig, { orig: ModelConfig; version: number }>();
+  private overlayVersion = 0;
+  private groups = new Map<string, LineGroup>();
+  private lineByModel = new Map<string, string>();
   private secretNames = new Set<string>();
   private overrides: Record<string, boolean> = {};
   /** Chip hues chosen for config models. */
@@ -121,14 +168,19 @@ export class ModelRegistry {
     const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
     const custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
     const chains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
+    const lineStates = (await this.opts.settings.get<Record<string, LineState>>(SETTING.modelLines)) ?? {};
+    const watchAdded = (await this.opts.settings.get<string[]>(SETTING.watchAdded)) ?? [];
     await this.lookAtOllama();
     // Applied together, with nothing awaited in between, so chain() never sees half a refresh.
     this.secretNames = secretNames;
     this.overrides = overrides;
     this.hues = hues;
     this.savedChains = chains;
+    this.lineStates = lineStates;
+    this.watchAdded = new Set(watchAdded);
     this.mergeCustom(custom);
     this.syncDiscovered();
+    this.recompute();
   }
 
   /** Ask Ollama what it has pulled (and about anything new), at most every OLLAMA_TAGS_TTL_MS. */
@@ -261,8 +313,177 @@ export class ModelRegistry {
     return this.opts.offline;
   }
 
+  /** The model that answers to this id: a line's alias or a retired model's id turns into the current model. */
   get(id: string): ModelConfig | undefined {
+    return this.resolve(id)?.model;
+  }
+
+  /** The model with exactly this id (for editing, removing and switching on or off). */
+  getExact(id: string): ModelConfig | undefined {
     return this.models.find((m) => m.id === id);
+  }
+
+  resolve(id: string): Resolved | undefined {
+    if (isLineAlias(id)) {
+      const cur = this.currentOfLine(lineOfAlias(id));
+      const model = cur ? this.getExact(cur) : undefined;
+      return model ? { model, requested: id, via: 'alias', note: null } : undefined;
+    }
+    const model = this.getExact(id);
+    if (!model) return undefined;
+    if (this.lifecycleOf(id) === 'retired') {
+      const lineId = this.lineByModel.get(id);
+      const group = lineId ? this.groups.get(lineId) : undefined;
+      if (lineId && group) {
+        const cur = this.currentOfLine(lineId);
+        let next = cur && cur !== id ? this.getExact(cur) : undefined;
+        if (!next) {
+          const n = newestStable(group.members.filter((m) => m.have && m.id !== id));
+          next = n ? this.getExact(n.id) : undefined;
+        }
+        if (next)
+          return {
+            model: next,
+            requested: id,
+            via: 'retired',
+            note: `${model.display_name} has been retired by its provider, so ${next.display_name} answers instead.`,
+          };
+      }
+    }
+    return { model, requested: id, via: 'exact', note: null };
+  }
+
+  // ---- Model lines and the watch (MD4, MD5) ----
+
+  lifecycleOf(id: string): 'active' | 'deprecated' | 'retired' {
+    return this.watch.get(id)?.lifecycle ?? 'active';
+  }
+
+  /** Model watch rows, as last handed over. */
+  watched(): StoredModel[] {
+    return [...this.watch.values()];
+  }
+
+  isFromWatch(id: string): boolean {
+    return this.watchAdded.has(id);
+  }
+
+  lineIdOf(modelId: string): string | null {
+    return this.lineByModel.get(modelId) ?? null;
+  }
+
+  /** What `<line>:latest` answers with now, or null. */
+  currentOfLine(lineId: string): string | null {
+    const g = this.groups.get(lineId);
+    return g ? currentOf(g, this.lineStates[lineId]) : null;
+  }
+
+  lines(): ModelLine[] {
+    return [...this.groups.values()].map((g) => lineReport(g, this.lineStates[g.id]));
+  }
+
+  lineGroup(lineId: string): LineGroup | undefined {
+    return this.groups.get(lineId);
+  }
+
+  lineState(lineId: string): LineState {
+    return { ...emptyState(), ...(this.lineStates[lineId] ?? {}) };
+  }
+
+  /** Save one line's state (null clears it) and take it in at once. */
+  async saveLineState(lineId: string, state: LineState | null): Promise<void> {
+    const next = {
+      ...((await this.opts.settings.get<Record<string, LineState>>(SETTING.modelLines)) ?? {}),
+    };
+    if (state) next[lineId] = state;
+    else delete next[lineId];
+    await this.opts.settings.set(SETTING.modelLines, next);
+    this.lineStates = next;
+    this.recompute();
+  }
+
+  /**
+   * The watch's rows: live prices, windows and abilities go over the models
+   * you have, and models the watch knows of join their lines as offers.
+   */
+  setWatch(rows: StoredModel[]): void {
+    this.watch = new Map(rows.map((r) => [r.id, r]));
+    this.overlayVersion++;
+    this.recompute();
+  }
+
+  /** Add a model the watch found (persisted with the added models; marked as from the watch). */
+  async addFromWatch(config: ModelConfig): Promise<void> {
+    const ids = [...new Set([...this.watchAdded, config.id])];
+    await this.opts.settings.set(SETTING.watchAdded, ids);
+    await this.saveCustom([...this.custom().filter((m) => m.id !== config.id), config]);
+  }
+
+  /** Lay the watch's live values over the models, then group the models into lines. */
+  private recompute(): void {
+    for (let i = 0; i < this.models.length; i++) {
+      const cur = this.models[i] as ModelConfig;
+      const was = this.overlaid.get(cur);
+      if (was && was.version === this.overlayVersion) continue;
+      const orig = was?.orig ?? cur;
+      const row = this.watch.get(orig.id);
+      const mine = !this.customIds.has(orig.id) || this.watchAdded.has(orig.id);
+      let next = orig;
+      if (row && mine && orig.provider !== 'fake') {
+        const price =
+          row.price && row.price_source && row.price_source !== 'bundled'
+            ? { ...orig.price, ...row.price }
+            : orig.price;
+        next = {
+          ...orig,
+          price,
+          context_window: row.context_window ?? orig.context_window,
+          max_output: row.max_output ?? orig.max_output,
+          capabilities: row.caps_known && row.capabilities.length ? row.capabilities : orig.capabilities,
+        };
+      }
+      if (next === orig && !was) continue;
+      if (next !== orig) this.overlaid.set(next, { orig, version: this.overlayVersion });
+      this.models[i] = next;
+    }
+    const members: Member[] = [];
+    this.lineByModel = new Map();
+    for (const m of this.models) {
+      const l = lineFor(m.provider, m.base_url, m.provider_model);
+      if (!l) continue;
+      this.lineByModel.set(m.id, l.line_id);
+      members.push({
+        id: m.id,
+        provider: m.provider,
+        line_id: l.line_id,
+        name: l.name,
+        tier: l.tier,
+        version: l.version,
+        date: dateOf(m.provider_model),
+        created: this.watch.get(m.id)?.created_at ?? null,
+        preview: l.preview,
+        retired: this.lifecycleOf(m.id) === 'retired',
+        have: true,
+      });
+    }
+    const have = new Set(members.map((m) => m.id));
+    for (const r of this.watch.values()) {
+      if (have.has(r.id) || !r.line_id || !r.line_name || !r.line_tier) continue;
+      members.push({
+        id: r.id,
+        provider: r.provider,
+        line_id: r.line_id,
+        name: r.line_name,
+        tier: r.line_tier,
+        version: r.version,
+        date: dateOf(r.provider_model),
+        created: r.created_at,
+        preview: r.preview,
+        retired: r.lifecycle === 'retired',
+        have: false,
+      });
+    }
+    this.groups = groupLines(members);
   }
 
   /**
@@ -284,6 +505,7 @@ export class ModelRegistry {
     for (let i = this.models.length - 1; i >= 0; i--)
       if (this.models[i]?.provider === provider) this.models.splice(i, 1);
     this.models.push(...models.map((m) => ({ ...m, provider })));
+    this.recompute();
   }
 
   /** Tell the registry how Claude Code is signed in: its models are ready only while it is, and bill by it. */
@@ -325,7 +547,27 @@ export class ModelRegistry {
   }
 
   info(): ModelInfo[] {
-    return this.models.map((m) => ({
+    const concrete = this.models.map((m) => this.infoOf(m));
+    const aliases: ModelInfo[] = [];
+    for (const g of this.groups.values()) {
+      const curId = currentOf(g, this.lineStates[g.id]);
+      const cur = curId ? concrete.find((x) => x.id === curId) : undefined;
+      if (!cur) continue;
+      const { custom: _c, base_url: _b, ...rest } = cur;
+      aliases.push({
+        ...rest,
+        id: lineAlias(g.id),
+        display_name: g.name,
+        alias_of: cur.id,
+        line_id: g.id,
+      });
+    }
+    return [...concrete, ...aliases];
+  }
+
+  private infoOf(m: ModelConfig): ModelInfo {
+    const lineId = this.lineByModel.get(m.id);
+    return {
       id: m.id,
       display_name: m.display_name,
       provider: m.provider,
@@ -343,7 +585,9 @@ export class ModelRegistry {
       offline: m.provider === 'fake',
       ...(this.customIds.has(m.id) && { custom: true, base_url: m.base_url ?? null }),
       ...((this.hues[m.id] ?? m.hue) && { hue: this.hues[m.id] ?? m.hue }),
-    }));
+      ...(lineId && { line_id: lineId }),
+      lifecycle: this.lifecycleOf(m.id),
+    };
   }
 
   /** Choose a config model's chip hue; null goes back to the family's. */
@@ -394,8 +638,13 @@ export class ModelRegistry {
       }
       classes['chat.default'] ??= OFFLINE_MODELS.map((m) => m.id);
     }
-    const chosen = explicit ? this.models.find((m) => m.id === explicit) : undefined;
-    const usable = chosen && canChat(chosen) ? explicit : undefined;
+    // Aliases and retired ids turn into the models that answer for them.
+    const concrete = (id: string) => this.resolve(id)?.model.id ?? id;
+    for (const [tc, spec] of Object.entries(classes)) {
+      classes[tc] = Array.isArray(spec) ? spec.map(concrete) : { ...spec, chain: spec.chain.map(concrete) };
+    }
+    const chosen = explicit ? this.resolve(explicit)?.model : undefined;
+    const usable = chosen && canChat(chosen) ? chosen.id : undefined;
     return resolveChain(
       { taskClass, explicit: usable ?? undefined, generatorFamily: opts.generatorFamily },
       classes,

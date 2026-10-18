@@ -179,6 +179,13 @@ Example: adding a vLLM server you run yourself, without the Controller:
 
 `config/routing.yaml` maps task classes to fallback chains. See [self-healing.md](self-healing.md).
 
+### Model aliases and `prices_as_of`
+
+A routing chain may name a model line instead of one model: `<provider>/<line>:latest`, for example `anthropic/sonnet:latest`, `anthropic/opus:latest`, `anthropic/haiku:latest`, `openai/gpt:latest` or `google/gemini-pro:latest`. It means the line's current model, which is the newest stable model in your list until the daily check or you move it (docs/models.md, Lines and tiers). Boot checks accept an alias when a model in `models.yaml` belongs to that line, and name the key when none does. A literal model id still works and is never rewritten.
+
+`prices_as_of` at the top of `models.yaml` is the date the prices below it were last checked by hand (`YYYY-MM-DD`). Live prices from the daily check lay over them; the date is shown beside any price that is still the shipped one.
+
+
 You can change a chain without the file in **Admin → Routing**: drag models into order (or use each model's menu: **Move up**, **Move down**, **Remove from chain**), and **Add model** from your switched-on chat models. The order is saved in Core settings (`routing.chains` in `core.settings`) and wins over the YAML for that task class; **Reset to default** goes back to the file, with Undo. Flags in the YAML, such as `prefer_different_family`, still apply to a saved order. `embed` and `rerank` run in Knowledge on this computer and are not edited there.
 
 | Task class | Used for |

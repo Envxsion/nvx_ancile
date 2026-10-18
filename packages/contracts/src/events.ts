@@ -428,6 +428,14 @@ export const GlobalEvent = z.discriminatedUnion('type', [
     /** A background import's progress (with `detail` "importing:<done>/<total>"); null once it ends. */
     progress: ImportProgress.nullable().optional(),
   }),
+  /** The model list moved (MD4, MD5): a daily check found something, or a line's latest model changed. */
+  z.object({
+    ...base,
+    type: z.literal('models.changed'),
+    what: z.enum(['watch', 'line']),
+    /** How many unseen changes there are now. */
+    unseen: z.number().int().nonnegative(),
+  }),
   /** What is running moved (docs/activity.md): `running` rows now; GET /activity has them. */
   z.object({
     ...base,

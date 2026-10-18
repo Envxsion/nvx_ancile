@@ -262,7 +262,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
 
   r.put('/models/:id{.+}', async (c) => {
     const id = c.req.param('id');
-    const m = registry.get(id);
+    const m = registry.getExact(id);
     if (!m) throw notFound('That model');
     const req = await body(c, PutModel);
     await registry.setEnabled({ [id]: req.enabled });

@@ -24,6 +24,7 @@ import {
   excludeFolder,
   onClaudeCodeChanged,
   readSessionsDetail,
+  resetInvalidateSoon,
   signedInWords,
   syncThread,
   useImportProgress,
@@ -560,6 +561,7 @@ describe('claude_code.changed', () => {
   });
 
   it('install and auth refresh the status; sessions the list; thread that thread', () => {
+    resetInvalidateSoon();
     vi.useFakeTimers();
     try {
       const spy = vi.spyOn(queryClient, 'invalidateQueries');
@@ -583,6 +585,7 @@ describe('claude_code.changed', () => {
   });
 
   it('a burst of events during an import refetches each query once, after a second', () => {
+    resetInvalidateSoon();
     vi.useFakeTimers();
     try {
       const spy = vi.spyOn(queryClient, 'invalidateQueries');
