@@ -476,6 +476,13 @@ export function Palette() {
       run: () => useUi.getState().toggleDrawer(),
     },
     {
+      id: 'statusbar',
+      label: prefs.appearance.statusBar ? 'Hide status bar' : 'Show status bar',
+      icon: 'layout',
+      words: 'footer bottom usage health clock',
+      run: () => setPref('appearance', { statusBar: !prefs.appearance.statusBar }),
+    },
+    {
       id: 'grain',
       label: prefs.appearance.grain ? 'Turn film grain off' : 'Turn film grain on',
       icon: 'sparkle',

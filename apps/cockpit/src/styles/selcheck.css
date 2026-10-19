@@ -202,7 +202,7 @@
   -webkit-line-clamp: 2;
 }
 .selbody__label {
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--mute-2);
@@ -250,14 +250,14 @@
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
   color: var(--mute-2);
 }
 .selev__origin {
   padding: 0 6px;
   border-radius: var(--r-pill);
   background: var(--chalk);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-weight: 600;
   color: var(--mute);
 }
@@ -344,11 +344,11 @@ button.selev__source:hover {
   padding: 12px;
   border-radius: var(--r-md);
   background: var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .selrow[data-focused] {
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 0 0 0 1px var(--edge-3);
 }
 .selrow__foot {
@@ -384,7 +384,7 @@ button.selev__source:hover {
   padding: 0 6px;
   border-radius: var(--r-pill);
   background: var(--chalk);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-weight: 600;
   color: var(--mute);
 }

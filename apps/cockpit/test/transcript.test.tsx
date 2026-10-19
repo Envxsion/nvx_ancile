@@ -503,7 +503,7 @@ describe('Claude Code tool steps', () => {
     expect(screen.getByText('Input')).toBeInTheDocument();
   });
 
-  it('more than four steps in a row fold into one group showing the last step', () => {
+  it('a finished run of steps folds into one line that says how many, showing the last step', () => {
     const many = Array.from({ length: 5 }, (_, i) => [
       call(`c${i}`, 'Read', { file_path: `/home/me/proj/f${i}.ts` }),
       ok(`c${i}`, `     1→x${i}`),
@@ -516,19 +516,63 @@ describe('Claude Code tool steps', () => {
     const group = container.querySelector('details.tool-group');
     expect(group).not.toBeNull();
     expect(group).not.toHaveAttribute('open');
-    expect(group?.querySelector('.tool-group__title')?.textContent).toBe('Worked through 5 steps');
+    expect(group?.querySelector('.tool-group__title')?.textContent).toBe('5 steps');
     expect(group?.querySelector('.tool-group__last')?.textContent).toBe('Read f4.ts');
     expect(group?.querySelectorAll('.tool-step')).toHaveLength(5);
   });
 
-  it('four steps stay as they are', () => {
-    const four = Array.from({ length: 4 }, (_, i) => [
+  it('the folded line carries the time the steps took', () => {
+    const timed = Array.from({ length: 3 }, (_, i) => [
+      call(`c${i}`, 'Read', { file_path: `/home/me/proj/f${i}.ts` }),
+      { ...ok(`c${i}`, 'x'), duration_ms: 4000 } as Part,
+    ]).flat();
+    const { container } = parts(timed);
+    expect(container.querySelector('.tool-group__title')?.textContent).toBe('3 steps · 12s');
+  });
+
+  it('two steps stay as they are', () => {
+    const two = Array.from({ length: 2 }, (_, i) => [
       call(`c${i}`, 'Agent', { description: `Look at part ${i}`, prompt: 'Go' }),
       ok(`c${i}`, 'Found it'),
     ]).flat();
-    const { container } = parts(four);
+    const { container } = parts(two);
     expect(container.querySelector('.tool-group')).toBeNull();
     expect(label(container)[0]).toBe('Look at part 0');
+  });
+
+  it('while a run goes, only its latest steps show and the rest are counted', () => {
+    const seven = Array.from({ length: 7 }, (_, i) => [
+      call(`c${i}`, 'Read', { file_path: `/home/me/proj/f${i}.ts` }),
+      ...(i < 6 ? [ok(`c${i}`, `     1→x${i}`)] : []),
+    ]).flat();
+    const { container } = render(
+      <ToolCwd.Provider value="/home/me/proj">
+        <Parts parts={seven} streaming={true} waiting={false} />
+      </ToolCwd.Provider>,
+    );
+    const group = container.querySelector('details.tool-group');
+    expect(group).toHaveAttribute('open');
+    expect(group?.querySelector('.tool-group__title')?.textContent).toBe('Working through 7 steps');
+    expect(group?.querySelector('.tool-group__earlier')?.textContent).toBe('2 earlier steps');
+    expect(group?.querySelectorAll('.tool-step')).toHaveLength(5);
+  });
+
+  it('a failed step stays in view when its run is folded', () => {
+    const run = [
+      call('c0', 'Read', { file_path: '/home/me/proj/a.ts' }),
+      ok('c0', 'x'),
+      call('c1', 'Read', { file_path: '/home/me/proj/b.ts' }),
+      failed('c1', 'No such file'),
+      call('c2', 'Read', { file_path: '/home/me/proj/c.ts' }),
+      ok('c2', 'x'),
+    ];
+    const { container } = render(
+      <ToolCwd.Provider value="/home/me/proj">
+        <Parts parts={run} streaming={false} waiting={false} />
+      </ToolCwd.Provider>,
+    );
+    expect(container.querySelector('.tool-group__failed')?.textContent).toBe('1 failed');
+    expect(container.querySelectorAll('.tool-group__pinned .tool-step')).toHaveLength(1);
   });
 });
 

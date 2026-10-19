@@ -39,7 +39,6 @@
 import { existsSync, type FSWatcher, watch } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   AncileError,
   type ClaudeCodeProject,
@@ -84,6 +83,7 @@ import {
   type UnknownRaw,
 } from './map';
 import { joinOutput } from './markup';
+import { claudeProjectsDir } from './paths';
 import { type ClaudeCodeStore, cwdKey, cwdWithin, FORK_PROBE, type SessionBinding } from './store';
 import { coversSdkChain, findTranscript, readTranscript, TRANSCRIPT_READER_VERSION } from './transcript';
 import type { ClaudeVerifier } from './verify';
@@ -193,6 +193,12 @@ export interface ClaudeCodeServiceDeps {
   transcripts?: boolean;
   /** Claude Code processes outside NVX Ancile holding sessions (holders.ts). */
   holders?: Pick<SessionHolders, 'holder'>;
+  /**
+   * Set (to a plain reason) when Claude Code is switched off for this whole Core: ANCILE_CLAUDE_CODE=off,
+   * which the test profile uses. Then nothing is detected, listed, imported or run, the CLI and the
+   * bridge are never touched, and the status says why.
+   */
+  off?: string | null;
 }
 
 /** A session's history: its chains (old branches first, the active one last). */
@@ -479,7 +485,45 @@ export class ClaudeCodeService {
     this.statusWatchers.push(fn);
   }
 
+  /** Why Claude Code is off for this Core, or null when it is on. */
+  get offReason(): string | null {
+    return this.deps.off ?? null;
+  }
+
+  /** Refuse, in plain words, when Claude Code is switched off. */
+  private assertOn(): void {
+    if (this.deps.off) throw ccErrors.off(this.deps.off);
+  }
+
   async status(fresh = false): Promise<ClaudeCodeStatus> {
+    if (this.deps.off) {
+      const out: ClaudeCodeStatus = {
+        installed: false,
+        version: null,
+        path: null,
+        version_ok: false,
+        min_version: MIN_VERSION,
+        signed_in: false,
+        auth_method: null,
+        plan: null,
+        account: null,
+        projects_dir: null,
+        config_dir: null,
+        install: { state: 'idle', error: null },
+        verification: { state: 'unchecked', error: null },
+        sdk: { ready: false, version: null, error: null },
+        settings: await this.settings(),
+        off_reason: this.deps.off,
+      };
+      for (const fn of this.statusWatchers) {
+        try {
+          fn(out);
+        } catch (err) {
+          log.warn({ err: (err as Error).message }, 'a status watcher failed');
+        }
+      }
+      return out;
+    }
     const [cli, settings] = await Promise.all([this.deps.cli.status(fresh), this.settings()]);
     const install = this.deps.installer.state();
     if (!cli.installed && settings.auto_install && install.state === 'idle') void this.install();
@@ -533,6 +577,7 @@ export class ClaudeCodeService {
 
   /** Is this Claude Code verified? Phase 2 runs sessions only when it is. */
   async requireVerified(): Promise<void> {
+    this.assertOn();
     const cli = await this.deps.cli.status();
     if (!cli.installed || !cli.path || !cli.version) throw ccErrors.notInstalled();
     const v = await this.deps.verifier.verify(cli.path, cli.version);
@@ -550,6 +595,7 @@ export class ClaudeCodeService {
   /* ---- install, sign in, sign out ------------------------------------ */
 
   install(): Promise<{ state: string; error: string | null }> {
+    if (this.deps.off) return Promise.reject(ccErrors.off(this.deps.off));
     const run = this.deps.installer.install().then(async () => {
       this.deps.cli.invalidate();
       const s = await this.deps.cli.status(true).catch(() => null);
@@ -563,6 +609,7 @@ export class ClaudeCodeService {
   }
 
   async signIn(method: 'claudeai' | 'console' | 'sso' = 'claudeai'): Promise<{ started: boolean }> {
+    this.assertOn();
     const cli = await this.deps.cli.status(true);
     if (!cli.installed) throw ccErrors.notInstalled();
     if (cli.version && !cli.version_ok) throw ccErrors.versionOld(cli.version, MIN_VERSION);
@@ -602,6 +649,7 @@ export class ClaudeCodeService {
   }
 
   async signOut(): Promise<void> {
+    this.assertOn();
     const r = await this.deps.cli.run(['auth', 'logout'], 30_000);
     if (r.code === 127) throw ccErrors.notInstalled();
     if (r.code !== 0) throw ccErrors.cliFailed('sign out', r.stderr || r.stdout);
@@ -612,6 +660,7 @@ export class ClaudeCodeService {
   /* ---- sessions -------------------------------------------------------- */
 
   private async sessionInfos(fresh = false, ttlMs = LIST_TTL_MS): Promise<CcSessionInfo[]> {
+    if (this.deps.off) return [];
     if (!fresh && this.listing && this.now() - this.listing.at < ttlMs) return this.listing.items;
     let items: CcSessionInfo[];
     try {
@@ -781,7 +830,7 @@ export class ClaudeCodeService {
    * new writes are seen at once). Empty when Claude Code is not here.
    */
   async recentSessions(): Promise<CcSessionInfo[]> {
-    if (!this.deps.cli.where()) return [];
+    if (this.deps.off || !this.deps.cli.where()) return [];
     return this.sessionInfos(false, 2 * 60_000).catch(() => []);
   }
 
@@ -791,6 +840,7 @@ export class ClaudeCodeService {
    * Claude Code threads read-only instead of failing on every turn.
    */
   async availability(): Promise<'ready' | 'not_installed' | 'signed_out' | 'unverified'> {
+    if (this.deps.off) return 'not_installed';
     const cli = await this.deps.cli.status().catch(() => null);
     if (!cli?.installed || !cli.path || !cli.version) return 'not_installed';
     const v = await this.deps.verifier.verify(cli.path, cli.version).catch(() => null);
@@ -808,6 +858,7 @@ export class ClaudeCodeService {
 
   /** When the session's transcript was last written, from the file itself (null when not found). */
   async transcriptModified(sessionId: string): Promise<number | null> {
+    if (this.deps.off) return null;
     const path = await findTranscript(await this.projectsDir(), sessionId);
     if (!path) return null;
     return (await stat(path).catch(() => null))?.mtimeMs ?? null;
@@ -820,6 +871,7 @@ export class ClaudeCodeService {
    * `check`: also make sure the reader holds everything the SDK returns.
    */
   async history(sessionId: string, check = false): Promise<SessionHistory> {
+    this.assertOn();
     const sdkChain = async () => {
       try {
         return await this.deps.source.sessionMessages(sessionId);
@@ -898,6 +950,7 @@ export class ClaudeCodeService {
   }
 
   async importSessions(req: ImportClaudeCodeSessionsRequest): Promise<ImportClaudeCodeSessionsResult> {
+    this.assertOn();
     if (req.notebook_id) {
       const nb = await this.deps.notebooks.get(req.notebook_id);
       if (!nb || nb.workspace_id !== this.deps.workspaceId)
@@ -937,6 +990,7 @@ export class ClaudeCodeService {
 
   /** Pull new messages into a thread that came from Claude Code. */
   async syncThread(threadId: string): Promise<SyncResult> {
+    this.assertOn();
     const thread = await this.deps.threads.getThread(threadId);
     if (!thread || thread.workspace_id !== this.deps.workspaceId)
       throw new AncileError({
@@ -1408,6 +1462,10 @@ export class ClaudeCodeService {
   /** Start auto-import: a pass after a short delay, then on every change to the projects folder. */
   startAuto(): void {
     this.stopped = false;
+    if (this.deps.off) {
+      log.info({ reason: this.deps.off }, 'Claude Code is off: no detection, import or watching');
+      return;
+    }
     // What excluded folders brought in before is put away at every start.
     void this.cleanupExcluded().catch((err: unknown) =>
       log.warn({ err: (err as Error).message }, 'could not put away sessions from excluded folders'),
@@ -1430,12 +1488,12 @@ export class ClaudeCodeService {
 
   async projectsDir(): Promise<string> {
     const s = await this.deps.cli.status().catch(() => null);
-    return s?.projects_dir ?? this.deps.defaultProjectsDir ?? join(homedir(), '.claude', 'projects');
+    return s?.projects_dir ?? this.deps.defaultProjectsDir ?? claudeProjectsDir();
   }
 
   /** Watch Claude Code's projects folder (debounced). */
   async watch(): Promise<void> {
-    if (this.watcher || this.stopped) return;
+    if (this.watcher || this.stopped || this.deps.off) return;
     const dir = await this.projectsDir();
     if (!existsSync(dir)) return;
     try {
@@ -1462,7 +1520,7 @@ export class ClaudeCodeService {
 
   /** Run an auto-import pass now (or once more after the current one). */
   kick(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.deps.off) return;
     if (this.autoRunning) {
       this.autoAgain = true;
       return;

@@ -341,26 +341,28 @@ export function SourceCard({
         ) : null}
 
         {!compact && !working && !failed ? (
-          <div className="source-card__level">
-            <span className="source-card__level-label">
-              Questions use
-              <Hint id="context-level" title="What a question can use" article="context-levels">
-                Passages: each question finds the passages that match it best, and can cite them; the whole
-                source is never sent at once. Summary uses only the source's summary. Off keeps it in the
-                notebook but out of answers.
-              </Hint>
-            </span>
-            <Segmented
-              label={`What questions can use from ${s.title}`}
-              size="sm"
-              value={s.contextLevel}
-              onChange={(v) => void setContextLevel(notebookId, s.id, v)}
-              options={[
-                { value: 'full', label: 'Passages' },
-                { value: 'insights', label: 'Summary' },
-                { value: 'off', label: 'Off' },
-              ]}
-            />
+          <div className="source-card__level-wrap" data-set={s.contextLevel !== 'full' || undefined}>
+            <div className="source-card__level">
+              <span className="source-card__level-label">
+                Questions use
+                <Hint id="context-level" title="What a question can use" article="context-levels">
+                  Passages: each question finds the passages that match it best, and can cite them; the whole
+                  source is never sent at once. Summary uses only the source's summary. Off keeps it in the
+                  notebook but out of answers.
+                </Hint>
+              </span>
+              <Segmented
+                label={`What questions can use from ${s.title}`}
+                size="sm"
+                value={s.contextLevel}
+                onChange={(v) => void setContextLevel(notebookId, s.id, v)}
+                options={[
+                  { value: 'full', label: 'Passages' },
+                  { value: 'insights', label: 'Summary' },
+                  { value: 'off', label: 'Off' },
+                ]}
+              />
+            </div>
           </div>
         ) : null}
         {editing ? (

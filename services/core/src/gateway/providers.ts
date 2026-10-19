@@ -57,6 +57,7 @@ import {
   pinnedProvider,
 } from './cache';
 import { type SdkMessage as StoredMessage, toSdkMessages } from './convert';
+import { assertSendAllowed } from './e2e-guard';
 import { effortOptions } from './effort';
 import { isOllama, ollamaChat } from './ollama-chat';
 import {
@@ -235,6 +236,8 @@ export async function languageModelFor(
   secrets: ProviderSecrets,
   ep: ProviderEndpoints,
 ): Promise<LanguageModel> {
+  // The test profile's send guard: before any key is read or any client is built (e2e-guard.ts).
+  assertSendAllowed(m);
   const secretName = m.secret ?? DEFAULT_SECRET[m.provider];
   const apiKey = secretName ? await secrets.get(secretName) : undefined;
   const needKey = (name: string) => {

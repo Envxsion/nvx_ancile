@@ -227,7 +227,7 @@ button.fc-chip:active {
   width: 100%;
 }
 .ev-card__conf {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute);
 }
 .ev-card__said {
@@ -263,7 +263,7 @@ button.fc-chip:active {
   border-left-color: var(--fail);
 }
 .ev-quote__stance {
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--mute);
 }
@@ -343,7 +343,7 @@ button.fc-chip:active {
   animation: seal-in 700ms var(--ease-spring) 1;
 }
 .evidence-head__pct {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-3);
 }
 .evidence-head__summary {

@@ -142,7 +142,7 @@ button.act__row:focus-visible {
 }
 .act__when {
   color: var(--mute);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

@@ -89,6 +89,15 @@ export function limitFromResult(result: Record<string, unknown> | null): { reset
 }
 
 export const ccErrors = {
+  /** Claude Code is switched off for this whole Core (ANCILE_CLAUDE_CODE=off, the test profile). */
+  off: (reason: string) =>
+    new AncileError({
+      code: 'claude_code.off',
+      title: `Claude Code is off: ${reason}`,
+      hint: 'Nothing was read or sent. Start the everyday stack (pnpm start) to use Claude Code.',
+      status: 409,
+      errorClass: 'permanent',
+    }),
   notInstalled: () =>
     new AncileError({
       code: 'claude_code.not_installed',

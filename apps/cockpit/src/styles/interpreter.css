@@ -51,7 +51,7 @@
 .pyrun__label {
   display: block;
   padding: 6px 10px 0;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--mute);

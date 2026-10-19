@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ErrorClass, ModelConfig } from '@nvx/contracts';
+import { AncileError, type ErrorClass, type ModelConfig } from '@nvx/contracts';
 import { CircuitBreaker, ClassifiedError, classify, FALLBACKABLE } from '@nvx/resilience';
 import { currentContext } from '../context';
 import { startSpan } from '../obs/spans';
@@ -291,7 +291,7 @@ export class Gateway {
           i -= 1;
           continue;
         }
-        const named = err instanceof ClassifiedError && err.code ? err : null;
+        const named = (err instanceof ClassifiedError || err instanceof AncileError) && err.code ? err : null;
         attempts.push({
           model: model.id,
           errorClass: cls,

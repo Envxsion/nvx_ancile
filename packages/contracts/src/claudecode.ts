@@ -85,6 +85,11 @@ export const ClaudeCodeStatus = z.object({
   /** The Agent SDK Ancile drives sessions through: ready, or why not. */
   sdk: z.object({ ready: z.boolean(), version: z.string().nullable(), error: z.string().nullable() }),
   settings: ClaudeCodeSettings,
+  /**
+   * Why Claude Code is switched off for this whole Core, in plain words (ANCILE_CLAUDE_CODE=off, the
+   * test profile). Null or absent: it is on. While set, nothing is detected, imported or run.
+   */
+  off_reason: z.string().nullable().optional(),
 });
 export type ClaudeCodeStatus = z.infer<typeof ClaudeCodeStatus>;
 

@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { withTimeout } from '@nvx/resilience';
 import { WebSocket } from 'ws';
 import { currentContext } from '../context';
+import { assertClaudeCodeAllowed } from '../gateway/e2e-guard';
 import { logFor } from '../obs/logger';
 import {
   BRIDGE_PROTOCOL,
@@ -272,6 +273,8 @@ export class BridgeClient implements SessionSource, LiveBridge {
   }
 
   private async start(): Promise<WebSocket> {
+    // The test profile never starts the bridge (gateway/e2e-guard.ts).
+    assertClaudeCodeAllowed();
     try {
       const b = await this.opts.launch();
       this.launched = b;

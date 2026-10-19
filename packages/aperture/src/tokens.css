@@ -94,6 +94,10 @@
   --hi: inset 0 1px 0 rgb(255 255 255 / 0.06);
   --hi-2: inset 0 1px 0 rgb(255 255 255 / 0.09), inset 0 0 0 1px rgb(255 255 255 / 0.05);
   --elev-0: inset 0 0 0 1px var(--hair);
+  /* Flat surfaces (cards, rows, panels): a hairline and a tint, no shadow.
+     Only popovers, menus, dialogs, the palette and toasts use --elev-2..4. */
+  --card-edge: inset 0 0 0 1px var(--hair);
+  --card-edge-hover: inset 0 0 0 1px var(--hair-2);
   --elev-1: var(--hi), 0 0 0 1px rgb(0 0 0 / 0.4), 0 1px 2px rgb(2 3 6 / 0.5);
   --elev-2:
     var(--hi), 0 0 0 1px rgb(0 0 0 / 0.45), 0 2px 4px rgb(2 3 6 / 0.35), 0 8px 16px -4px rgb(2 3 6 / 0.45);
@@ -238,6 +242,10 @@
   --hi: inset 0 1px 0 rgb(255 255 255 / 0.9);
   --hi-2: inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.5);
   --elev-0: inset 0 0 0 1px var(--hair);
+  /* Flat surfaces (cards, rows, panels): a hairline and a tint, no shadow.
+     Only popovers, menus, dialogs, the palette and toasts use --elev-2..4. */
+  --card-edge: inset 0 0 0 1px var(--hair);
+  --card-edge-hover: inset 0 0 0 1px var(--hair-2);
   --elev-1: var(--hi), 0 0 0 1px rgb(16 24 32 / 0.07), 0 1px 2px rgb(16 24 32 / 0.06);
   --elev-2:
     var(--hi), 0 0 0 1px rgb(16 24 32 / 0.08), 0 2px 4px rgb(16 24 32 / 0.05),
@@ -321,11 +329,14 @@
   --font-sans: 'NVX Archivo', system-ui, 'Segoe UI', sans-serif;
   --font-mono: 'NVX Martian', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
-  /* The app scale. Dense like an instrument, generous where you read. */
+  /* The app scale. Quiet by default: nothing a person reads sits under 12px.
+     micro is for badges and counters only; meta is for timestamps and
+     secondary meta; small is everyday rows, sidebar items, drawers, lists. */
   --t-micro: 10.5px;
-  /* 11px: no step between micro and small fits the 100+ captions and meta lines that sit there. */
-  --t-caption: 11px;
-  --t-small: 12px;
+  --t-meta: 12px;
+  /* Retired step: kept only so older sheets resolve; it is the meta size. */
+  --t-caption: var(--t-meta);
+  --t-small: 13px;
   --t-ui: 13px;
   --t-body: 14.5px;
   --t-read: 15.5px; /* assistant prose */

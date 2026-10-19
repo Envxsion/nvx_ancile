@@ -28,6 +28,8 @@ export const AppearancePrefs = z.object({
   /** Off by default: a texture some like, not part of the look everyone gets. */
   grain: z.boolean().default(false),
   mark: z.enum(['full', 'status', 'still']).default('full'),
+  /** Off by default (QU1): live state sits on the sidebar row, in the composer and in the titlebar instead. */
+  statusBar: z.boolean().default(false),
   font: z.enum(['archivo', 'system']).default('archivo'),
   /** Archivo's width axis: 88 narrow, 100, 112 wide. */
   width: z.number().int().min(80).max(120).default(100),

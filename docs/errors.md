@@ -82,6 +82,7 @@ Rules for new codes:
 | `local_model.pull_failed` | 502 | "The download of <model> stalled" (or "stopped") / Check your connection, then press Resume: Ollama carries on from what it already has. Shown on the download, not as a response. |
 | `local_model.pull_refused` | 502 | "Ollama would not download <model>." / Quotes Ollama's reason; check the name or update Ollama. Shown on the download. |
 | `local_model.not_verified` | 502 | "<Model> downloaded but Ollama does not list it" (or the embedder did not load) / Start the download again; Ollama keeps what it already has. Shown on the download. |
+| `e2e.real_model_blocked` | 403 | "The test profile blocked a call to <model>" (or "blocked Claude Code") / Tests may only use the offline models (`offline/echo`, `offline/test`). Raised in the test profile only (`ANCILE_PROFILE=e2e`), before any network, key or CLI is touched, at the two lowest points a model call passes (`RoutingClient.stream` and `languageModelFor`) and at the Claude bridge and CLI. Allowed: the built-in fake provider and models on the Controller (forced to its fake provider in that profile). Not a fallback: the chain stops. Never raised in the everyday stack. |
 
 ### Permissions
 
@@ -572,6 +573,7 @@ Scope refusals for images use the scope codes (`scope.private_notebook`, `scope.
 | Code | HTTP | Title / hint |
 |---|---|---|
 | `claude_code.not_installed` | 409 | "Claude Code is not installed on this computer." / Press Install in Settings → Claude Code, or install it from claude.ai/install and press Check again. |
+| `claude_code.off` | 409 | "Claude Code is off: <reason>" / Nothing was read or sent. Claude Code is switched off for the whole Core: `ANCILE_CLAUDE_CODE=off`, which the test profile (`pnpm start:e2e`) always sets so the suite never touches your install, your sessions or your plan. The status carries the reason as `off_reason`. Start the everyday stack (`pnpm start`) to use Claude Code. |
 | `claude_code.version_old` | 409 | "Claude Code <version> is older than NVX Ancile supports." / Run `claude update` in a terminal (NVX Ancile needs 2.1.200 or later), then press Check again. |
 | `claude_code.signed_out` | 409 | "Claude Code is not signed in." / Press Sign in to open Claude Code's own sign-in, or run `claude auth login` in a terminal. Listing and bringing in sessions does not need sign-in. |
 | `claude_code.sdk_unavailable` | 503 | "NVX Ancile cannot read Claude Code sessions yet." with the reason / It needs Anthropic's Agent SDK, fetched from npm the first time. Check this computer can reach registry.npmjs.org, then press Check again. |

@@ -8,9 +8,12 @@
  *  How      |  User turns sit on a quiet plate on the answer's left
  *           |  edge; the assistant writes on the page itself at
  *           |  reading measure, so the answer, not the chrome, is the
- *           |  loudest thing. The footer is one muted line (time,
- *           |  marks, confidence); tokens and cost come up when you
- *           |  are on the turn. Each row pads itself (styles/thread.css).
+ *           |  loudest thing. The footer is one quiet line (time,
+ *           |  route, confidence, cost) that shows on hover and on
+ *           |  keyboard focus, always on touch, and stays when a
+ *           |  fact-check failed or found a contradiction. The model
+ *           |  is named only when it changed. Each row pads itself
+ *           |  (styles/thread.css).
  *  Note     |  Messages from Core render their parts (Parts.tsx);
  *           |  demo fixtures render hand-built blocks with claims.
  * ------------------------------------------------------------------
@@ -233,7 +236,10 @@ export const Message = memo(function Message({
   liveModelName,
   approvalId = null,
   approvals,
+  showModel = true,
 }: {
+  /** Name the model above the answer: only when it changed from the answer before, or a fallback wrote it. */
+  showModel?: boolean;
   /** Every approval this answer waits on, by tool call. */
   approvals?: Record<string, string> | undefined;
   m: MessageView;
@@ -343,9 +349,9 @@ export const Message = memo(function Message({
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
-      {m.role === 'assistant' || sib ? (
+      {(m.role === 'assistant' && (showModel || !!m.fallback)) || sib ? (
         <header className="msg__head">
-          {m.role === 'assistant' && name ? (
+          {m.role === 'assistant' && name && (showModel || !!m.fallback) ? (
             <span className="msg-model" style={{ '--hue': hueVar(model?.hue ?? 'chalk') } as CSSProperties}>
               {name}
             </span>
@@ -554,7 +560,12 @@ export const Message = memo(function Message({
       {m.role === 'assistant' &&
       !streaming &&
       (m.status === 'complete' || m.status === 'stopped' || m.status === undefined) ? (
-        <footer className="msg__foot">
+        <footer
+          className="msg__foot"
+          data-alert={
+            fc?.status === 'failed' || (fc?.status === 'done' && fc.counts.contradicted > 0) || undefined
+          }
+        >
           <Stamp iso={m.createdAt} />
           {m.status === 'stopped' ? <span className="mute">Stopped</span> : null}
           <ProvenanceMarks m={m} />

@@ -245,7 +245,7 @@
 }
 .cc-group__path {
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -294,7 +294,7 @@ button.cc-session__title {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 2px;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
 }
 .cc-session__branch {
   display: inline-flex;
@@ -318,7 +318,7 @@ button.cc-session__title {
   border: 0;
   cursor: pointer;
   font: inherit;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .cc-tag--link:hover {
   color: var(--fg);

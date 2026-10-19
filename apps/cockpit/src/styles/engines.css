@@ -45,7 +45,7 @@
 }
 .model-menu__why {
   color: var(--fg-3);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   line-height: 1.35;
   white-space: normal;
 }
@@ -53,7 +53,7 @@
 .model-menu__note {
   padding: 0 10px 4px;
   color: var(--fg-3);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   line-height: 1.35;
 }
 /* Disabled entries stay readable: the reason is the point. */
@@ -268,7 +268,7 @@
 .scope-prov {
   flex: none;
   color: var(--mute);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   white-space: nowrap;
 }
 .scope-flag {
@@ -277,7 +277,7 @@
   border-radius: var(--r-pill);
   background: rgb(var(--warn-rgb) / 0.12);
   color: var(--fg-2);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   white-space: nowrap;
 }
 .scope-ed__more {
@@ -427,7 +427,7 @@
 .cc-new__path {
   overflow: hidden;
   color: var(--mute);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   white-space: nowrap;
   text-overflow: ellipsis;
 }

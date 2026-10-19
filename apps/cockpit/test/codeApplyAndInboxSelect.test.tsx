@@ -148,15 +148,11 @@ describe('Apply to repo (the button and its locked card)', () => {
   });
 });
 
-describe('smart sections in the rail, without Pro', () => {
-  it('shows one quiet row that explains itself and links to Pro', () => {
-    render(<SmartSectionsHost activeId={null} notebooks={[]} />);
-    const row = screen.getByRole('button', { name: /Smart sections/ });
-    expect(row.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(row);
-    expect(screen.getByText(/Claude Code this week/)).toBeTruthy();
-    expect(screen.getByText(/which this build does not include/)).toBeTruthy();
-    expect(screen.getByText('About Pro')).toBeTruthy();
+describe('smart sections in the rail', () => {
+  it('shows nothing in the rail: the rail is for your work, not offers', () => {
+    const { container } = render(<SmartSectionsHost activeId={null} notebooks={[]} />);
+    expect(container.textContent).toBe('');
+    expect(screen.queryByRole('button', { name: /Smart sections/ })).toBeNull();
   });
   it('draws Pro’s sections when Pro has them and the licence unlocks them', () => {
     const Part = vi.fn((_props: Record<string, unknown>) => <p>Pro sections</p>);

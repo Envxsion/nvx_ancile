@@ -43,6 +43,13 @@ export const EnvSchema = z
     ANCILE_CONFIG_DIR: z.string().default('./config'),
     ANCILE_PROMPTS_DIR: z.string().default('./prompts'),
     ANCILE_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+    // Which profile runs: `e2e` is the test stack (scripts/boot.mjs), which never reaches a real model.
+    ANCILE_PROFILE: z.string().optional(),
+    // `off` switches the whole Claude Code module off: no bridge, no detection, no import, no models.
+    // pnpm start:e2e sets it, so the suite never touches your install, your sessions or your plan.
+    ANCILE_CLAUDE_CODE: z.enum(['on', 'off']).default('on'),
+    // Claude Code's own config folder (its documented variable); default ~/.claude.
+    CLAUDE_CONFIG_DIR: z.string().optional(),
     ANCILE_BOOT_TESTS: z.enum(['strict', 'warn', 'off']).default('strict'),
     // The offline test model: answers without a key or a network. The dev
     // stack turns it on; production leaves it off unless asked.

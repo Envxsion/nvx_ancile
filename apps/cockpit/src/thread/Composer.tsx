@@ -65,7 +65,7 @@ import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { lazyHost } from '../ui/lazyHost';
-import { BarLabel, HueChip, Kbd, Tip } from '../ui/primitives';
+import { BarLabel, HueChip, Tip } from '../ui/primitives';
 import type { DropAsk, PendingFile } from './AttachPanel';
 import { shortModelName, useComposerBar } from './composerBar';
 import { FlowChip } from './FlowChip';
@@ -1362,21 +1362,11 @@ function ComposerImpl({
           </>
         )}
         <span className="composer__hint mute" aria-live="polite" data-room={bar.hint || undefined}>
-          {uploading ? (
-            bar.hint ? (
-              'Adding files. You can send now; they join the answer once read.'
-            ) : (
-              'Adding files'
-            )
-          ) : !bar.hint ? null : sendOnEnter ? (
-            <>
-              <Kbd keys="enter" /> to send, <Kbd keys="shift+enter" /> new line
-            </>
-          ) : (
-            <>
-              <Kbd keys={sendKeys} /> to send
-            </>
-          )}
+          {uploading
+            ? bar.hint
+              ? 'Adding files. You can send now; they join the answer once read.'
+              : 'Adding files'
+            : null}
         </span>
         {claudeCode?.working && !text.trim() ? (
           <Tip label="Stop Claude Code. What it wrote so far is kept">
@@ -1401,7 +1391,7 @@ function ComposerImpl({
                   : 'Wait for the answer to finish'
                 : claudeCode?.working
                   ? 'Queue for after this turn'
-                  : sendOnEnter && !bar.hint
+                  : sendOnEnter
                     ? 'Send. Shift+Enter for a new line'
                     : 'Send'
             }

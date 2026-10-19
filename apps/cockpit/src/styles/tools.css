@@ -1001,3 +1001,17 @@ details[open] > summary .cc-chev {
   color: var(--mute);
   font-size: var(--t-small);
 }
+
+/* ---- Folded runs: the live tail and what stays in view ------------------ */
+
+.tool-group__earlier {
+  margin: 0 0 4px;
+  color: var(--mute-2);
+  font-size: var(--t-meta, 12px);
+}
+.tool-group__pinned {
+  margin: 2px 0 4px 24px;
+}
+.tool-group__pinned > * + * {
+  margin-top: 4px;
+}

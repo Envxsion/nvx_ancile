@@ -171,6 +171,15 @@ export function AppearanceGroup() {
         </Row>
         <Row
           group="appearance"
+          k="statusbar"
+          label="Status bar"
+          desc="A strip along the bottom with usage, context and health. Off keeps live state on the sidebar and in the composer."
+          keywords="footer bottom model usage health clock"
+        >
+          <Switch label="Status bar" checked={a.statusBar} onChange={(statusBar) => set({ statusBar })} />
+        </Row>
+        <Row
+          group="appearance"
           k="grain"
           label="Film grain"
           desc="A fine grain over everything, as on nvx.sh."

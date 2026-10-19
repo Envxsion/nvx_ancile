@@ -106,6 +106,7 @@ import { flowRoutes, memoryText } from './flows/routes';
 import { PgFlowStore } from './flows/store';
 import { flowTryHandler } from './flows/try';
 import { FlowsService } from './flows/turn';
+import { installSendGuard } from './gateway/e2e-guard';
 import { FakeProvider } from './gateway/fake';
 import { Gateway } from './gateway/gateway';
 import { AiSdkClient, languageModelFor } from './gateway/providers';
@@ -650,7 +651,17 @@ async function main() {
   // Works with Claude Code (docs/claude-code.md): the person's own CLI, read
   // through the Claude bridge (a separate MIT program holding Anthropic's SDK).
   const claudeCodeStore = new PgClaudeCodeStore(sql);
+  // The test profile (ANCILE_PROFILE=e2e) never reaches a real model, and ANCILE_CLAUDE_CODE=off switches
+  // the whole Claude Code module off: no bridge, no detection, no import, no models (e2e-guard.ts).
+  installSendGuard(env.ANCILE_PROFILE);
+  const claudeOff: string | null =
+    env.ANCILE_PROFILE === 'e2e'
+      ? 'Off in the test profile'
+      : env.ANCILE_CLAUDE_CODE === 'off'
+        ? 'Switched off (ANCILE_CLAUDE_CODE=off)'
+        : null;
   const claudeCode = createClaudeCode({
+    off: claudeOff,
     workspaceId: owner.workspaceId,
     dataDir: resolve(env.ANCILE_DATA_DIR),
     logLevel: env.ANCILE_LOG_LEVEL,
@@ -1113,6 +1124,7 @@ async function main() {
       live: () => claudeLive,
       installed: async () => {
         const st = await claudeCode.service.status();
+        if (st.off_reason) return { available: false, reason: st.off_reason };
         if (!st.installed)
           return { available: false, reason: 'Claude Code is not installed on this computer' };
         if (st.verification.state === 'failed')
@@ -2119,6 +2131,7 @@ async function main() {
   // Claude Code's "/" list for the latest folders, read once Core has settled,
   // so the first "/" in a Claude Code thread is already complete.
   const warmCommands = setTimeout(() => {
+    if (claudeOff) return;
     void claudeLive
       .warmCommands()
       .catch((err: unknown) =>

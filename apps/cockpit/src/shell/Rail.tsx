@@ -73,7 +73,7 @@ import { useUi } from '../state/ui';
 import { Icon, isIconName } from '../ui/Icon';
 import { loadError } from '../ui/LoadFailed';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
-import { Kbd, Skeleton, Tip } from '../ui/primitives';
+import { Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
 import {
   ATTENTION_LABEL,
@@ -380,12 +380,17 @@ const ThreadRow = memo(function ThreadRow({
               Draft
             </span>
           ) : null}
-          {t.branches > 1 ? (
+          {t.branches > 1 && attention !== 'working' && attention !== 'needs_you' ? (
             <span className="rail__meta" title={`${t.branches} branches`}>
               <Icon name="branch" size={12} />
               <span data-num>{t.branches}</span>
             </span>
-          ) : showTime ? (
+          ) : null}
+          {attention === 'working' || attention === 'needs_you' ? (
+            <span className="rail__meta rail__state" data-state={attention}>
+              {attention === 'working' ? 'Working…' : 'Needs an answer'}
+            </span>
+          ) : t.branches > 1 ? null : showTime ? (
             <span className="rail__meta rail__time">{relative(t.updatedAt)}</span>
           ) : null}
         </Link>
@@ -880,11 +885,12 @@ export function Rail() {
       }}
     >
       <div className="rail__head">
-        <Link to="/" className="rail__new">
-          <Icon name="plus" size={14} />
-          <span>New thread</span>
-          <Kbd keys="n" />
-        </Link>
+        <Tip label="New thread" binding="thread.quick" side="right">
+          <Link to="/" className="rail__new">
+            <Icon name="plus" size={14} />
+            <span>New thread</span>
+          </Link>
+        </Tip>
         <Tip label="Hide sidebar" binding="rail.toggle" side="right">
           <button type="button" className="icon-btn icon-btn--sm" onClick={toggle} aria-label="Hide sidebar">
             <Icon name="panelLeft" size={14} />
@@ -894,29 +900,29 @@ export function Rail() {
 
       <RailPlaces pathname={pathname} />
 
-      <label className="rail__filter">
-        <Icon name="filter" size={13} />
-        <input
-          ref={filterRef}
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={onFilterKey}
-          placeholder="Filter"
-          aria-label="Filter notebooks and threads"
-        />
-        {filter ? (
-          <button
-            type="button"
-            className="icon-btn icon-btn--xs"
-            onClick={() => setFilter('')}
-            aria-label="Clear filter"
-          >
-            <Icon name="close" size={11} />
-          </button>
-        ) : (
-          <Kbd keys="g f" />
-        )}
-      </label>
+      <Tip label="Filter the sidebar" binding="rail.filter" side="right">
+        <label className="rail__filter">
+          <Icon name="filter" size={13} />
+          <input
+            ref={filterRef}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={onFilterKey}
+            placeholder="Filter"
+            aria-label="Filter notebooks and threads"
+          />
+          {filter ? (
+            <button
+              type="button"
+              className="icon-btn icon-btn--xs"
+              onClick={() => setFilter('')}
+              aria-label="Clear filter"
+            >
+              <Icon name="close" size={11} />
+            </button>
+          ) : null}
+        </label>
+      </Tip>
 
       <div
         className="rail__scroll"

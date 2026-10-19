@@ -23,9 +23,9 @@
   gap: 18px;
   padding: 18px 20px;
   border-radius: var(--r-xl);
-  background: radial-gradient(120% 140% at 0% 0%, rgb(var(--tone-rgb) / 0.1), transparent 60%), var(--lift);
+  background: var(--lift);
   box-shadow:
-    var(--elev-2),
+    var(--card-edge-hover),
     inset 0 0 0 1px rgb(var(--tone-rgb) / 0.18);
   overflow: hidden;
 }
@@ -109,14 +109,14 @@
   gap: 12px;
   padding: 14px 16px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out) both;
   transition:
     box-shadow var(--d-short) var(--ease),
     transform var(--d-short) var(--ease-spring);
 }
 .svc:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   transform: translateY(-1px);
 }
 .svc[data-status='degraded'],
@@ -128,7 +128,7 @@
   --tone: var(--fail);
   --tone-rgb: var(--fail-rgb);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 0 0 0 1px rgb(var(--fail-rgb) / 0.35);
 }
 .svc__head {
@@ -190,7 +190,7 @@
   gap: 1px;
 }
 .svc__k {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute);
 }
 .svc__v {
@@ -266,7 +266,7 @@
   gap: 8px;
   padding: 8px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .logview__search {
   display: inline-flex;
@@ -437,7 +437,7 @@ button.logline__row:hover {
   padding: 0 5px;
   border-radius: var(--r-pill);
   box-shadow: inset 0 0 0 1px var(--hair-2);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .logline__detail {
   display: grid;
@@ -465,7 +465,7 @@ button.logline__row:hover {
   align-items: center;
   gap: 8px;
   font-family: var(--font-sans);
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
 }
 
 /* --- Traces ---------------------------------------------------------------- */
@@ -482,7 +482,7 @@ button.logline__row:hover {
   max-height: calc(100vh - 150px);
   padding: 10px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   overflow: hidden;
 }
 .traces__filters {
@@ -544,13 +544,13 @@ button.logline__row:hover {
 }
 .trace-item__meta {
   grid-column: 2;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .trace-item__dur {
   grid-row: 1 / span 2;
   grid-column: 3;
   align-self: center;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-3);
 }
 .traces__main {
@@ -669,8 +669,7 @@ button.logline__row:hover {
   bottom: 7px;
   min-width: 3px;
   border-radius: var(--r-2xs);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--tone) 88%, var(--fg)), var(--tone));
-  box-shadow: 0 2px 8px -3px var(--tone);
+  background: var(--tone);
   transform-origin: left;
   animation: wf-grow var(--d-view) var(--ease-out) both;
 }
@@ -698,7 +697,7 @@ button.logline__row:hover {
   gap: 8px;
   padding: 12px 14px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   animation: pop var(--d-micro) var(--ease-spring);
 }
 .span-card__head {
@@ -750,7 +749,7 @@ button.logline__row:hover {
   min-width: 140px;
 }
 .replay__keys {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   white-space: nowrap;
 }
 .replay__strip {
@@ -797,7 +796,7 @@ button.logline__row:hover {
   padding: 12px 14px;
   border-radius: var(--r-lg);
   background: var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out);
 }
 .replay__step > header {
@@ -808,7 +807,7 @@ button.logline__row:hover {
 .replay__step > header .mute {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .replay__kind {
   display: grid;
@@ -934,7 +933,7 @@ button.logline__row:hover {
 .diag-group {
   padding: 12px 14px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .diag-group__h {
   display: flex;
@@ -1001,7 +1000,7 @@ button.logline__row:hover {
   text-overflow: ellipsis;
 }
 .diag-check__ms {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 
 /* --- Automations ------------------------------------------------------------ */
@@ -1019,7 +1018,7 @@ button.logline__row:hover {
   gap: 12px;
   padding: 14px 16px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out) both;
   transition:
     opacity var(--d-short) var(--ease),
@@ -1029,7 +1028,7 @@ button.logline__row:hover {
   opacity: 0.68;
 }
 .auto:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .auto__head {
   display: grid;
@@ -1065,7 +1064,7 @@ button.logline__row:hover {
   margin: 0;
 }
 .auto__facts dt {
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--mute);
 }
 .auto__facts dd {
@@ -1237,7 +1236,7 @@ button.logline__row:hover {
   gap: 10px;
   padding: 14px 16px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out) both;
 }
 .app-card__head {
@@ -1280,7 +1279,7 @@ button.logline__row:hover {
 .tool-card:hover {
   box-shadow:
     inset 0 0 0 1px var(--hair-2),
-    var(--elev-1);
+    var(--card-edge);
 }
 .tool-card__head {
   display: flex;
@@ -1293,7 +1292,7 @@ button.logline__row:hover {
   line-height: 1.45;
 }
 .tool-card__src {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 
 /* MCP servers NVX Ancile uses: one card per server, its tools open under it. */
@@ -1309,7 +1308,7 @@ button.logline__row:hover {
   gap: 10px;
   padding: 14px 16px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out) both;
 }
 .mcp[data-status='disabled'] .mcp__names,
@@ -1448,7 +1447,7 @@ button.logline__row:hover {
 }
 .mcp__since {
   margin-right: 4px;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
 }
 .mcp__disclose {
   display: inline-flex;
@@ -1526,7 +1525,7 @@ button.logline__row:hover {
   gap: 8px;
 }
 .mcp-tool__flag {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .mcp-tool__text p {
   margin: 0;
@@ -1731,12 +1730,12 @@ button.logline__row:hover {
   padding: 20px 22px;
   border-radius: var(--r-xl);
   background: var(--lift);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   overflow: hidden;
 }
 .edition[data-pro] {
   background: radial-gradient(140% 160% at 0% 0%, rgb(var(--gilt-rgb) / 0.14), transparent 55%), var(--lift);
-  box-shadow: var(--elev-2), var(--gilt-glow);
+  box-shadow: var(--card-edge-hover), var(--gilt-glow);
 }
 .edition__seal {
   display: grid;
@@ -1766,7 +1765,7 @@ button.logline__row:hover {
   font-size: var(--t-small);
 }
 .edition__checked {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .edition__title {
   display: flex;
@@ -1860,7 +1859,7 @@ button.logline__row:hover {
   gap: 12px;
   padding: 16px;
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .activate .field {
   flex: 1;
@@ -1945,7 +1944,7 @@ button.logline__row:hover {
 }
 .diag-ring__num > .mute {
   font-weight: 500;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .auto-events .row {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1960,7 +1959,7 @@ button.logline__row:hover {
   text-align: left;
 }
 .auto-event__set {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .auto-event:not([data-on]) .row__title {
   color: var(--fg-3);

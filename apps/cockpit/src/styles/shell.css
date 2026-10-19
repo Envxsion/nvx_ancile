@@ -26,6 +26,9 @@
   background: var(--chrome);
   transition: grid-template-columns var(--d-view) var(--ease);
 }
+.shell[data-statusbar='false'] {
+  grid-template-rows: 44px minmax(0, 1fr) 6px;
+}
 .shell[data-rail='false'] {
   --rail-col: 0px;
 }
@@ -50,10 +53,21 @@
   padding: 4px 6px 4px 2px;
   border-radius: var(--r-sm);
 }
-.titlebar__state {
-  font-size: var(--t-small);
-  color: var(--signal-ink);
+.titlebar__health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  margin-right: 6px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  color: var(--fg-2);
+  font-size: var(--t-meta, 12px);
   white-space: nowrap;
+}
+.titlebar__health:hover {
+  background: var(--wash-2);
 }
 .titlebar__actions {
   margin-left: auto;
@@ -660,7 +674,6 @@
   .shell__main {
     border-radius: 0;
   }
-  .titlebar__state,
   .crumbs {
     display: none;
   }
@@ -683,4 +696,40 @@
 /* Reduced motion is the resolved setting (prefs.css), not the OS alone */
 :root[data-motion='reduced'] .rail[data-open='true'] {
   animation: none;
+}
+
+/* A thread's live state sits on its own row, in place of the time. */
+.rail__state {
+  font-size: var(--t-meta, 12px);
+}
+.rail__state[data-state='working'] {
+  color: var(--signal-ink);
+}
+.rail__state[data-state='needs_you'] {
+  color: var(--warn);
+}
+
+/* The source card's Full / Summary / Off control comes up on hover or focus, and stays when it is not the default. */
+.source-card__level-wrap {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.source-card__level-wrap > .source-card__level {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (hover: hover) {
+  .source-card__level-wrap {
+    transition: grid-template-rows var(--d-short) var(--ease);
+  }
+  .source-card:not(:hover, :focus-within) .source-card__level-wrap:not([data-set]) {
+    grid-template-rows: 0fr;
+  }
+  .source-card:not(:hover, :focus-within) .source-card__level-wrap:not([data-set]) > .source-card__level {
+    visibility: hidden;
+  }
+  :root[data-motion='reduced'] .source-card__level-wrap {
+    transition: none;
+  }
 }

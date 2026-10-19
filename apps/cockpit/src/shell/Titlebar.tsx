@@ -11,21 +11,26 @@
  *           |  from coming back, on any screen, by touch as well.
  *  Note     |  The mark's state is the AI's state: thinking, streaming,
  *           |  or the shield closed because a decision waits on you.
- *           |  Its label says so for screen readers.
+ *           |  Its label says so for screen readers. Health shows here
+ *           |  only when it is not fine; key hints live in tooltips.
  * ------------------------------------------------------------------
  */
 
 import { AncileMark, type MarkState, type ThemeChoice } from '@nvx/aperture';
 import { Link, useRouter } from '@tanstack/react-router';
-import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect } from 'react';
+import { ActivitySegment, ImportSegment } from '../activity/ActivityPanel';
+import { UpdatePill, WarmingSegment } from '../desktop/Pills';
 import { useBinding } from '../keys/dispatch';
-import { keysFor, keyText } from '../keys/registry';
+import { keyText } from '../keys/registry';
+import { useConnection } from '../lib/connection';
+import { useSystemHealth } from '../lib/data';
 import { notify, useNotify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
-import { Kbd, Tip } from '../ui/primitives';
+import { StatusDot, Tip } from '../ui/primitives';
+import { CustomCssChip } from './StatusBar';
 
 const MARK_LABEL: Record<MarkState, string> = {
   idle: 'Ready',
@@ -47,12 +52,60 @@ const THEME_LABEL = {
   light: 'Light theme',
 } as const;
 
+/** Health shows only when it is not fine: a small chip that opens where it is fixed. */
+function HealthChip() {
+  const offline = useConnection((s) => s.status === 'offline');
+  const demo = useUi((s) => s.demo);
+  const health = useSystemHealth().data;
+  const bad = offline
+    ? { status: 'down' as const, summary: 'Core is not answering' }
+    : health && health.status !== 'ok'
+      ? health
+      : null;
+  if (!bad || demo) return null;
+  return (
+    <Link
+      to="/admin/$section"
+      params={{ section: 'health' }}
+      className="titlebar__health"
+      aria-label={`System health: ${bad.summary}`}
+      data-health={bad.status}
+    >
+      <StatusDot status={bad.status} />
+      <span>{bad.summary}</span>
+    </Link>
+  );
+}
+
+/** What the status bar would have said that must not go unsaid with it off: sample data, your own CSS, an update. */
+function QuietChips() {
+  const demo = useUi((s) => s.demo);
+  return (
+    <>
+      {demo ? (
+        <span
+          className="titlebar__health"
+          title="Sample data: NVX Ancile has not reached Core from this browser yet."
+        >
+          Demo data
+        </span>
+      ) : null}
+      {/* Live work shows only while it happens; each hides itself when idle. */}
+      {demo ? null : <ImportSegment />}
+      <WarmingSegment />
+      <ActivitySegment />
+      <CustomCssChip />
+      <UpdatePill />
+    </>
+  );
+}
+
 export function Titlebar({ crumbs }: { crumbs: { label: string; to?: string }[] }) {
   const mark = useUi((s) => s.mark);
+  const statusBar = usePrefs((s) => s.prefs.appearance.statusBar);
   const markAnim = usePrefs((s) => s.prefs.appearance.mark);
   const openPalette = useUi((s) => s.openPalette);
   const setCenter = useUi((s) => s.setCenter);
-  const setApproval = useUi((s) => s.setApproval);
   const railOpen = useUi((s) => s.railOpen);
   const toggleRail = useUi((s) => s.toggleRail);
   const unread = useNotify((s) => s.history.filter((h) => !h.read).length);
@@ -139,45 +192,21 @@ export function Titlebar({ crumbs }: { crumbs: { label: string; to?: string }[] 
         </nav>
       ) : null}
 
-      <span className="titlebar__state" aria-live="polite">
-        <AnimatePresence mode="wait" initial={false}>
-          {mark !== 'idle' ? (
-            <motion.button
-              type="button"
-              key={mark}
-              className="titlebar__state-pill"
-              data-mark={mark}
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4, transition: { duration: 0.12 } }}
-              onClick={() => (mark === 'ask' ? setApproval(true) : undefined)}
-              tabIndex={mark === 'ask' ? 0 : -1}
-            >
-              {mark === 'thinking' || mark === 'streaming' ? (
-                <span className="dots" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              ) : null}
-              {MARK_LABEL[mark]}
-            </motion.button>
-          ) : null}
-        </AnimatePresence>
-      </span>
-
       <div className="titlebar__actions">
-        <button
-          type="button"
-          className="palette-hint"
-          onClick={() => openPalette()}
-          aria-label="Search or run a command"
-          data-tour="palette"
-        >
-          <Icon name="search" size={14} />
-          <span>Search or run a command</span>
-          <Kbd keys={keysFor('palette.open') ?? 'mod+k'} binding="palette.open" />
-        </button>
+        <HealthChip />
+        {statusBar ? null : <QuietChips />}
+        <Tip label="Search or run a command" binding="palette.open" side="bottom">
+          <button
+            type="button"
+            className="palette-hint"
+            onClick={() => openPalette()}
+            aria-label="Search or run a command"
+            data-tour="palette"
+          >
+            <Icon name="search" size={14} />
+            <span>Search or run a command</span>
+          </button>
+        </Tip>
         <Tip label="Guide" binding="help.open" side="bottom">
           <button
             type="button"

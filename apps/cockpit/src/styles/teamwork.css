@@ -8,16 +8,16 @@
   margin: 2px 0 10px;
   border-radius: var(--r-md);
   background: var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   overflow: hidden;
   transition: box-shadow var(--d-short) var(--ease);
 }
 .teamwork[data-open] {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .teamwork[data-running] {
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     0 0 0 1px rgb(var(--signal-rgb) / 0.28);
 }
 
@@ -79,7 +79,7 @@
 }
 .teamwork__meta {
   margin-left: auto;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
   white-space: nowrap;
 }
 .teamwork__chev {
@@ -141,7 +141,7 @@
   opacity: 0.62;
 }
 .tw-step__handoff {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   line-height: 1;
 }
 .tw-step__handoff:empty {
@@ -199,14 +199,14 @@
   flex: none;
   padding: 0 7px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-2);
   background: color-mix(in srgb, var(--hue) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 30%, transparent);
 }
 .tw-step__meta {
   margin-left: auto;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   white-space: nowrap;
 }
 .tw-tag {
@@ -236,7 +236,7 @@
   gap: 4px;
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--fg);
   background: var(--chalk);
 }
@@ -268,7 +268,7 @@
   padding: 1px 6px;
   margin-left: -6px;
   border-radius: var(--r-sm);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--fg-3);
   transition:
     color var(--d-micro) var(--ease),
@@ -343,7 +343,7 @@
 }
 .tw-graph figcaption {
   padding: 2px 4px 0;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   text-align: center;
 }
 .tw-graph__edge {
@@ -452,7 +452,7 @@
   gap: 4px;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--fg-3);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
@@ -497,7 +497,7 @@
   gap: 2px;
   padding: 0 4px;
   border-radius: var(--r-pill);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--gilt);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
 }
@@ -508,10 +508,10 @@
   align-items: center;
   gap: 4px 8px;
   margin: -2px 0 0;
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
 }
 .tw-step__handoff {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 
 /* FL1: a router that learns, and a shadow flow's answer. Calm ink: neither is live state. */
@@ -520,7 +520,7 @@
   align-items: center;
   gap: 5px;
   margin: 0 0 4px;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--fg-3);
 }
 .tw-learned[data-taken] {

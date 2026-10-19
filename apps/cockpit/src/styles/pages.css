@@ -161,7 +161,7 @@
   white-space: nowrap;
 }
 .row__meta {
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -356,7 +356,7 @@
   border-radius: var(--r-pill);
   background: rgb(var(--signal-rgb) / 0.12);
   color: var(--signal-ink);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-weight: 600;
 }
 .option__body {
@@ -508,7 +508,7 @@
   border-radius: var(--r-sm);
   box-shadow: inset 0 0 0 1px var(--hair-2);
   color: var(--fg-2);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   font-weight: 560;
 }
 tr[data-expired] td:not(:last-child) {
@@ -556,7 +556,7 @@ tr[data-expired] td:not(:last-child) {
   vertical-align: middle;
 }
 .table__mono {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   overflow-wrap: anywhere;
 }
 
@@ -622,7 +622,7 @@ tr[data-expired] td:not(:last-child) {
 }
 .log__trace {
   color: var(--signal-ink);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .log__trace:hover {
   text-decoration: underline;
@@ -764,7 +764,7 @@ tr[data-expired] td:not(:last-child) {
   gap: 8px;
 }
 .provider__looking {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 
 /* --- Start-up screen (Core stopped before opening the database) ---------- */

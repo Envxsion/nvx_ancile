@@ -146,6 +146,7 @@ export function AppShell() {
   const railOpen = useUi((s) => s.railOpen);
   const drawerOpen = useUi((s) => s.drawerOpen);
   const focusMode = useUi((s) => s.focusMode);
+  const statusBar = usePrefs((s) => s.prefs.appearance.statusBar);
   const railWidth = usePrefs((s) => s.prefs.layout.railWidth);
   const drawerWidth = usePrefs((s) => s.prefs.layout.drawerWidth);
   const narrow = useMediaQuery('(max-width: 820px)');
@@ -221,6 +222,7 @@ export function AppShell() {
     <div
       className="shell"
       data-rail={railOpen && !focusMode}
+      data-statusbar={statusBar}
       data-drawer={contextual && drawerOpen && !focusMode}
       data-contextual={contextual || undefined}
       data-focus-mode={focusMode || undefined}
@@ -253,7 +255,7 @@ export function AppShell() {
           <Drawer />
         </ErrorBoundary>
       ) : null}
-      <StatusBar />
+      {statusBar ? <StatusBar /> : null}
 
       <Palette />
       <ShortcutsOverlay />

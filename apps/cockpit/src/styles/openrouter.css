@@ -111,7 +111,7 @@
 .or-field__help {
   grid-column: 1 / -1;
   color: var(--mute);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .or-row {
   display: flex;

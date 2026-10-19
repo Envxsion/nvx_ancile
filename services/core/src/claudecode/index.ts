@@ -21,6 +21,7 @@ import type { SettingsStore } from '../settings';
 import type { ThreadRepo } from '../threads/repo';
 import { BridgeClient, processLauncher } from './bridge';
 import { ClaudeCli } from './cli';
+import { ccErrors } from './errors';
 import { SessionHolders, systemLister } from './holders';
 import { ClaudeInstaller } from './install';
 import { ClaudeCodeService } from './service';
@@ -48,9 +49,13 @@ export function createClaudeCode(deps: {
   threads: ThreadRepo;
   notebooks: NotebookRepo;
   store: ClaudeCodeStore;
+  /** A plain reason when Claude Code is switched off for this Core (ANCILE_CLAUDE_CODE=off): nothing is found, started or read. */
+  off?: string | null;
 }): ClaudeCodeAssembly {
   let service: ClaudeCodeService | null = null;
-  const cli = new ClaudeCli({ env: () => service?.cliEnv() ?? {} });
+  const off = deps.off ?? null;
+  // Off: the CLI is never located and the bridge can never launch, whatever else asks.
+  const cli = new ClaudeCli({ env: () => service?.cliEnv() ?? {}, ...(off && { locate: () => null }) });
   const installer = new ClaudeInstaller({
     found: () => {
       cli.invalidate();
@@ -63,7 +68,9 @@ export function createClaudeCode(deps: {
     },
   });
   const bridge = new BridgeClient({
-    launch: processLauncher({ dataDir: join(deps.dataDir, 'claude-bridge'), logLevel: deps.logLevel }),
+    launch: off
+      ? () => Promise.reject(ccErrors.off(off))
+      : processLauncher({ dataDir: join(deps.dataDir, 'claude-bridge'), logLevel: deps.logLevel }),
   });
   const holders = new SessionHolders({ lister: systemLister() });
   service = new ClaudeCodeService({
@@ -78,6 +85,7 @@ export function createClaudeCode(deps: {
     cli,
     installer,
     verifier: new ClaudeVerifier(),
+    off,
   });
   const svc = service;
   return {

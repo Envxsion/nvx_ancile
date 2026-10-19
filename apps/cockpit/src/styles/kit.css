@@ -37,11 +37,11 @@ html[data-resizing] .shell {
 
 .shell__main {
   background: var(--sheen), var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .drawer:not(.drawer--sheet) {
   background: var(--sheen), var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   position: relative;
 }
 
@@ -59,42 +59,12 @@ html[data-resizing] .shell {
 [data-mark-anim='status'] .ancile-mark .core {
   animation: none !important;
 }
-.titlebar__state {
-  display: inline-flex;
-  min-width: 0;
-}
-.titlebar__state-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  font-size: var(--t-small);
-  color: var(--signal-ink);
-  background: rgb(var(--signal-rgb) / 0.08);
-  box-shadow: inset 0 0 0 1px rgb(var(--signal-rgb) / 0.22);
-  white-space: nowrap;
-  cursor: default;
-}
-.titlebar__state-pill[data-mark='ask'] {
-  cursor: pointer;
-}
-.titlebar__state-pill[data-mark='ask']:hover {
-  background: rgb(var(--signal-rgb) / 0.14);
-}
-.titlebar__state-pill[data-mark='offline'] {
-  color: var(--mute);
-  background: var(--chalk);
-  box-shadow: inset 0 0 0 1px var(--hair-2);
-}
-
 .palette-hint {
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .palette-hint:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 
 /* The rail */
@@ -106,14 +76,14 @@ html[data-resizing] .shell {
 }
 .rail__new {
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   transition:
     box-shadow var(--d-micro) var(--ease-out),
     transform var(--d-short) var(--ease-spring);
 }
 .rail__new:hover {
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .rail__new:active {
   transform: scale(var(--press));
@@ -205,7 +175,7 @@ html[data-resizing] .shell {
   z-index: -1;
   border-radius: inherit;
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .rail__plate::after {
   content: '';
@@ -358,7 +328,7 @@ html[data-resizing] .shell {
   padding: 8px;
   border-radius: var(--r-md);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   animation: tip-in var(--d-short) var(--ease-out);
 }
 .new-nb__input {
@@ -550,11 +520,6 @@ li[data-done] .checklist__step {
   .conn-banner > button:first-of-type {
     margin-left: 24px;
   }
-  /* The mark and the status bar already say what NVX Ancile is doing;
-     the pill would sit on top of the title bar's buttons. */
-  .titlebar__state {
-    display: none;
-  }
 }
 .conn-banner[data-back] {
   box-shadow:
@@ -705,7 +670,7 @@ li[data-done] .checklist__step {
 }
 .menu__label {
   padding: 6px 8px 4px;
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--mute-2);
 }
@@ -924,13 +889,13 @@ li[data-done] .checklist__step {
   border-radius: var(--r-md);
   text-align: left;
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   transition:
     box-shadow var(--d-micro) var(--ease-out),
     transform var(--d-short) var(--ease-spring);
 }
 .help__tour:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   transform: translateY(-1px);
 }
 .help__tour:active {
@@ -1075,7 +1040,7 @@ li[data-done] .checklist__step {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute);
 }
 .tour__dots {
@@ -1199,7 +1164,7 @@ li[data-done] .checklist__step {
   color: var(--fg);
   background: var(--sheen), var(--lift-2);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 2px 0 0 var(--signal);
 }
 .settings__link[data-active] .icon {
@@ -1256,7 +1221,7 @@ li[data-done] .checklist__step {
 .setting-block {
   border-radius: var(--r-xl);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   overflow: hidden;
 }
 /* A block of setting rows whose rows a search filtered out goes with them.
@@ -1429,10 +1394,8 @@ li[data-done] .checklist__step {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, rgb(var(--c-white) / 0.45), transparent 42%), var(--swatch);
-  box-shadow:
-    inset 0 -2px 6px rgb(var(--c-black) / 0.25),
-    0 4px 12px -4px var(--swatch);
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-black) / 0.18);
   transition: transform var(--d-short) var(--ease-spring);
 }
 .swatch:hover .swatch__chip {
@@ -1658,13 +1621,13 @@ li[data-done] .checklist__step {
   padding: 4px 4px 4px 4px;
   border-radius: var(--r-lg);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   overflow: hidden;
   transition: box-shadow var(--d-short) var(--ease-out);
   animation: rise var(--d-short) var(--ease-out);
 }
 .source-card:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .source-card__main {
   display: flex;
@@ -1715,7 +1678,7 @@ li[data-done] .checklist__step {
   display: flex;
   gap: 5px;
   min-width: 0;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
   color: var(--mute);
   white-space: nowrap;
   overflow: hidden;
@@ -1912,7 +1875,7 @@ li[data-done] .checklist__step {
   z-index: 0;
   border-radius: inherit;
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .add-sources__body {
   min-height: 280px;
@@ -2006,7 +1969,7 @@ li[data-done] .checklist__step {
   border-radius: var(--r-lg);
   color: var(--fg-2);
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   transition: transform var(--d-medium) var(--ease-spring);
 }
 .dropzone[data-over] .dropzone__glyph {
@@ -2142,7 +2105,7 @@ li[data-done] .checklist__step {
   align-items: center;
   gap: 10px;
   margin: 22px 0 14px;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--mute-2);
 }
 .viewer__page::before,
@@ -2191,11 +2154,11 @@ li[data-done] .checklist__step {
   grid-template-columns: minmax(0, 1fr) auto;
   border-radius: var(--r-md);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   transition: box-shadow var(--d-short) var(--ease-out);
 }
 .note-row:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .note-row[data-pinned]::before {
   content: '';
@@ -2236,7 +2199,7 @@ li[data-done] .checklist__step {
   overflow: hidden;
 }
 .note-row__meta {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .note-row__more {
   margin: 8px 6px 0 0;
@@ -2265,7 +2228,7 @@ li[data-done] .checklist__step {
   outline: none;
 }
 .note-editor__state {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .note-editor__from {
   display: flex;
@@ -2533,7 +2496,7 @@ button.grounding:hover {
 .grounding__why {
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--mute);
   box-shadow: inset 0 0 0 1px var(--hair-2);
 }
@@ -2576,7 +2539,7 @@ button.grounding:hover {
   border-radius: var(--r-pill);
   background: var(--wash-2);
   color: var(--mute);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }

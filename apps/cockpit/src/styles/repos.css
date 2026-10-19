@@ -29,7 +29,7 @@
 }
 .repo__h4 {
   margin: 6px 0 0;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   font-weight: 600;
   color: var(--fg-3);
 }
@@ -57,13 +57,13 @@
 .repo__root {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .repo__hint {
   margin: 0;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .repo__warn {
   display: flex;
@@ -209,7 +209,7 @@
 .repo__file-name {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--fg-2);
   text-align: left;
   white-space: nowrap;
@@ -252,7 +252,7 @@
   overflow: auto;
   border-radius: var(--r-sm);
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   line-height: 1.5;
   white-space: pre;
   color: var(--fg-2);
@@ -301,7 +301,7 @@
 
 /* GitHub */
 .repo__who {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .repo__prs li,
 .repo__runs li {

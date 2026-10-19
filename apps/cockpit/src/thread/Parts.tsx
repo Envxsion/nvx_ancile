@@ -257,10 +257,20 @@ export function Parts({
         const steps = item.segs.flatMap((x) =>
           x.kind === 'tool' ? [{ call: x.call, result: x.result }] : [],
         );
+        const rows = item.segs.map((x) => ({
+          key: x.key,
+          node: one(x, -1),
+          tool: x.kind === 'tool',
+          pin: x.kind === 'tool' && (x.result ? !x.result.ok : stepWaits(x.call.call_id)),
+        }));
         return (
-          <ToolGroup key={item.key} steps={steps} open={waiting && steps.some((x) => !x.result)}>
-            {item.segs.map((x) => one(x, -1))}
-          </ToolGroup>
+          <ToolGroup
+            key={item.key}
+            steps={steps}
+            rows={rows}
+            live={streaming}
+            open={waiting && steps.some((x) => !x.result)}
+          />
         );
       })}
       {loose.map((a, i) => (

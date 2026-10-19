@@ -83,7 +83,8 @@ function thread(i: number, extra: Record<string, unknown> = {}) {
     pinned_at: null,
     archived_at: null,
     created_at: '',
-    updated_at: new Date(Date.now() - i * HOUR * 4).toISOString(),
+    // The first unpinned thread (3) is always from just now, so 'Today' has a row at any hour of the day.
+    updated_at: new Date(Date.now() - Math.max(0, i - 3) * HOUR * 4).toISOString(),
     branches: 1,
     live: false,
     ...extra,

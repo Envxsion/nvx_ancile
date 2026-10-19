@@ -559,7 +559,13 @@ export function composeEnv(fileEnv) {
   if ((process.env.ANCILE_PROFILE ?? env.ANCILE_PROFILE) === 'e2e') {
     env.ANCILE_PROFILE = 'e2e';
     // The test stack drives sample GPU nodes; a real install never sees them.
-    env.CONTROLLER_PROVIDER ??= 'fake';
+    // Forced, not defaulted: a RunPod key in .env must never make the suite start a real GPU node.
+    env.CONTROLLER_PROVIDER = 'fake';
+    // Claude Code is off in the test profile: Core must not find your install or import your sessions
+    // (it did once, and the suite started live sessions on a paid plan). The empty config folder is a
+    // second guard for anything that reads Claude Code's folder anyway. The send guard in the gateway
+    // (ANCILE_PROFILE=e2e) is the third.
+    env.ANCILE_CLAUDE_CODE = 'off';
     // A signed-in Claude Code makes the offline test models step out of the pickers (TO2), and the suite
     // drives them with /say: the test stack's dev Cockpit keeps them, so a journey never reaches a real model.
     env.VITE_ANCILE_TEST_MODELS ??= '1';
@@ -602,6 +608,12 @@ export function composeEnv(fileEnv) {
   // repository root. The desktop app does the same against AppData.
   const abs = (p) => (isAbsolute(p) ? p : resolve(ROOT, p));
   env.ANCILE_DATA_DIR = abs(env.ANCILE_DATA_DIR);
+  if (env.ANCILE_PROFILE === 'e2e') {
+    // Claude Code's documented config variable, pointed at an empty folder: even code that reads it
+    // finds no sessions and no sign-in. Never your ~/.claude.
+    env.CLAUDE_CONFIG_DIR = join(env.ANCILE_DATA_DIR, 'claude-config-empty');
+    mkdirSync(env.CLAUDE_CONFIG_DIR, { recursive: true });
+  }
   env.ANCILE_CONFIG_DIR = abs(env.ANCILE_CONFIG_DIR ?? 'config');
   env.ANCILE_PROMPTS_DIR = abs(env.ANCILE_PROMPTS_DIR ?? 'prompts');
   env.KNOWLEDGE_MODEL_CACHE = abs(env.KNOWLEDGE_MODEL_CACHE || join(env.ANCILE_DATA_DIR, 'models'));

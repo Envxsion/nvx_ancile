@@ -250,7 +250,7 @@
   align-items: center;
   gap: var(--sp-1) var(--sp-3);
   min-height: 18px;
-  font-size: var(--t-small);
+  font-size: var(--t-meta, 12px);
   color: var(--mute-2);
 }
 .msg__foot [data-num] {
@@ -260,20 +260,27 @@
 .msg__time {
   color: var(--mute-2);
 }
-/* Tokens and cost, and your message's time, come up when you are on the turn. */
+/* The answer's quiet line (time, route, grounding, cost) comes up when you are on
+   the turn, by pointer or by keyboard, and stays on touch. A failed or contradicted
+   fact-check, and an open receipt, keep it in view. It is faded, not removed, so a
+   screen reader still reads it and Tab still reaches it. */
 .msg__usage,
+.msg[data-role='assistant'] .msg__foot,
 .msg__foot--user {
   transition: opacity var(--d-short) var(--ease);
 }
-.msg:not(:hover, :focus-within, [data-selected]) .msg__usage,
-.msg:not(:hover, :focus-within) .msg__foot--user {
-  opacity: 0;
-}
-@media (hover: none) {
-  .msg .msg__usage,
-  .msg .msg__foot--user {
-    opacity: 1;
+@media (hover: hover) {
+  .msg:not(:hover, :focus-within) .msg__foot--user {
+    opacity: 0;
   }
+  .msg:not(:hover, :focus-within, [data-selected]) .msg__usage,
+  .msg:not(:hover, :focus-within, [data-selected])
+    .msg__foot:not(.msg__foot--user, [data-alert]):not(:has(.rc-strip[aria-expanded='true'])) {
+    opacity: 0;
+  }
+}
+:root[data-motion='reduced'] :is(.msg__usage, .msg__foot, .msg__foot--user) {
+  transition: none;
 }
 /* Your message's time takes no room of its own: it shows in the gap above
    your plate when you are on the turn, so plates sit evenly. */

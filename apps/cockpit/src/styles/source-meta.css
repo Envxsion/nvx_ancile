@@ -14,6 +14,10 @@
 .source-tags .tag {
   height: 20px;
 }
+/* A tag you can press is a target: 24px (WCAG 2.2 target size). */
+.source-tags .tag--btn {
+  height: 24px;
+}
 .tag--btn {
   cursor: pointer;
   transition:

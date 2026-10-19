@@ -57,6 +57,7 @@ import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { billingOf, type ClaudeAuth } from './billing';
+import { assertSendAllowed, modelAllowedInTestProfile, sendGuardActive } from './e2e-guard';
 import { effortLevels } from './effort';
 import { OFFLINE_MODELS } from './fake';
 import {
@@ -748,7 +749,10 @@ export class ModelRegistry {
     // The try-out models stand in only while no real model can answer. Once one
     // can, a failing model must fail visibly, never fall back to a model that
     // does not use AI (docs/models.md, Test models). Asked for by name, they still answer.
-    const realReady = [...ready.values()].some((m) => m.provider !== 'fake' && canChat(m));
+    // In the test profile the Controller is the fake one, so its sample nodes are try-out models too.
+    const realReady = [...ready.values()].some(
+      (m) => m.provider !== 'fake' && canChat(m) && !(sendGuardActive() && modelAllowedInTestProfile(m)),
+    );
     if (this.opts.offline && !realReady) {
       for (const [tc, spec] of Object.entries(classes)) {
         if (!tc.startsWith('chat') && tc !== 'utility' && !tc.startsWith('factcheck')) continue;
@@ -788,6 +792,15 @@ export class RoutingClient implements ModelClient {
   }
 
   stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
+    // The test profile's send guard (e2e-guard.ts): refused before any client, network or CLI is touched.
+    // Thrown from inside the stream, so the gateway handles it like any other failure of that model.
+    if (sendGuardActive()) {
+      try {
+        assertSendAllowed(m);
+      } catch (err) {
+        return { [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(err) }) };
+      }
+    }
     const own = this.own.get(m.provider);
     if (own) return own.stream(m, req, signal);
     return (m.provider === 'fake' ? this.fake : this.sdk).stream(m, req, signal);

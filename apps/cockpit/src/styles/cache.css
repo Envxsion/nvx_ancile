@@ -23,7 +23,7 @@
   margin-bottom: 6px;
   padding: 0 2px 0 4px;
   color: var(--fg-3);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   line-height: 1.4;
 }
 .switch-cost__text {

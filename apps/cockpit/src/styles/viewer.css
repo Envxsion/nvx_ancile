@@ -146,13 +146,13 @@
   flex: none;
   border-radius: var(--r-3xs);
   background: var(--lift-3);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   overflow: hidden;
   animation: pdf-page-in var(--d-short) var(--ease-out) both;
 }
 .pdf__page[data-cited] {
   box-shadow:
-    var(--elev-2),
+    var(--card-edge-hover),
     0 0 0 2px rgb(var(--signal-rgb) / 0.5);
   animation: pdf-page-cited 1.6s var(--ease-out) 1;
 }
@@ -222,7 +222,7 @@
 @keyframes pdf-page-cited {
   0% {
     box-shadow:
-      var(--elev-2),
+      var(--card-edge-hover),
       0 0 0 8px rgb(var(--signal-rgb) / 0.25);
   }
 }

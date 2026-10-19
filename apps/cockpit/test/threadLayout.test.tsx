@@ -132,6 +132,15 @@ describe('thread layout CSS', () => {
     expect(thread).toMatch(/\n\.msg__foot--user \{[^}]*position:\s*absolute/);
   });
 
+  it("an answer's quiet line shows on hover and focus, always on touch, and stays for an alert", () => {
+    expect(thread).toMatch(
+      /@media \(hover: hover\) \{[^@]*\.msg__foot:not\(\.msg__foot--user, \[data-alert\]\)/,
+    );
+    expect(thread).toMatch(/:not\(:hover, :focus-within, \[data-selected\]\)/);
+    // Faded, never display:none, so a screen reader and Tab still reach it.
+    expect(rule(thread, '.msg__foot')).not.toMatch(/display:\s*none/);
+  });
+
   it('the hint is the spacer and gives way; Send never shrinks', () => {
     expect(rule(thread, '.composer__hint')).toMatch(/flex:\s*1 1 0/);
     expect(rule(thread, '.composer__hint')).toMatch(/min-width:\s*0/);

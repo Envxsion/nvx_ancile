@@ -13,7 +13,9 @@
  *           |  edit, bash) to a kind; describe() gives its line and
  *           |  the body for that kind draws the rest. Anything else
  *           |  keeps the plain Input and Result view. Long agentic
- *           |  turns fold into one "Worked through N steps" group.
+ *           |  turns fold into one group: live, its last few steps
+ *           |  show; done, it is one line ("4 steps · 12s") that opens
+ *           |  on click, with failed and waiting steps kept in view.
  *           |  A call that carries its own description (Bash's and
  *           |  Task's `description`, the plan item in progress) shows
  *           |  it as the title, with the raw command muted under it
@@ -33,7 +35,15 @@
 
 import type { ActivityState, Part, ToolKind } from '@nvx/contracts';
 import { stepDescription, toolKind, webHits } from '@nvx/contracts/steps';
-import { createContext, type ReactNode, type SyntheticEvent, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  Fragment,
+  type ReactNode,
+  type SyntheticEvent,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 import { imageMeta } from '../images/ImageGenBody';
 import { runMeta } from '../interpreter/PythonBody';
 import { shortResource } from '../lib/mappers';
@@ -787,21 +797,34 @@ export function ToolStepPlaceholder({
   );
 }
 
-/** Steps in one run before they fold into "Worked through N steps". */
-export const GROUP_AFTER = 4;
+/** Steps in one run before they fold into one line ("4 steps · 12s"). */
+export const GROUP_AFTER = 2;
+/** While a run goes, this many of its latest steps stay in view. */
+export const LIVE_TAIL = 5;
 
+/** One drawn row of a group: a step (or the thinking between steps), and whether it must stay in view. */
+export type GroupRow = { key: string; node: ReactNode; tool: boolean; pin: boolean };
+
+/**
+ * A run of steps. Live, the last few show and the earlier ones count as a
+ * line; done, it is one line that opens on click. A step waiting on you, or
+ * one that failed, is never folded away.
+ */
 export function ToolGroup({
   steps,
+  rows,
+  live,
   open,
-  children,
 }: {
   steps: { call: ToolCall; result: ToolResult | undefined }[];
+  rows: GroupRow[];
+  /** The answer is still being written, so unfinished steps are still going. */
+  live: boolean;
   /** Open from the start (a step in it waits on you). */
   open: boolean;
-  children: ReactNode;
 }) {
   const cwd = useContext(ToolCwd);
-  const live = steps.some((st) => !st.result);
+  const going = live && steps.some((st) => !st.result);
   const failed = steps.filter((st) => st.result && !st.result.ok).length;
   const agents = steps.every((st) => kindOf(st.call.tool) === 'agent');
   const last = steps[steps.length - 1];
@@ -810,28 +833,69 @@ export function ToolGroup({
       oneLiner(describe(last.call, last.result, stepState(last.result, false), cwd)))
     : '';
   const n = steps.length;
-  const title = agents
-    ? `${live ? 'Asking' : 'Asked'} ${n} subagents`
-    : `${live ? 'Working through' : 'Worked through'} ${n} steps`;
+  const ms = steps.reduce((sum, st) => sum + (st.result?.duration_ms ?? 0), 0);
+  const noun = agents ? 'subagents' : 'steps';
+  const title = going
+    ? agents
+      ? `Asking ${n} subagents`
+      : `Working through ${n} steps`
+    : `${n} ${noun}${ms >= 1000 ? ` · ${elapsed(ms)}` : ''}`;
+  const [expanded, setExpanded] = useState(false);
   const [shown, onToggle] = useOpened(open);
+  const isOpen = open || going || expanded;
+
+  // Live: the latest steps, plus any earlier one that waits or failed.
+  let from = 0;
+  if (going) {
+    let seen = 0;
+    for (let k = rows.length - 1; k >= 0; k--) {
+      if (rows[k]?.tool && ++seen === LIVE_TAIL) {
+        from = k;
+        break;
+      }
+    }
+  }
+  const visible = going ? rows.filter((r, k) => k >= from || r.pin) : rows;
+  const hidden = going ? rows.filter((r, k) => r.tool && k < from && !r.pin).length : 0;
+  const pinned = rows.filter((r) => r.pin);
+
   return (
-    <details
-      className="tool-group"
-      data-live={live || undefined}
-      open={open || undefined}
-      onToggle={onToggle}
-    >
-      <summary>
-        <Icon name="chevronRight" size={12} className="tool-group__chev" />
-        <span className="tool-group__title">{title}</span>
-        {failed ? (
-          <span className="tool-group__failed" data-num>
-            {failed} failed
-          </span>
-        ) : null}
-        <span className="tool-group__last">{lastLine}</span>
-      </summary>
-      <div className="tool-group__steps">{shown ? children : null}</div>
-    </details>
+    <div className="tool-fold">
+      <details
+        className="tool-group"
+        data-live={going || undefined}
+        open={isOpen || undefined}
+        onToggle={(e) => {
+          onToggle(e);
+          setExpanded(e.currentTarget.open);
+        }}
+      >
+        <summary>
+          <Icon name="chevronRight" size={12} className="tool-group__chev" />
+          <span className="tool-group__title">{title}</span>
+          {failed ? (
+            <span className="tool-group__failed" data-num>
+              {failed} failed
+            </span>
+          ) : null}
+          <span className="tool-group__last">{lastLine}</span>
+        </summary>
+        <div className="tool-group__steps">
+          {hidden ? (
+            <p className="tool-group__earlier" data-num>
+              {hidden} earlier {hidden === 1 ? 'step' : 'steps'}
+            </p>
+          ) : null}
+          {shown || going ? visible.map((r) => <Fragment key={r.key}>{r.node}</Fragment>) : null}
+        </div>
+      </details>
+      {!isOpen && pinned.length ? (
+        <div className="tool-group__pinned">
+          {pinned.map((r) => (
+            <Fragment key={r.key}>{r.node}</Fragment>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -18,7 +18,7 @@ import type { NotebookLanguages } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
-import { Term } from '../help/Term';
+import { Hint } from '../help/Hint';
 import { api } from '../lib/api';
 import { useNotebooks, useSources, useThread } from '../lib/data';
 import { setCheckOnWeb, setGrounded } from '../lib/factcheck';
@@ -129,9 +129,11 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
     <div className="grounded-row" data-on={on || undefined}>
       <Icon name="factcheck" size={14} />
       <div className="grounded-row__text">
-        <span className="grounded-row__title">Fact-check every answer</span>
-        <span className="mute">
-          <Term id="grounded">Grounded mode</Term> checks each claim against these sources.
+        <span className="grounded-row__title">
+          Fact-check every answer
+          <Hint id="grounded-mode" title="Grounded mode" article="fact-checking">
+            Grounded mode checks each claim against these sources.
+          </Hint>
         </span>
       </div>
       <Switch
@@ -157,9 +159,11 @@ function WebRow({ notebookId }: { notebookId: string }) {
     <div className="grounded-row" data-on={on || undefined}>
       <Icon name="globe" size={14} />
       <div className="grounded-row__text">
-        <span className="grounded-row__title">Check on the web</span>
-        <span className="mute">
-          Claims your sources miss are looked up on the web and marked Web. Never in a private notebook.
+        <span className="grounded-row__title">
+          Check on the web
+          <Hint id="check-on-web" title="Check on the web">
+            Claims your sources miss are looked up on the web and marked Web. Never in a private notebook.
+          </Hint>
         </span>
       </div>
       <Switch

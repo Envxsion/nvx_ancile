@@ -213,7 +213,7 @@
 }
 .args-edit__label {
   color: var(--fg-3);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .args-edit__area {
   width: 100%;
@@ -290,7 +290,7 @@
   min-width: 0;
 }
 .choice__mono {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   overflow-wrap: anywhere;
 }
 
@@ -381,7 +381,7 @@
 }
 .pattern-help__ex code {
   font-family: var(--font-mono);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-2);
   overflow-wrap: anywhere;
 }
@@ -389,7 +389,7 @@
   display: block;
   padding: 0 8px 4px;
   color: var(--mute);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .approval__queue {
   display: grid;
@@ -448,11 +448,11 @@
 .approval__queue-match {
   flex: none;
   color: var(--ok);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .approval__queue-note {
   color: var(--fail);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .approval__queue-acts {
   display: inline-flex;
@@ -574,12 +574,12 @@
   margin-left: auto;
 }
 .palette__current {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--signal-ink);
 }
 .palette__meta {
   margin-left: auto;
-  font-size: var(--t-small);
+  font-size: var(--t-meta);
 }
 .palette__meta + .palette__current {
   margin-left: 10px;
@@ -604,7 +604,7 @@
   padding: 8px 14px;
   border-top: 1px solid var(--hair);
   color: var(--mute-2);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .palette__foot span {
   display: inline-flex;
@@ -661,7 +661,7 @@
 .shortcuts__mine {
   padding: 0 5px;
   border-radius: var(--r-xs);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--gilt);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
 }
@@ -691,12 +691,12 @@
 .keytest__note {
   flex-basis: 100%;
   margin: 0;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .shortcuts__kept {
   padding: 0 5px;
   border-radius: var(--r-xs);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--warn);
   box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / 0.35);
   white-space: nowrap;
@@ -836,7 +836,7 @@
 }
 .center__item time {
   white-space: nowrap;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .center__action {
   justify-self: start;
@@ -968,7 +968,7 @@
   color: var(--void);
 }
 .chain__time {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   color: var(--mute-2);
 }
 .chain__detail {

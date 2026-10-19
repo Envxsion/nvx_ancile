@@ -59,7 +59,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   border-radius: var(--r-lg);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   overflow: hidden;
 }
 .cost-band__tile {
@@ -145,18 +145,18 @@
   padding: 14px 16px 12px;
   border-radius: var(--r-lg);
   background: var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   animation: rise var(--d-short) var(--ease-out) both;
   transition:
     box-shadow var(--d-short) var(--ease),
     transform var(--d-short) var(--ease-spring);
 }
 .node-card:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .node-card[data-state='running'] {
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 3px 0 0 color-mix(in srgb, var(--ok) 70%, transparent);
 }
 .node-card[data-busy],
@@ -164,21 +164,21 @@
 .node-card[data-state='stopping'],
 .node-card[data-state='creating'] {
   box-shadow:
-    var(--elev-2),
+    var(--card-edge-hover),
     0 0 0 1px rgb(var(--signal-rgb) / 0.45);
   animation: node-breathe 2.4s var(--ease-inout) infinite;
 }
 @keyframes node-breathe {
   50% {
     box-shadow:
-      var(--elev-2),
+      var(--card-edge-hover),
       0 0 0 1px rgb(var(--signal-rgb) / 0.2),
       0 0 22px -6px rgb(var(--signal-rgb) / 0.45);
   }
 }
 .node-card[data-state='error'] {
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 3px 0 0 var(--fail);
 }
 
@@ -224,7 +224,7 @@
 .node-card__sample {
   padding: 1px 8px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--s-azure);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-azure) 40%, transparent);
 }
@@ -247,7 +247,7 @@
   box-shadow: inset 0 0 0 1px var(--hair);
 }
 .node-card__figures dt {
-  font-size: var(--t-caption);
+  font-size: var(--t-small);
   color: var(--mute);
 }
 .node-card__figures dd {
@@ -423,7 +423,7 @@
 .daypick__day[aria-pressed='true'] {
   color: var(--fg);
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 [data-theme='light'] .daypick {
   background: var(--chalk);
@@ -548,7 +548,7 @@
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--signal) 6%, var(--lift));
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 0 0 0 1px rgb(var(--signal-rgb) / 0.3);
   animation: rise var(--d-short) var(--ease-out) both;
 }

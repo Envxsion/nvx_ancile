@@ -5,7 +5,7 @@
   padding: 14px 16px;
   border-radius: var(--r-lg);
   background: var(--sheen), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .loaded__head {
   display: flex;

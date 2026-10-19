@@ -116,6 +116,15 @@ export const SETTINGS_INDEX: SettingDef[] = [
     options: choices(['glass', 'solid']),
   },
   {
+    key: 'statusbar',
+    kind: 'toggle',
+    label: 'Status bar',
+    group: 'appearance',
+    words: 'footer bottom model usage health clock',
+    prefGroup: 'appearance',
+    pref: 'statusBar',
+  },
+  {
     key: 'grain',
     kind: 'toggle',
     label: 'Film grain',

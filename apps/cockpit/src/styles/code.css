@@ -52,7 +52,7 @@
   height: 30px;
   border-radius: var(--r-sm);
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   color: var(--fg-3);
 }
 .file-ed__titles {

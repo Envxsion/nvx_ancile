@@ -24,6 +24,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 import { DeadlineExceededError, withTimeout } from '@nvx/resilience';
+import { sendGuardActive } from '../gateway/e2e-guard';
 
 export const MIN_VERSION = '2.1.200';
 const STATUS_TTL_MS = 10_000;
@@ -178,7 +179,7 @@ export function locate(opts: LocateOptions = {}): Located | null {
     ? [join2(home, '.local\\bin')]
     : [
         join2(home, '.local/bin'),
-        join2(home, '.claude/local'),
+        env.CLAUDE_CONFIG_DIR ? join2(env.CLAUDE_CONFIG_DIR, 'local') : join2(home, '.claude/local'),
         '/usr/local/bin',
         '/opt/homebrew/bin',
         join2(home, '.npm-global/bin'),
@@ -267,6 +268,8 @@ export class ClaudeCli {
   }
 
   where(): Located | null {
+    // The test profile never finds your Claude Code (gateway/e2e-guard.ts).
+    if (sendGuardActive()) return null;
     return (this.opts.locate ?? locate)();
   }
 

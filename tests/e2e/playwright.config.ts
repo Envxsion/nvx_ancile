@@ -9,6 +9,12 @@
  * streams, scripted tool calls, injectable failures), never real networks.
  */
 import { defineConfig, devices } from '@playwright/test';
+import {
+  PREFS_STORE_KEY,
+  prefsStateNeverAdoptingCore,
+  UI_STORE_KEY,
+  uiStateWithDefaultModel,
+} from './global-setup';
 
 // Backend specs run against the test profile (`pnpm start:e2e`, Cockpit on
 // :7801) so your everyday stack on :7701 can keep running beside it.
@@ -28,6 +34,22 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL,
+    // Against a real Core, every browser starts with the offline test model as its default: Core
+    // keeps none, and the Cockpit's own fallback is the first real model that can answer.
+    ...(process.env.E2E_BACKEND && {
+      storageState: {
+        cookies: [],
+        origins: [
+          {
+            origin: new URL(baseURL).origin,
+            localStorage: [
+              { name: UI_STORE_KEY, value: uiStateWithDefaultModel() },
+              { name: PREFS_STORE_KEY, value: prefsStateNeverAdoptingCore() },
+            ],
+          },
+        ],
+      },
+    }),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -40,7 +62,10 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], colorScheme: 'dark' },
       testIgnore: process.env.E2E_CRAWL ? undefined : /crawl\.spec\.ts$/,
     },
-    { name: 'chromium-light', use: { ...devices['Desktop Chrome'], colorScheme: 'light' } },
+    {
+      name: 'chromium-light',
+      use: { ...devices['Desktop Chrome'], colorScheme: 'light' },
+    },
     {
       name: 'tablet',
       use: { ...devices['iPad Pro 11'], colorScheme: 'dark' },
@@ -50,7 +75,9 @@ export default defineConfig({
     {
       name: 'phone',
       use: { ...devices['Pixel 7'], colorScheme: 'dark' },
-      testMatch: /(crawl|phone)\.spec\.ts$/,
+      // The crawl presses switches that live on the server (automations, memory), so beside the
+      // journeys it would flip them under a running test: with E2E_CRAWL=1 it runs on its own.
+      testMatch: process.env.E2E_CRAWL ? /(crawl|phone)\.spec\.ts$/ : /phone\.spec\.ts$/,
     },
     {
       name: 'reduced-motion',

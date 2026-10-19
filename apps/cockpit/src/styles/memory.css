@@ -87,7 +87,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-weight: 640;
   color: var(--void);
   background: var(--gilt);
@@ -159,7 +159,7 @@
   color: var(--fg);
   background: var(--lift-2);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 2px 0 0 var(--signal);
 }
 .mem-file[data-guide] {
@@ -176,13 +176,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute-2);
 }
 .mem-file__count {
   grid-row: 1 / span 2;
   align-self: center;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute);
 }
 
@@ -195,7 +195,7 @@
   padding: 18px 20px 20px;
   border-radius: var(--r-xl);
   background: var(--sheen, none), var(--lift-2);
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
   animation: mem-rise var(--d-medium) var(--ease-out);
 }
 @keyframes mem-rise {
@@ -302,7 +302,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute-2);
   opacity: 0.7;
   transition: opacity var(--d-micro) var(--ease-out);
@@ -491,14 +491,14 @@
 }
 .mem-diff__file {
   padding: 6px 12px 4px;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-3);
 }
 .mem-diff__fold {
   min-height: 8px;
   padding: 2px 12px 2px 92px;
   font-family: var(--font-sans);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute-2);
   background: rgb(var(--fg-rgb) / 0.02);
 }
@@ -562,7 +562,7 @@
   padding: 14px 16px;
   border-radius: var(--r-lg);
   background: var(--sheen, none), var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   outline: none;
   animation: mem-rise var(--d-medium) var(--ease-out) both;
   transition:
@@ -571,21 +571,21 @@
     opacity var(--d-medium) var(--ease-out);
 }
 .mem-card:hover {
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .mem-card:focus-visible {
   outline: none;
-  box-shadow: var(--elev-2), var(--focus-ring);
+  box-shadow: var(--card-edge-hover), var(--focus-ring);
 }
 .mem-card[data-untrusted] {
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 2px 0 0 rgb(var(--warn-rgb) / 0.6);
 }
 .mem-card[data-leaving='kept'] {
   opacity: 0;
   transform: translateY(-6px) scale(0.99);
-  box-shadow: var(--elev-1), var(--gilt-glow);
+  box-shadow: var(--card-edge), var(--gilt-glow);
 }
 .mem-card[data-leaving='dropped'] {
   opacity: 0;
@@ -642,7 +642,7 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--warn);
   background: rgb(var(--warn-rgb) / 0.08);
 }
@@ -771,12 +771,12 @@
   border-radius: 50%;
   color: var(--fg-3);
   background: var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .mem-commit[data-auto] .mem-commit__node {
   color: var(--gilt);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
 }
 .mem-commit__body {
@@ -814,7 +814,7 @@
 .mem-commit__scope {
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--fg-3);
   background: rgb(var(--fg-rgb) / 0.05);
 }
@@ -840,7 +840,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .mem-commit__actions .btn {
   display: inline-flex;
@@ -892,12 +892,12 @@
   background: var(--panel);
   box-shadow:
     inset 0 0 0 1px var(--hair),
-    var(--elev-1);
+    var(--card-edge);
 }
 .mem-move__review {
   box-shadow:
     inset 0 0 0 1px var(--gilt-hair),
-    var(--elev-2);
+    var(--card-edge-hover);
 }
 .mem-move__head {
   display: grid;
@@ -950,7 +950,7 @@
   border-radius: var(--r-pill);
   background: var(--wash);
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .mem-move__paste {
   width: 100%;
@@ -1011,7 +1011,7 @@
   margin: 0;
   color: var(--fg-2);
   font-family: var(--font-mono);
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   font-weight: 500;
 }
 .mem-move__items {
@@ -1151,7 +1151,7 @@
 .mem-keep__scope[data-on] {
   color: var(--fg);
   background: var(--sheen), var(--lift-3);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .mem-keep__scope:disabled {
   opacity: 0.45;
@@ -1241,7 +1241,7 @@
 .mem-card[data-selected] {
   background: var(--chalk-2);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 0 0 0 1px var(--edge-2);
 }
 .mem-inbox__bar {

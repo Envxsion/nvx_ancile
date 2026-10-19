@@ -38,7 +38,9 @@ const ListRow = memo(function ListRow({
   selected,
   onSelect,
   jump,
+  showModel,
 }: {
+  showModel: boolean;
   m: MessageView;
   threadId: string;
   tail: boolean;
@@ -63,6 +65,7 @@ const ListRow = memo(function ListRow({
             liveModelName={live?.modelName ?? null}
             approvalId={live?.approvalId ?? null}
             approvals={live?.approvals}
+            showModel={showModel}
           />
         </ErrorBoundary>
       )}
@@ -88,6 +91,8 @@ export const MessageList = memo(function MessageList({
   scroller: RefObject<HTMLElement | null>;
 }) {
   const eagerFrom = messages.length - EAGER_TAIL;
+  // The model is named only on the first answer and where it changes.
+  let lastModel: string | null | undefined;
   return (
     <LazyRoot scroller={scroller}>
       <ToolCwd.Provider value={cwd}>
@@ -102,9 +107,12 @@ export const MessageList = memo(function MessageList({
                   <CcEventRow e={m.cc} />
                 </li>
               );
+            const showModel = m.role !== 'assistant' || lastModel === undefined || lastModel !== m.modelId;
+            if (m.role === 'assistant') lastModel = m.modelId;
             return (
               <ListRow
                 key={m.id}
+                showModel={showModel}
                 m={m}
                 threadId={threadId}
                 tail={i >= eagerFrom}

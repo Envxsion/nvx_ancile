@@ -101,7 +101,7 @@
   font-size: var(--t-small);
 }
 .u-plan[data-compact] .u-plan__reset {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .u-plan__foot {
   display: flex;
@@ -118,7 +118,7 @@
   font-size: var(--t-small);
 }
 .u-plan[data-compact] .u-plan__pace {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 .u-plan-note {
   margin: 12px 0 0;
@@ -229,7 +229,7 @@
   letter-spacing: -0.01em;
 }
 .u-totals dd.u-quiet {
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
 }
 
 .u-chart {

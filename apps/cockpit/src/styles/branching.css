@@ -51,7 +51,7 @@
 .btree__map {
   border-radius: var(--r-md);
   overflow: hidden;
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .btree__map .react-flow__minimap-node {
   fill: var(--chalk-2);
@@ -95,7 +95,7 @@
   padding: 0 10px;
   border-radius: var(--r-md);
   background: var(--lift-2);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   font-size: var(--t-small);
   color: var(--fg-2);
   cursor: pointer;
@@ -111,7 +111,7 @@
 }
 .tnode:hover {
   translate: 0 -1px;
-  box-shadow: var(--elev-2);
+  box-shadow: var(--card-edge-hover);
 }
 .tnode:active {
   scale: 0.98;
@@ -120,17 +120,17 @@
   background: var(--lift-3);
   color: var(--fg);
   box-shadow:
-    var(--elev-1),
+    var(--card-edge),
     inset 2px 0 0 rgb(var(--signal-rgb) / 0.9);
 }
 .tnode[data-selected] {
   box-shadow:
-    var(--elev-2),
+    var(--card-edge-hover),
     0 0 0 2px rgb(var(--signal-rgb) / 0.55);
 }
 .tnode[data-compare] {
   box-shadow:
-    var(--elev-2),
+    var(--card-edge-hover),
     0 0 0 2px var(--hair-2),
     0 0 0 4px rgb(var(--signal-rgb) / 0.18);
 }
@@ -142,7 +142,7 @@
   padding: 0 6px;
   border-radius: var(--r-pill);
   background: var(--lift-3);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
   font-size: var(--t-micro);
   color: var(--fg-3);
 }
@@ -204,7 +204,7 @@
   background:
     linear-gradient(var(--lift-3), var(--lift-3)) padding-box,
     var(--gilt-hair) border-box;
-  font-size: var(--t-micro);
+  font-size: var(--t-meta);
   font-weight: 550;
   line-height: 16px;
   color: var(--fg-2);
@@ -249,7 +249,7 @@
   font-size: var(--t-micro);
   font-weight: 600;
   line-height: 16px;
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 
 /* The node menu, opened where you right-clicked. */
@@ -363,7 +363,7 @@
   padding: 14px 16px;
   border-radius: var(--r-lg);
   background: var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .cmp__lede {
   font-size: var(--t-body);
@@ -418,7 +418,7 @@
   height: 18px;
   border-radius: var(--r-xs);
   background: var(--chalk-2);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   font-weight: 650;
   color: var(--fg-2);
 }
@@ -464,10 +464,10 @@
 }
 .cmp__msg[data-role='user'] {
   background: var(--lift);
-  box-shadow: var(--elev-1);
+  box-shadow: var(--card-edge);
 }
 .cmp__who {
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   color: var(--mute);
 }
 .cmp__text {
@@ -548,7 +548,7 @@
 }
 .merge__who {
   color: var(--mute);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
 }
 .merge__line {
   min-width: 0;
@@ -676,7 +676,7 @@
   gap: 4px;
   padding: 0 7px;
   border-radius: var(--r-pill);
-  font-size: var(--t-caption);
+  font-size: var(--t-meta);
   line-height: 18px;
   color: var(--mute);
   box-shadow: inset 0 0 0 1px var(--hair-2);
