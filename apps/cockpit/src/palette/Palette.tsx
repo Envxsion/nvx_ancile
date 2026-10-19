@@ -40,6 +40,7 @@ import { hueVar } from '../lib/format';
 import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
+import { useWarmMarks, WarmMark } from '../models/WarmMark';
 import { openBeam } from '../pro/beam';
 import { useRepoCommands } from '../repos/commands';
 import { notify } from '../state/notify';
@@ -222,6 +223,7 @@ export function Palette() {
   const currentModel = useCurrentModel(threadId)?.id;
   // Claude Code, cloud and local models, with what this thread's scope rules out (docs/engines.md).
   const modelGroups = useModelGroups(threadId, currentModel ?? null);
+  const warmOf = useWarmMarks(threadId, open);
   // Why Claude Code cannot answer here, for its separate "Set up Claude Code" row.
   const ccSetup = useClaudeCodeSetup(threadId);
   const navigate = useNavigate();
@@ -735,6 +737,10 @@ export function Palette() {
                             {e.disabled ??
                               (e.model?.offline ? 'Test model · no AI' : (e.note ?? e.model?.provider ?? ''))}
                           </span>
+                          {(() => {
+                            const w = warmOf(e);
+                            return w ? <WarmMark warm={w} /> : null;
+                          })()}
                           <span
                             className="model-badge"
                             data-kind={e.kind}

@@ -275,6 +275,7 @@ export function attachRun(t: { runId: string; threadId: string; messageId: strin
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: keys.thread(t.threadId) }),
         queryClient.invalidateQueries({ queryKey: keys.threads }),
+        queryClient.invalidateQueries({ queryKey: ['cache-state', t.threadId] }),
       ]).finally(() => useRuns.getState().drop(t.messageId));
     },
   });

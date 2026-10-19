@@ -1,0 +1,51 @@
+/*
+ * Prompt cache cues (ROADMAP CA12): the warm mark beside a model that has
+ * this thread cached, and the one-line price tag before a switch. Tokens
+ * only. Calm ink, never the signal colour.
+ */
+
+.warm-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-2);
+  transition: opacity 0.6s ease;
+}
+:root[data-motion='reduced'] .warm-mark {
+  transition: none;
+}
+
+.switch-cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 0 2px 0 4px;
+  color: var(--fg-3);
+  font-size: var(--t-micro);
+  line-height: 1.4;
+}
+.switch-cost__text {
+  min-width: 0;
+}
+.switch-cost__close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.switch-cost__close:hover {
+  background: var(--lift);
+  color: var(--fg-2);
+}
+.switch-cost__close:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}

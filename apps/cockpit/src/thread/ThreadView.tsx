@@ -53,6 +53,7 @@ import {
 import { sendMessage } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { PlanNotice } from '../models/PlanNotice';
+import { SwitchCostNotice } from '../models/SwitchCostNotice';
 import { ScopeChip } from '../scopes/ScopeChip';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
@@ -564,6 +565,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
           {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
           {demo ? null : <ModelGoneNotice threadId={threadId} />}
           {demo || cc ? null : <PlanNotice threadId={threadId} />}
+          {cc ? null : <SwitchCostNotice threadId={threadId} />}
           {cc ? <CcNotices threadId={threadId} /> : null}
           {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
           {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}

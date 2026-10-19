@@ -25,6 +25,7 @@ import * as DM from '@radix-ui/react-dropdown-menu';
 import type { CSSProperties, ReactNode } from 'react';
 import { openEditor } from '../editors/store';
 import { hueVar } from '../lib/format';
+import { useWarmMarks, WarmMark } from '../models/WarmMark';
 import { Icon } from '../ui/Icon';
 import { type ModelEntry, type ModelGroup, SET_UP_CLAUDE_CODE } from './api';
 
@@ -47,6 +48,7 @@ export function ModelMenuContent({
   label?: string;
   setup?: ClaudeCodeSetupRow | null | undefined;
 }) {
+  const warmOf = useWarmMarks(threadId);
   const scoped = groups.some((g) =>
     g.items.some((i) => i.disabled && /notebook|thread|computer/.test(i.disabled)),
   );
@@ -96,6 +98,10 @@ export function ModelMenuContent({
                   <span className="cc-pick__desc">{e.note}</span>
                 ) : null}
               </span>
+              {(() => {
+                const w = warmOf(e);
+                return w ? <WarmMark warm={w} /> : null;
+              })()}
               <span
                 className="model-badge"
                 data-kind={e.kind}
