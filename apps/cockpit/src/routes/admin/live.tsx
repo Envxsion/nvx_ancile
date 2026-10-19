@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { GRANT_SCOPE_WORDS, GrantMenu } from '../../approvals/GrantMenu';
 import { expiryWords, filterGrants, type GrantFilter, isExpired } from '../../approvals/grantState';
 import { PresetPicker } from '../../approvals/preset';
+import { Term } from '../../help/Term';
 import { ApiCallError, api } from '../../lib/api';
 import { useModels, useSystemHealth } from '../../lib/data';
 import { relative } from '../../lib/format';
@@ -74,8 +75,8 @@ export function LiveHealth() {
     <>
       <div className="admin__bar">
         <p className="mute">
-          Checked every 15 seconds. A service that fails three checks in a row restarts on its own when a
-          restart adapter is set.
+          Checked every 15 seconds. A service that fails three checks restarts itself when a restart adapter
+          is set.
         </p>
         <button
           type="button"
@@ -149,8 +150,8 @@ export function LiveGrants() {
       <PresetPicker />
       <div className="grants__bar">
         <p className="mute admin__lede">
-          What the agent may do without asking, because you said so. Narrow or revoke any of it from its menu.
-          An expired one no longer counts.
+          What the agent may do without asking. Narrow or revoke any <Term id="grant">grant</Term> from its
+          menu, within its <Term id="scope">scope</Term>.
         </p>
         <Segmented
           label="Show"
@@ -261,7 +262,9 @@ export function LiveDecisions() {
           <th>Action</th>
           <th>On</th>
           <th>Outcome</th>
-          <th>Tier</th>
+          <th>
+            <Term id="tier">Tier</Term>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -296,8 +299,8 @@ export function LiveModels() {
     <>
       <div className="admin__bar">
         <p className="mute admin__lede">
-          Models you can use, grouped by who pays: your Claude plan, each provider's API key, and your own
-          computer and GPU nodes.
+          Models you can use, grouped by who pays: your <Term id="plan-vs-key">plan</Term>, each API key, your
+          own hardware. A <Term id="line">latest</Term> line follows the newest model.
           {waiting > 0 ? ' Add a key in Settings → API keys to see that provider’s models.' : ''} Each
           provider starts with its fast, balanced and best models.
         </p>

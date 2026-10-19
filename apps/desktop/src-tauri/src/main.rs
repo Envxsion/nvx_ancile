@@ -93,6 +93,29 @@ pub(crate) fn reload_main(app: &AppHandle) {
     navigate(app, "/");
 }
 
+/// True when the system is set to light apps (Windows reads the personalisation key; elsewhere
+/// the page's own `prefers-color-scheme` takes over once it paints). Any failure means dark.
+fn os_prefers_light() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let out = std::process::Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                "/v",
+                "AppsUseLightTheme",
+            ])
+            .creation_flags(0x0800_0000)
+            .output();
+        return out
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().ends_with("0x1"))
+            .unwrap_or(false);
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 fn navigate(app: &AppHandle, route: &str) {
     let (Some(sup), Some(w)) = (supervisor_of(app), app.get_webview_window("main")) else {
         return;
@@ -171,6 +194,21 @@ fn main() {
             // system, and every other scheme does nothing (links.rs).
             let core_nav = layout.core_url();
             let core_new = core_nav.clone();
+            // The theme the Cockpit last saved (Core writes it to <data>/theme); else the system's.
+            let saved_theme = std::fs::read_to_string(layout.data.join("theme"))
+                .ok()
+                .map(|t| t.trim().to_string());
+            let saved_theme_light = match saved_theme.as_deref() {
+                Some("light") => true,
+                Some("dark") => false,
+                _ => os_prefers_light(),
+            };
+            let theme_word = match saved_theme.as_deref() {
+                Some("light") => "light",
+                Some("dark") => "dark",
+                _ if saved_theme_light => "light",
+                _ => "dark",
+            };
             let mut window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("NVX Ancile")
@@ -181,8 +219,17 @@ fn main() {
                     )
                     // Placed first, shown after: nothing jumps.
                     .visible(false)
-                    .theme(Some(tauri::Theme::Dark))
-                    .background_color(tauri::webview::Color(8, 9, 10, 255))
+                    // Follows the system theme; the paint behind the page matches it (D7).
+                    .theme(match saved_theme.as_deref() {
+                        Some("dark") => Some(tauri::Theme::Dark),
+                        Some("light") => Some(tauri::Theme::Light),
+                        _ => None,
+                    })
+                    .background_color(if saved_theme_light {
+                        tauri::webview::Color(246, 246, 242, 255)
+                    } else {
+                        tauri::webview::Color(8, 9, 10, 255)
+                    })
                     .on_navigation(move |url| match links::decide(url, &core_nav) {
                         links::Action::Stay => true,
                         links::Action::External => {
@@ -207,8 +254,9 @@ fn main() {
                         }
                     })
                     .initialization_script(format!(
-                        "window.__NVX_DESKTOP__ = Object.freeze({{ version: {:?} }});",
-                        env!("CARGO_PKG_VERSION")
+                        "window.__NVX_DESKTOP__ = Object.freeze({{ version: {:?} }}); window.__NVX_THEME__ = {:?};",
+                        env!("CARGO_PKG_VERSION"),
+                        theme_word
                     ));
             if matches!(plan.spot, window_state::Spot::Centre) {
                 window = window.center();

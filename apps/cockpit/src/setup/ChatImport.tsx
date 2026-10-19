@@ -126,8 +126,8 @@ export function ChatImportPanel() {
   return (
     <div className="chatimp">
       <p className="mute">
-        Your chats become threads you can search and continue here. Nothing is sent anywhere, and a chat is
-        never brought in twice.
+        Your chats become threads you can search and continue. Nothing leaves this computer; no chat comes in
+        twice.
       </p>
       <ul className="chatimp__where">
         {WHERE.map(([tool, how]) => (
@@ -227,8 +227,7 @@ function JobStatus({ job, onCancel }: { job: ChatImport; onCancel: () => void })
       </p>
       {active ? (
         <p className="mute chatimp__note">
-          You can carry on: this keeps going in the background, and picks up where it stopped if NVX Ancile
-          restarts.
+          You can carry on. This runs in the background and resumes after a restart.
         </p>
       ) : null}
       {active ? (

@@ -490,8 +490,8 @@ export function SettingsScreen() {
         </SearchContext.Provider>
 
         <footer className="settings__foot mute">
-          Changes save as you make them and follow you to your other devices, except zoom, panel widths,
-          Effects and custom CSS, which stay on this one. <Kbd keys="mod+," /> opens Settings from anywhere.
+          Changes save as you make them and follow you to other devices, except zoom, widths, Effects and
+          custom CSS. <Kbd keys="mod+," /> opens Settings from anywhere.
         </footer>
       </section>
     </div>

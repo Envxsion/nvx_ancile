@@ -110,6 +110,65 @@ export interface SearchHit {
   title: string;
   text: string;
   updated_at: string;
+  role?: 'user' | 'assistant';
+  model_id?: string | null;
+  notebook_id?: string | null;
+}
+
+/** TS1: narrow a message search. `who` 'mine' is your own words, 'answers' is the models'. */
+export interface SearchFilters {
+  notebookId?: string;
+  modelId?: string;
+  /** ISO dates; a bare date includes the whole day when it is the end. */
+  from?: string;
+  to?: string;
+  who?: 'mine' | 'answers' | 'all';
+}
+
+/** Most hits one thread may show in a search (TS1: several, grouped under the title). */
+export const HITS_PER_THREAD = 3;
+
+/** How well a message matches: more occurrences in less text rank higher. */
+export function matchScore(text: string, q: string): number {
+  const low = text.toLowerCase();
+  const needle = q.toLowerCase();
+  let n = 0;
+  for (let i = low.indexOf(needle); i !== -1 && n < 50; i = low.indexOf(needle, i + needle.length)) n++;
+  return n / (1 + text.length / 2_000);
+}
+
+/** The end of the day for a bare date, so "to 2026-10-01" includes that day. */
+export function dayEnd(d: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T23:59:59.999Z` : d;
+}
+
+/**
+ * Group message hits by thread: best thread first, at most HITS_PER_THREAD each, at most `limit`
+ * hits in all, each thread's own hits best first.
+ */
+export function rankHits<T extends { thread_id: string; text: string; updated_at: string }>(
+  rows: T[],
+  q: string,
+  limit: number,
+): T[] {
+  const by = new Map<string, { best: number; at: string; hits: { row: T; score: number }[] }>();
+  for (const row of rows) {
+    const score = matchScore(row.text, q);
+    const g = by.get(row.thread_id) ?? { best: 0, at: row.updated_at, hits: [] };
+    g.hits.push({ row, score });
+    g.best = Math.max(g.best, score);
+    by.set(row.thread_id, g);
+  }
+  const out: T[] = [];
+  const groups = [...by.values()].sort((a, b) => b.best - a.best || b.at.localeCompare(a.at));
+  for (const g of groups) {
+    g.hits.sort((a, b) => b.score - a.score);
+    for (const h of g.hits.slice(0, HITS_PER_THREAD)) {
+      if (out.length >= limit) return out;
+      out.push(h.row);
+    }
+  }
+  return out;
 }
 
 export interface ThreadRepo {
@@ -149,8 +208,16 @@ export interface ThreadRepo {
     },
   ): Promise<ThreadRecord | undefined>;
   deleteThread(id: string): Promise<boolean>;
-  /** Messages whose text contains `q`, newest thread first, one hit per thread. */
-  searchMessages(workspaceId: string, q: string, limit: number): Promise<SearchHit[]>;
+  /**
+   * Messages whose visible text (not their stored JSON) contains `q`: several hits per thread,
+   * best thread first, narrowed by `filters` (TS1).
+   */
+  searchMessages(
+    workspaceId: string,
+    q: string,
+    limit: number,
+    filters?: SearchFilters,
+  ): Promise<SearchHit[]>;
   /** Threads per notebook, for notebook counts. */
   countByNotebook(workspaceId: string): Promise<Map<string, number>>;
   messages(threadId: string): Promise<MessageRecord[]>;
@@ -401,27 +468,38 @@ export class PgThreadRepo implements ThreadRepo {
     await this.sql`update core.threads set seen_at = now() where id = ${id}`;
   }
 
-  async searchMessages(workspaceId: string, q: string, limit: number) {
+  async searchMessages(workspaceId: string, q: string, limit: number, f: SearchFilters = {}) {
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const roles = f.who === 'mine' ? ['user'] : f.who === 'answers' ? ['assistant'] : ['user', 'assistant'];
+    const to = f.to ? dayEnd(f.to) : null;
     const rows = await this.sql<
-      { thread_id: string; message_id: string; title: string; parts: Part[]; updated_at: Date }[]
+      {
+        thread_id: string;
+        message_id: string;
+        title: string;
+        notebook_id: string | null;
+        role: 'user' | 'assistant';
+        model_id: string | null;
+        text: string;
+        updated_at: Date;
+      }[]
     >`
-      select distinct on (t.id) t.id as thread_id, m.id as message_id, t.title, m.parts, t.updated_at
+      select t.id as thread_id, m.id as message_id, t.title, t.notebook_id, m.role, m.model_id,
+        m.search_text as text, t.updated_at
       from core.messages m join core.threads t on t.id = m.thread_id
       where t.workspace_id = ${workspaceId} and t.deleted_at is null and m.deleted_at is null
-        and m.role in ('user','assistant') and m.parts::text ilike ${like}
-      order by t.id, m.created_at desc
-      limit ${limit * 4}`;
-    return rows
-      .map((r) => ({
-        thread_id: r.thread_id,
-        message_id: r.message_id,
-        title: r.title,
-        text: textOf(r.parts),
-        updated_at: r.updated_at.toISOString(),
-      }))
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      .slice(0, limit);
+        and m.role in ${this.sql(roles)} and m.search_text ilike ${like}
+        and (${f.notebookId ?? null}::text is null or t.notebook_id = ${f.notebookId ?? null}::text)
+        and (${f.modelId ?? null}::text is null or m.model_id = ${f.modelId ?? null}::text)
+        and (${f.from ?? null}::timestamptz is null or m.created_at >= ${f.from ?? null}::timestamptz)
+        and (${to}::timestamptz is null or m.created_at <= ${to}::timestamptz)
+      order by t.updated_at desc, m.created_at desc
+      limit ${limit * 12}`;
+    return rankHits(
+      rows.map((r) => ({ ...r, updated_at: r.updated_at.toISOString() })),
+      q,
+      limit,
+    );
   }
 
   async countByNotebook(workspaceId: string) {
@@ -723,17 +801,33 @@ export class MemoryThreadRepo implements ThreadRepo {
     if (t) t.seen_at = this.stamp();
   }
 
-  async searchMessages(workspaceId: string, q: string, limit: number) {
+  async searchMessages(workspaceId: string, q: string, limit: number, f: SearchFilters = {}) {
     const low = q.toLowerCase();
-    const hits = new Map<string, SearchHit>();
+    const rows: SearchHit[] = [];
     for (const m of [...this.msgs.values()].reverse()) {
       const t = this.threads.get(m.thread_id);
-      if (!t || t.deleted_at || t.workspace_id !== workspaceId || m.deleted_at || hits.has(t.id)) continue;
+      if (!t || t.deleted_at || t.workspace_id !== workspaceId || m.deleted_at) continue;
+      if (m.role !== 'user' && m.role !== 'assistant') continue;
+      if (f.who === 'mine' && m.role !== 'user') continue;
+      if (f.who === 'answers' && m.role !== 'assistant') continue;
+      if (f.notebookId && t.notebook_id !== f.notebookId) continue;
+      if (f.modelId && m.model_id !== f.modelId) continue;
+      if (f.from && m.created_at < f.from) continue;
+      if (f.to && m.created_at > dayEnd(f.to)) continue;
       const text = textOf(m.parts);
-      if (text.toLowerCase().includes(low))
-        hits.set(t.id, { thread_id: t.id, message_id: m.id, title: t.title, text, updated_at: t.updated_at });
+      if (!text.toLowerCase().includes(low)) continue;
+      rows.push({
+        thread_id: t.id,
+        message_id: m.id,
+        title: t.title,
+        text,
+        updated_at: t.updated_at,
+        role: m.role,
+        model_id: m.model_id,
+        notebook_id: t.notebook_id,
+      });
     }
-    return [...hits.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, limit);
+    return rankHits(rows, q, limit);
   }
 
   async countByNotebook(workspaceId: string) {

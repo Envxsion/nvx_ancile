@@ -19,7 +19,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { CSSProperties, ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 export type MarkState = 'idle' | 'thinking' | 'streaming' | 'ask' | 'offline' | 'alarm';
 
@@ -64,8 +64,20 @@ function Part({ className, children }: { className: string; children: ReactNode 
 
 export function AncileMark({ size = 22, state = 'idle', tone, label, className }: AncileMarkProps) {
   const style = { width: size, height: size, ...(tone ? { '--mark-tone': tone } : {}) } as CSSProperties;
+  // Entering or leaving a live state plays the arrival once; the first paint does not.
+  const live = state === 'thinking' || state === 'streaming';
+  const was = useRef(live);
+  const [arrive, setArrive] = useState(false);
+  useEffect(() => {
+    if (was.current === live) return;
+    was.current = live;
+    setArrive(true);
+    const t = setTimeout(() => setArrive(false), 560);
+    return () => clearTimeout(t);
+  }, [live]);
   return (
     <span
+      data-arrive={arrive || undefined}
       className={['ancile-mark', className].filter(Boolean).join(' ')}
       data-state={state}
       style={style}

@@ -131,8 +131,7 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
       <div className="grounded-row__text">
         <span className="grounded-row__title">Fact-check every answer</span>
         <span className="mute">
-          <Term id="grounded">Grounded mode</Term> checks each claim against these sources as soon as it is
-          written.
+          <Term id="grounded">Grounded mode</Term> checks each claim against these sources.
         </span>
       </div>
       <Switch
@@ -160,8 +159,7 @@ function WebRow({ notebookId }: { notebookId: string }) {
       <div className="grounded-row__text">
         <span className="grounded-row__title">Check on the web</span>
         <span className="mute">
-          Claims your sources do not cover are looked up on the web, and marked Web. A private notebook never
-          uses the web.
+          Claims your sources miss are looked up on the web and marked Web. Never in a private notebook.
         </span>
       </div>
       <Switch

@@ -201,11 +201,43 @@
 .rc-steps {
   padding: 4px 0 4px 4px;
 }
-.rc-step {
+.rc-step__row {
   display: grid;
-  grid-template-columns: 10px auto 1fr auto;
+  grid-template-columns: 10px 4.5ch auto 1fr auto auto;
   gap: 8px;
   align-items: baseline;
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.rc-step__row {
+  cursor: pointer;
+}
+button.rc-step__row:hover {
+  background: var(--chalk);
+}
+button.rc-step__row:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.rc-step__status {
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+.rc-step__status[data-status='failed'],
+.rc-step__status[data-status='declined'] {
+  color: var(--fg);
+  font-weight: 600;
+}
+.rc-summary {
+  margin: 0 0 var(--sp-2);
+  color: var(--fg-2);
+  font-size: var(--t-small);
 }
 .rc-step__dot {
   width: 6px;

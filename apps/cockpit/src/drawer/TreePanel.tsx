@@ -205,8 +205,7 @@ export function LiveTree() {
         <BranchTree threadId={threadId} variant="panel" />
       </div>
       <p className="panel__foot mute">
-        Click the tree, then j and k walk it, h and l switch versions, Enter jumps there. Shift-click two
-        points to compare them.
+        Click the tree, then use j, k, h and l to move and Enter to jump. Shift-click two points to compare.
       </p>
     </div>
   );

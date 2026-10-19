@@ -287,6 +287,14 @@ export function CredentialRow({
   const regionHintId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
+  // Closing the field or the remove question hands focus back to the row's button (D9).
+  const lastMode = useRef(mode);
+  useEffect(() => {
+    const was = lastMode.current;
+    lastMode.current = mode;
+    if (mode === 'idle' && was !== 'idle')
+      rowRef.current?.querySelector<HTMLElement>('.setting__control button, button.btn')?.focus();
+  }, [mode]);
   // Once its status is known: a key not set yet that can be typed opens its field.
   useEffect(() => {
     if (!focused || !status || opened.current) return;

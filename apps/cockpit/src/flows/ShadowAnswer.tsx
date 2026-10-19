@@ -22,6 +22,7 @@ import type { ShadowOutcome } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Term } from '../help/Term';
 import { ApiCallError, api } from '../lib/api';
 import { Icon } from '../ui/Icon';
 
@@ -83,8 +84,8 @@ export function ShadowAnswerLink({ messageId }: { messageId: string }) {
                 <Icon name="branch" size={18} /> Shadow answer
               </Dialog.Title>
               <p id="shadow-lede" className="mute">
-                {s.flow_name ?? 'A shadow flow'} answered the same question off the record. Nothing here
-                changed your thread.
+                {s.flow_name ?? <Term id="shadow">A shadow flow</Term>} answered the same question off the
+                record. Nothing here changed your thread.
               </p>
               <div className="shadow-answer" dir="auto">
                 {s.answer}

@@ -329,6 +329,15 @@ export function ModelPicker({
           align="start"
           sideOffset={6}
           collisionPadding={12}
+          // Focus lands in the search and returns to the picker when the list closes (D9).
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('input')?.focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(id)}"]`)?.focus();
+          }}
         >
           <Command label={label} loop filter={rank}>
             <div className="fadd__search">

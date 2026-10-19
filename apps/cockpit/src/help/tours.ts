@@ -248,6 +248,21 @@ export const TOURS: Record<string, Tour> = {
       },
     ],
   },
+  'flow-lab': {
+    id: 'flow-lab',
+    title: 'Try a flow',
+    minutes: 1,
+    start: { route: '/flows/$flowId', needs: 'flow' },
+    steps: [
+      {
+        target: 'flow-try',
+        absent: 'You have no flows yet. Make one on the Flows page, then run this tour again.',
+        title: 'Try it before it answers for real',
+        body: 'Run a message through the flow and watch each step light up, with its time and cost. A try-out never writes to a thread.',
+        placement: 'bottom',
+      },
+    ],
+  },
 };
 
 /** Called where the real action happens, so a waiting tour step moves on. */

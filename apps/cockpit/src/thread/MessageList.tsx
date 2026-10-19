@@ -18,6 +18,7 @@ import { memo, type RefObject, useMemo } from 'react';
 import { CcEventRow } from '../claudecode/ThreadMarker';
 import { useRuns } from '../lib/run';
 import type { MessageView } from '../lib/types';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { LazyRoot, LazyRow } from './LazyRow';
 import { overlay } from './liveOverlay';
 import { Message } from './Message';
@@ -52,16 +53,18 @@ const ListRow = memo(function ListRow({
   return (
     <LazyRow m={row} eager={eager}>
       {() => (
-        <Message
-          m={row}
-          threadId={threadId}
-          selected={selected}
-          onSelect={onSelect}
-          waiting={waiting}
-          liveModelName={live?.modelName ?? null}
-          approvalId={live?.approvalId ?? null}
-          approvals={live?.approvals}
-        />
+        <ErrorBoundary scope="message" label={row.role}>
+          <Message
+            m={row}
+            threadId={threadId}
+            selected={selected}
+            onSelect={onSelect}
+            waiting={waiting}
+            liveModelName={live?.modelName ?? null}
+            approvalId={live?.approvalId ?? null}
+            approvals={live?.approvals}
+          />
+        </ErrorBoundary>
       )}
     </LazyRow>
   );

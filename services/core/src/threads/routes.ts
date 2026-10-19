@@ -29,6 +29,7 @@ import {
   SendMessageRequest,
   type Thread,
   ThreadBulkRequest,
+  type ThreadExport,
   ThreadListQuery,
   type ThreadPath,
   ThreadPathQuery,
@@ -141,6 +142,9 @@ function deepest(kids: Map<string | null, { id: string }[]>, id: string): string
   }
 }
 
+/** Most messages one export request carries (EX3). */
+export const EXPORT_MAX = 5_000;
+
 export function threadRoutes(deps: ThreadRouteDeps) {
   const r = new Hono<AppEnv>();
   const { repo, runs } = deps;
@@ -196,10 +200,22 @@ export function threadRoutes(deps: ThreadRouteDeps) {
   // Before /threads/:id, which would otherwise take "search" as an id.
   r.get('/threads/search', async (c) => {
     const q = (c.req.query('q') ?? '').trim();
-    const limit = Math.min(20, Math.max(1, Number(c.req.query('limit') ?? 8) || 8));
+    const limit = Math.min(30, Math.max(1, Number(c.req.query('limit') ?? 8) || 8));
     if (q.length < 2) return c.json({ items: [] });
     if (q.length > 400) throw badRequest('q: a search is limited to 400 characters');
-    const hits = await repo.searchMessages(deps.workspaceId, q, limit);
+    const who = c.req.query('who');
+    const date = (v: string | undefined) => (v && !Number.isNaN(Date.parse(v)) ? v : undefined);
+    const notebook = c.req.query('notebook');
+    const model = c.req.query('model');
+    const from = date(c.req.query('from'));
+    const to = date(c.req.query('to'));
+    const hits = await repo.searchMessages(deps.workspaceId, q, limit, {
+      ...(notebook && { notebookId: notebook }),
+      ...(model && { modelId: model }),
+      ...(from && { from }),
+      ...(to && { to }),
+      ...((who === 'mine' || who === 'answers') && { who }),
+    });
     const items: ThreadSearchHit[] = hits.flatMap((h) => {
       const snippet = snippetOf(h.text, q);
       return snippet
@@ -210,6 +226,9 @@ export function threadRoutes(deps: ThreadRouteDeps) {
               title: h.title,
               snippet,
               updated_at: h.updated_at,
+              ...(h.role && { role: h.role }),
+              ...(h.model_id !== undefined && { model_id: h.model_id }),
+              ...(h.notebook_id !== undefined && { notebook_id: h.notebook_id }),
             },
           ]
         : [];
@@ -345,6 +364,25 @@ export function threadRoutes(deps: ThreadRouteDeps) {
         q.data.candidate,
       ),
     );
+  });
+
+  // EX3: the whole tree, every branch, in creation order. The newest EXPORT_MAX messages at most.
+  r.get('/threads/:id/export', async (c) => {
+    const t = await thread(c.req.param('id'));
+    const shape = await repo.skeleton(t.id);
+    const keep = shape.slice(-EXPORT_MAX);
+    const rows = await repo.messagesByIds(
+      t.id,
+      keep.map((m) => m.id),
+    );
+    const out: ThreadExport = {
+      thread: threadOut(t),
+      exported_at: new Date().toISOString(),
+      messages: rows.map((m) => messageOut(m)),
+      total: shape.length,
+      truncated: shape.length > keep.length,
+    };
+    return c.json(out);
   });
 
   r.get('/threads/:id/path', async (c) => {

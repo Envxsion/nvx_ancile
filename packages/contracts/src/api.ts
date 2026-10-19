@@ -220,6 +220,11 @@ export const ThreadSearchHit = z.object({
   /** The matching passage with the match wrapped in «…». */
   snippet: z.string(),
   updated_at: z.string(),
+  /** TS1: whose words matched, so the list can say "you asked" or "answered" and filter. */
+  role: z.enum(['user', 'assistant']).optional(),
+  /** TS1: the model that wrote an answer hit, when one did. */
+  model_id: z.string().nullable().optional(),
+  notebook_id: z.string().nullable().optional(),
 });
 export type ThreadSearchHit = z.infer<typeof ThreadSearchHit>;
 
@@ -240,6 +245,19 @@ export const ThreadPath = z.object({
   has_more: z.boolean().optional(),
 });
 export type ThreadPath = z.infer<typeof ThreadPath>;
+
+/**
+ * EX3: every live message of a thread, all branches, for a full-tree export. Capped (a very
+ * long thread is cut at its newest messages and says so) so one request stays a sensible size.
+ */
+export const ThreadExport = z.object({
+  thread: Thread,
+  exported_at: z.string(),
+  messages: z.array(Message),
+  total: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+export type ThreadExport = z.infer<typeof ThreadExport>;
 
 /** GET /threads/:id/path. `limit` pages from the head end; `before` and `include` are message ids on the path. */
 export const ThreadPathQuery = z.object({

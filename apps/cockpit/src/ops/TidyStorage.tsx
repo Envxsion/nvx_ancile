@@ -55,9 +55,8 @@ export function TidyStorage() {
         </div>
       </div>
       <p className="mute">
-        Removes duplicate chunks and identical old versions of sources, then vacuums the database. It takes a
-        backup first, and waits if anything is running or the disk is nearly full. Nothing you can see or
-        search changes.
+        Removes duplicate chunks and identical old source versions. Backs up first, waits if anything is
+        running, and changes nothing you can see.
       </p>
       {r ? (
         <p className="tidy__result" role="status">

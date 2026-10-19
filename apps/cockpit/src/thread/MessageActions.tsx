@@ -16,8 +16,10 @@
  */
 
 import { useBinding } from '../keys/dispatch';
+import type { CopyFormat } from '../lib/answerText';
 import { branchHere } from '../lib/branching';
 import { keys, useModels } from '../lib/data';
+import { openExport } from '../lib/exportStore';
 import { startFactcheck } from '../lib/factcheck';
 import { partsText } from '../lib/mappers';
 import { saveAnswerAsNote } from '../lib/notebooks';
@@ -146,6 +148,40 @@ function plainText(m: MessageView): string {
     .join('\n\n');
 }
 
+/** AN1: copy an answer in the form chosen last (Markdown until you choose another). */
+async function copyAs(m: MessageView, pick?: CopyFormat): Promise<void> {
+  const lib = await import('../lib/answerText');
+  const format = pick ?? lib.lastCopyFormat();
+  if (pick) lib.rememberCopyFormat(pick);
+  const ok = await lib.copyAnswer({ text: plainText(m), citations: lib.citationsOf(m) }, format);
+  if (ok) {
+    const word = lib.COPY_FORMATS.find((f) => f.id === format)?.label ?? 'Markdown';
+    notify({
+      level: 'success',
+      title: m.role === 'assistant' ? `Copied as ${word.toLowerCase()}` : 'Copied',
+    });
+  } else {
+    notify({ level: 'warn', title: 'Clipboard is blocked', body: 'Select the text and copy it by hand.' });
+  }
+}
+
+/** The menu beside Copy: the four forms, and Export for the whole thread. */
+function copyMenu(m: MessageView, threadId: string): MenuEntry[] {
+  const forms: { id: CopyFormat; label: string }[] = [
+    { id: 'markdown', label: 'Copy as Markdown' },
+    { id: 'plain', label: 'Copy as plain text' },
+    { id: 'rich', label: 'Copy as rich text' },
+    { id: 'sources', label: 'Copy with sources' },
+  ];
+  return [
+    ...(m.role === 'assistant'
+      ? forms.map((f) => ({ label: f.label, onSelect: () => void copyAs(m, f.id) }))
+      : []),
+    ...(m.role === 'assistant' ? [{ kind: 'separator' as const }] : []),
+    { label: 'Export this thread', icon: 'download' as const, onSelect: () => openExport(threadId) },
+  ];
+}
+
 export function MessageActions({
   message,
   threadId,
@@ -168,17 +204,7 @@ export function MessageActions({
   const run = async (id: string) => {
     switch (id) {
       case 'copy':
-        try {
-          await navigator.clipboard.writeText(plainText(message));
-          notify({ level: 'success', title: 'Copied' });
-        } catch {
-          notify({
-            level: 'warn',
-            title: 'Clipboard is blocked',
-            body: 'Select the text and copy it by hand.',
-          });
-        }
-        return;
+        return void copyAs(message);
       case 'cite':
         return openDrawer('sources');
       case 'why':
@@ -369,6 +395,31 @@ export function MessageActions({
               </button>
             }
           />
+        ) : a.id === 'copy' ? (
+          <span key={a.id} className="copysplit">
+            <Tip label={a.label} binding={a.binding}>
+              <button
+                type="button"
+                className="icon-btn icon-btn--sm"
+                aria-label={a.label}
+                onClick={() => void run(a.id)}
+              >
+                <Icon name="copy" size={14} />
+              </button>
+            </Tip>
+            <DropMenu
+              items={copyMenu(message, threadId)}
+              trigger={
+                <button
+                  type="button"
+                  className="icon-btn icon-btn--sm copysplit__more"
+                  aria-label="More ways to copy, and export"
+                >
+                  <Icon name="chevronDown" size={11} />
+                </button>
+              }
+            />
+          </span>
         ) : (
           <Tip key={a.id} label={a.id === 'why' && flow ? 'Receipt and route' : a.label} binding={a.binding}>
             <button

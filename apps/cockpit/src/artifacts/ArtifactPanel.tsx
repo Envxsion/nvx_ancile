@@ -30,6 +30,7 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { MD_COMPONENTS } from '../thread/Citations';
 import { CodeBlock } from '../thread/Code';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { Icon } from '../ui/Icon';
 import { StaleNotice } from '../ui/LoadFailed';
 import { Markdown } from '../ui/Markdown';
@@ -254,19 +255,23 @@ export function ArtifactPanel() {
     current ? (
       tab === 'code' || !(FRAMED.has(current.type) || current.type === 'markdown') ? (
         <div className="artifact-panel__code">
-          <Suspense fallback={<FallbackCode value={current.content} language={current.language} />}>
-            <CodeView value={current.content} language={current.language ?? current.type} readOnly />
-          </Suspense>
+          <ErrorBoundary scope="artifact" key={`c-${where}-${current.version}`}>
+            <Suspense fallback={<FallbackCode value={current.content} language={current.language} />}>
+              <CodeView value={current.content} language={current.language ?? current.type} readOnly />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       ) : (
-        <Preview
-          key={`${where}-${current.version}`}
-          type={current.type}
-          content={current.content}
-          title={`${current.title}, version ${current.version}`}
-          allowNetwork={record?.allow_network ?? false}
-          onOffer={offer}
-        />
+        <ErrorBoundary scope="artifact" key={`p-${where}-${current.version}`}>
+          <Preview
+            key={`${where}-${current.version}`}
+            type={current.type}
+            content={current.content}
+            title={`${current.title}, version ${current.version}`}
+            allowNetwork={record?.allow_network ?? false}
+            onOffer={offer}
+          />
+        </ErrorBoundary>
       )
     ) : null;
 

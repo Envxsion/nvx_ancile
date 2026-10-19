@@ -1376,6 +1376,7 @@ function ToolStepView({
   return (
     <details
       className="tool-step"
+      data-call-id={call.call_id}
       data-state={state}
       data-kind={kind}
       data-family={family}

@@ -125,8 +125,8 @@ export function RoutingEditor() {
   return (
     <>
       <p className="mute admin__lede">
-        Who answers each kind of task, in order. Drag a model by its grip, or use its menu, to change who goes
-        first. A model without its key, or switched off, is skipped.
+        Who answers each kind of task, in order. Drag a model or use its menu to reorder. Models without a
+        key, or off, are skipped.
       </p>
       <div className="route-chains">
         {(routing.data ?? []).map((r) => (

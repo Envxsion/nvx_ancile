@@ -61,8 +61,8 @@ function Health() {
     <>
       <div className="admin__bar">
         <p className="mute">
-          Checked every 15 seconds. A service that fails three checks in a row restarts on its own when a
-          restart adapter is set.
+          Checked every 15 seconds. A service that fails three checks restarts itself when a restart adapter
+          is set.
         </p>
         <button type="button" className="btn btn--primary btn--sm" title={SAMPLE} disabled>
           <Icon name="pulse" size={14} />
@@ -199,7 +199,7 @@ function Memory() {
   return (
     <>
       <p className="mute admin__lede">
-        Plain markdown in a git repository. Every change NVX Ancile makes is a commit you can read and revert.
+        Plain markdown in git. Every change is a commit you can read and revert.
       </p>
       <ul className="rows">
         {demo.memoryFiles.map((f) => (

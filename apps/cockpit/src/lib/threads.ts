@@ -31,6 +31,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { notify } from '../state/notify';
 import { ApiCallError, api } from './api';
 import { keys } from './data';
+import { openExport } from './exportStore';
 import { modelName } from './format';
 import { partsText } from './mappers';
 import { queryClient } from './query';
@@ -263,29 +264,9 @@ export function threadMarkdown(t: ThreadView): string {
   return lines.join('\n');
 }
 
-/** Save the thread on screen as a .md file. */
+/** Export the thread: opens the dialog (format, and what it holds). */
 export function exportThread(id: string): void {
-  const t = queryClient.getQueryData<ThreadView>(keys.thread(id));
-  if (!t) {
-    notify({
-      level: 'warn',
-      title: 'Open the thread first',
-      body: 'Export saves the branch you are looking at.',
-    });
-    return;
-  }
-  const blob = new Blob([threadMarkdown(t)], { type: 'text/markdown' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${
-    t.title
-      .replace(/[^\w\- ]+/g, '')
-      .trim()
-      .slice(0, 80) || 'thread'
-  }.md`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  notify({ level: 'success', title: 'Thread exported', body: `${a.download} is in your downloads.` });
+  openExport(id);
 }
 
 /** The person has opened the thread: its "new answer" dot goes, here at once and in Core for every device. */

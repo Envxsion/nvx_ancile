@@ -16,7 +16,23 @@
         --fg-2: #a9aba3;
         --signal: #9d86ff;
         --fail: #e0806a;
-        color-scheme: dark;
+        color-scheme: dark light;
+      }
+      :root[data-theme="light"] {
+        --void: #f6f6f2;
+        --fg: #16171a;
+        --fg-2: #55574f;
+        --signal: #6a4fd8;
+        --fail: #b04a34;
+      }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme]) {
+          --void: #f6f6f2;
+          --fg: #16171a;
+          --fg-2: #55574f;
+          --signal: #6a4fd8;
+          --fail: #b04a34;
+        }
       }
       html,
       body {
@@ -35,6 +51,7 @@
         text-align: center;
       }
       svg {
+        color: var(--signal);
         width: 64px;
         height: 64px;
       }
@@ -98,11 +115,11 @@
   <body>
     <main>
       <svg viewBox="0 0 34 34" aria-hidden="true">
-        <g fill="none" stroke="#9d86ff" stroke-width="2" stroke-linecap="round">
+        <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path class="half-l" d="M14.4 3.4 C8.6 3.6 4.8 6.8 4.8 10.8 C4.8 14 9.8 14.4 9.8 17 C9.8 19.6 4.8 20 4.8 23.2 C4.8 27.2 8.6 30.4 14.4 30.6" />
           <path class="half-r" opacity="0.7" d="M19.6 3.4 C25.4 3.6 29.2 6.8 29.2 10.8 C29.2 14 24.2 14.4 24.2 17 C24.2 19.6 29.2 20 29.2 23.2 C29.2 27.2 25.4 30.4 19.6 30.6" />
           <path opacity="0.4" d="M17 12.6 A4.4 4.4 0 1 1 13.2 19.2" />
-          <circle cx="17" cy="17" r="1.5" fill="#9d86ff" stroke="none" />
+          <circle cx="17" cy="17" r="1.5" fill="currentColor" stroke="none" />
         </g>
       </svg>
       <h1>NVX Ancile</h1>
@@ -111,6 +128,7 @@
       <p id="hint" hidden></p>
     </main>
     <script>
+      if (window.__NVX_THEME__) document.documentElement.dataset.theme = window.__NVX_THEME__;
       const LABELS = {
         database: "Database",
         knowledge: "Sources and search",

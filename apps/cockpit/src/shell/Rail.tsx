@@ -51,6 +51,7 @@ import { openEditor } from '../editors/store';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
 import { useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
+import { openExport } from '../lib/exportStore';
 import { hueVar, relative } from '../lib/format';
 import {
   deleteThread,
@@ -253,6 +254,11 @@ const ThreadRow = memo(function ThreadRow({
           ? [{ label: 'No notebooks yet', disabled: true, onSelect: () => {} }]
           : []),
       ],
+    },
+    {
+      label: 'Export',
+      icon: 'download',
+      onSelect: () => openExport(t.id),
     },
     {
       label: 'Copy link',

@@ -270,8 +270,7 @@ export function MergeDialog({
         <Dialog.Content className="dialog nbm" aria-describedby={`${pickId}-lede`}>
           <Dialog.Title className="dialog__title">Merge a notebook into {into.title}</Dialog.Title>
           <p id={`${pickId}-lede`} className="dialog__lede">
-            Everything in the other notebook joins this one. You see what changes first, and you can undo it
-            for a week.
+            The other notebook joins this one. You preview first, and can undo for a week.
           </p>
           <label className="field" htmlFor={pickId}>
             <span className="field__label">Notebook to merge</span>

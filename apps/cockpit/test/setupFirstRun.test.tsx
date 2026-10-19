@@ -96,7 +96,7 @@ describe('the first step', () => {
     expect(
       screen.getByText(/120 of 480 looked at, 110 brought in, 4 already here, 6 empty/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/keeps going in the background/)).toBeInTheDocument();
+    expect(screen.getByText(/runs in the background/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
   });
 

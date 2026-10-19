@@ -38,7 +38,7 @@ describe('the mark animates on the compositor', () => {
         expect((el as SVGElement).ownerSVGElement ?? null, `${sel} moves a shape inside an SVG`).toBeNull();
       }
     }
-    if (state !== 'offline') expect(matched).toBeGreaterThan(0);
+    if (state !== 'offline' && state !== 'idle') expect(matched).toBeGreaterThan(0);
   });
 
   it('keeps the geometry: the four parts on one 34-unit grid, the size asked for', () => {

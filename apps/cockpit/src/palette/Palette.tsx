@@ -34,6 +34,11 @@ import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { openEditor } from '../editors/store';
 import { SET_UP_CLAUDE_CODE, useClaudeCodeSetup, useModelGroups } from '../engines/api';
 import { searchHelp } from '../help/articles';
+import { filterQuery, type SearchFilter } from '../lib/searchFilter';
+import { lazyHost } from '../ui/lazyHost';
+
+const SearchFilters = lazyHost(() => import('./SearchFilters'), 'SearchFilters');
+
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
 import { useBinding, useLayer } from '../keys/dispatch';
@@ -131,7 +136,11 @@ function score(u: Use): number {
 
 /* ---- Message search ----------------------------------------------------- */
 
-function useMessageSearch(q: string, enabled: boolean): { hits: ThreadSearchHit[]; busy: boolean } {
+function useMessageSearch(
+  q: string,
+  enabled: boolean,
+  filters: SearchFilter,
+): { hits: ThreadSearchHit[]; busy: boolean } {
   const [hits, setHits] = useState<ThreadSearchHit[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -145,7 +154,9 @@ function useMessageSearch(q: string, enabled: boolean): { hits: ThreadSearchHit[
     setBusy(true);
     const t = setTimeout(() => {
       api
-        .get<{ items: ThreadSearchHit[] }>(`/threads/search?q=${encodeURIComponent(term)}&limit=8`)
+        .get<{ items: ThreadSearchHit[] }>(
+          `/threads/search?q=${encodeURIComponent(term)}&limit=24${filterQuery(filters)}`,
+        )
         .then((r) => !cancelled && setHits(r.items))
         .catch(() => !cancelled && setHits([]))
         .finally(() => !cancelled && setBusy(false));
@@ -156,7 +167,7 @@ function useMessageSearch(q: string, enabled: boolean): { hits: ThreadSearchHit[
       clearTimeout(t);
       setBusy(false);
     };
-  }, [q, enabled]);
+  }, [q, enabled, filters]);
   return { hits, busy };
 }
 
@@ -249,7 +260,9 @@ export function Palette() {
   const query = scope === 'all' ? value : value.slice(1).trimStart();
   const show = (s: PaletteScope) => scope === 'all' || scope === s;
   const typed = query.trim().length > 0;
-  const { hits, busy } = useMessageSearch(query, open && scope === 'all');
+  const [filters, setFilters] = useState<SearchFilter>({});
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const { hits, busy } = useMessageSearch(query, open && scope === 'all', filters);
   // biome-ignore lint/correctness/useExhaustiveDependencies: show() is derived from scope
   const helpHits = useMemo(
     () => (show('help') && typed ? searchHelp(query).slice(0, 5) : []),
@@ -546,7 +559,7 @@ export function Palette() {
     },
     {
       id: 'export',
-      label: 'Export this thread as markdown',
+      label: 'Export this thread',
       icon: 'download',
       when: !!threadId,
       run: () => threadId && exportThread(threadId),
@@ -726,6 +739,20 @@ export function Palette() {
                   <span className="palette__busy" role="status" aria-label="Searching messages" />
                 ) : null}
               </div>
+              {scope === 'all' && query.trim().length >= 3 ? (
+                <div className="palette__filterbar">
+                  <button
+                    type="button"
+                    className="palette__filter-toggle"
+                    aria-expanded={filtersOpen}
+                    onClick={() => setFiltersOpen((o) => !o)}
+                  >
+                    <Icon name="filter" size={12} />
+                    {Object.keys(filters).length ? `Filters (${Object.keys(filters).length})` : 'Filters'}
+                  </button>
+                  {filtersOpen ? <SearchFilters value={filters} onChange={setFilters} /> : null}
+                </div>
+              ) : null}
               <Command.List className="palette__list">
                 <Command.Empty className="palette__empty">
                   {busy
@@ -768,7 +795,7 @@ export function Palette() {
 
                 {scope === 'all' && hits.length > 0 ? (
                   <Command.Group heading="In messages">
-                    {hits.map((h) => (
+                    {hits.map((h, i) => (
                       <Command.Item
                         key={`${h.thread_id}-${h.message_id}`}
                         value={`message ${h.message_id} ${query} ${h.title}`}
@@ -790,7 +817,10 @@ export function Palette() {
                       >
                         <Icon name="quote" size={15} />
                         <span className="palette__stack">
-                          <span className="palette__label">{h.title}</span>
+                          {/* Several hits in one thread sit under its title, which is said once. */}
+                          {hits[i - 1]?.thread_id === h.thread_id ? null : (
+                            <span className="palette__label">{h.title}</span>
+                          )}
                           <Snippet text={h.snippet} />
                         </span>
                       </Command.Item>

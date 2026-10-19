@@ -173,6 +173,61 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
       'A machine with a graphics card that runs open models for you, such as a RunPod pod or a PC on your network. It can be started and stopped from Compute.',
     article: 'compute',
   },
+  {
+    id: 'grant',
+    term: 'Grant',
+    plain:
+      'A standing yes to one kind of action, such as "write files in this folder". Remove it any time in Admin.',
+    article: 'grants',
+  },
+  {
+    id: 'scope',
+    term: 'Scope',
+    plain:
+      'The places a notebook or thread may reach: its files, its sources, the network. Outside the scope, a call is refused.',
+    article: 'grants',
+  },
+  {
+    id: 'tier',
+    term: 'Tier',
+    plain:
+      'How careful a tool call needs to be. Reads are low; deletes and sending data are high. Higher tiers ask more.',
+    article: 'grants',
+  },
+  {
+    id: 'shadow',
+    term: 'Shadow',
+    plain:
+      'A second flow that runs beside the live one and only records what it would have done. It never changes an answer.',
+    article: 'flow-lab',
+  },
+  {
+    id: 'try-out',
+    term: 'Try-out',
+    plain: 'A run in the Flow lab on sample messages. Nothing is saved to a thread.',
+    article: 'flow-lab',
+  },
+  {
+    id: 'epoch',
+    term: 'Epoch',
+    plain:
+      'A numbered stretch of history. A new one starts when a flow or sync setup changes, so older results stay comparable.',
+    article: 'flow-lab',
+  },
+  {
+    id: 'line',
+    term: 'Line and latest',
+    plain:
+      'A name that follows a model family. "Latest" points at whichever model is newest now; the receipt shows which one answered.',
+    article: 'receipt',
+  },
+  {
+    id: 'plan-vs-key',
+    term: 'Plan and key',
+    plain:
+      'A plan is a subscription with limits and a flat fee. A key bills each use. Usage shows them apart.',
+    article: 'usage',
+  },
 ];
 
 export const glossaryEntry = (id: string) => GLOSSARY.find((g) => g.id === id);

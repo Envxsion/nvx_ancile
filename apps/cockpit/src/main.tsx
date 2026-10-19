@@ -34,6 +34,7 @@ import './styles/memory.css';
 import './styles/models.css';
 import './styles/trust.css';
 import './styles/selcheck.css';
+import './styles/answers.css';
 import './styles/branching.css';
 import './styles/compute.css';
 import './styles/ops.css';
@@ -59,6 +60,7 @@ import { router } from './router';
 import { useUi } from './state/ui';
 import { loadReceipt, loadTeamwork } from './thread/Message';
 import { loadCcBar } from './thread/ThreadView';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { preloadOnIdle } from './ui/lazyHost';
 import { loadMarkdown } from './ui/Markdown';
 
@@ -104,9 +106,11 @@ createRoot(root).render(
       <MotionPrefs>
         <TooltipProvider delayDuration={350} skipDelayDuration={200}>
           {/* Core stopped before opening the database: its start-up screen instead of the app. */}
-          <StartupGate>
-            <RouterProvider router={router} />
-          </StartupGate>
+          <ErrorBoundary scope="shell">
+            <StartupGate>
+              <RouterProvider router={router} />
+            </StartupGate>
+          </ErrorBoundary>
         </TooltipProvider>
       </MotionPrefs>
     </PersistQueryClientProvider>

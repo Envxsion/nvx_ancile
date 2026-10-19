@@ -4,8 +4,9 @@
  *  Ref      |  roadmap FC3
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  Offer Fact-check (and Copy, from the context menu)
- *           |  beside text that is highlighted in a message.
+ *  Purpose  |  Offer Fact-check (check this claim), Quote in reply, Ask
+ *           |  about this, Save to note and Branch from here (AN2), and
+ *           |  Copy from the context menu, beside highlighted text.
  *  How      |  A small floating bar over the highlight, or at the
  *           |  pointer for the context menu. It never takes the
  *           |  selection away (mouse down is not allowed to move
@@ -70,6 +71,11 @@ export function SelectionToolbar({ messageId }: { messageId: string }) {
 
   if (!h) return null;
   const check = () => useSelectionCheck.getState().openCard(h);
+  // AN2: the other ways to use the words. Each loads its code when first pressed.
+  const act = (run: (m: typeof import('../lib/selectionActions')) => unknown) => () => {
+    void import('../lib/selectionActions').then(run);
+    useSelectionCheck.getState().hideToolbar(messageId);
+  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(h.text);
@@ -98,6 +104,30 @@ export function SelectionToolbar({ messageId }: { messageId: string }) {
         <Icon name="factcheck" size={13} />
         Fact-check
         <Kbd keys="f" />
+      </button>
+      <button type="button" className="selbar__btn" onClick={act((m) => m.quoteInReply(h.threadId, h.text))}>
+        <Icon name="quote" size={13} />
+        Quote in reply
+      </button>
+      <button type="button" className="selbar__btn" onClick={act((m) => m.askAbout(h.threadId, h.text))}>
+        <Icon name="question" size={13} />
+        Ask about this
+      </button>
+      <button
+        type="button"
+        className="selbar__btn"
+        onClick={act((m) => m.saveToNote({ threadId: h.threadId, messageId: h.messageId, text: h.text }))}
+      >
+        <Icon name="note" size={13} />
+        Save to note
+      </button>
+      <button
+        type="button"
+        className="selbar__btn"
+        onClick={act((m) => m.branchFrom(h.threadId, h.messageId))}
+      >
+        <Icon name="branch" size={13} />
+        Branch from here
       </button>
       {h.via === 'menu' ? (
         <button type="button" className="selbar__btn" onClick={() => void copy()}>

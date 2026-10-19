@@ -380,9 +380,7 @@ export function NotebookScreen() {
             <button type="button" className="nbk__dropzone" onClick={() => setAdding(true)}>
               <Icon name="upload" size={22} />
               <span className="nbk__dropzone-title">Drop files anywhere on this page</span>
-              <span className="mute">
-                PDFs, documents, slides, spreadsheets and code. Or add a link, pasted text, or a past thread.
-              </span>
+              <span className="mute">Files, links, pasted text or a past thread.</span>
             </button>
           ) : (
             <>
@@ -450,9 +448,7 @@ export function NotebookScreen() {
             ) : notes.isError && !notes.data ? (
               <LoadFailed compact error={notes.error} what="Notes" onRetry={() => notes.refetch()} />
             ) : (notes.data ?? []).length === 0 ? (
-              <p className="mute nbk__empty">
-                Keep what matters: save an answer as a note from its menu, or write one in the notes panel.
-              </p>
+              <p className="mute nbk__empty">Save an answer as a note from its menu, or write one here.</p>
             ) : (
               <ul className="nbk__notes">
                 {(notes.data ?? []).slice(0, 6).map((n) => (

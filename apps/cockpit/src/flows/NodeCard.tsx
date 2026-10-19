@@ -17,8 +17,9 @@
 
 import type { FlowIssue, FlowNode } from '@nvx/contracts';
 import { Handle, type NodeProps, NodeResizer, Position } from '@xyflow/react';
-import { type CSSProperties, memo } from 'react';
+import { type ComponentType, type CSSProperties, memo } from 'react';
 import { hueVar } from '../lib/format';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { Icon } from '../ui/Icon';
 import { claudeCodeCostWords, isClaudeCodeModel, useClaudeBilling } from '../usage/planCost';
 import { contextSummary, msText, nodeSummary, usd } from './describe';
@@ -292,4 +293,12 @@ export const GroupCard = memo(function GroupCard({ data, selected }: NodeProps &
   );
 });
 
-export const NODE_TYPES = { card: NodeCard, note: NoteCard, group: GroupCard };
+/** One node that throws shows its own notice; the canvas and the other nodes carry on (ER1). */
+// biome-ignore lint/suspicious/noExplicitAny: React Flow hands each type its own props shape
+const guarded = (C: ComponentType<any>) => (props: any) => (
+  <ErrorBoundary scope="node" quiet>
+    <C {...props} />
+  </ErrorBoundary>
+);
+
+export const NODE_TYPES = { card: guarded(NodeCard), note: guarded(NoteCard), group: guarded(GroupCard) };

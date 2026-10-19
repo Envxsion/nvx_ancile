@@ -668,6 +668,165 @@ The theme button in the title bar always switches to the other theme; when that 
     ],
   },
   {
+    id: 'extras',
+    title: 'More features',
+    articles: [
+      {
+        id: 'grants',
+        title: 'Grants and permissions',
+        summary: 'What the AI may do without asking, and how to take it back.',
+        keywords: 'grant grants permission permissions allow always once deny tier preset scope',
+        body: `A **grant** is a standing yes: "this tool, on this folder, without asking". You make one when you answer an approval with **Always**. **Once** allows only that call.
+
+Open **Admin → Permissions** to see every grant, change the **preset** (how often NVX Ancile asks) and remove any grant. Removing one takes effect on the next call.
+
+Every tool call is checked at the moment it runs, on its real arguments, so a grant for one folder never covers another. A **scope** (the places a notebook or thread may reach) is checked first and cannot be granted past.
+
+**Admin → Decisions** is the record of what was asked and what you answered.`,
+      },
+      {
+        id: 'decisions',
+        title: 'Decisions',
+        summary: 'The record of every approval, and who or what answered it.',
+        keywords: 'decisions audit log approvals history reviewer',
+        body: `**Admin → Decisions** lists each time the AI asked to do something risky: what it wanted, the arguments, the answer (yours, or the reviewer's in Auto mode) and the time.
+
+Use it to check what ran while you were away, or to find a grant you now want to remove. Open a row to see the exact call. Decisions stay on this computer and are never edited.`,
+      },
+      {
+        id: 'auto-mode',
+        title: 'Auto mode',
+        summary: 'Long sessions where routine steps run and risky ones still stop.',
+        keywords: 'auto mode reviewer floors plan cache jev autonomous',
+        body: `Auto is a permission preset for long jobs. **Routine steps run without asking; anything risky still stops.**
+
+For each step that would have asked, in order:
+- **Floors** refuse or ask for dangerous things (recursive deletes, secrets, shell tricks, text that tries to instruct the reviewer). Nothing overrides them.
+- **Your plan**, if you approved one for the thread, lets matching steps run.
+- **The cache** lets a step like one already reviewed run.
+- **A reviewer** (a small model) says how likely the step fits the task and how likely it is an injection. It can only make things stricter.
+
+With no reviewer reachable, rules alone decide and more steps ask. Calls that ran by themselves carry a small badge.
+
+**Check my reviewers** (Settings → Auto mode) runs the built-in safety cases through your reviewers and shows what each caught or missed. It shows the most it can cost first, and changes no setting.`,
+      },
+      {
+        id: 'flow-lab',
+        title: 'Flow lab',
+        summary: 'Try a flow on sample messages before it answers for real.',
+        keywords: 'flow lab try-out tryout test shadow dry run sample epoch',
+        tour: 'flow-lab',
+        body: `The **Flow lab** runs a flow on messages you choose and shows the path each took, with cost and time, without replying in a thread. A **try-out** changes nothing you have saved.
+
+**Shadow** runs a second flow beside the live one on real messages and only records what it would have done. Compare the two, then switch when you are happy. A shadow never reaches your answers.`,
+      },
+      {
+        id: 'routing',
+        title: 'Routing',
+        summary: 'Which model answers when no flow says otherwise.',
+        keywords: 'routing router lines latest model default fallback utility',
+        body: `**Admin → Routing** sets the defaults: the model for plain chats, the one for small jobs (titles, summaries) and the fallbacks used when a model is down.
+
+A **router** inside a flow is different: it picks a route for each message. Routing here applies when no flow does.
+
+A model can be named by a **line** such as "latest". The line points at whichever model is current, and the receipt shows which one answered.`,
+      },
+      {
+        id: 'usage',
+        title: 'Usage and cost',
+        summary: 'What you spent, on what, and what is left of a plan.',
+        keywords: 'usage cost tokens spend budget plan limits meter',
+        body: `**Usage** shows tokens and cost by model, notebook and day, and what a plan (a subscription) still allows. A key bills each use; a plan is a flat fee with limits, so the two are shown apart.
+
+The meter in the status bar shows the context window of the open thread. Tokens and cost under each answer can be switched on in Settings → Reading.`,
+      },
+      {
+        id: 'sync',
+        title: 'Sync',
+        summary: 'Keep your workspace on more than one computer, encrypted.',
+        keywords: 'sync devices encrypted passphrase pro',
+        body: `**Sync** (Pro) copies your threads, notebooks and settings between your computers. Everything is encrypted on this computer, with a key made from your passphrase, before it leaves. The relay sees only scrambled records.
+
+A new computer joins by approval from one that already syncs. Anything marked to stay on this machine is not synced, and device-only settings (zoom, widths, custom CSS) stay put.`,
+      },
+      {
+        id: 'beam',
+        title: 'Beam',
+        summary: 'Ask several models at once and compare.',
+        keywords: 'beam compare models pro fan out',
+        body: `**Beam** (Pro) sends one question to several models and lays the answers side by side. Open it from **Compare models** in the composer, **/beam**, or **Beam this question** on a message. Keep the answer you want as the thread's reply.
+
+Without Pro the dialog explains Beam and sends nothing.`,
+      },
+      {
+        id: 'context-packs',
+        title: 'Context packs',
+        summary: 'Bundles of sources and notes you attach in one step.',
+        keywords: 'context packs bundle attach pro sources',
+        body: `A **context pack** (Pro) is a saved set of sources and notes you add to a thread or notebook together, so you do not rebuild the same background each time. Pick one in the composer's pack picker; its size shows before you attach it.`,
+      },
+      {
+        id: 'receipt',
+        title: 'The receipt and model updates',
+        summary: 'How an answer was made: model, flow, cost and checks.',
+        keywords: 'receipt answer provenance cost cache warm latest model update',
+        body: `Open the **receipt** on any answer to see which model answered, the flow and path if there was one, tokens, cost, time, and whether it was fact-checked.
+
+**Model updates:** when a model you use is replaced, a toast says so once, and the receipt names the model that really answered. A **latest** line follows the newest model; pin a specific one when you need repeatable answers.
+
+**Cache warm marks:** a small mark on a model means the provider still holds your recent prompt, so the next message is cheaper and faster. It cools after a few minutes.`,
+      },
+      {
+        id: 'trash',
+        title: 'Trash and undo',
+        summary: 'Deleted threads wait 30 days and can be restored.',
+        keywords: 'trash delete undo restore bulk select',
+        body: `Deleting threads moves them to the **Trash**. **Undo** appears at once. Later, open the Trash from the sidebar or Settings and choose **Restore**. After 30 days they are removed for good. Tick the boxes beside threads to act on many together.`,
+      },
+      {
+        id: 'highlight-fact-check',
+        title: 'Fact-check a highlight',
+        summary: 'Check any passage of an answer against your sources.',
+        keywords: 'fact check highlight selection verify',
+        body: `Select text in an answer and choose **Fact-check**. A different model checks the passage against your notebook's sources, and each claim is marked supported, unsupported or not found, with the passage it relied on.`,
+      },
+      {
+        id: 'desktop',
+        title: 'The desktop app',
+        summary: 'Tray, links, updates and the window.',
+        keywords: 'desktop tray links updates window close quit',
+        body: `Closing the window keeps NVX Ancile running in the **tray**, so runs and reminders carry on. **Quit** in the tray menu stops everything. Web and mail links open in your browser; other kinds of link are refused. Updates download when you say so and install on the next start. The window follows your system theme.`,
+      },
+      {
+        id: 'memory-scopes',
+        title: 'Memory scope, hindsight and tidy',
+        summary: 'Who sees a memory, what it learns from, and cleaning up.',
+        keywords: 'memory scope hindsight tidy storage lessons',
+        body: `A memory has a **scope**: this notebook, this project or everywhere. Narrow scopes keep unrelated work out.
+
+**Hindsight pass** (in a thread's menu) reviews a session for root causes and files suggestions in the inbox. Nothing is saved until you accept it.
+
+**Tidy storage** (Settings) removes duplicate chunks of older source versions after taking a backup, and shows the space it gives back.`,
+      },
+      {
+        id: 'lab-safety',
+        title: 'Coding lab safety',
+        summary: 'What the lab agent can touch and what it asks first.',
+        keywords: 'lab coding safety folder worktree sandbox approval',
+        body: `The lab agent works in its own folder, on a copy of your repository, and cannot reach outside it. Reading or writing outside, recursive deletes, secrets and risky shell commands ask first or are refused. You review the changes as a diff before anything lands in your repository.`,
+      },
+      {
+        id: 'custom-css',
+        title: 'Custom CSS and safe mode',
+        summary: 'Restyle the app, and turn it off if it breaks.',
+        keywords: 'custom css safe mode notifications accessibility restyle',
+        body: `Settings → Advanced takes your own CSS. If it makes the app unusable, open the app with **?safe=1** (or choose **Start in safe mode** on an error screen). Custom CSS and plugins stay off until you reload normally.
+
+**Notifications** and **Accessibility** have their own groups in Settings; **Settings** in this guide says what each holds.`,
+      },
+    ],
+  },
+  {
     id: 'trouble',
     title: 'When something goes wrong',
     articles: [

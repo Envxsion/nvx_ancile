@@ -61,6 +61,7 @@ import {
   searchFactsOf,
   secondsWords,
   toolPartsOf,
+  turnSummary,
   whyThisModel,
 } from './figures';
 import { receiptId, stripId } from './ReceiptStrip';
@@ -299,7 +300,14 @@ function WhatItCost({ m, facts, x }: { m: MessageView; facts: ReceiptFacts; x: E
           </ol>
         </Fold>
       ) : null}
-      <Timeline steps={steps} />
+      <Timeline
+        steps={steps}
+        messageId={m.id}
+        summary={turnSummary(steps, {
+          parts: hasTools || !x ? m.parts : toolPartsOf(x.tools),
+          ...(m.usage?.ms ? { totalMs: m.usage.ms } : {}),
+        })}
+      />
     </Section>
   );
 }

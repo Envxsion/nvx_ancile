@@ -89,8 +89,27 @@
   fill: currentColor;
 }
 
-.ancile-mark .inner {
+/* Resting, the mark is still. It moves only while something is live (D8). */
+.ancile-mark[data-state='thinking'] .inner,
+.ancile-mark[data-state='streaming'] .inner,
+.ancile-mark[data-state='ask'] .inner {
   animation: ancile-spin 16s linear infinite;
+}
+
+/* A short arrival when a run starts or finishes: the halves settle together once. */
+.ancile-mark[data-arrive] .half {
+  animation: ancile-arrive 520ms var(--ease-out) 1;
+}
+@keyframes ancile-arrive {
+  0% {
+    scale: 0.88;
+  }
+  60% {
+    scale: 1.05;
+  }
+  100% {
+    scale: 1;
+  }
 }
 
 .ancile-mark[data-state='thinking'] .inner {

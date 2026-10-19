@@ -82,10 +82,7 @@ export function McpServersSection() {
           <h2 className="admin__h" id="mcp-servers-h">
             MCP servers NVX Ancile uses
           </h2>
-          <p className="mute">
-            Each server gives the assistant more tools. Every call is checked at the moment it runs, like the
-            assistant's own.
-          </p>
+          <p className="mute">Each server adds tools. Every call is checked as it runs.</p>
         </div>
         {list.length ? (
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>

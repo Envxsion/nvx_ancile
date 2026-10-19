@@ -18,6 +18,8 @@ import { useEffect } from 'react';
 import { BROWSER_SAFE, browserSafeOn, detectBrowser } from '../keys/browser';
 import { useBinding } from '../keys/dispatch';
 import { setBrowserSafe, setOverrides } from '../keys/registry';
+import { api } from '../lib/api';
+import { isDesktop } from '../lib/runtime';
 import { startTelemetry } from '../lib/telemetry';
 import { startFrameGovernor, startPrefs, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
@@ -38,6 +40,16 @@ export function Runtime() {
 
   useEffect(() => startPrefs(), []);
   useEffect(() => startTelemetry(), []);
+  // The desktop paints its window from the saved theme before anything loads (D7).
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let last = '';
+    return useUi.subscribe((s) => {
+      if (s.theme === last) return;
+      last = s.theme;
+      void api.put('/system/desktop/theme', { theme: s.theme }).catch(() => {});
+    });
+  }, []);
   useEffect(() => startFrameGovernor(), []);
   useEffect(() => setOverrides(overrides), [overrides]);
   const browserSafe = usePrefs((s) => s.prefs.keyboard.browserSafe);

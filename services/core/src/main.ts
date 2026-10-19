@@ -78,6 +78,7 @@ import { connect } from './db/client';
 import { type Prepared, prepareDatabase } from './db/prepare';
 import { controllerMigrationsDir, knowledgeVersionsDir, schemaState } from './db/version';
 import { buildChecks } from './diagnostics/checks';
+import { clientErrorRoutes } from './diagnostics/client-errors';
 import { diagnosticRoutes, PgDiagnosticStore } from './diagnostics/routes';
 import { DiagnosticRunner } from './diagnostics/runner';
 import { ClaudeCodeEngine, Engines, GatewayEngine, scopeFromDb } from './engines';
@@ -211,6 +212,7 @@ import { PgStateStore, stateRoutes } from './state/routes';
 import { DesktopHost, desktopInternalRoutes, desktopRoutes } from './system/desktop';
 import { sourceDiskGuard } from './system/disk';
 import { startupInternalRoutes, startupRoutes, stoppedApp } from './system/startup';
+import { themeRoutes } from './system/theme';
 import { type TidyDeps, tidyRoutes, tidyStorage } from './system/tidy';
 import { UpdateOfferBox, updateInternalRoutes, updateRoutes } from './system/updates';
 import { WakeWatch } from './system/wake';
@@ -1677,6 +1679,8 @@ async function main() {
       }),
       healthRoutes({ supervisor: () => supervisor }),
       diagnosticRoutes({ runner: diagnostics }),
+      clientErrorRoutes(),
+      themeRoutes(dataDir),
       automationRoutes({
         runner: automations,
         notebookExists: notebookInWorkspace,

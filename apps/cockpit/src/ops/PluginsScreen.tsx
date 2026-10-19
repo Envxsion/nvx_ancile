@@ -85,8 +85,7 @@ export function PluginsScreen() {
           <div>
             <h2 className="admin__h">Apps that use NVX Ancile</h2>
             <p className="mute">
-              Editors and assistants that speak MCP can search your sources and memory, and only what you
-              allow here.
+              MCP editors and assistants can search your sources and memory, within what you allow here.
               {server.data ? (
                 <>
                   {' '}

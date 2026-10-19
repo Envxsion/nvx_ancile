@@ -1,0 +1,194 @@
+/* ------------------------------------------------------------------
+   Answers: find bar, code block actions, export, copy split (AN1-3, EX3, TS2).
+   Tokens only. Signal violet is for focus and the primary action.
+   ------------------------------------------------------------------ */
+.findbar {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-5);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 6px 4px 10px;
+  border-radius: var(--r-md);
+  background: var(--lift-3);
+  box-shadow: var(--elev-3);
+  color: var(--fg-2);
+}
+.findbar__input {
+  width: min(22ch, 40vw);
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+.findbar__input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.findbar__count {
+  min-width: 7ch;
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+.findbar__up {
+  transform: rotate(180deg);
+}
+::highlight(find-match) {
+  background: var(--chalk);
+  color: inherit;
+  text-decoration: underline;
+}
+::highlight(find-active) {
+  background: var(--fg-2);
+  color: var(--bg);
+}
+[data-found] {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.code__act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.code__act:hover,
+.code__act[aria-pressed='true'] {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.code__act:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.code__pre[data-wrap] code,
+.code__pre[data-wrap] .code__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code__save {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  font-size: var(--t-small);
+}
+.code__save input {
+  flex: 1 1 14ch;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.code__save input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.code__save-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--fg-2);
+}
+.code__head {
+  flex-wrap: wrap;
+}
+.mmd {
+  margin: var(--sp-3) 0;
+}
+.mmd__svg {
+  overflow-x: auto;
+}
+.mmd__svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.export__body {
+  display: grid;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.copysplit {
+  display: inline-flex;
+  align-items: center;
+}
+.copysplit__more {
+  margin-left: -4px;
+  width: 18px;
+}
+:root[data-motion='reduced'] .findbar,
+:root[data-motion='reduced'] .code__act {
+  transition: none;
+  animation: none;
+}
+
+.palette__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4);
+  border: 0;
+  font-size: var(--t-small);
+}
+.palette__filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.palette__filters select,
+.palette__filters input {
+  min-height: 26px;
+  max-width: 16ch;
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.palette__filters select:focus-visible,
+.palette__filters input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.palette__filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: var(--sp-1) var(--sp-4);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.palette__filter-toggle:hover {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.palette__filter-toggle:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}

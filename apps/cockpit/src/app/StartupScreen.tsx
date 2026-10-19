@@ -221,8 +221,7 @@ export function StartupScreen({ status }: { status: Status }) {
         ) : null}
         {can('reinstall') ? (
           <p className="mute startup__note">
-            Or install the newer version again from the tray menu when it offers it, and everything opens as
-            you left it.
+            Or reinstall the newer version from the tray menu. Everything opens as you left it.
           </p>
         ) : null}
       </section>

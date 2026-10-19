@@ -139,7 +139,7 @@ export function threadActions(id: string, d: ActionDeps): PanelAction[] {
     },
     {
       id: 'export',
-      label: 'Export as markdown',
+      label: 'Export this thread',
       icon: 'download',
       run: () => d.threadsApi.exportThread(id),
     },

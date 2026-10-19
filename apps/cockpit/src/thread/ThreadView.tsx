@@ -46,9 +46,11 @@ import { ContextNotice } from '../engines/ContextNotice';
 import { ApiCallError } from '../lib/api';
 import { useConnection } from '../lib/connection';
 import { keys, useThread, useThreads } from '../lib/data';
+import { useFind } from '../lib/findStore';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
 import { attachRun, detachThread, resumeThread, useRuns } from '../lib/run';
+import { ThreadIdContext } from '../lib/threadContext';
 import {
   ensureLoaded,
   loadEarlier,
@@ -94,6 +96,7 @@ const CcNotices = lazyHost(loadCcBar, 'CcNotices');
 const CcPickers = lazyHost(loadCcBar, 'CcPickers');
 // The queued message's line draws only while one waits.
 const ModelQueue = lazyHost(() => import('./ModelQueue'), 'ModelQueue');
+const FindBar = lazyHost(() => import('./FindBar'), 'FindBar');
 
 // The effort chip is for reasoning models only; fetch it once the page is idle so it does not pop in late.
 preloadOnIdle(loadEffortChip);
@@ -193,6 +196,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
   const prepend = useRef<ReadingAnchor | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
+  const [jumpKey, setJumpKey] = useState(0);
   const scrollFrame = useRef(0);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on thread change only
@@ -291,6 +295,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       gone = true;
     };
   }, [hash, threadId, thread.isSuccess]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: jumpKey re-runs a jump to the same message
   useEffect(() => {
     const el = scroller.current;
     if (!el || !jumpTo) return;
@@ -301,7 +306,40 @@ export function ThreadView({ threadId }: { threadId: string }) {
       row.scrollIntoView({ block: 'center' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [jumpTo]);
+  }, [jumpTo, jumpKey]);
+
+  // TS2: Ctrl+F finds in the thread, not just in the rows drawn. The bar loads when first asked for.
+  const findOpen = useFind((s) => s.open && s.threadId === threadId);
+  const findJump = useFind((s) => s.jump);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+      e.preventDefault();
+      useFind.getState().show(threadId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      useFind.getState().hide();
+    };
+  }, [threadId]);
+  useEffect(() => {
+    const id = findJump?.hit.messageId;
+    // A match from the find bar, or a step picked in the receipt's timeline (CH4).
+    if (!id || !(findOpen || findJump?.step)) return;
+    const hit = findJump.hit;
+    const step = findJump.step;
+    let gone = false;
+    void ensureLoaded(threadId, id).then((ok) => {
+      if (gone || !ok) return;
+      setJumpTo(id);
+      setJumpKey((k) => k + 1);
+      if (step) void import('./findDom').then((m) => requestAnimationFrame(() => m.revealStep(hit)));
+    });
+    return () => {
+      gone = true;
+    };
+  }, [findJump, findOpen, threadId]);
 
   // A notice above the composer (a moved folder, a limit) makes the list shorter: while you
   // were at the bottom, stay there, so it never covers the last lines of the answer.
@@ -625,126 +663,129 @@ export function ThreadView({ threadId }: { threadId: string }) {
   }
 
   return (
-    <div className="thread">
-      <div className="thread__scroll" data-scrollable ref={scroller} onScroll={onScroll}>
-        <div className="thread__measure">
-          <div className="thread__head">
-            <h1 className="thread__title" data-display dir="auto">
-              {listTitle ?? thread.data?.title}
-            </h1>
-            <ScopeChip threadId={threadId} />
-          </div>
-          {thread.data?.claudeCode ? (
-            <div className="thread__origin">
-              <ClaudeCodeMarker threadId={threadId} binding={thread.data.claudeCode} />
+    <ThreadIdContext.Provider value={threadId}>
+      <div className="thread">
+        {findOpen ? <FindBar messages={messages} /> : null}
+        <div className="thread__scroll" data-scrollable ref={scroller} onScroll={onScroll}>
+          <div className="thread__measure">
+            <div className="thread__head">
+              <h1 className="thread__title" data-display dir="auto">
+                {listTitle ?? thread.data?.title}
+              </h1>
+              <ScopeChip threadId={threadId} />
             </div>
-          ) : null}
+            {thread.data?.claudeCode ? (
+              <div className="thread__origin">
+                <ClaudeCodeMarker threadId={threadId} binding={thread.data.claudeCode} />
+              </div>
+            ) : null}
 
-          {thread.data?.tldr ? (
-            <section className="tldr" data-open={tldrOpen || undefined}>
-              <button
-                type="button"
-                className="tldr__toggle"
-                onClick={() => setTldrOpen((o) => !o)}
-                aria-expanded={tldrOpen}
-              >
-                <Icon name={tldrOpen ? 'chevronDown' : 'chevronRight'} size={12} />
-                Where this thread has got to
-              </button>
-              {tldrOpen ? <p className="tldr__body">{thread.data.tldr}</p> : null}
-            </section>
-          ) : null}
+            {thread.data?.tldr ? (
+              <section className="tldr" data-open={tldrOpen || undefined}>
+                <button
+                  type="button"
+                  className="tldr__toggle"
+                  onClick={() => setTldrOpen((o) => !o)}
+                  aria-expanded={tldrOpen}
+                >
+                  <Icon name={tldrOpen ? 'chevronDown' : 'chevronRight'} size={12} />
+                  Where this thread has got to
+                </button>
+                {tldrOpen ? <p className="tldr__body">{thread.data.tldr}</p> : null}
+              </section>
+            ) : null}
 
-          {messages.length === 0 ? (
-            <EmptyState
-              icon="thread"
-              title="Nothing here yet"
-              body="Ask a question below. Every reply can be regenerated with another model, edited and explained."
-            />
-          ) : (
-            <>
-              {hasMore ? (
-                <div className="thread__earlier">
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() => void earlier()}
-                    disabled={loadingEarlier}
-                  >
-                    {loadingEarlier ? 'Loading earlier messages' : 'Show earlier messages'}
-                  </button>
-                </div>
-              ) : null}
-              <MessageList
-                messages={messages}
-                threadId={threadId}
-                selected={selected}
-                onSelect={setSelected}
-                jumpTo={jumpTo}
-                cwd={thread.data?.claudeCode?.cwd ?? null}
-                scroller={scroller}
+            {messages.length === 0 ? (
+              <EmptyState
+                icon="thread"
+                title="Nothing here yet"
+                body="Ask a question below. Every reply can be regenerated with another model, edited and explained."
               />
-            </>
-          )}
+            ) : (
+              <>
+                {hasMore ? (
+                  <div className="thread__earlier">
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => void earlier()}
+                      disabled={loadingEarlier}
+                    >
+                      {loadingEarlier ? 'Loading earlier messages' : 'Show earlier messages'}
+                    </button>
+                  </div>
+                ) : null}
+                <MessageList
+                  messages={messages}
+                  threadId={threadId}
+                  selected={selected}
+                  onSelect={setSelected}
+                  jumpTo={jumpTo}
+                  cwd={thread.data?.claudeCode?.cwd ?? null}
+                  scroller={scroller}
+                />
+              </>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="thread__composer">
-        <NewTextPill
+        <div className="thread__composer">
+          <NewTextPill
+            scroller={scroller}
+            following={following}
+            lastId={lastBase?.id}
+            messageCount={messages.length}
+            threadId={threadId}
+            ready={!thread.isPending}
+          />
+          <div className="thread__measure">
+            {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
+            {demo ? null : <ModelGoneNotice threadId={threadId} />}
+            {demo || cc ? null : <PlanNotice threadId={threadId} />}
+            {cc ? null : <SwitchCostNotice threadId={threadId} />}
+            {cc ? <CcNotices threadId={threadId} /> : null}
+            {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
+            {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}
+            {cc && !limitOf(last) && !unavailableLine(ccLive.data) ? <NearLimitLine /> : null}
+            <ContextNotice threadId={threadId} />
+            <AutoSlot threadId={threadId} onChangePlan={changePlan} />
+            {demo ? null : (
+              <ComposerHints
+                threadId={threadId}
+                headId={last?.id ?? null}
+                fromClaudeCode={thread.data ? !!thread.data.claudeCode : null}
+              />
+            )}
+            {cc ? (
+              <CcLiveLine threadId={threadId} binding={cc} live={ccLive.data} last={lastTurn(messages)} />
+            ) : cc === null && !demo && queued ? (
+              <ModelQueue threadId={threadId} busy={busy} onSendNow={sendQueuedNow} onRemove={unqueue} />
+            ) : null}
+            <Composer
+              threadId={threadId}
+              parentId={last?.id ?? null}
+              onSend={onSend}
+              busy={cc ? false : busy}
+              notebookId={thread.data?.notebookId ?? null}
+              claudeCode={claudeCode}
+              replaceText={replace}
+              queue={queueApi}
+            />
+          </div>
+          {demo ? null : <BranchLayer threadId={threadId} />}
+        </div>
+
+        <StreamEffects
+          lastBase={lastBase}
+          messageCount={messages.length}
           scroller={scroller}
           following={following}
-          lastId={lastBase?.id}
-          messageCount={messages.length}
-          threadId={threadId}
-          ready={!thread.isPending}
+          setAnnounce={setAnnounce}
         />
-        <div className="thread__measure">
-          {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
-          {demo ? null : <ModelGoneNotice threadId={threadId} />}
-          {demo || cc ? null : <PlanNotice threadId={threadId} />}
-          {cc ? null : <SwitchCostNotice threadId={threadId} />}
-          {cc ? <CcNotices threadId={threadId} /> : null}
-          {cc ? <LimitNotice threadId={threadId} head={last} onSent={clearComposer} /> : null}
-          {cc && !ccState.other ? <ClaudeCodeUnavailable threadId={threadId} live={ccLive.data} /> : null}
-          {cc && !limitOf(last) && !unavailableLine(ccLive.data) ? <NearLimitLine /> : null}
-          <ContextNotice threadId={threadId} />
-          <AutoSlot threadId={threadId} onChangePlan={changePlan} />
-          {demo ? null : (
-            <ComposerHints
-              threadId={threadId}
-              headId={last?.id ?? null}
-              fromClaudeCode={thread.data ? !!thread.data.claudeCode : null}
-            />
-          )}
-          {cc ? (
-            <CcLiveLine threadId={threadId} binding={cc} live={ccLive.data} last={lastTurn(messages)} />
-          ) : cc === null && !demo && queued ? (
-            <ModelQueue threadId={threadId} busy={busy} onSendNow={sendQueuedNow} onRemove={unqueue} />
-          ) : null}
-          <Composer
-            threadId={threadId}
-            parentId={last?.id ?? null}
-            onSend={onSend}
-            busy={cc ? false : busy}
-            notebookId={thread.data?.notebookId ?? null}
-            claudeCode={claudeCode}
-            replaceText={replace}
-            queue={queueApi}
-          />
+        <div className="sr-only" aria-live="polite" aria-atomic="false">
+          {announce}
         </div>
-        {demo ? null : <BranchLayer threadId={threadId} />}
       </div>
-
-      <StreamEffects
-        lastBase={lastBase}
-        messageCount={messages.length}
-        scroller={scroller}
-        following={following}
-        setAnnounce={setAnnounce}
-      />
-      <div className="sr-only" aria-live="polite" aria-atomic="false">
-        {announce}
-      </div>
-    </div>
+    </ThreadIdContext.Provider>
   );
 }

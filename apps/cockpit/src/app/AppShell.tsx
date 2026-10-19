@@ -40,7 +40,9 @@ import { Titlebar } from '../shell/Titlebar';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { lazyHost } from '../ui/lazyHost';
+import { AnswerStatus } from './AnswerStatus';
 import { Runtime } from './Runtime';
 
 // Overlays and panels draw nothing until opened, so they load after the shell (ROADMAP P1).
@@ -52,6 +54,7 @@ const ClaudeCodeSessionsHost = lazyHost(
   'ClaudeCodeSessionsHost',
 );
 const FileEditorHost = lazyHost(() => import('../code/FileEditorHost'), 'FileEditorHost');
+const ExportHost = lazyHost(() => import('../thread/ExportDialog'), 'ExportHost');
 const WhatChangedHost = lazyHost(() => import('../desktop/WhatChanged'), 'WhatChangedHost');
 const EditorsHost = lazyHost(() => import('../editors/EditorsHost'), 'EditorsHost');
 const HelpCentre = lazyHost(() => import('../help/HelpCentre'), 'HelpCentre');
@@ -222,6 +225,7 @@ export function AppShell() {
     >
       <Runtime />
       <EditionSync />
+      <AnswerStatus />
       <a href="#main" className="skip-link">
         Skip to content
       </a>
@@ -237,9 +241,15 @@ export function AppShell() {
       ) : null}
       <main id="main" className="shell__main" tabIndex={-1}>
         <ConnectionBanner />
-        <Outlet />
+        <ErrorBoundary key={pathname} scope="route">
+          <Outlet />
+        </ErrorBoundary>
       </main>
-      {contextual ? <Drawer /> : null}
+      {contextual ? (
+        <ErrorBoundary key={`drawer${pathname}`} scope="panel" label="The side panel">
+          <Drawer />
+        </ErrorBoundary>
+      ) : null}
       <StatusBar />
 
       <Palette />
@@ -254,6 +264,7 @@ export function AppShell() {
       <ActivityHost />
       <EditorsHost />
       <FileEditorHost />
+      <ExportHost />
       <ArtifactPanel />
       <Toaster />
     </div>

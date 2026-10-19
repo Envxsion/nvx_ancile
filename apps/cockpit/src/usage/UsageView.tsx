@@ -395,9 +395,8 @@ export function UsageGroup() {
         <header className="setting-block__head">
           <h2 id="u-cc-title">Claude Code in NVX Ancile</h2>
           <p className="mute">
-            What NVX Ancile measured from Claude Code's answers on this computer: in its threads, as a model,
-            and in terminal sessions brought in here. Use on claude.ai, and terminal sessions not brought in,
-            is not counted.
+            Measured from Claude Code answers on this computer. Use on claude.ai, and terminal sessions not
+            brought in, is not counted.
           </p>
         </header>
         <div className="u-card m-raised">

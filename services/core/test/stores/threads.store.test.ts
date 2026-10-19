@@ -142,6 +142,40 @@ eachBackend('thread and notebook repositories', (backend) => {
     expect((await threads.messages(id)).map((m) => m.id)).toEqual([q.id, a.id]);
   });
 
+  it('searches visible text only, with several ranked hits per thread and filters (TS1)', async () => {
+    const t = (await threads.createThread({ id: uid('thr'), workspace_id: ws, title: 'Heating' })).id;
+    const word = `quokka${uid('w').toLowerCase()}`;
+    const q = message(t, null, 'user', `Is a ${word} warm?`);
+    const a1 = {
+      ...message(t, q.id, 'assistant', `A ${word} is warm. A ${word} is very ${word}.`),
+      model_id: 'm/one',
+    };
+    const a2 = message(t, a1.id, 'assistant', `Another ${word}.`);
+    await threads.insertMessages([q, a1, a2]);
+
+    // The stored JSON says "type" and "text" on every message; the words people read do not.
+    expect(await threads.searchMessages(ws, '"type"', 10)).toEqual([]);
+    expect(await threads.searchMessages(ws, 'tool_call', 10)).toEqual([]);
+
+    const hits = await threads.searchMessages(ws, word, 10);
+    expect(
+      hits
+        .filter((h) => h.thread_id === t)
+        .map((h) => h.message_id)
+        .sort(),
+    ).toEqual([a1.id, q.id, a2.id].sort());
+    expect(hits[0]?.message_id).toBe(a1.id);
+    expect((await threads.searchMessages(ws, word, 10, { who: 'mine' })).map((h) => h.message_id)).toEqual([
+      q.id,
+    ]);
+    expect((await threads.searchMessages(ws, word, 10, { who: 'answers' })).length).toBe(2);
+    expect(
+      (await threads.searchMessages(ws, word, 10, { modelId: 'm/one' })).map((h) => h.message_id),
+    ).toEqual([a1.id]);
+    expect(await threads.searchMessages(ws, word, 10, { from: '2999-01-01' })).toEqual([]);
+    expect((await threads.searchMessages(ws, word, 1)).length).toBe(1);
+  });
+
   it('keeps notebooks and their notes', async () => {
     const id = uid('nbk');
     const nb = await notebooks.create({ id, workspace_id: ws, title: `Tax year ${id}`, color: 'jade' });

@@ -436,6 +436,12 @@ export interface Step {
   note: string | null;
   /** Offset from the start of the turn, when known. */
   atMs: number | null;
+  /** CH4: how the step ended: null while unknown (a model call that was not recorded as failing is ok). */
+  status: 'ok' | 'failed' | 'declined' | 'waiting' | null;
+  /** CH4: the tool call this step is, so a click can find it in the thread. */
+  callId: string | null;
+  /** CH4: tokens a model call used, in and out. */
+  tokens: number | null;
 }
 
 type ToolCall = Extract<Part, { type: 'tool_call' }>;
@@ -519,6 +525,9 @@ export function buildSteps(a: {
       costUsd: null,
       note: notes.length ? notes.join('; ') : null,
       atMs: null,
+      status: !r ? 'waiting' : r.declined_reason !== undefined ? 'declined' : r.ok ? 'ok' : 'failed',
+      callId: c.call_id,
+      tokens: null,
     };
   };
 
@@ -534,6 +543,9 @@ export function buildSteps(a: {
       costUsd: null,
       note: null,
       atMs: 0,
+      status: 'ok',
+      callId: null,
+      tokens: null,
     });
 
   if (a.search)
@@ -546,6 +558,9 @@ export function buildSteps(a: {
       costUsd: null,
       note: null,
       atMs: first && first.started_ms > 0 ? 0 : null,
+      status: 'ok',
+      callId: null,
+      tokens: null,
     });
 
   const runs = toolRuns(parts);
@@ -562,6 +577,9 @@ export function buildSteps(a: {
       costUsd: a.priced ? (c.billed_usd ?? c.cost_usd) : null,
       note: c.stop === 'error' ? 'failed' : null,
       atMs: c.started_ms,
+      status: c.stop === 'error' ? 'failed' : 'ok',
+      callId: null,
+      tokens,
     });
     if (asked && runs[run]) for (const t of runs[run] ?? []) steps.push(toolStep(t));
     if (asked) run += 1;
@@ -573,3 +591,62 @@ export function buildSteps(a: {
 }
 
 export { isClaudeCodeModel };
+
+/* ---- CH4: how the turn went, in one line ------------------------------------------ */
+
+/** "42 s", "1m 40s", "1h 05m": the length of a run, for a sentence. */
+export function spanWords(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${Math.max(0, s)} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** 41,200 tokens as "41k tokens"; small counts stay whole. */
+export function tokenWords(n: number): string {
+  if (n < 1_000) return `${n} tokens`;
+  if (n < 10_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k tokens`;
+  return `${Math.round(n / 1_000)}k tokens`;
+}
+
+const WRITES = /(^|[_.\s-])(write|edit|multiedit|patch|apply_patch|delete|notebook_edit|str_replace)/i;
+
+/** The files this turn's tools changed: the path argument of each write-like tool that succeeded. */
+export function changedFiles(parts: Part[] | undefined): string[] {
+  const ok = new Set(
+    (parts ?? []).flatMap((p) =>
+      p.type === 'tool_result' && p.ok && p.declined_reason === undefined ? [p.call_id] : [],
+    ),
+  );
+  const paths = new Set<string>();
+  for (const p of parts ?? []) {
+    if (p.type !== 'tool_call' || !WRITES.test(p.tool) || !ok.has(p.call_id)) continue;
+    const a = (p.args && typeof p.args === 'object' ? p.args : {}) as Record<string, unknown>;
+    const path = [a.file_path, a.path, a.filePath, a.notebook_path].find(
+      (v): v is string => typeof v === 'string' && v.length > 0,
+    );
+    if (path) paths.add(path);
+  }
+  return [...paths];
+}
+
+/**
+ * The line that ends a turn: "Ran 12 steps in 1m 40s, changed 3 files, 41k tokens". Null for an
+ * answer that was only a model call (a plain reply has nothing worth summing up).
+ */
+export function turnSummary(
+  steps: Step[],
+  o: { parts: Part[] | undefined; totalMs?: number | null; tokens?: number | null },
+): string | null {
+  const worked = steps.filter((s) => s.kind !== 'context');
+  if (worked.length < 2 || !worked.some((s) => s.kind === 'tool')) return null;
+  const end = Math.max(0, ...steps.map((s) => (s.atMs ?? 0) + (s.ms ?? 0)));
+  const ms = o.totalMs && o.totalMs > 0 ? o.totalMs : end;
+  const tokens = o.tokens ?? steps.reduce((n, s) => n + (s.tokens ?? 0), 0);
+  const files = changedFiles(o.parts).length;
+  const bits = [`Ran ${worked.length} steps${ms > 0 ? ` in ${spanWords(ms)}` : ''}`];
+  if (files) bits.push(`changed ${files} ${files === 1 ? 'file' : 'files'}`);
+  if (tokens > 0) bits.push(tokenWords(tokens));
+  return bits.join(', ');
+}

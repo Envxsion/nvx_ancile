@@ -15,9 +15,15 @@
  */
 
 import { type ComponentProps, type ReactNode, useMemo, useState } from 'react';
+import { isMermaid } from '../lib/codeActions';
 import { highlight, langLabel } from '../lib/highlight';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
+import { lazyHost } from '../ui/lazyHost';
+
+// AN3: the header's extra actions and Mermaid load the first time an answer has a code block.
+const CodeTools = lazyHost(() => import('./CodeActions'), 'CodeTools');
+const MermaidView = lazyHost(() => import('./CodeActions'), 'MermaidView');
 
 export function CopyCode({ text, label = 'Copy code' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -77,6 +83,7 @@ export function CodeBlock({
   numbers,
   clamp = CODE_LINES,
   variant,
+  actions = false,
 }: {
   code: string;
   lang?: string | null | undefined;
@@ -87,8 +94,11 @@ export function CodeBlock({
   /** Fold after this many lines; 0 never folds. */
   clamp?: number;
   variant?: 'terminal';
+  /** Run, Wrap and Save as file (an answer's own blocks; not a tool step's output). */
+  actions?: boolean;
 }) {
   const [all, setAll] = useState(false);
+  const [wrap, setWrap] = useState(false);
   const text = code.replace(/\n$/, '');
   const count = useMemo(() => lineCount(text), [text]);
   const long = clamp > 0 && count > clamp + 4;
@@ -110,12 +120,20 @@ export function CodeBlock({
       {label !== null || variant !== 'terminal' ? (
         <figcaption className="code__head">
           <span className="code__lang">{label ?? 'Text'}</span>
+          {actions ? (
+            <CodeTools code={text} lang={lang} wrap={wrap} onWrap={() => setWrap((w) => !w)} />
+          ) : null}
           <CopyCode text={text} />
         </figcaption>
       ) : null}
       {/* Focusable: a long line scrolls sideways, and keyboard users must be able to scroll it too. */}
-      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus (WCAG 2.1.1) */}
-      <pre className="code__pre" data-clipped={(long && !all) || undefined} tabIndex={0}>
+      <pre
+        className="code__pre"
+        data-clipped={(long && !all) || undefined}
+        data-wrap={wrap || undefined}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus (WCAG 2.1.1)
+        tabIndex={0}
+      >
         <code>
           {shown.map((toks, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
@@ -175,5 +193,7 @@ export function MdCode({ className, children, ...rest }: ComponentProps<'code'> 
     );
   }
   const lang = /language-([\w+#.-]+)/.exec(className ?? '')?.[1] ?? null;
-  return <CodeBlock code={textOf(children)} lang={lang} clamp={0} />;
+  const code = textOf(children);
+  if (isMermaid(lang)) return <MermaidView code={code} />;
+  return <CodeBlock code={code} lang={lang} clamp={0} actions />;
 }
