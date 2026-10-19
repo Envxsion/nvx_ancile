@@ -560,6 +560,9 @@ export function composeEnv(fileEnv) {
     env.ANCILE_PROFILE = 'e2e';
     // The test stack drives sample GPU nodes; a real install never sees them.
     env.CONTROLLER_PROVIDER ??= 'fake';
+    // A signed-in Claude Code makes the offline test models step out of the pickers (TO2), and the suite
+    // drives them with /say: the test stack's dev Cockpit keeps them, so a journey never reaches a real model.
+    env.VITE_ANCILE_TEST_MODELS ??= '1';
     // Its own ports (+100), so the test stack runs beside your everyday one.
     Object.assign(env, E2E_PORTS);
     env.ANCILE_PG_DIR = resolve(ROOT, env.ANCILE_DATA_DIR, 'pg');

@@ -10,9 +10,6 @@ import { createGate } from '../../src/permissions/gate';
 import { MemoryPermissionStore } from '../../src/permissions/store';
 import { MemoryRunEventLog } from '../../src/runs/events';
 
-// The bridge waits on approvals and grants through the real gate; 5 s is too tight under a loaded parallel run.
-vi.setConfig({ testTimeout: 15_000 });
-
 const place = { realDir: '/srv/ws/labs/thr_1', virtualDir: '/workspace/labs/thr_1' };
 
 function setup() {
@@ -58,6 +55,15 @@ function setup() {
   return { mirror, events, perms, replies, send, attach, state };
 }
 
+// The gate loads the Cedar WASM module on its first decision, which can take far longer than a fixed
+// pause when many test files start at once. Wait for the effect instead of guessing how long it takes.
+const pending = (t: { perms: MemoryPermissionStore }) =>
+  vi.waitFor(async () => {
+    const list = await t.perms.pendingApprovals();
+    if (list.length === 0) throw new Error('no approval yet');
+    return list;
+  });
+
 const ask = (id: string, permission: string, metadata: Record<string, unknown>, patterns: string[] = []) => ({
   id,
   sessionID: 'ses_1',
@@ -71,7 +77,7 @@ describe('lab permission bridge', () => {
     const t = setup();
     await t.attach();
     await t.send('permission.asked', ask('per_1', 'read', { filepath: '/srv/ws/labs/thr_1/src/a.ts' }));
-    expect(t.replies).toEqual([{ id: 'per_1', reply: 'once' }]);
+    await vi.waitFor(() => expect(t.replies).toEqual([{ id: 'per_1', reply: 'once' }]));
     expect((await t.perms.listDecisions())[0]).toMatchObject({
       action: 'fs.read',
       resource: 'fs:/workspace/labs/thr_1/src/a.ts',
@@ -84,7 +90,7 @@ describe('lab permission bridge', () => {
     await t.attach();
     await t.send('permission.asked', ask('per_2', 'bash', { command: 'npm test' }, ['npm test']));
     expect(t.replies).toEqual([]);
-    const [approval] = await t.perms.pendingApprovals();
+    const [approval] = await pending(t);
     expect(approval).toMatchObject({
       tier: 'critical',
       action: 'shell.exec',
@@ -102,7 +108,7 @@ describe('lab permission bridge', () => {
     const t = setup();
     await t.attach();
     await t.send('permission.asked', ask('per_3', 'edit', { filepath: '/srv/ws/labs/thr_1/a.md' }));
-    const [approval] = await t.perms.pendingApprovals();
+    const [approval] = await pending(t);
     if (!approval) throw new Error('no approval');
     await t.mirror.resolved(approval, 'denied', 'not that file');
     expect(t.replies).toEqual([{ id: 'per_3', reply: 'reject', message: 'not that file' }]);
@@ -123,7 +129,7 @@ describe('lab permission bridge', () => {
     });
     await t.attach();
     await t.send('permission.asked', ask('per_4', 'edit', { filepath: '/srv/ws/labs/thr_1/b.md' }));
-    expect(t.replies).toEqual([{ id: 'per_4', reply: 'once' }]);
+    await vi.waitFor(() => expect(t.replies).toEqual([{ id: 'per_4', reply: 'once' }]));
   });
 
   it('never approves requests from sessions no run is following', async () => {
@@ -271,7 +277,7 @@ describe('lab runs that cannot hang', () => {
     const t = setup();
     await t.attach();
     await t.send('permission.asked', ask('per_9', 'bash', { command: 'make' }, ['make']));
-    expect(await t.perms.pendingApprovals()).toHaveLength(1);
+    await vi.waitFor(async () => expect(await t.perms.pendingApprovals()).toHaveLength(1));
     await t.mirror.detach('ses_1');
     expect(await t.perms.pendingApprovals()).toHaveLength(0);
   });

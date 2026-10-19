@@ -9,9 +9,12 @@ import type {
   MemoryImportView,
   MemoryProposalList,
 } from '@nvx/contracts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isBundle, isZip, readBundle, readMarkdownExport, readZip } from '../../src/memory/archive';
 import { type Harness, harness } from '../support/harness';
+
+// These tests run real git processes, which are slow on Windows when many files run at once.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 

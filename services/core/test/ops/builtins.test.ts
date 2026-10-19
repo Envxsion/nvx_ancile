@@ -36,6 +36,9 @@ import { asTree, type MessageRecord } from '../../src/threads/repo';
 import { branchSuggester, topicDrift } from '../../src/threads/suggest';
 import { type Harness, harness } from '../support/harness';
 
+// These tests run real git processes, which are slow on Windows when many files run at once.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+
 const RETENTION = { logsDays: 14, spansDays: 30, runEventsDays: 7 };
 const YAML = join(import.meta.dirname, '../../../../config/automations.yaml');
 
