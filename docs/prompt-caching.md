@@ -2,7 +2,7 @@
 
 Every provider caches a request by its exact start (Anthropic with markers; OpenAI, DeepSeek, Kimi, GLM and Gemini by themselves). Change anything near the top and every token after it is read again at full price. So NVX Ancile builds each request so that **turn N+1 starts with exactly the bytes of turn N**: tools, system prompt, then every earlier message as it was sent, with only new content added at the end.
 
-Code: `services/core/src/conductor/epoch.ts` (epochs, tools block, context block), `conductor/pipeline.ts` (the turn), `gateway/convert.ts` (stored sent forms). Shapes: `packages/contracts/src/epochs.ts`. Tests: `services/core/test/conductor/epochs.test.ts`.
+Code: `services/core/src/conductor/epoch.ts` (epochs, tools block, context block), `conductor/pipeline.ts` (the turn), `gateway/convert.ts` (stored sent forms), `gateway/replay.ts` (reasoning, CA1), `gateway/cache.ts` (per-provider settings, CA5, and lifetimes, CA12), `threads/cache-state.ts` (CA12). Shapes: `packages/contracts/src/epochs.ts`, `cache.ts`. Tests: `test/conductor/epochs.test.ts`, `test/gateway/reasoning-replay.test.ts`, `test/gateway/cache-settings.test.ts`, `test/threads/cache-state.test.ts`.
 
 ## Epochs
 
@@ -78,6 +78,61 @@ Stored passages stay in the history, so a long grounded thread grows by its pass
 ## Small models and the per-family switch
 
 Some small models follow instructions at the end of a request less well than at the top. The layout is behind a switch per model family, **on by default**. Setting `cache.end_context` to `{ "<family>": false } ` keeps the date, memory, notes and this answer's instructions in the system prompt for that family, as before. Tools are still one canonical block, and sent forms are still stored. The Flow lab's evals use it to compare. Turning it off or on starts a new epoch (`model_family`).
+
+## Reasoning is kept and sent back by each provider's rule (CA1)
+
+Reasoning is stored exactly as it arrived, as parts (`ReasoningPart.provider_meta` holds what a provider signed; `ToolCallPart.provider_meta` holds a thought signature) and inside the stored sent form. What goes back is decided per call from the provider's `reasoning` section in `gateway/profiles.ts` (`replayFor`):
+
+| Provider | Sent back | Across a change of epoch | A cancelled stream |
+|---|---|---|---|
+| DeepSeek (with tools) | every earlier `reasoning_content`, on the message it came from | kept (DeepSeek wants all of it) | kept as far as it got |
+| Kimi, MiniMax (always), GLM, Qwen (with tools) | `reasoning_content` as above | kept | kept as far as it got |
+| Anthropic | each thinking block with its signature, unchanged, before its tool call | **not sent** from another epoch (its signature belongs to that epoch's thinking settings) | a block with no signature is dropped whole |
+| Gemini | the thought signature on each function call; no reasoning text | kept | n/a (the signature rides on the call) |
+| OpenRouter | `reasoning_details` on the assistant message, as received (streamed pieces are joined by index) | not sent from another epoch for a Claude model behind it | no details, nothing sent |
+| OpenAI, xAI, Mistral, Groq, Ollama, Cohere, unknown, your own server | none | n/a | n/a |
+
+A provider's own signatures never travel to another provider. An answer stored before reasoning was kept is rebuilt from its parts for a provider that wants reasoning: the same bytes every turn after that, but one miss at the switch. Plain text cannot be rejected for being short, and DeepSeek may refuse a missing block, so those providers keep what arrived; a signed block that was cut off would be rejected, so it is dropped whole.
+
+Reasoning that is sent back counts in the context budget (`threads/compact.ts`, `partsText`); reasoning that is not sent does not.
+
+## Per-provider cache settings (CA5)
+
+Every request carries a `cache` scope: thread, branch, epoch, and a shard for calls that run side by side (Beam members, judges). The **cache key** is `nvx-` plus the first 32 hex characters of SHA-256 over those ids: the same for every turn of a branch in an epoch, different across branches, epochs and shards, never random. The branch is the first message after the nearest fork on the path (an edited question or a regenerated answer), or the first message of the thread.
+
+| Provider | Setting |
+|---|---|
+| Anthropic | At most four `cache_control` markers (5 minute lifetime; the 1 hour option costs twice on writes and waits for CA11): after the rules, after the snapshot (the system prompt goes as two blocks, split by the epoch), and rolling on the last two messages, so each turn finds the last turn's marker inside the 20 block lookback. With no split, on the last tool and the system prompt instead. A marker whose prefix is under the model's minimum (512, 1024, 2048 or 4096 tokens by model line, 4096 when unknown) is left off. |
+| OpenAI | `prompt_cache_key` is the key. |
+| Mistral | `prompt_cache_key` is the key. |
+| xAI | `x-grok-conv-id` is the key. Fireworks and Cloudflare get `x-session-affinity` from their profiles. |
+| OpenRouter | `session_id` is the key; `transforms: []` (middle-out squeezing would rewrite the prompt); `cache_control` for Claude models (unconfirmed). Once a call has written or read the cache, the next go to the same upstream (`order`, `only`, `allow_fallbacks: false`) with the routing that warmed it, so the choice is not made again each call. The pin lapses after ten quiet minutes. If the pinned upstream is down (a transient or capacity error, or a 404, 502, 503 or 504 before any output) the call is asked again unpinned, logged as `pinned OpenRouter provider failed` and recorded in `provenance.cache_resets`. |
+| Kimi | Nothing yet: its TTL option costs extra on writes (CA11). |
+
+Markers and keys are functions of the request, so a retry (the Gateway asking the same model again after a short rate limit) sends the same bytes. Models go out under the id the catalogue holds; dated ids are the catalogue's business (MD4, MD5).
+
+## Which models have this thread cached (CA12)
+
+`GET /api/v1/threads/:id/cache-state`, for the model picker. Built from the per-call usage on each answer (`Usage.calls`: when it began, how long it took, what it read and wrote) and the provider's cache lifetime.
+
+```
+{
+  items: [{
+    model_id,        // concrete id
+    provider,
+    warm_until,      // ISO, or null when cold
+    prefix_tokens,   // what the next call would read from cache if warm
+    cold_cost_usd,   // prefix_tokens at the fresh input rate now (off-peak applies); null on a plan
+    reported,        // false: the provider reports no cache figures, so this is a guess from its last call
+    plan?, local?,   // plan: no per-token cost. local: cost 0, only time
+    ttl_assumed?     // the lifetime is a lower bound, not a published figure
+  }],
+  thread_tokens,     // the newest call's prompt plus its answer
+  candidate?: { model_id, warm, prefix_tokens, cold_cost_usd, plan?, local? }   // with ?candidate=<model id>; an alias is resolved
+}
+```
+
+A model is warm while its last cache-touching call plus its lifetime is still ahead. A provider that reports figures and read or wrote nothing is cold. Lifetimes are the shortest in the profile: Anthropic 5 minutes (what is asked for), OpenAI 5 minutes (in-memory is 5 to 10 of quiet), Kimi and Qwen 5 minutes, Gemini 1 hour (unconfirmed), Groq 2 hours, Together 1 hour (unconfirmed), DeepSeek 1 hour (assumed; its docs say "a few hours to a few days"), and 5 minutes, assumed, for any provider that lists none. Epoch cold points (`cacheTtlMs`) keep their own, longer, figure for OpenAI. An unknown candidate is a 404. Answers stored before per-call usage have no calls and are left out.
 
 ## Not covered
 

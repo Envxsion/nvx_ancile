@@ -26,6 +26,22 @@ export interface ModelMessage {
    * messages, which are rebuilt from their parts.
    */
   sent?: string;
+  /** CA1: the prompt epoch this message was written in, so reasoning is not replayed across one a provider forbids. */
+  epochId?: string;
+}
+
+/**
+ * CA5: who this request belongs to, so a provider's cache key, conversation id
+ * and session id are the same on every turn of a branch and never random.
+ * `shard` tells apart calls that run side by side on the same branch (Beam
+ * members, judges): each gets its own key.
+ */
+export interface CacheScope {
+  threadId: string;
+  /** Stable across the turns of one branch, different between branches. */
+  branch: string;
+  epochId: string;
+  shard?: string;
 }
 
 /** A tool as the model sees it: name, description, JSON Schema for its input. */
@@ -37,6 +53,11 @@ export interface ToolDef {
 
 export interface ModelRequest {
   system?: string;
+  /**
+   * CA5: `system` in two pieces, the rules and the frozen snapshot, joined by a
+   * blank line. Only Anthropic uses them (a marker after each); others get `system`.
+   */
+  systemBlocks?: [string, string];
   messages: ModelMessage[];
   maxOutputTokens?: number;
   temperature?: number;
@@ -50,12 +71,19 @@ export interface ModelRequest {
   meta?: { threadId?: string; notebookId?: string | null };
   /** OpenRouter: a flow step's own routing choice; else the thread's, notebook's or model's applies. */
   routing?: RoutingSettings;
+  /** CA5: where the call is made from, for cache keys. Absent: no key is sent. */
+  cache?: CacheScope;
 }
 
 export type StreamChunk =
   | { type: 'text'; delta: string }
-  | { type: 'reasoning'; delta: string }
-  | { type: 'tool_call'; callId: string; tool: string; args: unknown }
+  /**
+   * `block`: a new reasoning block begins. `meta`: what the provider signed or
+   * wants back (CA1), in the shape of ReasoningPart.provider_meta; may arrive
+   * with an empty delta.
+   */
+  | { type: 'reasoning'; delta: string; block?: true; meta?: Record<string, unknown> }
+  | { type: 'tool_call'; callId: string; tool: string; args: unknown; meta?: Record<string, unknown> }
   /** Something the person should know about this answer (a local model cut the prompt). */
   | { type: 'warning'; code: string; message: string }
   | {
@@ -67,6 +95,8 @@ export type StreamChunk =
       served?: { provider: string | null; model: string | null };
       /** What the provider billed, when it says (OpenRouter's usage.cost); else Ancile prices it. */
       costUsd?: number;
+      /** CA5: the call left its cache pin on purpose (OpenRouter's pinned provider was down); recorded in provenance. */
+      cacheReset?: { reason: string; provider: string | null; detail: string };
     };
 
 export interface ModelClient {

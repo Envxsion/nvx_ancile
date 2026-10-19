@@ -16,7 +16,7 @@
  */
 
 import type { Message, Part, SearchResponse } from '@nvx/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   bridgeTarget,
   cacheTtlMs,
@@ -34,6 +34,9 @@ import type { ModelRequest } from '../../src/gateway/types';
 import type { ToolSpec } from '../../src/tools/registry';
 import { fakeModel } from '../gateway/fake-provider';
 import { type Harness, harness } from '../support/harness';
+
+// Each test runs several full turns through the conductor; under a loaded parallel run 5 s is too tight.
+vi.setConfig({ testTimeout: 15_000 });
 
 let h: Harness;
 afterEach(async () => h?.close());

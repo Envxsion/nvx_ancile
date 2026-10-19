@@ -341,6 +341,23 @@ export function frozenSystem(parts: { base: string; memory: string; instructions
   return [parts.base, parts.memory, parts.instructions].filter(Boolean).join('\n\n');
 }
 
+/**
+ * CA5: the frozen system prompt in two pieces, the rules and the snapshot
+ * (pinned memory and the thread's instructions), so Anthropic can mark both
+ * ends. Null when it does not split cleanly; the pieces joined by a blank line
+ * are exactly `system_text`.
+ */
+export function systemBlocks(
+  epoch: Pick<EpochRecord, 'system_text' | 'memory_text' | 'instructions'>,
+): [string, string] | null {
+  const tail = [epoch.memory_text, epoch.instructions].filter(Boolean).join('\n\n');
+  const text = epoch.system_text;
+  if (!tail || !text.endsWith(tail)) return null;
+  const rules = text.slice(0, text.length - tail.length).replace(/\n\n$/, '');
+  if (!rules || `${rules}\n\n${tail}` !== text) return null;
+  return [rules, tail];
+}
+
 /* ---- The context block at the end of the request (CA2) -------------------- */
 
 /** Short git commit, as shown in "Memory update (commit abc1234)". */

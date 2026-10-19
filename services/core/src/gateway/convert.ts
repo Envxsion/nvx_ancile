@@ -12,8 +12,11 @@
  *           |  with its tool history intact.
  *  How      |  Walk the parts in order. Text and tool calls accumulate
  *           |  into an assistant message; a tool result closes it and
- *           |  opens (or extends) a tool message. Reasoning, seams and
- *           |  citation markers are display-only and are not replayed.
+ *           |  opens (or extends) a tool message. Seams and citation
+ *           |  markers are display-only and are not replayed. Reasoning
+ *           |  is kept in the stored form exactly as received (CA1) and
+ *           |  shaped per target at send time (replay.ts): sent back
+ *           |  by that provider's rule, or not at all.
  *           |  Per target: a model without tools gets past tool calls
  *           |  as text; a vision model gets a user's images as image
  *           |  input (their bytes, loaded by the provider client before
@@ -24,11 +27,21 @@
  */
 
 import type { Part } from '@nvx/contracts';
+import type { Replay, ReplayMode } from './replay';
 import type { ModelMessage } from './types';
+
+type ProviderOptions = Record<string, unknown>;
 
 type SdkContent =
   | { type: 'text'; text: string }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+  | { type: 'reasoning'; text: string; providerOptions?: ProviderOptions }
+  | {
+      type: 'tool-call';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      providerOptions?: ProviderOptions;
+    }
   | {
       type: 'tool-result';
       toolCallId: string;
@@ -44,7 +57,7 @@ type UserContent = { type: 'text'; text: string } | { type: 'image'; image: Uint
 export type SdkMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string | UserContent[] }
-  | { role: 'assistant'; content: SdkContent[] }
+  | { role: 'assistant'; content: SdkContent[]; providerOptions?: ProviderOptions }
   | { role: 'tool'; content: SdkContent[] };
 
 /** JSON-safe value for a tool result: undefined and functions do not survive the wire. */
@@ -73,7 +86,15 @@ function expandAssistant(parts: Part[]): SdkMessage[] {
   };
 
   for (const p of parts) {
-    if (p.type === 'text') {
+    if (p.type === 'reasoning') {
+      if (!p.text && !p.provider_meta) continue;
+      flushTool();
+      assistant.push({
+        type: 'reasoning',
+        text: p.text,
+        ...(p.provider_meta && { providerOptions: p.provider_meta }),
+      });
+    } else if (p.type === 'text') {
       if (!p.text) continue;
       flushTool();
       const last = assistant.at(-1);
@@ -87,6 +108,7 @@ function expandAssistant(parts: Part[]): SdkMessage[] {
         toolCallId: p.call_id,
         toolName: p.tool,
         input: jsonValue(p.args) ?? {},
+        ...(p.provider_meta && { providerOptions: p.provider_meta }),
       });
     } else if (p.type === 'tool_result') {
       flushAssistant();
@@ -118,6 +140,12 @@ export interface TargetCaps {
   /** A vision model: images whose bytes are in `images` (by URL) go as image input. */
   vision?: boolean;
   images?: ReadonlyMap<string, { data: Uint8Array; mime: string }>;
+  /**
+   * CA1: how earlier reasoning goes back to this provider (replay.ts). Absent:
+   * none, as for any provider that takes none. `all` keeps everything, for the
+   * stored form.
+   */
+  reasoning?: Replay;
 }
 
 /** A user message with images, for a vision model: text and pictures in their order. */
@@ -171,6 +199,56 @@ function userText(parts: Part[]): string {
     .join('');
 }
 
+type Assistant = Extract<SdkMessage, { role: 'assistant' }>;
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** A thinking block that carries what Anthropic signed: without it the block would be rejected. */
+function signedBlock(o: ProviderOptions | undefined): ProviderOptions | null {
+  const a = isRecord(o?.anthropic) ? o.anthropic : null;
+  if (!a) return null;
+  if (typeof a.signature === 'string') return { anthropic: { signature: a.signature } };
+  if (typeof a.redactedData === 'string') return { anthropic: { redactedData: a.redactedData } };
+  return null;
+}
+
+/** One earlier answer message, with its reasoning shaped for the target (CA1). */
+function shape(msg: Assistant, mode: ReplayMode): Assistant {
+  if (mode === 'all') return msg;
+  const content: SdkContent[] = [];
+  const details: unknown[] = [];
+  for (const c of msg.content) {
+    if (c.type === 'reasoning') {
+      if (mode === 'text' && c.text) content.push({ type: 'reasoning', text: c.text });
+      else if (mode === 'blocks') {
+        const signed = signedBlock(c.providerOptions);
+        if (signed) content.push({ type: 'reasoning', text: c.text, providerOptions: signed });
+      } else if (mode === 'details') {
+        const o = isRecord(c.providerOptions?.openrouter) ? c.providerOptions.openrouter : null;
+        if (Array.isArray(o?.reasoning_details)) details.push(...o.reasoning_details);
+      }
+    } else if (c.type === 'tool-call') {
+      const g = isRecord(c.providerOptions?.google) ? c.providerOptions.google : null;
+      if (mode === 'calls' && typeof g?.thoughtSignature === 'string')
+        content.push({ ...c, providerOptions: { google: { thoughtSignature: g.thoughtSignature } } });
+      else {
+        const { providerOptions: _dropped, ...bare } = c;
+        content.push(bare);
+      }
+    } else content.push(c);
+  }
+  const out: Assistant = { role: 'assistant', content };
+  if (details.length) out.providerOptions = { openaiCompatible: { reasoning_details: details } };
+  return out;
+}
+
+const hasReasoning = (msgs: SdkMessage[]) =>
+  msgs.some((x) => x.role === 'assistant' && x.content.some((c) => c.type === 'reasoning'));
+const hasCallMeta = (msgs: SdkMessage[]) =>
+  msgs.some(
+    (x) => x.role === 'assistant' && x.content.some((c) => c.type === 'tool-call' && c.providerOptions),
+  );
+
 /** The stored sent form of a message (CA4), or null when it is missing or unreadable. */
 function storedForm(m: ModelMessage, role: SdkMessage['role']): SdkMessage[] | null {
   if (!m.sent) return null;
@@ -195,7 +273,12 @@ export function sentText(messages: SdkMessage[]): string | null {
 
 /** An answer's parts as the provider messages they expand to, as the text to store (CA4). */
 export function sentOfAnswer(parts: Part[]): string | null {
-  return sentText(toSdkMessages([{ role: 'assistant', content: '', parts }], { tools: true }));
+  return sentText(
+    toSdkMessages([{ role: 'assistant', content: '', parts }], {
+      tools: true,
+      reasoning: { mode: 'all', acrossEpochs: true },
+    }),
+  );
 }
 
 export function toSdkMessages(messages: ModelMessage[], caps: TargetCaps = { tools: true }): SdkMessage[] {
@@ -216,10 +299,32 @@ export function toSdkMessages(messages: ModelMessage[], caps: TargetCaps = { too
         out.push({ role: 'user', content: userContent(m.parts, caps.images) });
       else out.push({ role: 'user', content: m.parts ? userText(m.parts) : m.content });
     } else if (m.role === 'assistant') {
-      const stored = caps.tools ? storedForm(m, 'assistant') : null;
-      if (stored) out.push(...stored);
-      else if (m.parts) out.push(...expandAssistant(caps.tools ? m.parts : toolsAsText(m.parts)));
-      else if (m.content) out.push({ role: 'assistant', content: [{ type: 'text', text: m.content }] });
+      const replay = caps.reasoning;
+      // Reasoning written in an epoch a provider forbids replaying across is not sent.
+      const blocked =
+        replay && !replay.acrossEpochs && !!m.epochId && !!replay.epochId && m.epochId !== replay.epochId;
+      const mode: ReplayMode = !replay || blocked ? 'none' : replay.mode;
+      let stored = caps.tools ? storedForm(m, 'assistant') : null;
+      // Sent before reasoning was kept (older answers): rebuilt from the parts, the same way each turn.
+      if (
+        stored &&
+        mode !== 'none' &&
+        mode !== 'all' &&
+        ((m.parts?.some((p) => p.type === 'reasoning' && (p.text || p.provider_meta)) &&
+          !hasReasoning(stored)) ||
+          (mode === 'calls' &&
+            m.parts?.some((p) => p.type === 'tool_call' && p.provider_meta) &&
+            !hasCallMeta(stored)))
+      )
+        stored = null;
+      const msgs: SdkMessage[] = stored
+        ? stored
+        : m.parts
+          ? expandAssistant(caps.tools ? m.parts : toolsAsText(m.parts))
+          : m.content
+            ? [{ role: 'assistant', content: [{ type: 'text', text: m.content }] }]
+            : [];
+      out.push(...msgs.map((x) => (x.role === 'assistant' ? shape(x, mode) : x)));
     }
     // Stored `tool` role messages are folded into the assistant turn above.
   }

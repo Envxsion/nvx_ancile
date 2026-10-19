@@ -22,8 +22,11 @@
  *           |  check. OpenRouter calls carry the routing `provider`
  *           |  object (openrouter/service.ts) and report which provider
  *           |  served and what it billed (servedExtractor).
- *           |  TODO(phase-4): provider options (reasoning effort,
- *           |  prompt caching).
+ *           |  CA1 keeps reasoning verbatim and sends it back by each
+ *           |  provider's rule (replay.ts); CA5 adds each provider's
+ *           |  cache settings (cache.ts): Anthropic markers, cache keys,
+ *           |  conversation ids, OpenRouter's pinned upstream.
+ *           |  TODO(phase-4): provider options (reasoning effort).
  * ------------------------------------------------------------------
  */
 
@@ -42,7 +45,18 @@ import {
   type ToolSet,
   tool,
 } from 'ai';
-import { toSdkMessages } from './convert';
+import { logFor } from '../obs/logger';
+import {
+  anthropicBreakpoints,
+  anthropicMinTokens,
+  cacheExtras,
+  cacheKey,
+  EPHEMERAL,
+  type Pin,
+  PinBook,
+  pinnedProvider,
+} from './cache';
+import { type SdkMessage as StoredMessage, toSdkMessages } from './convert';
 import { isOllama, ollamaChat } from './ollama-chat';
 import {
   ANTHROPIC_WORKSPACE_SECRET,
@@ -52,8 +66,11 @@ import {
   profileFor,
 } from './profiles';
 import { classifyFailure, errorClassFor, failureWords } from './provider-errors';
+import { replayFor } from './replay';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
 import { type CallUsage, cacheFromRaw, usageNumbers } from './usage';
+
+const log = logFor('gateway.cache');
 
 /** Reads a stored image's bytes by id (images/store.ts), for vision models. */
 export type ImageBytes = (id: string) => Promise<{ bytes: Buffer; mime: string } | null>;
@@ -109,27 +126,75 @@ const rawUsage = (raw: unknown): Record<string, unknown> | undefined => {
 };
 
 /**
+ * OpenRouter streams reasoning_details in pieces (one entry per `index`, its text
+ * split over chunks). Joined here, by index, into the entries it would have sent
+ * whole; nothing else about an entry is changed (CA1: replayed as received).
+ */
+export function mergeDetails(into: Map<string, Record<string, unknown>>, entries: unknown): void {
+  if (!Array.isArray(entries)) return;
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    const d = e as Record<string, unknown>;
+    const key = String(d.index ?? d.id ?? into.size);
+    const have = into.get(key);
+    if (!have) {
+      into.set(key, { ...d });
+      continue;
+    }
+    for (const [k, v] of Object.entries(d)) {
+      if ((k === 'text' || k === 'summary') && typeof v === 'string' && typeof have[k] === 'string')
+        have[k] = `${have[k]}${v}`;
+      else if (v !== undefined && v !== null) have[k] = v;
+    }
+  }
+}
+
+const detailsOf = (raw: unknown): unknown => {
+  const c = raw && typeof raw === 'object' ? (raw as { choices?: unknown }).choices : undefined;
+  const first = Array.isArray(c) ? (c[0] as { delta?: unknown; message?: unknown } | undefined) : undefined;
+  const d = (first?.delta ?? first?.message) as { reasoning_details?: unknown } | undefined;
+  return d?.reasoning_details;
+};
+
+/**
  * Every OpenAI-compatible route: OpenRouter's served provider, model and cost,
  * and the raw usage, so cache hits under any provider's name are counted
  * (the AI SDK only reads prompt_tokens_details.cached_tokens; DeepSeek says
- * prompt_cache_hit_tokens, and every hit read as zero).
+ * prompt_cache_hit_tokens, and every hit read as zero). Also OpenRouter's
+ * reasoning_details, which the SDK does not carry.
  */
 export const servedExtractor = {
   async extractMetadata({ parsedBody }: { parsedBody: unknown }) {
     const s: Served = { provider: null, model: null, cost: null };
     readServed(s, parsedBody);
     const usage = rawUsage(parsedBody);
-    return { openrouter: { ...s }, ...(usage && { raw: { usage: usage as JSONValue } }) };
+    const details = new Map<string, Record<string, unknown>>();
+    mergeDetails(details, detailsOf(parsedBody));
+    return {
+      openrouter: {
+        ...s,
+        ...(details.size && { reasoning_details: [...details.values()] as JSONValue }),
+      },
+      ...(usage && { raw: { usage: usage as JSONValue } }),
+    };
   },
   createStreamExtractor() {
     const s: Served = { provider: null, model: null, cost: null };
     let usage: Record<string, unknown> | undefined;
+    const details = new Map<string, Record<string, unknown>>();
     return {
       processChunk: (raw: unknown) => {
         readServed(s, raw);
         usage = rawUsage(raw) ?? usage;
+        mergeDetails(details, detailsOf(raw));
       },
-      buildMetadata: () => ({ openrouter: { ...s }, ...(usage && { raw: { usage: usage as JSONValue } }) }),
+      buildMetadata: () => ({
+        openrouter: {
+          ...s,
+          ...(details.size && { reasoning_details: [...details.values()] as JSONValue }),
+        },
+        ...(usage && { raw: { usage: usage as JSONValue } }),
+      }),
     };
   },
 };
@@ -206,14 +271,20 @@ export async function languageModelFor(
         apiKey: needKey('Anthropic'),
         ...(!!m.base_url && { baseURL: m.base_url }),
         ...(Object.keys(headers).length > 0 && { headers }),
+        ...(ep.fetch && { fetch: ep.fetch }),
       })(m.provider_model);
     }
     case 'openai':
-      return createOpenAI({ apiKey: needKey('OpenAI'), ...(!!m.base_url && { baseURL: m.base_url }) })(
-        m.provider_model,
-      );
+      return createOpenAI({
+        apiKey: needKey('OpenAI'),
+        ...(!!m.base_url && { baseURL: m.base_url }),
+        ...(ep.fetch && { fetch: ep.fetch }),
+      })(m.provider_model);
     case 'google':
-      return createGoogleGenerativeAI({ apiKey: needKey('Google') })(m.provider_model);
+      return createGoogleGenerativeAI({
+        apiKey: needKey('Google'),
+        ...(ep.fetch && { fetch: ep.fetch }),
+      })(m.provider_model);
     case 'openrouter':
       return createOpenAICompatible({
         // Ask for usage in streamed answers: without it vLLM, Ollama and LM Studio send none,
@@ -222,6 +293,7 @@ export async function languageModelFor(
         name: 'openrouter',
         baseURL: m.base_url ?? 'https://openrouter.ai/api/v1',
         apiKey: needKey('OpenRouter'),
+        ...(ep.fetch && { fetch: ep.fetch }),
         metadataExtractor: servedExtractor,
       })(m.provider_model);
     case 'ollama':
@@ -294,12 +366,44 @@ export function wrap(
 
 /** What a step's provider metadata can carry (servedExtractor, the Anthropic provider). */
 interface StepMetadata {
-  openrouter?: Partial<Served>;
+  openrouter?: Partial<Served> & { reasoning_details?: unknown[] };
   raw?: { usage?: unknown };
   anthropic?: { cacheCreationInputTokens?: number | null; usage?: unknown };
 }
 
+/** Rough tokens in an SDK message, for deciding where an Anthropic marker is worth placing. */
+function tokensOf(msg: StoredMessage): number {
+  if (typeof msg.content === 'string') return Math.ceil(msg.content.length / 4);
+  let chars = 0;
+  for (const c of msg.content) {
+    if (c.type === 'text' || c.type === 'reasoning') chars += c.text.length;
+    else if (c.type === 'tool-call') chars += JSON.stringify(c.input ?? null).length + c.toolName.length;
+    else if (c.type === 'tool-result') chars += JSON.stringify(c.output).length;
+    else chars += 6_000; // an image
+  }
+  return Math.ceil(chars / 4);
+}
+
+/** Only what a provider signed, from the metadata the SDK attached to a reasoning part. */
+function reasoningMeta(pm: unknown): Record<string, unknown> | undefined {
+  const a = (pm as { anthropic?: { signature?: unknown; redactedData?: unknown } } | undefined)?.anthropic;
+  if (typeof a?.signature === 'string') return { anthropic: { signature: a.signature } };
+  if (typeof a?.redactedData === 'string') return { anthropic: { redactedData: a.redactedData } };
+  return undefined;
+}
+
+/** Gemini's thought signature on a function call. */
+function callMeta(pm: unknown): Record<string, unknown> | undefined {
+  const g = (pm as { google?: { thoughtSignature?: unknown } } | undefined)?.google;
+  return typeof g?.thoughtSignature === 'string'
+    ? { google: { thoughtSignature: g.thoughtSignature } }
+    : undefined;
+}
+
 export class AiSdkClient implements ModelClient {
+  /** CA5: the OpenRouter upstream that served a warm call, per branch and model. */
+  readonly pins = new PinBook();
+
   constructor(
     private readonly secrets: ProviderSecrets,
     private readonly endpoints: ProviderEndpoints,
@@ -353,7 +457,53 @@ export class AiSdkClient implements ModelClient {
     };
   }
 
+  /**
+   * OpenRouter: once a call has warmed a cache the next go to the same upstream
+   * with fallbacks off. If that upstream is down the call is asked again with no
+   * pin, on purpose: logged, and recorded on the answer as a cache reset.
+   */
   async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
+    const pinKey = m.provider === 'openrouter' && req.cache ? `${cacheKey(req.cache)}:${m.id}` : null;
+    const pin = pinKey ? this.pins.get(pinKey) : undefined;
+    if (!pin) {
+      yield* this.run(m, req, signal, undefined, pinKey);
+      return;
+    }
+    let started = false;
+    try {
+      for await (const c of this.run(m, req, signal, pin, pinKey)) {
+        started = true;
+        yield c;
+      }
+      return;
+    } catch (err) {
+      const e = err as { errorClass?: string; status?: number };
+      const down =
+        e.errorClass === 'transient' ||
+        e.errorClass === 'capacity' ||
+        [404, 502, 503, 504].includes(e.status ?? 0);
+      if (started || signal.aborted || !down) throw err;
+      if (pinKey) this.pins.drop(pinKey);
+      log.warn(
+        { model: m.id, upstream: pin.provider, status: e.status ?? null },
+        'pinned OpenRouter provider failed; asking again with no pin (a cache reset)',
+      );
+    }
+    yield* this.run(m, req, signal, undefined, pinKey, {
+      reason: 'pinned_provider_failed',
+      provider: pin.provider,
+      detail: `${pin.provider} did not answer, so the call went unpinned and the cache starts again`,
+    });
+  }
+
+  private async *run(
+    m: ModelConfig,
+    req: ModelRequest,
+    signal: AbortSignal,
+    pin: Pin | undefined,
+    pinKey: string | null,
+    reset?: { reason: string; provider: string | null; detail: string },
+  ): AsyncIterable<StreamChunk> {
     const vision = m.capabilities.includes('vision');
     const images = vision ? await imagesFor(req.messages, this.images) : undefined;
     // Ollama goes through its own /api/chat so the call can say how much context to
@@ -369,43 +519,99 @@ export class AiSdkClient implements ModelClient {
     const region = await regionFor(profileFor(m.provider), this.secrets).catch(() => undefined);
     const failed = (err: unknown) => wrap(err, m.provider, { model: m.display_name, region });
     // A routing problem never stops the call: it goes out as OpenRouter's default.
-    const routing =
-      m.provider === 'openrouter' && this.openrouter ? await this.openrouter(m, req).catch(() => null) : null;
+    // A pinned call reuses the routing that warmed it, so the choice is not made again.
+    const fresh =
+      m.provider === 'openrouter' && this.openrouter && !pin
+        ? await this.openrouter(m, req).catch(() => null)
+        : null;
+    const routing = pin ? pin.routing : fresh;
     const maxOutputTokens = req.maxOutputTokens ?? routing?.max_tokens ?? undefined;
+    const toolsOffered = !!(req.tools?.length && m.capabilities.includes('tools'));
+
+    // CA1: earlier reasoning goes back by this provider's rule, or not at all.
+    const sdkMessages = toSdkMessages(req.messages, {
+      tools: m.capabilities.includes('tools'),
+      vision,
+      ...(images && { images }),
+      reasoning: replayFor(m, { tools: toolsOffered, epochId: req.cache?.epochId }),
+    });
+
+    // CA5: this provider's cache settings.
+    const extras = cacheExtras(m, req.cache);
+    const anthropicDirect = m.provider === 'anthropic' && m.via === 'direct';
+    let system: { system?: string; allow?: true } = {};
+    let messages: StoredMessage[] = sdkMessages;
+    let markLastTool = false;
+    if (anthropicDirect) {
+      const blocks = req.systemBlocks ?? (req.system !== undefined ? [req.system] : []);
+      const plan = anthropicBreakpoints({
+        toolsTokens: toolsOffered ? Math.ceil(JSON.stringify(req.tools).length / 4) : 0,
+        system: blocks.map((b) => Math.ceil(b.length / 4)),
+        messages: sdkMessages.map(tokensOf),
+        min: anthropicMinTokens(m.provider_model),
+      });
+      markLastTool = plan.tools;
+      const marked = new Set(plan.messages);
+      messages = [
+        ...blocks.map(
+          (content, k) =>
+            ({
+              role: 'system',
+              content,
+              ...(plan.system.includes(k) && { providerOptions: EPHEMERAL }),
+            }) as unknown as StoredMessage,
+        ),
+        ...sdkMessages.map((x, k) =>
+          marked.has(k)
+            ? ({
+                ...x,
+                providerOptions: {
+                  ...((x as { providerOptions?: object }).providerOptions ?? {}),
+                  ...EPHEMERAL,
+                },
+              } as StoredMessage)
+            : x,
+        ),
+      ];
+      system = { allow: true };
+    } else if (req.system !== undefined) system = { system: req.system };
+
+    const providerOptions = { ...extras.options } as Record<string, Record<string, JSONValue>>;
+    if (m.provider === 'openrouter' && (routing || pin)) {
+      const provider = pin ? pinnedProvider(routing?.provider, pin.provider) : routing?.provider;
+      providerOptions.openrouter = {
+        ...providerOptions.openrouter,
+        ...(provider && { provider: provider as Record<string, JSONValue> }),
+        usage: { include: true },
+      };
+    }
+
     const result = streamText({
       model,
-      ...(req.system !== undefined && { system: req.system }),
-      messages: toSdkMessages(req.messages, {
-        tools: m.capabilities.includes('tools'),
-        vision,
-        ...(images && { images }),
-      }) as SdkMessage[],
+      ...(system.system !== undefined && { system: system.system }),
+      ...(system.allow && { allowSystemInMessages: true }),
+      messages: messages as SdkMessage[],
       // A model without the tools capability is never offered tools: vLLM started
       // without a tool parser refuses the whole request ("auto" tool choice requires
       // --enable-auto-tool-choice), so every turn to such a GPU node failed.
-      ...(req.tools?.length &&
-        m.capabilities.includes('tools') && {
-          tools: Object.fromEntries(
-            req.tools.map((t) => [
-              t.name,
-              tool({
-                description: t.description,
-                inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
-              }),
-            ]),
-          ) as ToolSet,
-        }),
-      ...(req.tools?.length &&
-        req.toolChoice &&
-        m.capabilities.includes('tools') && { toolChoice: req.toolChoice }),
+      ...(toolsOffered && {
+        tools: Object.fromEntries(
+          (req.tools ?? []).map((t, k, all) => [
+            t.name,
+            tool({
+              description: t.description,
+              inputSchema: jsonSchema(t.inputSchema as Parameters<typeof jsonSchema>[0]),
+              ...(markLastTool && k === all.length - 1 && { providerOptions: EPHEMERAL }),
+            }),
+          ]),
+        ) as ToolSet,
+      }),
+      ...(toolsOffered && req.toolChoice && { toolChoice: req.toolChoice }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
       ...(maxOutputTokens !== undefined && { maxOutputTokens }),
-      ...(routing && {
-        providerOptions: {
-          openrouter: { provider: routing.provider as Record<string, JSONValue>, usage: { include: true } },
-        },
-      }),
+      ...(Object.keys(providerOptions).length > 0 && { providerOptions }),
+      ...(Object.keys(extras.headers).length > 0 && { headers: extras.headers }),
       ...(req.temperature !== undefined && { temperature: req.temperature }),
     });
     // AI SDK 5 puts provider metadata on 'finish-step', never on 'finish': read
@@ -418,12 +624,27 @@ export class AiSdkClient implements ModelClient {
           case 'text-delta':
             yield { type: 'text', delta: part.text };
             break;
-          case 'reasoning-delta':
-            yield { type: 'reasoning', delta: part.text };
+          case 'reasoning-start': {
+            const rm = reasoningMeta(part.providerMetadata);
+            yield { type: 'reasoning', delta: '', block: true, ...(rm && { meta: rm }) };
             break;
-          case 'tool-call':
-            yield { type: 'tool_call', callId: part.toolCallId, tool: part.toolName, args: part.input };
+          }
+          case 'reasoning-delta': {
+            const rm = reasoningMeta(part.providerMetadata);
+            yield { type: 'reasoning', delta: part.text, ...(rm && { meta: rm }) };
             break;
+          }
+          case 'tool-call': {
+            const cm = callMeta(part.providerMetadata);
+            yield {
+              type: 'tool_call',
+              callId: part.toolCallId,
+              tool: part.toolName,
+              args: part.input,
+              ...(cm && { meta: cm }),
+            };
+            break;
+          }
           case 'error':
             throw failed(part.error);
           case 'finish-step':
@@ -431,7 +652,22 @@ export class AiSdkClient implements ModelClient {
             break;
           case 'finish': {
             const or = meta?.openrouter;
+            // OpenRouter's reasoning_details for this step, to be sent back as received.
+            if (m.provider === 'openrouter' && or?.reasoning_details?.length)
+              yield {
+                type: 'reasoning',
+                delta: '',
+                block: true,
+                meta: { openrouter: { reasoning_details: or.reasoning_details } },
+              };
             const usage = this.usageOf(m, part.totalUsage, meta);
+            // Warm: the next call goes to the same upstream (CA5).
+            if (
+              pinKey &&
+              or?.provider &&
+              ((usage.cachedTokens ?? 0) > 0 || (usage.cacheWriteTokens ?? 0) > 0)
+            )
+              this.pins.set(pinKey, { provider: or.provider, routing: pin ? pin.routing : fresh });
             yield {
               type: 'finish',
               finishReason: part.finishReason,
@@ -440,6 +676,7 @@ export class AiSdkClient implements ModelClient {
                   served: { provider: or.provider ?? null, model: or.model ?? null },
                   ...(typeof or.cost === 'number' && { costUsd: or.cost }),
                 }),
+              ...(reset && { cacheReset: reset }),
               usage,
             };
             break;

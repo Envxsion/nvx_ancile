@@ -18,7 +18,7 @@
 
 import type { ModelConfig, Part } from '@nvx/contracts';
 import type { ModelMessage } from '../gateway/types';
-import { ancestorPath } from '../threads/path';
+import { ancestorPath, childrenIndex } from '../threads/path';
 import { asTree, type MessageRecord, textOf } from '../threads/repo';
 import { BUILTIN_SYSTEM, loadPrompt, render, TOOLS_NOTE } from './prompt';
 
@@ -28,6 +28,23 @@ export function pathFor(messages: MessageRecord[], userMessageId: string): Messa
   return ancestorPath(byId, userMessageId);
 }
 
+/**
+ * CA5: an id for the branch a question is on, the same on every turn of it. The
+ * first message after the nearest fork on the path (a regenerated answer, an
+ * edited question); with no fork, the first message of the thread. Different
+ * branches get different ids, so each keeps its own provider cache key.
+ */
+export function branchKeyFor(messages: MessageRecord[], userMessageId: string): string {
+  const tree = asTree(messages);
+  const path = pathFor(messages, userMessageId);
+  const kids = childrenIndex(tree);
+  for (let i = path.length - 1; i >= 0; i--) {
+    const m = path[i] as MessageRecord;
+    if ((kids.get(path[i - 1]?.id ?? null)?.length ?? 0) > 1) return m.id;
+  }
+  return path[0]?.id ?? userMessageId;
+}
+
 /** History for the model: root → the user message being answered. */
 export function historyFor(
   messages: MessageRecord[],
@@ -35,7 +52,7 @@ export function historyFor(
   /** A compaction summary covers the path up to and including this message. */
   skipThrough?: string | null,
   /** CA4: what each message was sent as (text), by id; a message without one is rebuilt from its parts. */
-  sentOf?: ReadonlyMap<string, { sent: string | null }>,
+  sentOf?: ReadonlyMap<string, { sent: string | null; epoch_id?: string | null }>,
 ): ModelMessage[] {
   const path = pathFor(messages, userMessageId);
   const from = skipThrough ? path.findIndex((m) => m.id === skipThrough) + 1 : 0;
@@ -44,8 +61,15 @@ export function historyFor(
     .filter((m) => m.role !== 'system')
     .map((m): ModelMessage => {
       // The question being answered is sent fresh; every earlier message as it was sent.
-      const sent = m.id === userMessageId ? null : sentOf?.get(m.id)?.sent;
-      return { role: m.role, content: textOf(m.parts), parts: m.parts, ...(sent && { sent }) };
+      const form = m.id === userMessageId ? undefined : sentOf?.get(m.id);
+      const sent = form?.sent;
+      return {
+        role: m.role,
+        content: textOf(m.parts),
+        parts: m.parts,
+        ...(sent && { sent }),
+        ...(form?.epoch_id && { epochId: form.epoch_id }),
+      };
     })
     .filter(
       (m) =>

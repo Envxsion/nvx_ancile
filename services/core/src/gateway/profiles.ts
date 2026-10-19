@@ -20,10 +20,10 @@
  *  Note     |  Facts come from providers' own docs, researched
  *           |  16-17 Oct 2026. A rule or field marked `confirmed: false`
  *           |  was taken from memory or a third party: it is used, but
- *           |  never as proof that a key is bad. The `cache` and
- *           |  `reasoning` sections are data only for now: CA5, CA11 and
- *           |  CA12 (prompt caching) and CA1 (reasoning replay) will use
- *           |  them.
+ *           |  never as proof that a key is bad. The `cache` section is
+ *           |  read by gateway/cache.ts (CA5 settings, CA12 lifetimes)
+ *           |  and the `reasoning` section by gateway/replay.ts (CA1);
+ *           |  CA11 will use `cache` further.
  * ------------------------------------------------------------------
  */
 
@@ -301,7 +301,7 @@ const anthropic: ProviderProfile = {
     streamNeedsIncludeUsage: false,
     confirmed: true,
   },
-  // TODO(phase-0.1.1): CA5 sets cache_control markers from this.
+  // CA5 (gateway/cache.ts) sets the cache_control markers from this.
   cache: {
     mode: 'both',
     // Differs by model: 512 (newest), 1024, 2048 or 4096; the strictest is listed.

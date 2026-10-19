@@ -159,9 +159,21 @@ export class FakeProvider implements ModelClient {
       const results = resultsSinceUser(req.messages);
       const directive = /^\/(\w+)\s*([\s\S]*)$/.exec(prompt);
       if (/(^|\n)\/slow\b/.test(prompt)) delay = Math.max(delay, 150);
+      // `/thinktool <tool> <json>`: like /tool, with a signed reasoning block before the call and after its result (CA1 tests).
+      const think = directive?.[1] === 'thinktool';
       if (results.length) {
+        if (think) {
+          yield { type: 'reasoning', delta: '', block: true };
+          yield { type: 'reasoning', delta: 'Weighing what the tool returned. ' };
+          yield { type: 'reasoning', delta: '', meta: { anthropic: { signature: 'sig-after' } } };
+        }
         text = describeResults(results);
-      } else if (directive?.[1] === 'tool') {
+      } else if (directive?.[1] === 'tool' || think) {
+        if (think) {
+          yield { type: 'reasoning', delta: '', block: true };
+          yield { type: 'reasoning', delta: 'I should call the tool. ' };
+          yield { type: 'reasoning', delta: '', meta: { anthropic: { signature: 'sig-before' } } };
+        }
         const m = /^(\S+)\s*([\s\S]*)$/.exec(directive[2] ?? '');
         const tool = m?.[1] ?? 'tool';
         let args: unknown = {};

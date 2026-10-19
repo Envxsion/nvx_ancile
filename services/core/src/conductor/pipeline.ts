@@ -89,7 +89,7 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type SentForm, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { historyFor, pathFor, systemPrompt, withPartial, withTurnContext } from './context';
+import { branchKeyFor, historyFor, pathFor, systemPrompt, withPartial, withTurnContext } from './context';
 import {
   bridgeTarget,
   cacheTtlMs,
@@ -103,6 +103,7 @@ import {
   MemoryEpochStore,
   newTrack,
   shortSha,
+  systemBlocks,
   toolDrift,
   toolsBlock,
   toolsInScope,
@@ -233,6 +234,8 @@ export interface TurnCheckpoint {
   stepStarted?: Record<string, number>;
   /** CA2: the prompt epoch this turn answers in, fixed before the first model round. */
   frame?: TurnFrame | null;
+  /** CA5: calls that left a provider's cache on purpose (an OpenRouter pin whose upstream was down). Absent when none. */
+  cacheResets?: { model_id: string; reason: string; provider: string | null; detail: string }[];
 }
 
 /** What a turn's request is built from, fixed at its first model round so every round starts alike. */
@@ -442,6 +445,31 @@ function appendText(parts: Part[], type: 'text' | 'reasoning', delta: string) {
   else parts.push(type === 'text' ? { type: 'text', text: delta } : { type: 'reasoning', text: delta });
 }
 
+/**
+ * CA1: reasoning exactly as it arrived. A new block starts its own part; what the
+ * provider signed (Anthropic's signature, OpenRouter's reasoning_details) is kept
+ * on that part and goes back verbatim. `state.fresh` marks that the next piece
+ * opens a new part rather than extending the last.
+ */
+export function appendReasoning(
+  parts: Part[],
+  c: { delta: string; block?: true; meta?: Record<string, unknown> },
+  state: { fresh: boolean },
+) {
+  if (c.block) state.fresh = true;
+  if (!c.delta && !c.meta) return;
+  const last = parts.at(-1);
+  let target: Extract<Part, { type: 'reasoning' }>;
+  if (last?.type === 'reasoning' && !state.fresh) target = last;
+  else {
+    target = { type: 'reasoning', text: '' };
+    parts.push(target);
+    state.fresh = false;
+  }
+  target.text += c.delta;
+  if (c.meta) target.provider_meta = { ...target.provider_meta, ...c.meta };
+}
+
 /** Batches text and reasoning deltas so the event log gets a row per ~40 ms, not per token. */
 class DeltaBatcher {
   private buf = '';
@@ -543,6 +571,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
         route: routeOf(cp),
         ...(cp.frame && { epoch: epochOut(cp.frame) }),
+        ...(cp.cacheResets?.length && { cache_resets: cp.cacheResets }),
         ...(error && { error }),
       },
       ...(sent && { sent }),
@@ -558,6 +587,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
       const msgId = cp.input.assistantMessageId;
       const emit = (e: RunEventInput) => ctx.events.append(run.id, e);
       const deltas = new DeltaBatcher(emit, msgId, deps.deltaMs ?? 40);
+      // CA1: where the next piece of reasoning goes (a new block, or on to the last).
+      const reasoningState = { fresh: false };
       // Bookkeeping writes that need not hold up the stream; awaited at the end of each round.
       const pendingWrites: Promise<unknown>[] = [];
       // Roadmap WY1: when the turn began, so each model call records its start as an offset.
@@ -1083,7 +1114,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
               onDelta('text', c.delta);
             } else if (c.type === 'reasoning') {
               out.reasoning += c.delta;
-              onDelta('reasoning', c.delta);
+              if (c.delta) onDelta('reasoning', c.delta);
             } else if (c.type === 'tool_call') {
               out.toolCalls = [...(out.toolCalls ?? []), { callId: c.callId, tool: c.tool, args: c.args }];
             } else if (c.type === 'finish') {
@@ -1556,6 +1587,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             .join('\n\n');
         }
         if (engine?.report) cp.engineContext = engine.report;
+        const splitSystem = frame.endContext ? systemBlocks(epoch) : null;
         const history = withPartial(
           engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough, sentMap),
           cp.parts,
@@ -1566,8 +1598,16 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           // across turns: the tools and the system prompt are frozen for the epoch, and
           // everything that varies rides on the question (docs/prompt-caching.md).
           system,
+          // CA5: the rules and the snapshot apart, so Anthropic can mark both ends.
+          ...(splitSystem && { systemBlocks: splitSystem }),
           messages: withTurnContext(history, frame.block),
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
+          // CA5: provider cache keys: the same on every turn of this branch in this epoch.
+          cache: {
+            threadId: cp.input.threadId,
+            branch: branchKeyFor(all, cp.input.userMessageId),
+            epochId: frame.epochId,
+          },
           ...(tools.length && { tools, toolChoice: 'auto' as const }),
         };
         // CA4: the newest question as it is sent now, stored as text for the turns that follow.
@@ -1640,12 +1680,18 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 appendText(cp.parts, 'text', c.delta);
                 deltas.push('text.delta', c.delta);
               } else if (c.type === 'reasoning') {
-                appendText(cp.parts, 'reasoning', c.delta);
-                deltas.push('reasoning.delta', c.delta);
+                appendReasoning(cp.parts, c, reasoningState);
+                if (c.delta) deltas.push('reasoning.delta', c.delta);
               } else if (c.type === 'tool_call') {
                 await deltas.flush();
                 const seq = cp.nextSeq++;
-                cp.parts.push({ type: 'tool_call', call_id: c.callId, tool: c.tool, args: c.args });
+                cp.parts.push({
+                  type: 'tool_call',
+                  call_id: c.callId,
+                  tool: c.tool,
+                  args: c.args,
+                  ...(c.meta && { provider_meta: c.meta }),
+                });
                 cp.queue.push({ callId: c.callId, tool: c.tool, args: c.args, seq });
                 started(c.callId);
                 // A bridged call is shown as the tool it reaches.
@@ -1665,6 +1711,16 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
                 await emit({ type: 'warning', code: c.code, message: c.message });
               } else if (c.type === 'finish') {
                 countCall(current, cp.answeredBy ?? '', c, callStarted);
+                if (c.cacheReset) {
+                  cp.cacheResets = [
+                    ...(cp.cacheResets ?? []),
+                    { model_id: cp.answeredBy ?? '', ...c.cacheReset },
+                  ];
+                  log.info(
+                    { model: cp.answeredBy, reason: c.cacheReset.reason, provider: c.cacheReset.provider },
+                    'cache reset on purpose',
+                  );
+                }
               }
               break;
             }

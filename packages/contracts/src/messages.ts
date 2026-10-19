@@ -13,7 +13,13 @@ export const TextPart = z.object({ type: z.literal('text'), text: z.string() });
 export const ReasoningPart = z.object({
   type: z.literal('reasoning'),
   text: z.string(),
-  /** Some providers require their signed reasoning back verbatim. */
+  /**
+   * CA1: some providers require their signed reasoning back verbatim, so it is
+   * kept exactly as received: `{ anthropic: { signature } }` or
+   * `{ anthropic: { redactedData } }` for a thinking block, `{ openrouter:
+   * { reasoning_details } }` for OpenRouter. Absent on a block that was cut off
+   * (a cancelled stream), which a signing provider would reject.
+   */
   provider_meta: z.record(z.string(), z.unknown()).optional(),
 });
 export const FilePart = z.object({
@@ -41,6 +47,12 @@ export const ToolCallPart = z.object({
   call_id: z.string(),
   tool: z.string(),
   args: z.unknown(),
+  /**
+   * CA1: what a provider signed on this call and wants back with it, exactly as
+   * received (Gemini's thought signature, `{ google: { thoughtSignature } }`).
+   * Sent only to the provider that issued it.
+   */
+  provider_meta: z.record(z.string(), z.unknown()).optional(),
 });
 export const ToolResultPart = z.object({
   type: z.literal('tool_result'),

@@ -26,6 +26,7 @@ import { AncileError } from '@nvx/contracts';
 import { ulid } from 'ulid';
 import { ALWAYS_ON, intSetting, type JobSwitches } from '../automations/settings';
 import { servedWindow } from '../gateway/ollama-chat';
+import { replayFor } from '../gateway/replay';
 import { approxTokens } from '../memory/inject';
 import type { BranchStore, SummaryRecord } from './branches';
 import { ancestorPath, applyCompaction } from './path';
@@ -59,10 +60,12 @@ export function contextWatch(s: JobSwitches = ALWAYS_ON): ContextWatch {
 }
 
 /** Everything a model would read of these parts (text, tool calls and results). */
-export function partsText(parts: Part[]): string {
+export function partsText(parts: Part[], opts: { reasoning?: boolean } = {}): string {
   return parts
     .map((p) => {
       if (p.type === 'text') return p.text;
+      // CA1: reasoning a provider needs back (DeepSeek's reasoning_content) is part of what it reads.
+      if (p.type === 'reasoning') return opts.reasoning ? p.text : '';
       if (p.type === 'tool_call') return `[tool ${p.tool} ${JSON.stringify(p.args ?? {})}]`;
       if (p.type === 'tool_result')
         return `[result ${typeof p.result === 'string' ? p.result : JSON.stringify(p.result ?? null)}]`;
@@ -74,7 +77,8 @@ export function partsText(parts: Part[]): string {
     .join('\n');
 }
 
-export const messageTokens = (m: Pick<MessageRecord, 'parts'>) => approxTokens(partsText(m.parts)) + 4;
+export const messageTokens = (m: Pick<MessageRecord, 'parts'>, opts: { reasoning?: boolean } = {}) =>
+  approxTokens(partsText(m.parts, opts)) + 4;
 
 /**
  * Claude Code's own compaction rows (the divider and its summary), brought
@@ -123,8 +127,12 @@ export function pathBudget(opts: {
 }): PathBudget {
   const watch = opts.watch ?? DEFAULT_WATCH;
   const { summary, messages, replaced } = compactedPath(opts.path, opts.summaries);
+  // CA1: long reasoning grows the context when the model's provider wants it back.
+  const reasoning = opts.model
+    ? replayFor(opts.model, { tools: opts.model.capabilities?.includes('tools') ?? false }).mode !== 'none'
+    : false;
   const history =
-    messages.reduce((n, m) => n + (isClaudeCodeCompaction(m) ? 0 : messageTokens(m)), 0) +
+    messages.reduce((n, m) => n + (isClaudeCodeCompaction(m) ? 0 : messageTokens(m, { reasoning })), 0) +
     (summary ? summary.tokens + approxTokens(SUMMARY_HEADER) : 0);
   const window = opts.model ? servedWindow(opts.model) : 0;
   const reserve = opts.model ? Math.min(opts.model.max_output, Math.floor(window / 4)) : 0;

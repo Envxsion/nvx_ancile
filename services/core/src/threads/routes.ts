@@ -16,6 +16,7 @@
 
 import {
   AncileError,
+  CacheStateQuery,
   CLIENT_ID_HEADER,
   type ClaudeCodeBinding,
   CreateThreadRequest,
@@ -42,6 +43,7 @@ import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunRecord, RunStore } from '../runs/engine';
 import type { RunWorker } from '../runs/worker';
+import { cacheState } from './cache-state';
 import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
 import { cursorOf, type MessageRecord, snippetOf, type ThreadRecord, type TreeRecord } from './repo';
@@ -86,6 +88,8 @@ export interface ThreadRouteDeps extends TurnDeps {
   afterDelete?: (threadId: string) => Promise<unknown>;
   /** One sender per thread across windows (send-lock.ts); absent: idempotency and the run index only. */
   sendLocks?: SendLocks;
+  /** The clock cache lifetimes are read against (tests move it). */
+  now?: () => number;
 }
 
 const threadOut = (t: ThreadRecord): Thread => ({
@@ -265,6 +269,29 @@ export function threadRoutes(deps: ThreadRouteDeps) {
     await deps.flowStore?.orphan('thread', t.id);
     await deps.afterDelete?.(t.id).catch(() => undefined);
     return c.body(null, 204);
+  });
+
+  // CA12: which models have this thread cached right now, and what a switch would cost.
+  r.get('/threads/:id/cache-state', async (c) => {
+    const t = await thread(c.req.param('id'));
+    const q = CacheStateQuery.safeParse(c.req.query());
+    if (!q.success) {
+      const issue = q.error.issues[0];
+      throw badRequest(`${issue?.path.join('.') || 'query'}: ${issue?.message ?? 'not valid'}`);
+    }
+    if (q.data.candidate && !deps.registry.get(q.data.candidate)) throw notFound('That model');
+    return c.json(
+      cacheState(
+        await repo.messages(t.id),
+        {
+          exact: (id) => deps.registry.getExact(id),
+          get: (id) => deps.registry.get(id),
+          billingFor: (id) => deps.registry.billingFor(id),
+        },
+        (deps.now ?? Date.now)(),
+        q.data.candidate,
+      ),
+    );
   });
 
   r.get('/threads/:id/path', async (c) => {
