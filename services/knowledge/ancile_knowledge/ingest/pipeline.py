@@ -422,7 +422,8 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
             Progress("enriching", f"Extracted {len(markdown):,} characters{page_note}"),
             ", content_hash = :hash, minhash = CAST(:sig AS jsonb), mime = coalesce(mime, :mime)"
             ", title = CASE WHEN title_auto AND :title <> '' THEN :title ELSE title END"
-            ", language = :lang" + (url_meta if is_url else ""),
+            ", language = CASE WHEN language_edited THEN language ELSE :lang END"
+            + (url_meta if is_url else ""),
             {
                 "hash": digest,
                 "sig": json.dumps(sig),

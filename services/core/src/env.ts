@@ -68,6 +68,8 @@ export const EnvSchema = z
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(40),
 
     KNOWLEDGE_URL: z.string().url().default('http://localhost:7710'),
+    // Web search for fact-checks (SearXNG, over HTTP). Empty: claims are checked against sources only (FC4).
+    SEARXNG_URL: optionalUrl,
     // Agent Engine (opencode fork), the lab lane. Optional: Ancile runs
     // without a lab when Bun is not installed.
     AGENT_ENGINE_URL: optionalUrl,

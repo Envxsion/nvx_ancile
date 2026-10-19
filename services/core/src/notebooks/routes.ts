@@ -96,6 +96,7 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     color: n.color,
     pinned: n.pinned_at !== null,
     grounded: n.grounded,
+    check_on_web: n.check_on_web,
     archived_at: n.archived_at,
     last_opened_at: n.last_opened_at,
     created_at: n.created_at,

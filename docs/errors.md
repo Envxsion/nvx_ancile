@@ -153,6 +153,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `thread.nothing_to_compact` | 409 | "This path is already short." / Compaction keeps the latest 4 messages verbatim; there is nothing older to summarise yet. |
 | `thread.merge_no_model` | 503 | "No model could write the combined answer." / Pick the messages to keep yourself, or add a model in Settings → Models. |
 | `thread.busy` | 409 | "Another window is sending in this thread." / Wait for it to finish, or send as a branch. Another Cockpit window (by its `x-ancile-client` id) holds the thread's send lock: from its send until the run it started ends. The Cockpit offers **Send as a branch**, which sends once that turn ends. docs/api.md, One sender at a time. |
+| `trash.confirm_needed` | 400 | "Emptying the Trash needs your confirmation." / Confirm in the Trash view, or send `confirm: true` to `POST /threads/trash/empty`. Nothing was removed. |
 
 ### Memory
 
@@ -243,7 +244,13 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 |---|---|---|
 | `factcheck.not_answer` | 409 | "Only a finished answer can be fact-checked." / Wait for the answer to finish, then fact-check it. |
 | `factcheck.none` | 404 | "This answer has not been fact-checked." / Press F on the answer, or choose Fact-check under it. |
-| `factcheck.no_model` | 422 | "No model is ready to fact-check." / Says what was tried: the models set for the step (none ready), Claude Code (not installed or not verified) and a small Ollama model you pulled (none of 14B or less). Add a provider key in Settings → Models, set up Claude Code in Settings → Claude Code, or pull a small model with Ollama. Only raised when all three are missing: Claude Code's quickest model, then the local model, judge when no model is set (docs/factcheck.md). |
+| `factcheck.no_model` | 422 | "No model is ready to fact-check." / Names each model that was tried and why it was skipped ("Claude Code (signed out)", "no key saved", "not pulled in Ollama"): the models set for the step, Claude Code and a small Ollama model you pulled (none of 14B or less). Add a provider key in Settings → Models, set up Claude Code in Settings → Claude Code, or pull a small model with Ollama. Only raised when all three are missing: Claude Code's quickest model, then the local model, judge when no model is set (docs/factcheck.md). |
+| `factcheck.no_other_family` | 422 | "No second opinion is available." / This was written by a <family> model, and a fact-check is always judged by a model from a different family (guard rail GR24). Says which were skipped. Add a provider key for another family in Settings → Models, or pull a small Ollama model, then check again. Nothing was run. |
+| `factcheck.judge_not_allowed` | 422 | "No allowed model can fact-check this here." / The scope keeps every ready judge out (a private notebook, or nothing may leave the machine, so only a local model judges). Says each reason. Allow a model in this notebook's scope, or add a local model. |
+| `factcheck.still_writing` | 409 | "The answer is still being written." / Wait until it is done, then highlight the claim again. |
+| `factcheck.selection_too_long` | 413 | "That is too much to check at once." / Highlight up to 2,000 characters, one passage at a time. |
+| `factcheck.web_unavailable` | 503 | "The web search did not answer." / The check went on with your sources only. Check the SearXNG address (`SEARXNG_URL`) and that it is running. |
+| `factcheck.unavailable` | 503 | "Highlighted claims cannot be checked here." / Core was started without the fact-check service. Restart NVX Ancile. |
 | `factcheck.bad_output` | 502 | "No model returned a usable fact-check." / Try again, or add a stronger model for the utility and fact-check tasks. Every model in the chain answered, but not in the shape asked for. |
 | `factcheck.evidence_unavailable` | 503 | "Your sources could not be searched." / Knowledge did not answer; check it in Admin → Health, then fact-check again. |
 | `factcheck.message_gone` | 404 | "The answer was deleted." / There is nothing left to check. |

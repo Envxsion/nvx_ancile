@@ -21,11 +21,13 @@ import { useMemo, useState } from 'react';
 import { Term } from '../help/Term';
 import { api } from '../lib/api';
 import { useNotebooks, useSources, useThread } from '../lib/data';
-import { setGrounded } from '../lib/factcheck';
+import { setCheckOnWeb, setGrounded } from '../lib/factcheck';
+import { tagSources } from '../lib/notebooks';
 import { moveThread } from '../lib/threads';
 import { AddSources } from '../sources/AddSources';
 import { SourceCard } from '../sources/SourceCard';
 import { SourceViewer } from '../sources/SourceViewer';
+import { hasTag, parseTags, tagCounts } from '../sources/tags';
 import { useUploads } from '../sources/uploads';
 import { useUi } from '../state/ui';
 import { Switch } from '../ui/controls';
@@ -147,6 +149,35 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
   );
 }
 
+/** Whether a fact-check here may look claims up on the web (roadmap FC4). Off unless you turn it on. */
+function WebRow({ notebookId }: { notebookId: string }) {
+  const notebooks = useNotebooks();
+  const on = notebooks.data?.find((n) => n.id === notebookId)?.check_on_web === true;
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="grounded-row" data-on={on || undefined}>
+      <Icon name="globe" size={14} />
+      <div className="grounded-row__text">
+        <span className="grounded-row__title">Check on the web</span>
+        <span className="mute">
+          Claims your sources do not cover are looked up on the web, and marked Web. A private notebook never
+          uses the web.
+        </span>
+      </div>
+      <Switch
+        checked={on}
+        disabled={busy}
+        label="Let fact-checks in this notebook use the web"
+        onChange={async (next) => {
+          setBusy(true);
+          await setCheckOnWeb(notebookId, next);
+          setBusy(false);
+        }}
+      />
+    </div>
+  );
+}
+
 const languageNames = (() => {
   try {
     return new Intl.DisplayNames(['en-GB'], { type: 'language' });
@@ -210,8 +241,14 @@ export function SourcesPanel() {
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Tags (ROADMAP S6): filter by one, or select several sources to tag them together.
+  const [tag, setTag] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [tagText, setTagText] = useState('');
 
   const items = sources.data ?? [];
+  const tags = useMemo(() => tagCounts(items), [items]);
   const shown = useMemo(
     () =>
       items.filter((s) => {
@@ -221,11 +258,12 @@ export function SourcesPanel() {
           !s.tags.some((t) => t.includes(q.toLowerCase()))
         )
           return false;
+        if (tag && !hasTag(s, tag)) return false;
         if (filter === 'working') return !['ready', 'failed', 'stale'].includes(s.status);
         if (filter === 'problems') return s.status === 'failed' || s.status === 'stale' || !!s.duplicateOf;
         return true;
       }),
-    [items, q, filter],
+    [items, q, filter, tag],
   );
 
   if (viewer) return <SourceViewer {...viewer} />;
@@ -252,16 +290,32 @@ export function SourcesPanel() {
             </>
           ) : null}
         </span>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={14} />
-          Add
-        </button>
+        <span className="panel__bar-acts">
+          {items.length > 1 ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              aria-pressed={selecting}
+              onClick={() => {
+                setSelecting((on) => !on);
+                setPicked(new Set());
+              }}
+            >
+              {selecting ? 'Done' : 'Select'}
+            </button>
+          ) : null}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>
+            <Icon name="plus" size={14} />
+            Add
+          </button>
+        </span>
       </div>
       {sources.isError ? (
         <StaleNotice error={sources.error} what="Sources" onRetry={() => sources.refetch()} />
       ) : null}
       <UploadQueue notebookId={notebookId} />
       {items.length ? <GroundedRow notebookId={notebookId} /> : null}
+      {items.length ? <WebRow notebookId={notebookId} /> : null}
       {items.length > 1 ? <LanguageHint notebookId={notebookId} /> : null}
       {items.length === 0 ? (
         <EmptyState
@@ -302,10 +356,91 @@ export function SourcesPanel() {
               )}
             </div>
           ) : null}
+          {tags.length > 0 ? (
+            <div className="panel__tags" role="group" aria-label="Filter sources by tag">
+              {tags.slice(0, 12).map((t) => (
+                <button
+                  key={t.tag}
+                  type="button"
+                  className="tag tag--btn"
+                  aria-pressed={tag?.toLowerCase() === t.tag.toLowerCase()}
+                  onClick={() => setTag((cur) => (cur?.toLowerCase() === t.tag.toLowerCase() ? null : t.tag))}
+                >
+                  {t.tag}
+                  <span data-num>{t.count}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {selecting ? (
+            <div className="tagbar" role="group" aria-label="Tag the selected sources">
+              <span className="tagbar__count" data-num>
+                {picked.size} selected
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setPicked(new Set(shown.map((x) => x.id)))}
+              >
+                Select all shown
+              </button>
+              <input
+                className="input input--sm"
+                value={tagText}
+                placeholder="Tags, separated by commas"
+                aria-label="Tags to add or remove"
+                onChange={(e) => setTagText(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={picked.size === 0 || parseTags(tagText).length === 0}
+                onClick={() =>
+                  void tagSources(
+                    items.filter((x) => picked.has(x.id)),
+                    parseTags(tagText),
+                    [],
+                  ).then(() => setTagText(''))
+                }
+              >
+                Add tags
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={picked.size === 0 || parseTags(tagText).length === 0}
+                onClick={() =>
+                  void tagSources(
+                    items.filter((x) => picked.has(x.id)),
+                    [],
+                    parseTags(tagText),
+                  ).then(() => setTagText(''))
+                }
+              >
+                Remove tags
+              </button>
+            </div>
+          ) : null}
+          {shown.length === 0 && tag ? <p className="mute">No source has the tag {tag}.</p> : null}
           <ul className="sources">
             {shown.map((s) => (
               <li key={s.id}>
-                <SourceCard s={s} notebookId={notebookId} />
+                <SourceCard
+                  s={s}
+                  notebookId={notebookId}
+                  onTag={(t) => setTag((cur) => (cur?.toLowerCase() === t.toLowerCase() ? null : t))}
+                  activeTag={tag}
+                  selecting={selecting}
+                  selected={picked.has(s.id)}
+                  onSelect={(on) =>
+                    setPicked((cur) => {
+                      const next = new Set(cur);
+                      if (on) next.add(s.id);
+                      else next.delete(s.id);
+                      return next;
+                    })
+                  }
+                />
               </li>
             ))}
           </ul>

@@ -1,0 +1,35 @@
+/* ==========================================================================
+   One press feedback for rows, cards, chips and menu items (ROADMAP TC2).
+   The same small step and shade everywhere, as a transform and a background
+   layer, so nothing changes size or moves its neighbours. Reduced motion keeps
+   the shade and drops the step (--press-soft is 1). Disabled items are left
+   alone, and touch gets the same press without a double-tap delay.
+   ========================================================================== */
+
+:is(
+  .rail__item,
+  .rail__ghost,
+  .rail__tab,
+  .chip,
+  .cite-chip,
+  .fc-chip,
+  .mention-chip,
+  .file-chip,
+  .artifact-card,
+  .cc-card,
+  .node-card,
+  .scope-chip,
+  .menu__item,
+  [role='option'],
+  [role='menuitem']
+):active:not(:disabled):not([aria-disabled='true']):not([data-disabled]) {
+  transform: scale(var(--press-soft));
+  background-image: linear-gradient(var(--press-shade), var(--press-shade));
+  transition-duration: var(--d-instant);
+  transition-timing-function: var(--ease-out);
+}
+
+:is(.rail__item, .rail__ghost, .rail__tab, .chip, .menu__item, [role='option'], [role='menuitem']) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}

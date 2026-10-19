@@ -65,7 +65,7 @@ import {
   servedByOllama,
 } from './ollama-discovery';
 import { DEFAULT_SECRET } from './providers';
-import { type ChainSpec, resolveChain } from './router';
+import { type ChainSpec, chainFor, resolveChain } from './router';
 import type { ModelClient, ModelRequest, StreamChunk } from './types';
 
 export interface RegistryOptions {
@@ -625,6 +625,24 @@ export class ModelRegistry {
     };
     await this.opts.settings.set(SETTING.modelEnabled, next);
     await this.refresh();
+  }
+
+  /**
+   * The models a task class is set to try, ready or not, with where each stands
+   * (FC2: an error that says why a model was skipped needs the ones that were
+   * set, not only the ones that could answer). Aliases show as the model now behind them.
+   */
+  configured(taskClass: string): { id: string; name: string; status: ModelInfo['status'] }[] {
+    const saved = this.savedChains[taskClass];
+    const spec = chainFor(this.opts.taskClasses, taskClass);
+    const ids = saved ?? (spec ? (Array.isArray(spec) ? spec : spec.chain) : []);
+    const out: { id: string; name: string; status: ModelInfo['status'] }[] = [];
+    for (const id of ids) {
+      const m = this.resolve(id)?.model ?? this.get(id);
+      if (m && !out.some((o) => o.id === m.id))
+        out.push({ id: m.id, name: m.display_name, status: this.status(m) });
+    }
+    return out;
   }
 
   /**

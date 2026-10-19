@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
@@ -290,6 +291,10 @@ def get_file(source_id: str, workspace_id: str | None = None) -> FileResponse:
 class PatchSourceBody(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=400)
     tags: list[Annotated[str, Field(max_length=60)]] | None = Field(default=None, max_length=40)
+    # Set to null to clear: a field that is absent is left alone (model_fields_set).
+    author: str | None = Field(default=None, max_length=200)
+    published_on: date | None = None
+    language: str | None = Field(default=None, pattern=r"^[a-z]{2}$")
 
 
 @router.patch("/sources/{source_id}")
@@ -312,6 +317,27 @@ def patch_source(source_id: str, body: PatchSourceBody, workspace_id: str | None
                     f"topics = topics || jsonb_build_object('tags_auto', false) WHERE id = :id"
                 ),
                 {"tags": clean, "id": source_id},
+            )
+        sent = body.model_fields_set
+        if "author" in sent:
+            author = (body.author or "").strip()
+            db.execute(
+                text(f"UPDATE {S}.sources SET author = :a, updated_at = now() WHERE id = :id"),
+                {"a": author or None, "id": source_id},
+            )
+        if "published_on" in sent:
+            db.execute(
+                text(f"UPDATE {S}.sources SET published_on = :d, updated_at = now() WHERE id = :id"),
+                {"d": body.published_on, "id": source_id},
+            )
+        if "language" in sent:
+            # Set by hand, it stays: a later fetch keeps it. Cleared, detection takes over again.
+            db.execute(
+                text(
+                    f"UPDATE {S}.sources SET language = :l, language_edited = :e, updated_at = now() "
+                    f"WHERE id = :id"
+                ),
+                {"l": body.language, "e": body.language is not None, "id": source_id},
             )
         return repo.serialize(repo.get_source_row(db, source_id))
 

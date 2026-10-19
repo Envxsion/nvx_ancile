@@ -5,6 +5,9 @@
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  POST /messages/:id/factcheck  start (or join) a check
+ *           |  POST /messages/:id/selection-checks  check a highlighted
+ *           |       claim and answer with its card (FC3)
+ *           |  GET  /messages/:id/selection-checks  the cards made here
  *           |  GET  /messages/:id/factcheck  the latest result
  *           |  GET  /messages/:id/explain    why it said this
  *           |  GET  /messages/:id/citations  each citation, checked
@@ -17,7 +20,14 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type CitationStatus, type EffectiveScope } from '@nvx/contracts';
+import {
+  AncileError,
+  type CitationStatus,
+  type EffectiveScope,
+  StartFactcheckRequest,
+  StartSelectionCheckRequest,
+  type StartSelectionCheckResponse,
+} from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { assembleExplain } from '../explain/assemble';
@@ -29,6 +39,7 @@ import type { ThreadRepo } from '../threads/repo';
 import { startFactcheck } from './handler';
 import { previousView } from './history';
 import { toView } from './pipeline';
+import { type CheckInput, checksOf } from './selection';
 import type { FactcheckStore } from './store';
 
 export interface TrustRouteDeps {
@@ -46,6 +57,18 @@ export interface TrustRouteDeps {
   scopeOf?: (ref: { threadId: string }) => Promise<EffectiveScope>;
   /** What became of cited sources since (track G); without it, citations read "unknown". */
   integrity?: SourceIntegrity;
+  /** May this check use the web? Decided from the notebook's setting, this check's allow and the scope (FC4). */
+  webFor?: (a: {
+    threadId: string;
+    notebookId: string | null;
+    requested: boolean | undefined;
+  }) => Promise<{ use: boolean; note: string | null }>;
+  /** Refuses a check with no judge from another family that the scope allows (GR24), before it starts. */
+  preflight?: (a: { threadId: string; generatorFamily: string | null }) => Promise<void>;
+  /** Checks a highlighted claim and records the card on its message (FC3). */
+  selection?: {
+    run(input: CheckInput, signal: AbortSignal): Promise<StartSelectionCheckResponse>;
+  };
 }
 
 export function trustRoutes(deps: TrustRouteDeps) {
@@ -60,17 +83,78 @@ export function trustRoutes(deps: TrustRouteDeps) {
     return { m, t };
   };
 
+  /** An optional JSON body: nothing, or one that fits the schema. */
+  const optionalBody = async <T>(
+    c: { req: { json(): Promise<unknown> } },
+    parse: (v: unknown) => T,
+  ): Promise<T> => {
+    const raw = await c.req.json().catch(() => ({}));
+    return parse(raw && typeof raw === 'object' ? raw : {});
+  };
+
   r.post('/messages/:id/factcheck', async (c) => {
     const { m, t } = await load(c.req.param('id'));
-    const { record } = await startFactcheck(deps, m.id, {
+    const req = await optionalBody(c, (v) => {
+      const p = StartFactcheckRequest.safeParse(v);
+      if (!p.success)
+        throw new AncileError({
+          code: 'request.invalid',
+          title: 'That request is not valid',
+          hint: p.error.issues[0]?.message ?? 'Check the request body.',
+          status: 400,
+          errorClass: 'permanent',
+        });
+      return p.data;
+    });
+    // GR24: no judge from another family means no check, said before it starts.
+    if (m.role === 'assistant' && m.status === 'complete')
+      await deps.preflight?.({ threadId: t.id, generatorFamily: deps.familyOf(m.model_id) });
+    const { record, web } = await startFactcheck(deps, m.id, {
       workspaceId: t.workspace_id,
       notebookId: t.notebook_id,
+      ...(req.web !== undefined && { web: req.web }),
     });
     const runId = record.run_id ?? '';
     return c.json(
-      { factcheck_id: record.id, run_id: runId, stream_url: `/api/v1/runs/${runId}/stream` },
+      {
+        factcheck_id: record.id,
+        run_id: runId,
+        stream_url: `/api/v1/runs/${runId}/stream`,
+        web: { used: web.use, note: web.note },
+      },
       202,
     );
+  });
+
+  r.post('/messages/:id/selection-checks', async (c) => {
+    const { m, t } = await load(c.req.param('id'));
+    if (!deps.selection)
+      throw new AncileError({
+        code: 'factcheck.unavailable',
+        title: 'Highlighted claims cannot be checked here',
+        hint: 'Core was started without the fact-check service. Restart NVX Ancile.',
+        status: 503,
+        errorClass: 'permanent',
+      });
+    const p = StartSelectionCheckRequest.safeParse(await c.req.json().catch(() => null));
+    if (!p.success)
+      throw new AncileError({
+        code: 'request.invalid',
+        title: 'That highlight cannot be checked',
+        hint: 'Highlight some text in the message, then choose Fact-check.',
+        status: 400,
+        errorClass: 'permanent',
+      });
+    const out = await deps.selection.run(
+      { ...p.data, messageId: m.id, workspaceId: t.workspace_id },
+      c.req.raw.signal,
+    );
+    return c.json(out);
+  });
+
+  r.get('/messages/:id/selection-checks', async (c) => {
+    const { m } = await load(c.req.param('id'));
+    return c.json({ checks: checksOf(m) });
   });
 
   r.get('/messages/:id/factcheck', async (c) => {

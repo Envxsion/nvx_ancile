@@ -152,6 +152,10 @@ export const ThreadSummary = Thread.extend({
   branches: z.number().int(),
   /** A run is streaming or waiting in this thread right now. */
   live: z.boolean(),
+  /** The run is waiting on you (an approval): the rail shows "Needs you". */
+  waiting: z.boolean().default(false),
+  /** An answer arrived since you last opened the thread. */
+  unread: z.boolean().default(false),
 });
 export type ThreadSummary = z.infer<typeof ThreadSummary>;
 

@@ -40,6 +40,7 @@ import {
 } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import type { MessageRecord } from '../threads/repo';
+import type { UsageArchiveRow } from './archive';
 
 /** One group: a local bucket ("2026-10-12" or "2026-10-12T14:00"), an engine and a model. */
 export interface UsageRow {
@@ -310,7 +311,8 @@ export class PgUsageSource implements UsageSource {
           coalesce((m.usage->>'input_tokens')::bigint, 0) as i,
           coalesce((m.usage->>'output_tokens')::bigint, 0) as o,
           coalesce((m.usage->>'cached_tokens')::bigint, 0) as c,
-          coalesce((m.usage->>'cost_usd')::numeric, 0) as cost
+          coalesce((m.usage->>'cost_usd')::numeric, 0) as cost,
+          1 as n
         from core.messages m
         join core.threads t on t.id = m.thread_id
         left join core.runs r on r.id = m.run_id
@@ -321,12 +323,23 @@ export class PgUsageSource implements UsageSource {
           and (${q.provider ?? null}::text is null or m.usage->'served'->>'provider' = ${q.provider ?? null})
           and ((m.deleted_at is null and t.deleted_at is null)
             or not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false))
+        union all
+        -- Answers of threads that were purged, rolled up by usage/archive.ts, so a purge changes no total.
+        select
+          to_char(a.bucket_at at time zone ${q.tz}, ${fmt}),
+          a.engine, a.model_id, a.provider,
+          a.input_tokens, a.output_tokens, a.cached_tokens, a.cost_usd, a.answers
+        from core.usage_archive a
+        where a.workspace_id = ${q.workspaceId}
+          and a.bucket_at >= ${q.from}
+          and a.bucket_at < ${q.to}
+          and (${q.provider ?? null}::text is null or a.provider = ${q.provider ?? null})
       )
       select bucket, engine, model_id, provider,
         sum(i)::text as input_tokens, sum(o)::text as output_tokens, sum(c)::text as cached_tokens,
         sum(cost)::float8 as cost_usd,
         sum(case when engine = 'claude_code' then cost else 0 end)::float8 as estimated_usd,
-        count(*)::int as answers
+        sum(n)::int as answers
       from u
       group by bucket, engine, model_id, provider`;
     return rows.map((r) => ({
@@ -434,12 +447,17 @@ export class PgUsageSource implements UsageSource {
  */
 export async function spendUsd(sql: Sql, since: Date): Promise<number> {
   const [r] = await sql<{ usd: number | null }[]>`
-    select sum(coalesce((m.usage->>'cost_usd')::float8, 0)) as usd
-    from core.messages m
-    left join core.runs r on r.id = m.run_id
-    where m.usage is not null
-      and m.created_at >= ${since}
-      and not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false)`;
+    select
+      coalesce((
+        select sum(coalesce((m.usage->>'cost_usd')::float8, 0))
+        from core.messages m
+        left join core.runs r on r.id = m.run_id
+        where m.usage is not null
+          and m.created_at >= ${since}
+          and not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false)
+      ), 0)
+      -- plus the answers of purged threads (usage/archive.ts), which are never Claude Code
+      + coalesce((select sum(a.cost_usd)::float8 from core.usage_archive a where a.bucket_at >= ${since}), 0) as usd`;
   return Number(r?.usd ?? 0);
 }
 
@@ -453,6 +471,8 @@ export class MemoryUsageSource implements UsageSource {
       titleOf?(threadId: string): string | null;
       /** Whether the thread was deleted; none are by default. */
       threadDeleted?(threadId: string): boolean;
+      /** Rows rolled up from purged threads (MemoryThreadRepo.usageArchive); none by default. */
+      archive?(): Iterable<UsageArchiveRow>;
     },
   ) {}
 
@@ -539,6 +559,33 @@ export class MemoryUsageSource implements UsageSource {
       r.cost_usd += m.usage.cost_usd;
       if (engine === 'claude_code') r.estimated_usd += m.usage.cost_usd;
       r.answers += 1;
+      by.set(key, r);
+    }
+    for (const a of this.deps.archive?.() ?? []) {
+      if (a.workspace_id !== q.workspaceId) continue;
+      const at = Date.parse(a.bucket_at);
+      if (at < q.from.getTime() || at >= q.to.getTime()) continue;
+      if (q.provider && a.provider !== q.provider) continue;
+      const bucket = bucketOf(q.tz, at, q.bucket);
+      const key = `${bucket}|${a.engine}|${a.model_id ?? ''}|${a.provider ?? ''}`;
+      const r = by.get(key) ?? {
+        bucket,
+        engine: a.engine,
+        model_id: a.model_id,
+        provider: a.provider,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_tokens: 0,
+        cost_usd: 0,
+        estimated_usd: 0,
+        answers: 0,
+      };
+      r.input_tokens += a.input_tokens;
+      r.output_tokens += a.output_tokens;
+      r.cached_tokens += a.cached_tokens;
+      r.cost_usd += a.cost_usd;
+      r.estimated_usd += a.estimated_usd;
+      r.answers += a.answers;
       by.set(key, r);
     }
     return [...by.values()];

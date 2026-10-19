@@ -195,6 +195,26 @@ POST   /api/v1/pro/context-packs/import/preview     { file } → PackImportPrevi
 POST   /api/v1/pro/context-packs/import             { file, notebook_id? } → 201 ContextPack
 ```
 
+### Bulk thread actions, the Trash and read state
+
+```
+POST /api/v1/threads/bulk       { "action": "move", "ids": ["thr_…"], "notebook_id": "nbk_…" | null }
+                                { "action": "archive" | "unarchive" | "delete" | "restore", "ids": [...] }
+                                { "action": "revert", "states": [ThreadState, ...] }
+                                → { done: ThreadState[], skipped: [{ id, title, reason, hint }] }
+GET  /api/v1/threads/trash      → { items: [{ id, title, notebook_id, deleted_at, purge_at }], retention_days: 30 }
+POST /api/v1/threads/trash/empty { "confirm": true } → { purged, kept }
+POST /api/v1/threads/thr_…/seen → 204
+```
+
+`done` holds the state each changed thread had **before** (notebook, archive, pin, `updated_at`, deleted). Sending those back as a `revert` is Undo, and it restores exactly: moves and archives never touch `updated_at`, so a thread keeps its place in the list. A thread with a run in progress is never changed; it comes back in `skipped` with `reason: "running"`. `refused` means a rule said no (a Claude Code thread cannot enter a private notebook); `missing` means it is gone or already in the Trash. Up to 500 ids. `DELETE /threads/:id` is the same as a one-thread `delete`: the thread leaves every list and route, is kept 30 days, and comes back whole with `restore`. A daily pass (and `trash/empty`, which needs `confirm: true` or answers `trash.confirm_needed`) removes threads past 30 days for good, with their messages, runs and images, and does nothing while any run is active. A thread's own flows become workspace drafts only then.
+
+Threads in `GET /threads` carry `waiting` (a run waits on an approval) and `unread` (an answer arrived since `seen_at`). `POST /threads/:id/seen` sets `seen_at`, so every device agrees.
+
+### Source details
+
+`PATCH /api/v1/sources/:id` takes `title`, `tags` (up to 40 of 60 characters), `author` (up to 200), `published_on` (`YYYY-MM-DD`) and `language` (two letters). Null clears a field and an absent field is left alone. A language set by hand is kept when the source is fetched again; clearing it hands the choice back to detection. Sources carry `author` and `published_on` beside `tags` and `language`.
+
 ### Edit and revoke grants
 
 ```http
@@ -318,6 +338,15 @@ GET /api/v1/messages/msg_01J9ZR…/citations
 ```
 
 Answers `CitationStatus` (`packages/contracts/src/knowledge.ts`): each `citation_ref` of the answer with `state` `current`, `changed` (the source was read again and the passage is gone or different), `removed` (deleted or merged away, with `removed_at` and `merged_into`) or `unknown` (could not be checked). Deleting (`DELETE /sources/:id`) or merging away (`POST /sources/merge`) a source records a tombstone in `core.source_tombstones` first. `GET /messages/:id/factcheck` carries `previous`: the check before the newest, its score and summary, and `sources_changed`, `removed`, `changed` and a `note` in words.
+
+### Checking a highlighted claim
+
+```http
+POST /api/v1/messages/msg_01J9ZR…/selection-checks
+{ "text": "Error code E-17 means the impeller is blocked.", "kind": "prose", "web": false, "again": false }
+```
+
+Answers `{ check, cached }` (`SelectionCheck`, `packages/contracts/src/factcheck.ts`) after one model call, or the plain error: `factcheck.no_other_family` (GR24), `factcheck.judge_not_allowed`, `factcheck.still_writing`, `factcheck.selection_too_long`. `check` has the `verdict` (`holds`, `partly`, `doesnt_hold`, `cant_tell`), a one-line `headline`, the `corrected` claim, up to five `evidence` lines (each with `origin` `source`, `web`, `run` or `model`, and its `source`), one `closing` line, who checked (`checker_model_id`, `checker_family`), `cost_usd` and `billed` (`key`, `plan`, `free`), what the web did (`web.used`, `web.note`) and what the sandbox did (`ran`). It is recorded on the message (`provenance.selection_checks`) and returned by `GET /messages/:id/selection-checks` and in `GET /messages/:id/explain` as `selection_checks`. `POST /messages/:id/factcheck` takes an optional `{ "web": true }` and answers `web: { used, note }`; the run's stream carries `factcheck.claim` events (a claim found, a verdict landed).
 
 ### Languages in a notebook
 

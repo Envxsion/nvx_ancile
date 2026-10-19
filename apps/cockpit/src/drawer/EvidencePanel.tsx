@@ -11,20 +11,41 @@
  *           |  thread. Clicking an underlined claim focuses it here.
  *           |  Verdicts carry an icon and a word as well as a colour
  *           |  (DESIGN.md §10). Demo data keeps its own sample.
+ *           |  While a check runs, each claim appears as it is found and
+ *           |  fills in as its verdict lands, with the judge and the
+ *           |  quotes (EV1); opened mid-check, it follows the run again.
+ *           |  Highlighted claims that were checked (FC3) are listed under
+ *           |  the claims, newest first; "Open in Evidence" on a card lands
+ *           |  on its row. Evidence is marked Source or Web (FC4).
  * ------------------------------------------------------------------
  */
 
-import { type ClaimVerdict, type FactcheckClaim, isClaudeCodeModel } from '@nvx/contracts';
+import {
+  type ClaimVerdict,
+  type FactcheckClaim,
+  isClaudeCodeModel,
+  type SelectionCheck,
+} from '@nvx/contracts';
 import { useParams } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import * as demo from '../fixtures/demo';
 import { useThread } from '../lib/data';
-import { startFactcheck, useFactcheck, useProgress } from '../lib/factcheck';
+import {
+  type LiveClaim,
+  resumeFactcheck,
+  startFactcheck,
+  useFactcheck,
+  useLiveClaims,
+  useProgress,
+} from '../lib/factcheck';
 import { modelName, percent } from '../lib/format';
 import { scrollBehavior } from '../lib/motion';
+import { copyText, costLine, followUpDraft, insertIntoComposer } from '../lib/selectionWords';
+import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
 import { FactcheckChip } from '../thread/Factcheck';
+import { SelectionBody } from '../thread/SelectionBody';
 import { Icon } from '../ui/Icon';
 import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
@@ -95,9 +116,172 @@ function ClaimCard({ c, focused }: { c: FactcheckClaim; focused: boolean }) {
   );
 }
 
+/** A claim of a check that is still running: found, then judged as its verdict lands (EV1). */
+function LiveCard({ c }: { c: LiveClaim }) {
+  const judged = c.verdict !== undefined;
+  return (
+    <li
+      className="claim-card"
+      data-verdict={c.verdict}
+      data-live={judged ? 'judged' : 'found'}
+      data-claim-index={c.index}
+    >
+      <div className="claim-card__head">
+        {c.verdict ? (
+          <VerdictMark verdict={c.verdict} />
+        ) : (
+          <span className="claim-card__wait" role="status">
+            {c.checkable ? 'Checking' : 'Nothing to check'}
+          </span>
+        )}
+      </div>
+      <p className="claim-card__claim">{c.text}</p>
+      {c.quotes?.length ? (
+        <ul className="ev-quotes">
+          {c.quotes.map((q) => (
+            <li key={`${q.origin}-${q.source_title}-${q.quote}`} className="ev-quote" data-stance={q.stance}>
+              <span className="ev-quote__stance">
+                <span className="ev-quote__origin" data-origin={q.origin}>
+                  {q.origin === 'web' ? 'Web' : 'Source'}
+                </span>
+                {q.stance === 'contradicts' ? 'Says otherwise' : 'Says'}
+              </span>
+              <blockquote>{q.quote}</blockquote>
+              <span className="ev-quote__foot">
+                <cite>{q.source_title}</cite>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {c.rationale ? <p className="claim-card__why">{c.rationale}</p> : null}
+      {c.judge ? (
+        <p className="claim-card__by">
+          Judged by {modelName(c.judge)}
+          {isClaudeCodeModel(c.judge) ? ', on your Claude plan' : ''}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+const STAGE_WORDS: Record<string, string> = {
+  starting: 'Starting the fact-check',
+  extracting: 'Finding the claims in this answer',
+  gathering: 'Searching your sources for each claim',
+  verifying: 'Checking each claim',
+};
+
+/** The check as it runs: claims appear as they are found and fill in as each verdict lands. */
+function Checking({
+  messageId,
+  f,
+  progress,
+}: {
+  messageId: string;
+  f: Parameters<typeof FactcheckChip>[0]['factcheck'];
+  progress: Parameters<typeof FactcheckChip>[0]['progress'];
+}) {
+  const claims = useLiveClaims(messageId);
+  return (
+    <div className="panel evidence-wait">
+      <FactcheckChip messageId={messageId} factcheck={f} progress={progress} />
+      {claims.length ? (
+        <ul className="evidence" aria-live="polite" aria-label="Claims found so far">
+          {claims.map((c) => (
+            <LiveCard key={c.index} c={c} />
+          ))}
+        </ul>
+      ) : (
+        <p className="claim-card__wait" role="status">
+          {STAGE_WORDS[progress?.stage ?? 'starting'] ?? 'Checking claims'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A highlighted claim that was checked, as a row: the same words as its card. */
+function CheckRow({
+  c,
+  focused,
+  threadId,
+}: {
+  c: SelectionCheck;
+  focused: boolean;
+  threadId: string | undefined;
+}) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(copyText(c));
+      notify({ level: 'success', title: 'Copied' });
+    } catch {
+      notify({ level: 'warn', title: 'Clipboard is blocked', body: 'Select the text and copy it by hand.' });
+    }
+  };
+  return (
+    <li className="selrow" data-check={c.id} data-focused={focused || undefined}>
+      <SelectionBody c={c} compact />
+      <div className="selrow__foot">
+        <span data-num>{costLine(c)}</span>
+        <span className="selcard__actions">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void copy()}>
+            <Icon name="copy" size={12} />
+            Copy
+          </button>
+          {c.corrected && threadId ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                insertIntoComposer(threadId, followUpDraft(c.corrected ?? ''));
+                notify({ level: 'info', title: 'Added to your message box', body: 'Nothing was sent.' });
+              }}
+            >
+              Use the corrected claim
+            </button>
+          ) : null}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/** The claims highlighted in this thread and checked, newest first (FC3). */
+function HighlightedChecks({
+  checks,
+  focused,
+  threadId,
+}: {
+  checks: SelectionCheck[];
+  focused: string | null;
+  threadId: string | undefined;
+}) {
+  const ref = useRef<HTMLUListElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when a card sends you here
+  useEffect(() => {
+    if (focused)
+      ref.current
+        ?.querySelector(`[data-check="${focused}"]`)
+        ?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
+  }, [focused, checks.length]);
+  if (!checks.length) return null;
+  return (
+    <section aria-label="Highlighted claims">
+      <h3 className="selrows__head">Highlighted claims</h3>
+      <ul className="selrows" ref={ref}>
+        {checks.map((c) => (
+          <CheckRow key={c.id} c={c} focused={focused === c.id} threadId={threadId} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function EvidencePanel() {
   const isDemo = useUi((s) => s.demo);
   const focused = useUi((s) => s.focusedClaim);
+  const focusedCheck = useUi((s) => s.focusedCheck);
   const chosen = useUi((s) => s.evidenceMessage);
   const params = useParams({ strict: false }) as { threadId?: string };
   const thread = useThread(params.threadId);
@@ -108,6 +292,18 @@ export function EvidencePanel() {
   const m = inThread ?? [...answers].reverse().find((a) => a.provenance?.factcheck) ?? answers.at(-1) ?? null;
   const progress = useProgress(m?.id ?? '');
   const fc = useFactcheck(m?.id, !isDemo && !!m);
+  // Highlighted claims checked anywhere in this thread, newest first.
+  const checks = (thread.data?.messages ?? [])
+    .flatMap((x) => x.provenance?.selection_checks ?? [])
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const highlighted = <HighlightedChecks checks={checks} focused={focusedCheck} threadId={params.threadId} />;
+
+  // A check that is running but not being followed (the panel was closed, or the page reloaded) is followed again.
+  const runId = fc.data?.status === 'running' ? fc.data.run_id : null;
+  const checkedId = m?.id;
+  useEffect(() => {
+    if (checkedId && runId && !isDemo) resumeFactcheck(checkedId, runId);
+  }, [checkedId, runId, isDemo]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the claims arrive too
   useEffect(() => {
@@ -139,21 +335,24 @@ export function EvidencePanel() {
   if (!f || (f.status === 'running' && !f.claims.length) || progress) {
     const running = !!progress || f?.status === 'running';
     return running ? (
-      <div className="panel evidence-wait">
-        <FactcheckChip messageId={m.id} factcheck={f} progress={progress} />
-        <Skeleton lines={5} label="Checking claims" />
-      </div>
+      <>
+        <Checking messageId={m.id} f={f} progress={progress} />
+        {highlighted}
+      </>
     ) : (
-      <EmptyState
-        icon="factcheck"
-        title="Not fact-checked yet"
-        body="Split this answer into claims and check each against your sources, with a second model as the judge."
-        action={{
-          label: 'Fact-check this answer',
-          onClick: () => void startFactcheck(m.id),
-          binding: 'message.factcheck',
-        }}
-      />
+      <>
+        <EmptyState
+          icon="factcheck"
+          title="Not fact-checked yet"
+          body="Split this answer into claims and check each against your sources, with a second model as the judge. You can also highlight any words in a message and choose Fact-check."
+          action={{
+            label: 'Fact-check this answer',
+            onClick: () => void startFactcheck(m.id),
+            binding: 'message.factcheck',
+          }}
+        />
+        {highlighted}
+      </>
     );
   }
 
@@ -194,7 +393,20 @@ export function EvidencePanel() {
           <button type="button" className="link-btn" onClick={() => void startFactcheck(m.id)}>
             {f.status === 'failed' ? 'Try again' : 'Check again'}
           </button>
+          {f.status === 'done' && !f.scope.web && !f.scope.web_note ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => void startFactcheck(m.id, { web: true })}
+              >
+                Check again with the web
+              </button>
+            </>
+          ) : null}
         </p>
+        {f.scope.web_note ? <p className="mute evidence-head__by">{f.scope.web_note}</p> : null}
       </header>
       {f.status === 'failed' ? (
         <p className="evidence-failed" role="alert">
@@ -209,6 +421,7 @@ export function EvidencePanel() {
           <ClaimCard key={c.id} c={c} focused={focused === c.id} />
         ))}
       </ul>
+      {highlighted}
     </div>
   );
 }

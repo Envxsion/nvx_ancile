@@ -17,7 +17,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Hint } from '../help/Hint';
 import { relative } from '../lib/format';
 import {
@@ -36,6 +36,9 @@ import { ConfirmDialog } from '../ui/Confirm';
 import { Segmented } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
+
+// The details dialog loads when first opened.
+const SourceDetails = lazy(() => import('./SourceDetails').then((m) => ({ default: m.SourceDetails })));
 
 export const KIND_ICON: Record<SourceView['kind'], IconName> = {
   file: 'file',
@@ -64,14 +67,27 @@ export function SourceCard({
   s,
   notebookId,
   compact,
+  onTag,
+  activeTag,
+  selecting,
+  selected,
+  onSelect,
 }: {
   s: SourceView;
   notebookId: string;
   compact?: boolean;
+  /** A tag chip was pressed: the panel filters by it. */
+  onTag?: (tag: string) => void;
+  activeTag?: string | null;
+  /** The panel is in select mode (for tagging many at once). */
+  selecting?: boolean;
+  selected?: boolean;
+  onSelect?: (on: boolean) => void;
 }) {
   const openViewer = useUi((s) => s.openViewer);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const rename = useMutation({
     mutationFn: (title: string) => renameSource(s.id, title),
@@ -124,6 +140,11 @@ export function SourceCard({
       onSelect: () => setRenaming(true),
     },
     {
+      label: 'Edit tags, author, date and language',
+      icon: 'hash',
+      onSelect: () => setEditing(true),
+    },
+    {
       label: 'Copy its title',
       icon: 'copy',
       onSelect: () => void navigator.clipboard?.writeText(s.title),
@@ -150,6 +171,16 @@ export function SourceCard({
         data-compact={compact || undefined}
         style={s.progress != null ? ({ '--p': s.progress } as CSSProperties) : undefined}
       >
+        {selecting ? (
+          <label className="source-card__pick">
+            <input
+              type="checkbox"
+              checked={selected === true}
+              onChange={(e) => onSelect?.(e.target.checked)}
+              aria-label={`Select ${s.title}`}
+            />
+          </label>
+        ) : null}
         {renaming ? (
           <RenameField
             title={s.title}
@@ -199,6 +230,24 @@ export function SourceCard({
             </button>
           }
         />
+
+        {!compact && s.tags.length > 0 ? (
+          <ul className="source-tags" aria-label={`Tags on ${s.title}`}>
+            {s.tags.map((t) => (
+              <li key={t}>
+                <button
+                  type="button"
+                  className="tag tag--btn"
+                  aria-pressed={onTag ? activeTag?.toLowerCase() === t.toLowerCase() : undefined}
+                  onClick={() => onTag?.(t)}
+                  disabled={!onTag}
+                >
+                  {t}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         {working ? (
           <div
@@ -302,6 +351,11 @@ export function SourceCard({
               ]}
             />
           </div>
+        ) : null}
+        {editing ? (
+          <Suspense fallback={null}>
+            <SourceDetails s={s} onClose={() => setEditing(false)} />
+          </Suspense>
         ) : null}
         <ConfirmDialog
           copy={

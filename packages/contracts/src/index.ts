@@ -4,6 +4,7 @@ export * from './artifacts';
 export * from './auto';
 export * from './billing';
 export * from './branching';
+export * from './bulk';
 export * from './cache';
 export * from './claudecode';
 export * from './config';

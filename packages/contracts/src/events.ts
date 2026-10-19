@@ -71,6 +71,21 @@ export const RunEvent = z.discriminatedUnion('type', [
     chunks: z.number().int(),
     sources: z.number().int(),
     ms: z.number(),
+    /** What was searched for (EV2); empty on events from before it was recorded. */
+    query: z.string().default(''),
+    /** Where the search looked: the notebook, only the sources @-mentioned, or context links too. */
+    searched: z.enum(['notebook', 'mentioned', 'links']).default('notebook'),
+    /** The passages found, best first: the source's title and how closely it matched. */
+    found: z
+      .array(
+        z.object({
+          source_title: z.string(),
+          page: z.number().int().nullable().default(null),
+          score: z.number(),
+        }),
+      )
+      .max(24)
+      .default([]),
   }),
   /**
    * The message's parts so far, replacing whatever the client has drawn.
@@ -252,6 +267,37 @@ export const RunEvent = z.discriminatedUnion('type', [
     stage: z.enum(['extracting', 'gathering', 'verifying', 'done', 'failed']),
     done: z.number().int(),
     total: z.number().int(),
+  }),
+  /**
+   * One claim of a fact-check as it is found (`found`) and as its verdict lands
+   * (`judged`), so the Evidence tab fills in live instead of waiting (EV1).
+   */
+  z.object({
+    ...base,
+    type: z.literal('factcheck.claim'),
+    factcheck_id: z.string(),
+    message_id: z.string(),
+    state: z.enum(['found', 'judged']),
+    /** The claim's place among the claims of this check. */
+    index: z.number().int(),
+    total: z.number().int(),
+    text: z.string(),
+    checkable: z.boolean(),
+    /** For `judged`: the verdict, the judge's reason and the quotes it relied on. */
+    verdict: z.enum(['verified', 'unverified', 'contradicted', 'not_checkable']).optional(),
+    rationale: z.string().optional(),
+    judge: z.string().nullable().optional(),
+    quotes: z
+      .array(
+        z.object({
+          source_title: z.string(),
+          quote: z.string(),
+          stance: z.enum(['supports', 'contradicts', 'neutral']),
+          origin: z.enum(['source', 'web']).default('source'),
+        }),
+      )
+      .max(6)
+      .optional(),
   }),
   /** Auto mode (docs/auto-mode.md): a call ran without asking. The quiet "ran automatically" marker. */
   z.object({

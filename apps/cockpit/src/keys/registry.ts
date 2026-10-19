@@ -81,6 +81,21 @@ export const BINDINGS: readonly BindingDef[] = [
     scope: 'global',
     inInputs: true,
   },
+  {
+    id: 'undo.last',
+    keys: 'u',
+    label: 'Undo the change in the notice on screen',
+    group: 'Everywhere',
+    scope: 'global',
+  },
+  {
+    id: 'rail.nextAttention',
+    keys: 'alt+arrowdown',
+    label: 'Next thread that needs you',
+    group: 'Go to',
+    scope: 'global',
+    inInputs: true,
+  },
   { id: 'thread.quick', keys: 'n', label: 'New thread', group: 'Everywhere', scope: 'global' },
   {
     id: 'settings.open',
@@ -124,7 +139,13 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'message.lab', keys: 'x', label: 'Run in the lab', group: 'Thread', scope: 'thread' },
   { id: 'message.branch', keys: 'b', label: 'Branch from here', group: 'Thread', scope: 'thread' },
   { id: 'message.beam', keys: 'shift+b', label: 'Beam this question', group: 'Thread', scope: 'thread' },
-  { id: 'message.factcheck', keys: 'f', label: 'Fact-check', group: 'Thread', scope: 'thread' },
+  {
+    id: 'message.factcheck',
+    keys: 'f',
+    label: 'Fact-check (the highlighted words, if any)',
+    group: 'Thread',
+    scope: 'thread',
+  },
   {
     id: 'message.why',
     keys: 'w',
@@ -324,6 +345,8 @@ export function displayKeys(keys: string): string[][] {
     alt: isMac ? '⌥' : 'Alt',
     escape: 'Esc',
     enter: '↵',
+    arrowdown: '↓',
+    arrowup: '↑',
   };
   return normalise(keys)
     .split(' ')

@@ -22,8 +22,10 @@ import { MemoryEpochStore } from '../../src/conductor/epoch';
 import { chatTurnHandler } from '../../src/conductor/pipeline';
 import { credentialRoutes } from '../../src/credentials/routes';
 import { MemoryEventBus } from '../../src/events/bus';
-import { factcheckHandler, startFactcheck } from '../../src/factcheck/handler';
+import { preflightJudge } from '../../src/factcheck/allow';
+import { type FactcheckDeps, factcheckHandler, startFactcheck } from '../../src/factcheck/handler';
 import { trustRoutes } from '../../src/factcheck/routes';
+import { checkSelection, type SelectionDeps } from '../../src/factcheck/selection';
 import { MemoryFactcheckStore } from '../../src/factcheck/store';
 import { flowRoutes } from '../../src/flows/routes';
 import { MemoryFlowStore } from '../../src/flows/store';
@@ -102,6 +104,12 @@ export interface HarnessOptions {
   now?: () => number;
   /** Knowledge's /evidence for fact-checks; without it, every claim lacks evidence. */
   kn?: Pick<KnowledgeClient, 'post'>;
+  /** Extra dependencies for whole-answer fact-checks (scope, web search, the gate). */
+  factcheck?: Partial<FactcheckDeps>;
+  /** Extra dependencies for checking a highlighted claim (scope, web search, sandbox). */
+  selection?: Partial<SelectionDeps>;
+  /** Whether a fact-check may use the web (FC4). */
+  webFor?: NonNullable<Parameters<typeof startFactcheck>[0]['webFor']>;
   /** What became of cited sources (track G): citations' states and a re-run's previous score. */
   integrity?: import('../../src/knowledge/integrity').SourceIntegrity;
   /** Notebooks in grounded mode: their answers are fact-checked when they finish. */
@@ -290,6 +298,7 @@ export async function harness(opts: HarnessOptions = {}) {
           ...(opts.kn && { kn: opts.kn }),
           repo,
           store: factchecks,
+          ...opts.factcheck,
         }),
       },
     });
@@ -502,6 +511,24 @@ export async function harness(opts: HarnessOptions = {}) {
         modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
         actionOf: (tool) => tools.get(tool)?.action,
         ...(opts.integrity && { integrity: opts.integrity }),
+        ...(opts.webFor && { webFor: opts.webFor }),
+        preflight: (a) => preflightJudge({ registry, scopeOf: opts.selection?.scopeOf }, a),
+        selection: {
+          run: (input, signal) =>
+            checkSelection(
+              {
+                gateway,
+                registry,
+                promptsDir: PROMPTS_DIR,
+                ...(opts.kn && { kn: opts.kn }),
+                repo,
+                familyOf,
+                ...opts.selection,
+              },
+              input,
+              signal,
+            ),
+        },
       }),
     ],
   });

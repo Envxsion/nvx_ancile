@@ -200,3 +200,120 @@ describe('Claude Code judges at once', () => {
     expect(out.modelId).toBe('claude-code/sonnet');
   });
 });
+
+describe('guard rail GR24 and the scope, in the judge search', () => {
+  const claude = (id = 'anthropic/sonnet') => ({ ...model(id, 'anthropic'), family: 'claude' });
+  const gpt = { ...model('openai/gpt', 'openai'), family: 'openai' };
+  const local = { ...model('ollama/llama3.2:3b', 'ollama', 'llama3.2:3b'), family: 'llama' };
+
+  it('never lets the writer family judge, and finds another family when there is one', () => {
+    const got = judgeChain(registry([], [claude(), gpt]), 'factcheck.verify', {
+      strict: true,
+      generatorFamily: 'claude',
+    });
+    expect(got.map((m) => m.id)).toEqual(['openai/gpt']);
+  });
+
+  it('looks beyond the set chain for another family before giving up', () => {
+    // Only the writer family is set, but a small local model of another family is ready.
+    const got = judgeChain(registry([local], [claude()]), 'factcheck.verify', {
+      strict: true,
+      generatorFamily: 'claude',
+    });
+    expect(got.map((m) => m.id)).toEqual(['ollama/llama3.2:3b']);
+  });
+
+  it('with only the writer family ready, says so and offers nothing (no same-family fallback)', () => {
+    let err: unknown;
+    try {
+      judgeChain(registry([], [claude()]), 'factcheck.verify', { strict: true, generatorFamily: 'claude' });
+    } catch (e) {
+      err = e;
+    }
+    expect((err as AncileError).code).toBe('factcheck.no_other_family');
+    expect((err as AncileError).title).toBe('No second opinion is available');
+    expect((err as AncileError).hint).toMatch(/claude model/);
+    expect((err as AncileError).hint).toMatch(/Settings → Models/);
+  });
+
+  it('Claude Code writing the answer does not judge it', () => {
+    const cc = model(CLAUDE_CODE_JUDGE, 'claude_code', 'haiku');
+    expect(() =>
+      judgeChain(registry([cc], null), 'factcheck.verify', { strict: true, generatorFamily: 'claude' }),
+    ).toThrowError(/second opinion/);
+  });
+
+  it('your own words have no writer, so any family may judge', () => {
+    const got = judgeChain(registry([], [claude()]), 'factcheck.verify', { strict: true });
+    expect(got.map((m) => m.id)).toEqual(['anthropic/sonnet']);
+  });
+
+  it('keeps out what the scope keeps out, and says so when that is every judge', () => {
+    const allow = (m: { id: string }) =>
+      m.id === 'ollama/llama3.2:3b' ? null : 'Nothing may leave this machine here';
+    expect(
+      judgeChain(registry([local], [gpt]), 'factcheck.verify', { strict: true, allow }).map((m) => m.id),
+    ).toEqual(['ollama/llama3.2:3b']);
+    let err: unknown;
+    try {
+      judgeChain(registry([], [gpt]), 'factcheck.verify', { strict: true, allow });
+    } catch (e) {
+      err = e;
+    }
+    expect((err as AncileError).code).toBe('factcheck.judge_not_allowed');
+    expect((err as AncileError).hint).toMatch(/Nothing may leave this machine here/);
+  });
+
+  it('names every model that failed when none could answer', async () => {
+    const { ChainFailedError } = await import('../../src/gateway/gateway');
+    const { chainFailure } = await import('../../src/factcheck/handler');
+    const cc = model(CLAUDE_CODE_JUDGE, 'claude_code', 'haiku');
+    const gateway = {
+      stream(chain: ModelConfig[]) {
+        const m = chain[0] as ModelConfig;
+        throw m.provider === 'claude_code'
+          ? new Error('Claude Code could not answer: plan limit reached')
+          : new ChainFailedError([{ model: m.id, errorClass: 'transient', detail: 'connection refused' }]);
+      },
+    } as unknown as Gateway;
+    let err: unknown;
+    try {
+      await structured(
+        { gateway },
+        [cc, local],
+        'check',
+        z.object({ ok: z.boolean() }),
+        new AbortController().signal,
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ChainFailedError);
+    const f = chainFailure(err as InstanceType<typeof ChainFailedError>);
+    expect(f.hint).toMatch(/claude-code\/haiku \(Claude Code could not answer: plan limit reached\)/);
+    expect(f.hint).toMatch(/ollama\/llama3.2:3b \(connection refused\)/);
+  });
+});
+
+describe('one name per family (GR24 is not fooled by a spelling)', () => {
+  it("treats Claude Code's claude and the Anthropic API's anthropic as one family", async () => {
+    const { canonicalFamily, familyFromModelId, sameFamily } = await import('../../src/factcheck/steps');
+    expect(canonicalFamily('claude')).toBe('anthropic');
+    expect(sameFamily('Anthropic', 'claude')).toBe(true);
+    expect(sameFamily('openai', 'claude')).toBe(false);
+    expect(sameFamily(null, 'claude')).toBe(false);
+    expect(canonicalFamily('llama')).toBe('llama');
+    expect(canonicalFamily(null)).toBeNull();
+    // An answer written through the Anthropic API is not judged by Claude Code.
+    const cc = model(CLAUDE_CODE_JUDGE, 'claude_code', 'haiku');
+    expect(() =>
+      judgeChain(registry([cc], null), 'factcheck.verify', { strict: true, generatorFamily: 'anthropic' }),
+    ).toThrowError(/second opinion/);
+    // A model the registry does not know (an engine's own name) still points at its family.
+    expect(familyFromModelId('claude-sonnet-4-5')).toBe('anthropic');
+    expect(familyFromModelId('claude-code/opus')).toBe('anthropic');
+    expect(familyFromModelId('gpt-5')).toBe('openai');
+    expect(familyFromModelId('gemini-2.5-pro')).toBe('google');
+    expect(familyFromModelId('mystery')).toBeNull();
+  });
+});

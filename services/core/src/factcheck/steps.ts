@@ -43,14 +43,16 @@ import {
 } from '@nvx/contracts';
 import { z } from 'zod';
 import { loadPrompt, render } from '../conductor/prompt';
-import type { Gateway } from '../gateway/gateway';
+import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { ModelRequest } from '../gateway/types';
+import type { CallUsage } from '../gateway/usage';
 import type { KnowledgeClient } from '../knowledge/client';
 import { REVIEWER_MAX_B, reviewerModel } from '../permissions/auto/wire';
 import type { ClaimEvidence, ExtractedClaim } from './pipeline';
 import type { Stance, VerifierVerdict } from './score';
+import { hostName, type WebHit } from './web';
 
 /** At most this many claims are checked per answer (the prompt asks for 25). */
 export const MAX_CLAIMS = 25;
@@ -129,43 +131,178 @@ export class JudgeSlots {
   }
 }
 
+/**
+ * Families by one name each: Claude Code's models say `claude` where the Anthropic API's say
+ * `anthropic`, but they are one family, and GR24 must not be fooled by a spelling.
+ */
+const FAMILY_ALIASES: Record<string, string> = { claude: 'anthropic', gpt: 'openai', gemini: 'google' };
+
+export function canonicalFamily(family: string | null | undefined): string | null {
+  if (!family) return null;
+  return FAMILY_ALIASES[family.trim().toLowerCase()] ?? family.trim();
+}
+
+/** Whether two family names are one family. */
+export function sameFamily(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = canonicalFamily(a);
+  const y = canonicalFamily(b);
+  return !!x && !!y && x.toLowerCase() === y.toLowerCase();
+}
+
+/** The family a model id points to when the registry does not know the model (an engine's own model name). */
+export function familyFromModelId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  if (/^(anthropic\/|claude)/i.test(id)) return 'anthropic';
+  if (/^(openai\/|gpt|o[134](-|$))/i.test(id)) return 'openai';
+  if (/^(google\/|gemini)/i.test(id)) return 'google';
+  return null;
+}
+
+/** What the registry can say about the models set for a step (a ModelRegistry does; a test double need not). */
+type JudgeRegistryFull = JudgeRegistry & Partial<Pick<ModelRegistry, 'configured'>>;
+
+const STATUS_WORDS: Record<string, string> = {
+  needs_key: 'no key saved',
+  disabled: 'switched off',
+  signed_out: 'signed out',
+  not_pulled: 'not pulled in Ollama',
+  ready: 'ready',
+};
+
+/** Each thing a judge search looked at, and why it was skipped: the error names them all (FC2). */
+export function triedWords(registry: JudgeRegistryFull, taskClass: string): string[] {
+  const out: string[] = [];
+  const set = registry.configured?.(taskClass) ?? [];
+  for (const m of set) out.push(`${m.name} (${STATUS_WORDS[m.status] ?? m.status})`);
+  if (!set.length)
+    out.push(
+      `the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is set or ready)`,
+    );
+  const cc = registry.all().filter((m) => m.provider === CLAUDE_CODE_PROVIDER);
+  const quick = cc.find((m) => m.id === CLAUDE_CODE_JUDGE) ?? cc[0];
+  if (!quick) out.push('Claude Code (not installed or not verified)');
+  else out.push(`Claude Code (${STATUS_WORDS[registry.status(quick)] ?? registry.status(quick)})`);
+  out.push(`a small Ollama model you pulled (none of ${REVIEWER_MAX_B}B or less is ready)`);
+  return out;
+}
+
 /** The error when no judge can be found, saying each thing that was tried. */
-export function noJudge(taskClass: string): AncileError {
+export function noJudge(taskClass: string, tried: string[] = []): AncileError {
+  const list = tried.length
+    ? `Tried ${tried.join('; ')}.`
+    : `Tried the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is ready), ` +
+      'Claude Code (not installed or not verified) and a small Ollama model you pulled ' +
+      `(none of ${REVIEWER_MAX_B}B or less).`;
   return new AncileError({
     code: 'factcheck.no_model',
     title: 'No model is ready to fact-check',
-    hint:
-      `Tried the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is ready), ` +
-      'Claude Code (not installed or not verified) and a small Ollama model you pulled ' +
-      `(none of ${REVIEWER_MAX_B}B or less). Add a provider key in Settings → Models, set up Claude Code ` +
-      'in Settings → Claude Code, or pull a small model with Ollama.',
+    hint: `${list} Add a provider key in Settings → Models, set up Claude Code in Settings → Claude Code, or pull a small model with Ollama.`,
     status: 422,
     errorClass: 'permanent',
   });
 }
 
 /**
- * The models that may judge a step: the chain set for it, else Claude
- * Code's quickest model and then the smallest pulled local model. Throws
- * factcheck.no_model, naming what was tried, when there is none.
+ * Guard rail GR24: a fact-check is judged by a different model family from
+ * the one that wrote the text. When none is ready, say so and do not run: there
+ * is no same-family fallback.
  */
-export function judgeChain(
-  registry: JudgeRegistry,
-  taskClass: string,
-  opts: { generatorFamily?: string } = {},
-): ModelConfig[] {
-  try {
-    return registry.chain(taskClass, null, opts);
-  } catch (err) {
-    if (!(err instanceof NoRouteError)) throw err;
-  }
+export function noOtherFamily(family: string, skipped: string[]): AncileError {
+  return new AncileError({
+    code: 'factcheck.no_other_family',
+    title: 'No second opinion is available',
+    hint:
+      `This was written by a ${family} model, and a fact-check is always judged by a model from a different family. ` +
+      `${skipped.length ? `Skipped: ${skipped.join('; ')}. ` : 'None is ready. '}` +
+      'Add a provider key for another family in Settings → Models, or pull a small Ollama model, then check again.',
+    status: 422,
+    errorClass: 'permanent',
+  });
+}
+
+/** Every judge that was ready is one the scope keeps out of this notebook. */
+export function judgeNotAllowed(reasons: string[]): AncileError {
+  return new AncileError({
+    code: 'factcheck.judge_not_allowed',
+    title: 'No allowed model can fact-check this here',
+    hint: `${[...new Set(reasons)].join('. ')}. Allow a model in this notebook's scope, or add a local model, then check again.`,
+    status: 422,
+    errorClass: 'permanent',
+  });
+}
+
+export interface JudgeOpts {
+  /** The family that wrote the text being checked. */
+  generatorFamily?: string | undefined;
+  /** GR24: models of the writer's family never judge, and there is no fallback to one. */
+  strict?: boolean;
+  /** The scope's say on a model: why it may not be used here, or null. */
+  allow?: ((m: ModelConfig) => string | null) | undefined;
+}
+
+/** Claude Code's quickest model, then the smallest pulled local one: the judges when no model is set. */
+function fallbackJudges(registry: JudgeRegistryFull): ModelConfig[] {
   const out: ModelConfig[] = [];
   const cc = registry.all().find((m) => m.id === CLAUDE_CODE_JUDGE && registry.status(m) === 'ready');
   if (cc) out.push({ ...cc, enabled: true });
   const local = reviewerModel(registry);
   if (local) out.push(local);
-  if (!out.length) throw noJudge(taskClass);
   return out;
+}
+
+/**
+ * The models that may judge a step: the chain set for it, else Claude
+ * Code's quickest model and then the smallest pulled local model. With
+ * `strict` (every fact-check, GR24) the writer's family is dropped and the
+ * fallbacks are offered too, so another family is found whenever there is
+ * one. Throws factcheck.no_model, naming what was tried, when there is none;
+ * factcheck.no_other_family when only the writer's family is ready; and
+ * factcheck.judge_not_allowed when the scope keeps every ready one out.
+ */
+export function judgeChain(
+  registry: JudgeRegistryFull,
+  taskClass: string,
+  opts: JudgeOpts = {},
+): ModelConfig[] {
+  let base: ModelConfig[] = [];
+  try {
+    base = registry.chain(
+      taskClass,
+      null,
+      opts.generatorFamily ? { generatorFamily: opts.generatorFamily } : {},
+    );
+  } catch (err) {
+    if (!(err instanceof NoRouteError)) throw err;
+  }
+  const plain = !opts.strict && !opts.allow;
+  if (plain && base.length) return base;
+  const seen = new Set<string>();
+  const candidates = (opts.strict || !base.length ? [...base, ...fallbackJudges(registry)] : base).filter(
+    (m) => !seen.has(m.id) && !!seen.add(m.id),
+  );
+  if (plain) {
+    if (!candidates.length) throw noJudge(taskClass, triedWords(registry, taskClass));
+    return candidates;
+  }
+  const skippedFamily: string[] = [];
+  const refused: string[] = [];
+  const out: ModelConfig[] = [];
+  for (const m of candidates) {
+    if (opts.strict && opts.generatorFamily && sameFamily(m.family, opts.generatorFamily)) {
+      skippedFamily.push(`${m.display_name} (same family as the writer)`);
+      continue;
+    }
+    const why = opts.allow?.(m) ?? null;
+    if (why) {
+      refused.push(why);
+      continue;
+    }
+    out.push(m);
+  }
+  if (out.length) return out;
+  if (refused.length) throw judgeNotAllowed(refused);
+  if (skippedFamily.length && opts.generatorFamily) throw noOtherFamily(opts.generatorFamily, skippedFamily);
+  throw noJudge(taskClass, triedWords(registry, taskClass));
 }
 
 /* ---- Structured calls ------------------------------------------------------ */
@@ -173,6 +310,9 @@ export function judgeChain(
 export interface Completion {
   text: string;
   modelId: string;
+  /** What the model that answered reported, and what the provider billed when it said. */
+  usage?: CallUsage | undefined;
+  costUsd?: number | undefined;
 }
 
 /** Stream one request through the gateway and collect the text. */
@@ -184,13 +324,21 @@ async function complete(
 ): Promise<Completion> {
   let text = '';
   let modelId = chain[0]?.id ?? '';
+  let usage: CallUsage | undefined;
+  let costUsd: number | undefined;
   for await (const ev of gateway.stream(chain, req, signal)) {
     if (ev.type === 'model') {
       modelId = ev.modelId;
       text = '';
+      usage = undefined;
+      costUsd = undefined;
     } else if (ev.type === 'chunk' && ev.chunk.type === 'text') text += ev.chunk.delta;
+    else if (ev.type === 'chunk' && ev.chunk.type === 'finish') {
+      usage = ev.chunk.usage;
+      costUsd = ev.chunk.costUsd;
+    }
   }
-  return { text, modelId };
+  return { text, modelId, usage, costUsd };
 }
 
 /** The first JSON object in a reply, fences and chatter around it ignored. */
@@ -216,9 +364,31 @@ export async function structured<T>(
   prompt: string,
   schema: z.ZodType<T>,
   signal: AbortSignal,
-): Promise<{ value: T; modelId: string }> {
-  const req: ModelRequest = { system: SYSTEM, messages: [{ role: 'user', content: prompt }], temperature: 0 };
+  opts: {
+    system?: string;
+    maxOutputTokens?: number;
+    /** Looks at what a reply says beyond its shape; a message means this model's reply is not usable. */
+    accept?: (value: T) => string | null;
+  } = {},
+): Promise<{ value: T; modelId: string; usage: CallUsage | undefined; costUsd: number | undefined }> {
+  const req: ModelRequest = {
+    system: opts.system ?? SYSTEM,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0,
+    ...(opts.maxOutputTokens && { maxOutputTokens: opts.maxOutputTokens }),
+  };
   const isCc = (m: ModelConfig | undefined) => m?.provider === CLAUDE_CODE_PROVIDER;
+  // Every attempt that failed on the way, so the error can say what each one did (FC2).
+  const failures: FailedAttempt[] = [];
+  const note = (model: ModelConfig, err: unknown) => {
+    if (err instanceof ChainFailedError) failures.push(...err.attempts);
+    else
+      failures.push({
+        model: model.id,
+        errorClass: 'transient',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+  };
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as ModelConfig;
     // Claude Code as a judge is asked on its own, through a slot, with a short time limit (started once
@@ -241,7 +411,12 @@ export async function structured<T>(
         out = await complete(deps.gateway, chain.slice(i, stop < 0 ? undefined : stop), req, signal);
       }
     } catch (err) {
-      if (signal.aborted || i === chain.length - 1) throw err;
+      if (signal.aborted) throw err;
+      note(model, err);
+      if (i === chain.length - 1)
+        throw failures.length > 1 || !(err instanceof ChainFailedError)
+          ? new ChainFailedError(failures)
+          : err;
       if (!cc) {
         // Every model up to the next Claude Code one failed: go on from there.
         const stop = chain.findIndex((m, k) => k > i && isCc(m));
@@ -251,7 +426,8 @@ export async function structured<T>(
       continue;
     }
     const parsed = schema.safeParse(parseJsonObject(out.text));
-    if (parsed.success) return { value: parsed.data, modelId: out.modelId };
+    if (parsed.success && !opts.accept?.(parsed.data))
+      return { value: parsed.data, modelId: out.modelId, usage: out.usage, costUsd: out.costUsd };
     // The model that answered gave the wrong shape: try the one after it.
     const at = chain.findIndex((m) => m.id === out.modelId);
     if (at > i) i = at;
@@ -371,7 +547,7 @@ Return JSON matching ClaimList: { "claims": [{ "text", "char_start", "char_end",
 
 export async function extractClaims(
   deps: StepDeps,
-  input: { answer: string; question: string },
+  input: { answer: string; question: string; allow?: JudgeOpts['allow'] },
   signal: AbortSignal,
 ): Promise<{ claims: ExtractedClaim[]; modelId: string }> {
   const template = await loadPrompt(deps.promptsDir, 'factcheck.extract-claims', EXTRACT_FALLBACK);
@@ -381,7 +557,7 @@ export async function extractClaims(
     slot,
     () => input.answer,
   );
-  const chain = judgeChain(deps.registry, 'utility');
+  const chain = judgeChain(deps.registry, 'utility', { allow: input.allow });
   const { value, modelId } = await structured(deps, chain, prompt, RawClaims, signal);
   return { claims: validateClaims(input.answer, value.claims), modelId };
 }
@@ -393,33 +569,71 @@ export interface Gathered {
   coverage: number;
 }
 
+/** A web search the check may run: the query goes through the permission gate before it leaves. */
+export type WebLookup = (query: string, signal: AbortSignal) => Promise<WebHit[] | null>;
+
+/** The most claims one check looks up on the web: a cap on time and on what leaves this machine. */
+export const WEB_MAX_QUERIES = 8;
+/** Web results kept for a claim. */
+export const WEB_HITS_PER_CLAIM = 3;
+/** A claim with no source passage, or weaker coverage than this, is looked up on the web (FC4). */
+const WEB_WHEN_COVERAGE = 0.6;
+
+/** A search query for a claim: its words, kept short. */
+export function webQuery(claim: string): string {
+  const t = claim.replace(/\s+/g, ' ').trim();
+  return t.length > 200 ? t.slice(0, 200).replace(/\s\S*$/, '') : t;
+}
+
+const webEvidence = (h: WebHit): Gathered['evidence'][number] => ({
+  kind: 'url',
+  ref: h.url,
+  source_id: null,
+  source_title: h.title || hostName(h.url),
+  page: null,
+  char_start: null,
+  char_end: null,
+  quote: h.snippet.slice(0, 280),
+  stance: 'neutral' as Stance,
+  score: 0.5,
+  origin: 'web',
+  text: `${h.title}\n${h.snippet}`.slice(0, EVIDENCE_CHARS),
+});
+
 export async function gatherEvidence(
   deps: StepDeps,
-  input: { workspaceId: string; notebookId: string | null; claims: string[] },
+  input: {
+    workspaceId: string;
+    notebookId: string | null;
+    claims: string[];
+    /** Look claims your sources do not cover up on the web (FC4); absent: sources only. */
+    web?: WebLookup | undefined;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<Gathered[]> {
   if (!input.claims.length) return [];
-  if (!deps.kn) return input.claims.map(() => ({ evidence: [], coverage: 0 }));
-  let res: EvidenceResponse;
-  try {
-    res = await deps.kn.post<EvidenceResponse>('/evidence', {
-      workspace_id: input.workspaceId,
-      notebook_id: input.notebookId,
-      claims: input.claims.map((c) => c.slice(0, 4_000)),
-      k_per_claim: 4,
-    });
-  } catch (err) {
-    throw new AncileError({
-      code: 'factcheck.evidence_unavailable',
-      title: 'Your sources could not be searched',
-      hint: 'Knowledge did not answer. Check it in Admin → Health, then fact-check again.',
-      status: 503,
-      errorClass: 'transient',
-      cause: err,
-    });
+  let res: EvidenceResponse | null = null;
+  if (deps.kn) {
+    try {
+      res = await deps.kn.post<EvidenceResponse>('/evidence', {
+        workspace_id: input.workspaceId,
+        notebook_id: input.notebookId,
+        claims: input.claims.map((c) => c.slice(0, 4_000)),
+        k_per_claim: 4,
+      });
+    } catch (err) {
+      throw new AncileError({
+        code: 'factcheck.evidence_unavailable',
+        title: 'Your sources could not be searched',
+        hint: 'Knowledge did not answer. Check it in Admin → Health, then fact-check again.',
+        status: 503,
+        errorClass: 'transient',
+        cause: err,
+      });
+    }
   }
-  // TODO(phase-5): web evidence (config factcheck.web_search) once a web.search tool exists.
-  return input.claims.map((_, i) => {
-    const r = res.results[i];
+  const out: Gathered[] = input.claims.map((_, i) => {
+    const r = res?.results[i];
     return {
       coverage: r?.coverage ?? 0,
       evidence: (r?.hits ?? []).map((h) => ({
@@ -433,10 +647,27 @@ export async function gatherEvidence(
         quote: h.quote,
         stance: 'neutral' as Stance,
         score: h.relevance,
+        origin: 'source' as const,
         text: h.text,
       })),
     };
   });
+  // The web, for the claims your sources cover least, up to WEB_MAX_QUERIES. A search that fails or is
+  // refused leaves the claim with what the sources gave: the web adds evidence, it never removes any.
+  if (input.web) {
+    const order = out
+      .map((g, i) => ({ g, i }))
+      .filter(({ g }) => g.evidence.length === 0 || g.coverage < WEB_WHEN_COVERAGE)
+      .sort((a, b) => a.g.coverage - b.g.coverage)
+      .slice(0, WEB_MAX_QUERIES);
+    for (const { g, i } of order) {
+      const claim = input.claims[i] ?? '';
+      const signal = input.signal ?? new AbortController().signal;
+      const hits = await input.web(webQuery(claim), signal).catch(() => null);
+      if (hits?.length) g.evidence.push(...hits.slice(0, WEB_HITS_PER_CLAIM).map(webEvidence));
+    }
+  }
+  return out;
 }
 
 /* ---- Verify ----------------------------------------------------------------- */
@@ -469,21 +700,47 @@ const WRAPPER_FALLBACK = `<untrusted kind="{{kind}}" origin="{{origin}}" id="{{m
 {{content}}
 </untrusted id="{{marker}}">`;
 
-/** The evidence as the verifier reads it: numbered E1…En, inside the untrusted wrapper. */
+/**
+ * The evidence as the verifier reads it: numbered E1…En, your sources and the
+ * web each inside their own untrusted wrapper (a page can say anything).
+ */
 export function evidenceBlock(
-  evidence: { text: string; source_title: string; page: number | null }[],
+  evidence: {
+    text: string;
+    source_title: string;
+    page: number | null;
+    origin?: 'source' | 'web' | 'run' | undefined;
+  }[],
   wrapper: string,
 ): string {
   if (!evidence.length) return '(No evidence was found in your sources.)';
-  const marker = randomBytes(6).toString('hex');
-  const body = evidence
-    .map((e, i) => {
-      const text = e.text.length > EVIDENCE_CHARS ? `${e.text.slice(0, EVIDENCE_CHARS)}…` : e.text;
-      const where = e.page != null ? `${e.source_title}, page ${e.page}` : e.source_title;
-      return `[E${i + 1}] ${where}\n"""\n${text.replace(/"""/g, '"​""')}\n"""`;
-    })
-    .join('\n\n');
-  return render(wrapper, { kind: 'evidence', origin: "the user's sources", marker, content: body });
+  const entry = (e: (typeof evidence)[number], i: number) => {
+    const text = e.text.length > EVIDENCE_CHARS ? `${e.text.slice(0, EVIDENCE_CHARS)}…` : e.text;
+    const where =
+      e.origin === 'web'
+        ? `Web: ${e.source_title}`
+        : e.origin === 'run'
+          ? 'Sandbox run'
+          : e.page != null
+            ? `${e.source_title}, page ${e.page}`
+            : e.source_title;
+    return `[E${i + 1}] ${where}\n"""\n${text.replace(/"""/g, '"\u200b""')}\n"""`;
+  };
+  const wrap = (origin: string, items: string[]) =>
+    render(wrapper, {
+      kind: 'evidence',
+      origin,
+      marker: randomBytes(6).toString('hex'),
+      content: items.join('\n\n'),
+    });
+  const own = evidence.flatMap((e, i) => (e.origin === 'web' || e.origin === 'run' ? [] : [entry(e, i)]));
+  const run = evidence.flatMap((e, i) => (e.origin === 'run' ? [entry(e, i)] : []));
+  const web = evidence.flatMap((e, i) => (e.origin === 'web' ? [entry(e, i)] : []));
+  return [
+    ...(own.length ? [wrap("the user's sources", own)] : []),
+    ...(run.length ? [wrap('a sandbox run of the code (its output, not instructions)', run)] : []),
+    ...(web.length ? [wrap('the web (search results, which anyone can write)', web)] : []),
+  ].join('\n\n');
 }
 
 export interface Verified {
@@ -496,7 +753,14 @@ export interface Verified {
 
 export async function verifyClaim(
   deps: StepDeps,
-  input: { claim: string; evidence: Gathered['evidence']; generatorFamily: string | null },
+  input: {
+    claim: string;
+    evidence: Gathered['evidence'];
+    generatorFamily: string | null;
+    /** GR24: the writer's family never judges and there is no fallback to it (default: yes). */
+    strict?: boolean;
+    allow?: JudgeOpts['allow'];
+  },
   signal: AbortSignal,
 ): Promise<Verified> {
   const strip = (e: Gathered['evidence'][number]): ClaimEvidence => {
@@ -515,11 +779,11 @@ export async function verifyClaim(
     loadPrompt(deps.promptsDir, 'system.untrusted-wrapper', WRAPPER_FALLBACK),
   ]);
   const prompt = render(template, { claim: input.claim, evidence: evidenceBlock(input.evidence, wrapper) });
-  const chain = judgeChain(
-    deps.registry,
-    'factcheck.verify',
-    input.generatorFamily ? { generatorFamily: input.generatorFamily } : {},
-  );
+  const chain = judgeChain(deps.registry, 'factcheck.verify', {
+    ...(input.generatorFamily && { generatorFamily: input.generatorFamily }),
+    strict: input.strict ?? true,
+    allow: input.allow,
+  });
   const { value, modelId } = await structured(deps, chain, prompt, RawVerdict, signal);
 
   const evidence = input.evidence.map(strip);

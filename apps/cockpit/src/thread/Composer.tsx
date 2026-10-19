@@ -614,6 +614,20 @@ function ComposerImpl({
     else clearDraft();
   }, [replaceText?.n]);
 
+  // "Use the corrected claim" (a fact-check card) writes a follow-up here. It joins what is already
+  // written, never replaces it, and is never sent: sending stays your choice.
+  useEffect(() => {
+    const onInsert = (e: Event) => {
+      const d = (e as CustomEvent<{ threadId?: string; text?: string }>).detail;
+      if (!d?.text || d.threadId !== threadId) return;
+      const add = d.text;
+      setText((t) => (t.trim() ? `${t.replace(/\s+$/, '')}\n\n${add}` : add));
+      ref.current?.focus();
+    };
+    window.addEventListener('ancile:composer-insert', onInsert);
+    return () => window.removeEventListener('ancile:composer-insert', onInsert);
+  }, [threadId]);
+
   const onChange = (value: string) => {
     // A snippet trigger followed by a space becomes its text.
     const m = /(?:^|\s)(;[a-z0-9-]{1,24}) $/.exec(value);

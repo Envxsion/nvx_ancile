@@ -207,6 +207,7 @@
   --d-view: 120ms;
   --d-theme: 120ms;
   --press: 1;
+  --press-soft: 1;
   --pop-from: 1;
 }
 :root[data-motion='reduced'] *,
@@ -228,6 +229,7 @@
     --d-view: 120ms;
     --d-theme: 120ms;
     --press: 1;
+    --press-soft: 1;
     --pop-from: 1;
   }
   :root:not([data-motion]) *,

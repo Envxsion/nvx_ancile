@@ -35,6 +35,8 @@ export interface Notice {
   read: boolean;
   action?: { label: string; run: () => void };
   undo?: () => void;
+  /** How long the toast stays, whatever the setting (an Undo window is a promise: 10 s). */
+  ttlMs?: number;
   /** Which notification setting governs it. Absent: always a toast. */
   category?: NoticeCategory;
   /** Kept by Core (its read state lives there too). */

@@ -176,4 +176,32 @@ eachBackend('thread and notebook repositories', (backend) => {
     expect(await notebooks.get(id)).toBeUndefined();
     expect(await notebooks.patch(id, { title: 'gone' })).toBeUndefined();
   });
+
+  it('sets exact fields, lists the Trash, marks seen, and purges a thread with everything under it', async () => {
+    const t = (await threads.createThread({ id: uid('thr'), workspace_id: ws, title: 'Doomed' })).id;
+    const a = message(t, null, 'user', 'hello');
+    const b = message(t, a.id, 'assistant', 'hi');
+    await threads.insertMessages([a, b]);
+    const [before] = await threads.statesOf(ws, [t]);
+    expect(before).toMatchObject({ id: t, title: 'Doomed', deleted_at: null });
+
+    expect(await threads.setFields(ws, t, { deleted_at: '2026-01-01T00:00:00.000Z' })).toBe(true);
+    expect(await threads.getThread(t)).toBeUndefined();
+    expect((await threads.listTrash(ws)).map((x) => x.id)).toContain(t);
+    expect(await threads.trashedBefore(ws, new Date('2026-01-31T00:00:00.000Z'))).toContain(t);
+    expect(await threads.trashedBefore(ws, new Date('2025-12-31T00:00:00.000Z'))).not.toContain(t);
+    // A live thread is never purged.
+    const live = (await threads.createThread({ id: uid('thr'), workspace_id: ws })).id;
+    expect(await threads.purge([live])).toEqual([]);
+
+    expect(
+      await threads.setFields(ws, t, { deleted_at: null, updated_at: before?.updated_at as string }),
+    ).toBe(true);
+    expect((await threads.getThread(t))?.updated_at).toBe(before?.updated_at);
+    await threads.markSeen(t);
+    await threads.setFields(ws, t, { deleted_at: '2026-01-01T00:00:00.000Z' });
+    expect(await threads.purge([t])).toEqual([t]);
+    expect(await threads.statesOf(ws, [t])).toEqual([]);
+    expect(await threads.getMessage(a.id)).toBeUndefined();
+  });
 });

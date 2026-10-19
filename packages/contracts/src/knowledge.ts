@@ -29,6 +29,8 @@ export const Notebook = z.object({
   pinned: z.boolean().default(false),
   /** Grounded mode: every answer here is fact-checked when it finishes. */
   grounded: z.boolean().default(false),
+  /** Fact-checks here may also look claims up on the web (FC4). Never for a private or keep-local notebook. */
+  check_on_web: z.boolean().default(false),
   archived_at: z.string().nullable(),
   last_opened_at: z.string().nullable(),
   created_at: z.string(),
@@ -59,6 +61,7 @@ export const PatchNotebookRequest = z
     pinned: z.boolean(),
     archived: z.boolean(),
     grounded: z.boolean(),
+    check_on_web: z.boolean(),
   })
   .partial()
   .strict();
@@ -120,6 +123,10 @@ export const Source = z.object({
     .default(null),
   /** ISO 639-1 code of the source's main language, detected at ingest; null until known. */
   language: z.string().nullable().default(null),
+  /** Who wrote it, as typed (ROADMAP S6); null when unknown. */
+  author: z.string().nullable().default(null),
+  /** The date it was published, YYYY-MM-DD; null when unknown. */
+  published_on: z.string().nullable().default(null),
 });
 export type Source = z.infer<typeof Source>;
 
@@ -145,7 +152,22 @@ export const AddSourceRequest = z
 export type AddSourceRequest = z.infer<typeof AddSourceRequest>;
 
 export const PatchSourceRequest = z
-  .object({ title: z.string().trim().min(1).max(400), tags: z.array(z.string().max(60)).max(40) })
+  .object({
+    title: z.string().trim().min(1).max(400),
+    tags: z.array(z.string().max(60)).max(40),
+    /** Null or empty clears it. */
+    author: z.string().trim().max(200).nullable(),
+    /** YYYY-MM-DD; null clears it. */
+    published_on: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+    /** ISO 639-1 (two letters). Set by hand it stays; null hands the guess back to detection. */
+    language: z
+      .string()
+      .regex(/^[a-z]{2}$/)
+      .nullable(),
+  })
   .partial()
   .strict();
 

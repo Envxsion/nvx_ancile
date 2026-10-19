@@ -184,10 +184,17 @@ function EvidenceQuote({ e, claim }: { e: ClaimEvidence; claim: string }) {
   return (
     <li className="ev-quote" data-stance={e.stance}>
       <span className="ev-quote__stance">
+        <span className="ev-quote__origin" data-origin={e.origin ?? 'source'}>
+          {e.origin === 'web' ? 'Web' : 'Source'}
+        </span>
         {e.stance === 'supports'
-          ? 'Your source says'
+          ? e.origin === 'web'
+            ? 'The web says'
+            : 'Your source says'
           : e.stance === 'contradicts'
-            ? 'Your source says otherwise'
+            ? e.origin === 'web'
+              ? 'The web says otherwise'
+              : 'Your source says otherwise'
             : 'Related'}
       </span>
       <blockquote>

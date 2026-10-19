@@ -75,6 +75,29 @@ describe('internal chat completions', () => {
     expect(res.status).toBe(200);
   });
 
+  it('answers a task class nothing is set for with Claude Code, as a fact-check does (FC2)', async () => {
+    // No provider key and no Ollama: only Claude Code (signed in) can answer Knowledge's utility calls.
+    h = await harness({ offline: false });
+    const { claudeCodeModels } = await import('../../src/engines/mode-a');
+    h.registry.setProviderModels(
+      'claude_code',
+      claudeCodeModels().map((m) => ({ ...m, provider_model: 'say:from claude code' })),
+    );
+    const res = await post('/openai/chat/completions', {
+      model: 'task:utility',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { model: string; choices: { message: { content: string } }[] };
+    expect(json.model).toBe('claude-code/haiku');
+    // A class that is not a judged one still says no model is set.
+    const chat = await post('/openai/chat/completions', {
+      model: 'task:chat.deep',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(chat.status).toBe(503);
+  });
+
   it('streams OpenAI chunks, tool calls included, and ends with [DONE]', async () => {
     h = await harness();
     const res = await post('/openai/chat/completions', {

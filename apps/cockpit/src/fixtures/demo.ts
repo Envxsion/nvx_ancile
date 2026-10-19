@@ -696,6 +696,7 @@ export function demoExplain(m: { id: string; modelId: string | null }): Explain 
     compaction: null,
     usage: null,
     factcheck: null,
+    selection_checks: [],
     error: null,
     recovered: [],
     flow: null,

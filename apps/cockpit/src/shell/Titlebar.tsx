@@ -5,7 +5,8 @@
  * ------------------------------------------------------------------
  *  Purpose  |  44 px of chrome: the mark as a status light, where you
  *           |  are, and what you reach for most (search, the guide,
- *           |  theme, notifications, settings). The sidebar toggle
+ *           |  theme, notifications). Settings has one home, at the
+ *           |  foot of the sidebar, and Ctrl+K. The sidebar toggle
  *           |  lives here too, so a hidden sidebar is always one click
  *           |  from coming back, on any screen, by touch as well.
  *  Note     |  The mark's state is the AI's state: thinking, streaming,
@@ -17,9 +18,10 @@
 import { AncileMark, type MarkState, type ThemeChoice } from '@nvx/aperture';
 import { Link, useRouter } from '@tanstack/react-router';
 import { AnimatePresence, m as motion } from 'motion/react';
+import { useEffect } from 'react';
 import { useBinding } from '../keys/dispatch';
-import { keysFor } from '../keys/registry';
-import { useNotify } from '../state/notify';
+import { keysFor, keyText } from '../keys/registry';
+import { notify, useNotify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -33,6 +35,9 @@ const MARK_LABEL: Record<MarkState, string> = {
   offline: 'Core is not answering',
   alarm: 'Something needs attention',
 };
+
+/** Remembers that the one-time note about Settings has been shown. */
+const SETTINGS_TIP = 'nvx.ancile.tip.settings-moved';
 
 const THEME_ICON = { system: 'monitor', dark: 'moon', light: 'sun' } as const;
 const THEME_LABEL = {
@@ -54,6 +59,23 @@ export function Titlebar({ crumbs }: { crumbs: { label: string; to?: string }[] 
   const cycleTheme = useUi((s) => s.cycleTheme);
   const router = useRouter();
   useBinding('theme.toggle', cycleTheme);
+
+  // The top-right Settings button went (ROADMAP NV2): say so once to someone who had it.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SETTINGS_TIP)) return;
+      const returning = localStorage.length > 0;
+      localStorage.setItem(SETTINGS_TIP, '1');
+      if (returning)
+        notify({
+          level: 'info',
+          title: 'Settings moved to the sidebar',
+          body: `Open it at the bottom of the sidebar, or press ${keyText('settings.open')}.`,
+        });
+    } catch {
+      /* storage blocked: no tip */
+    }
+  }, []);
 
   // "Still" keeps the mark as a logo; "status only" keeps its colour states without motion.
   const shown: MarkState = markAnim === 'still' ? 'idle' : mark;
@@ -186,17 +208,6 @@ export function Titlebar({ crumbs }: { crumbs: { label: string; to?: string }[] 
               </span>
             ) : null}
           </button>
-        </Tip>
-        <Tip label="Settings" binding="settings.open" side="bottom">
-          <Link
-            to="/settings/$group"
-            params={{ group: 'appearance' }}
-            className="icon-btn"
-            aria-label="Settings"
-            data-tour="settings"
-          >
-            <Icon name="settings" />
-          </Link>
         </Tip>
       </div>
     </header>

@@ -73,6 +73,8 @@ export interface NotebookView {
   archived?: boolean;
   /** Grounded mode: every answer here is fact-checked when it finishes. */
   grounded?: boolean;
+  /** Fact-checks here may also look claims up on the web (FC4). */
+  check_on_web?: boolean;
 }
 
 export interface ThreadSummary {
@@ -82,6 +84,10 @@ export interface ThreadSummary {
   updatedAt: string;
   branches: number;
   live?: boolean;
+  /** The run is waiting on you (an approval). */
+  waiting?: boolean;
+  /** An answer arrived since you last opened the thread. */
+  unread?: boolean;
   pinned?: boolean;
   archived?: boolean;
   /** Came from a Claude Code session, so it can be synced from it. */
@@ -226,6 +232,12 @@ export interface SourceView {
   error?: { title: string; hint: string } | null;
   duplicateOf?: { sourceId: string; title: string; kind: string } | null;
   createdAt?: string;
+  /** Who wrote it, when known (ROADMAP S6). */
+  author?: string | null;
+  /** When it was published, YYYY-MM-DD. */
+  publishedOn?: string | null;
+  /** ISO 639-1 code: detected, or set by hand. */
+  language?: string | null;
 }
 
 export interface EvidenceView {

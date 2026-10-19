@@ -143,6 +143,30 @@ const adminSectionRoute = createRoute({
   component: lazyRouteComponent(() => import('./routes/admin/Admin'), 'AdminSectionScreen'),
 });
 
+// Places that used to be reachable by a second address (ROADMAP NV2). Each destination has one home;
+// the old address still lands there, so a bookmark or an old link never breaks.
+const modelsAliasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/models',
+  beforeLoad: () => {
+    throw redirect({ to: '/admin/$section', params: { section: 'models' }, replace: true });
+  },
+});
+const automationsAliasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/automations',
+  beforeLoad: () => {
+    throw redirect({ to: '/admin/$section', params: { section: 'automations' }, replace: true });
+  },
+});
+const grantsAliasRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: 'grants',
+  beforeLoad: () => {
+    throw redirect({ to: '/admin/$section', params: { section: 'permissions' }, replace: true });
+  },
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   threadRoute,
@@ -156,8 +180,10 @@ export const routeTree = rootRoute.addChildren([
   openHelpRoute,
   openFlowRunRoute,
   settingsRoute,
+  modelsAliasRoute,
+  automationsAliasRoute,
   settingsGroupRoute,
-  adminRoute.addChildren([adminIndexRoute, adminSectionRoute]),
+  adminRoute.addChildren([adminIndexRoute, grantsAliasRoute, adminSectionRoute]),
 ]);
 
 /** Hover or focus loads a link's code and, after a short rest, its data (lib/prefetch.ts). */

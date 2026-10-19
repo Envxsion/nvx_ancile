@@ -47,6 +47,7 @@ import {
 } from './groups';
 import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
+import { TrashGroup } from './TrashGroup';
 
 const ALL_GROUPS: {
   id:
@@ -59,7 +60,8 @@ const ALL_GROUPS: {
     | 'usage'
     | 'desktop'
     | 'auto'
-    | 'lab';
+    | 'lab'
+    | 'trash';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -150,6 +152,13 @@ const ALL_GROUPS: {
     icon: 'shield',
     body: PrivacyGroup,
     lede: 'What NVX Ancile may share about how it is used.',
+  },
+  {
+    id: 'trash',
+    label: 'Trash',
+    icon: 'trash',
+    body: TrashGroup,
+    lede: 'Deleted threads wait here for 30 days. Restore one, or empty the Trash.',
   },
   {
     id: 'sync',

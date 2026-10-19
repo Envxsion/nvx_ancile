@@ -35,6 +35,7 @@ import {
   type Part,
   Recovered,
   RetrievalTrace,
+  SelectionCheck,
 } from '@nvx/contracts';
 import type { MessageRecord } from '../threads/repo';
 
@@ -133,6 +134,13 @@ export function assembleExplain(input: {
         return parsed.success ? [parsed.data] : [];
       })
     : [];
+  // Claims highlighted here and checked (FC3); an entry that no longer parses is left out, never trusted.
+  const selectionChecks = Array.isArray(p.selection_checks)
+    ? p.selection_checks.flatMap((c) => {
+        const parsed = SelectionCheck.safeParse(c);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
   const attempts = Array.isArray(p.attempts)
     ? (p.attempts as { model?: unknown; reason?: unknown; detail?: unknown }[]).map((a) => ({
         model: String(a.model ?? ''),
@@ -170,6 +178,7 @@ export function assembleExplain(input: {
     compaction: compaction.success ? compaction.data : null,
     usage: m.usage,
     factcheck: input.factcheck,
+    selection_checks: selectionChecks,
     error: err?.code
       ? { code: String(err.code), title: String(err.title ?? ''), hint: String(err.hint ?? '') }
       : null,

@@ -248,7 +248,11 @@ Opinions, advice and predictions are left alone: there is nothing to check them 
 
 Hover or focus a claim to see the passage behind its verdict, and open it in the source. The score under the answer is a weighted mean of every claim's confidence; hover it for the breakdown in words. An answer whose every checkable claim is verified earns the gilt seal.
 
-**Grounded mode** fact-checks every answer in a notebook as soon as it finishes. Turn it on from the Sources panel.`,
+**Grounded mode** fact-checks every answer in a notebook as soon as it finishes. Turn it on from the Sources panel.
+
+**Just one claim.** Highlight any words in any message, an answer or your own, and choose **Fact-check** on the bar beside them (or press **F**). A card gives a one-line verdict, the corrected claim when it does not hold, three to five evidence lines each with its source, and one line on what would change. **Use the corrected claim** writes a follow-up in your message box and never sends it. A check always has a judge from a different model family than the one that wrote the words; if none is ready, it says so and does not run. A check costs money only when you ask for it, and the card shows the cost.
+
+**On the web.** Turn on **Check on the web** in the Sources panel, or choose **Check again with the web** for one check, and claims your sources do not cover are looked up on the web and marked **Web**. A private notebook never uses the web.`,
       },
       {
         id: 'why',
@@ -794,6 +798,8 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'openrouter.endpoints_unavailable': 'openrouter-quality',
   'openrouter.model_invalid': 'openrouter-quality',
   'factcheck.no_model': 'fact-checking',
+  'factcheck.no_other_family': 'fact-checking',
+  'factcheck.judge_not_allowed': 'fact-checking',
   'factcheck.bad_output': 'fact-checking',
   'factcheck.evidence_unavailable': 'fact-checking',
   'model.needs_key': 'models',

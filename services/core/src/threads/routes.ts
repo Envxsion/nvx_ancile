@@ -21,17 +21,20 @@ import {
   type ClaudeCodeBinding,
   CreateThreadRequest,
   EditMessageRequest,
+  EmptyTrashRequest,
   type Message,
   type Part,
   PatchThreadRequest,
   RegenerateRequest,
   SendMessageRequest,
   type Thread,
+  ThreadBulkRequest,
   ThreadListQuery,
   type ThreadPath,
   ThreadPathQuery,
   type ThreadSearchHit,
   type ThreadSummary,
+  TRASH_DAYS,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
@@ -43,6 +46,7 @@ import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunRecord, RunStore } from '../runs/engine';
 import type { RunWorker } from '../runs/worker';
+import { bulkThreads, emptyTrash } from './bulk';
 import { cacheState } from './cache-state';
 import { NotOnPathError, pageRange, snapStart } from './page';
 import { ancestorPath, childrenIndex, siblingInfo } from './path';
@@ -84,7 +88,9 @@ export interface ThreadRouteDeps extends TurnDeps {
   notebookExists?: (id: string) => Promise<boolean>;
   /** Deleting a thread keeps its own flows as workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
-  /** After a thread is deleted (its images' files are swept, docs/images.md). */
+  /** A private notebook keeps Claude Code threads out: a drop there is refused for them. */
+  notebookPrivate?: (id: string) => Promise<boolean>;
+  /** After a thread leaves the Trash for good (its images' files are swept, docs/images.md). */
   afterDelete?: (threadId: string) => Promise<unknown>;
   /** One sender per thread across windows (send-lock.ts); absent: idempotency and the run index only. */
   sendLocks?: SendLocks;
@@ -180,6 +186,8 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       ...threadOut(t),
       branches: Math.max(1, t.leaves),
       live: t.live,
+      waiting: t.waiting,
+      unread: t.unread,
     }));
     const last = page.at(-1);
     return c.json({ items, next_cursor: rows.length > limit && last ? cursorOf(last) : null });
@@ -207,6 +215,50 @@ export function threadRoutes(deps: ThreadRouteDeps) {
         : [];
     });
     return c.json({ items });
+  });
+
+  // Bulk actions and the Trash, before /threads/:id which would take "bulk" and "trash" as ids.
+  const purgeDeps = () => ({
+    repo,
+    runs,
+    workspaceId: deps.workspaceId,
+    ...(deps.now && { now: () => new Date(deps.now?.() ?? Date.now()) }),
+    afterPurge: async (id: string) => {
+      await deps.flowStore?.orphan('thread', id);
+      await deps.afterDelete?.(id);
+    },
+  });
+
+  r.post('/threads/bulk', async (c) => {
+    const req = await body(c, ThreadBulkRequest);
+    return c.json(
+      await bulkThreads(
+        {
+          repo,
+          runs,
+          workspaceId: deps.workspaceId,
+          ...(deps.notebookExists && { notebookExists: deps.notebookExists }),
+          ...(deps.notebookPrivate && { notebookPrivate: deps.notebookPrivate }),
+          ...(deps.now && { now: () => new Date(deps.now?.() ?? Date.now()) }),
+        },
+        req,
+      ),
+    );
+  });
+
+  r.get('/threads/trash', async (c) =>
+    c.json({ items: await repo.listTrash(deps.workspaceId), retention_days: TRASH_DAYS }),
+  );
+
+  r.post('/threads/trash/empty', async (c) => {
+    const req = await body(c, EmptyTrashRequest);
+    return c.json(await emptyTrash(purgeDeps(), req.confirm));
+  });
+
+  r.post('/threads/:id/seen', async (c) => {
+    const t = await thread(c.req.param('id'));
+    await repo.markSeen(t.id);
+    return c.body(null, 204);
   });
 
   r.post('/threads', async (c) => {
@@ -265,9 +317,8 @@ export function threadRoutes(deps: ThreadRouteDeps) {
   r.delete('/threads/:id', async (c) => {
     const t = await thread(c.req.param('id'));
     for (const run of await runs.activeForThread(t.id)) await deps.worker.cancel(run.id);
+    // Into the Trash for 30 days (threads/bulk.ts); its flows and image files go when it is purged.
     await repo.deleteThread(t.id);
-    await deps.flowStore?.orphan('thread', t.id);
-    await deps.afterDelete?.(t.id).catch(() => undefined);
     return c.body(null, 204);
   });
 

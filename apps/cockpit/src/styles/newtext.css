@@ -1,0 +1,50 @@
+/* ==========================================================================
+   "New text below" (ROADMAP TC1): a small pill over the composer while an
+   answer arrives and you are reading higher up. Tokens only; the dot is the
+   live dot, whose meaning is "arriving now".
+   ========================================================================== */
+
+.newtext {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--sp-2);
+  pointer-events: none;
+}
+.newtext__pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px 0 11px;
+  border-radius: var(--r-pill);
+  background: var(--sheen), var(--lift-3);
+  color: var(--fg);
+  font-size: var(--t-small);
+  font-weight: 500;
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px var(--hair-2);
+  animation: newtext-in var(--d-short) var(--ease-out) both;
+  transition:
+    box-shadow var(--d-micro) var(--ease-out),
+    transform var(--d-short) var(--ease-spring);
+}
+.newtext__pill:hover {
+  box-shadow:
+    var(--elev-3),
+    inset 0 0 0 1px var(--edge-2);
+}
+.newtext__pill:active {
+  transform: scale(var(--press-soft));
+}
+@keyframes newtext-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

@@ -151,6 +151,8 @@ export function toThreadSummary(t: WireThreadSummary): ThreadSummary {
     updatedAt: t.updated_at,
     branches: t.branches,
     live: t.live,
+    waiting: t.waiting,
+    unread: t.unread,
     pinned: !!t.pinned_at,
     archived: !!t.archived_at,
     ...(t.settings?.claude_code && { fromClaudeCode: true }),
@@ -167,6 +169,7 @@ export function toNotebookView(n: Notebook): NotebookView {
     pinned: n.pinned,
     archived: !!n.archived_at,
     grounded: n.grounded,
+    check_on_web: n.check_on_web,
     sources: n.counts.sources,
     threads: n.counts.threads,
     notes: n.counts.notes,
@@ -213,6 +216,9 @@ export function toSourceView(s: Source): SourceView {
       ? { sourceId: s.duplicate_of.source_id, title: s.duplicate_of.title, kind: s.duplicate_of.kind }
       : null,
     createdAt: s.created_at,
+    author: s.author,
+    publishedOn: s.published_on,
+    language: s.language,
   };
 }
 
@@ -232,6 +238,8 @@ export interface Provenance {
     confidence?: number | null;
     sealed?: boolean;
   };
+  /** Highlighted claims checked in this message (FC3), newest first. */
+  selection_checks?: import('@nvx/contracts').SelectionCheck[];
   compaction?: {
     summary_id: string;
     upto_message_id: string;

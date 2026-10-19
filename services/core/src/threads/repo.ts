@@ -15,9 +15,12 @@
  * ------------------------------------------------------------------
  */
 
-import type { Message, Part, Thread, Usage } from '@nvx/contracts';
+import type { Message, Part, Thread, ThreadState, TrashItem, Usage } from '@nvx/contracts';
+import { TRASH_DAYS } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { pgSafe } from '../db/json';
+import { rollUp, type UsageArchiveRow } from '../usage/archive';
+import { purgeThreads } from './purge-plan';
 
 export type MessageRecord = Omit<Message, 'siblings'> & { deleted_at?: string | null };
 
@@ -64,6 +67,25 @@ export interface ThreadRecord extends Thread {
   root_message_id: string | null;
   archived_at: string | null;
   pinned_at: string | null;
+  /** When the thread was last opened, for the rail's "unread" dot. */
+  seen_at?: string | null;
+}
+
+/** A thread with what the rail needs beside it: leaves, and whether it is answering, waiting or unread. */
+export type ThreadListRow = ThreadRecord & {
+  leaves: number;
+  live: boolean;
+  waiting: boolean;
+  unread: boolean;
+};
+
+/** The fields a bulk action sets, exactly (no clock of its own: Undo puts the old values back). */
+export interface ThreadFields {
+  notebook_id?: string | null;
+  archived_at?: string | null;
+  pinned_at?: string | null;
+  updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface ListThreads {
@@ -100,10 +122,19 @@ export interface ThreadRepo {
   }): Promise<ThreadRecord>;
   /** A thread that is not deleted (archived threads still open). */
   getThread(id: string): Promise<ThreadRecord | undefined>;
-  listThreads(
-    workspaceId: string,
-    opts?: ListThreads,
-  ): Promise<(ThreadRecord & { leaves: number; live: boolean })[]>;
+  listThreads(workspaceId: string, opts?: ListThreads): Promise<ThreadListRow[]>;
+  /** Threads by id, deleted ones too (the Trash and Undo need them). Other workspaces' are left out. */
+  statesOf(workspaceId: string, ids: string[]): Promise<ThreadState[]>;
+  /** Set exactly these fields and nothing else, not even updated_at. False: no such thread. */
+  setFields(workspaceId: string, id: string, fields: ThreadFields): Promise<boolean>;
+  /** The Trash, newest deletion first. */
+  listTrash(workspaceId: string): Promise<TrashItem[]>;
+  /** Threads deleted before `cutoff`, oldest first (the daily purge). */
+  trashedBefore(workspaceId: string, cutoff: Date): Promise<string[]>;
+  /** Remove deleted threads and everything that hangs from them, for good. Returns the ids removed. */
+  purge(ids: string[]): Promise<string[]>;
+  /** The person has seen the thread's latest answer. */
+  markSeen(id: string): Promise<void>;
   patchThread(
     id: string,
     patch: {
@@ -160,6 +191,8 @@ interface ThreadRow {
   settings: Thread['settings'];
   archived_at: Date | null;
   pinned_at: Date | null;
+  seen_at?: Date | null;
+  deleted_at?: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -195,6 +228,7 @@ const threadFromRow = (r: ThreadRow): ThreadRecord => ({
   settings: r.settings ?? {},
   archived_at: iso(r.archived_at),
   pinned_at: iso(r.pinned_at),
+  seen_at: iso(r.seen_at ?? null),
   created_at: r.created_at.toISOString(),
   updated_at: r.updated_at.toISOString(),
 });
@@ -236,6 +270,25 @@ const messageFromRow = (r: MessageRow): MessageRecord => ({
   deleted_at: iso(r.deleted_at),
 });
 
+const stateFromRow = (r: ThreadRow): ThreadState => ({
+  id: r.id,
+  title: r.title,
+  notebook_id: r.notebook_id,
+  archived_at: iso(r.archived_at),
+  pinned_at: iso(r.pinned_at),
+  updated_at: r.updated_at.toISOString(),
+  deleted_at: iso(r.deleted_at ?? null),
+});
+
+/** When the daily purge removes a thread that was deleted at `deletedAt`. */
+export const purgeAt = (deletedAt: string): string =>
+  new Date(Date.parse(deletedAt) + TRASH_DAYS * 86_400_000).toISOString();
+
+const trashFromRow = (r: ThreadRow): TrashItem => {
+  const deleted_at = (r.deleted_at as Date).toISOString();
+  return { id: r.id, title: r.title, notebook_id: r.notebook_id, deleted_at, purge_at: purgeAt(deleted_at) };
+};
+
 export class PgThreadRepo implements ThreadRepo {
   constructor(private readonly sql: Sql) {}
 
@@ -261,19 +314,91 @@ export class PgThreadRepo implements ThreadRepo {
     const sql = this.sql;
     // The cursor carries milliseconds (toISOString) and Postgres keeps
     // microseconds, so paging and its order both work to the millisecond.
-    const rows = await sql<(ThreadRow & { leaves: number; live: boolean })[]>`
+    const rows = await sql<
+      (ThreadRow & { leaves: number; live: boolean; waiting: boolean; unread: boolean })[]
+    >`
       select t.*,
         (select count(*)::int from core.messages m where m.thread_id = t.id and m.deleted_at is null
            and not exists (select 1 from core.messages c where c.parent_id = m.id and c.deleted_at is null)) as leaves,
         exists (select 1 from core.runs r where r.thread_id = t.id
-           and r.status in ('queued','running','waiting_approval','waiting_compute')) as live
+           and r.status in ('queued','running','waiting_approval','waiting_compute')) as live,
+        exists (select 1 from core.runs r where r.thread_id = t.id and r.status = 'waiting_approval') as waiting,
+        exists (select 1 from core.messages m where m.thread_id = t.id and m.deleted_at is null
+           and m.role = 'assistant' and m.status = 'complete'
+           and m.created_at > coalesce(t.seen_at, t.created_at)) as unread
       from core.threads t
       where t.workspace_id = ${workspaceId} and t.deleted_at is null
         and ${opts.archived ? sql`t.archived_at is not null` : sql`t.archived_at is null`}
         ${opts.notebookId ? sql`and t.notebook_id = ${opts.notebookId}` : sql``}
         ${after ? sql`and (date_trunc('milliseconds', t.updated_at), t.id) < (${after.at}::timestamptz, ${after.id})` : sql``}
       order by date_trunc('milliseconds', t.updated_at) desc, t.id desc limit ${limit}`;
-    return rows.map((r) => ({ ...threadFromRow(r), leaves: r.leaves, live: r.live }));
+    return rows.map((r) => ({
+      ...threadFromRow(r),
+      leaves: r.leaves,
+      live: r.live,
+      waiting: r.waiting,
+      unread: r.unread,
+    }));
+  }
+
+  async statesOf(workspaceId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.sql<ThreadRow[]>`
+      select * from core.threads where workspace_id = ${workspaceId} and id = any(${ids})`;
+    return rows.map(stateFromRow);
+  }
+
+  async setFields(workspaceId: string, id: string, f: ThreadFields) {
+    const has = (k: keyof ThreadFields) => f[k] !== undefined;
+    const rows = await this.sql`
+      update core.threads set
+        notebook_id = case when ${has('notebook_id')} then ${f.notebook_id ?? null} else notebook_id end,
+        archived_at = case when ${has('archived_at')} then ${f.archived_at ?? null}::timestamptz else archived_at end,
+        pinned_at = case when ${has('pinned_at')} then ${f.pinned_at ?? null}::timestamptz else pinned_at end,
+        updated_at = case when ${has('updated_at')} then ${f.updated_at ?? null}::timestamptz else updated_at end,
+        deleted_at = case when ${has('deleted_at')} then ${f.deleted_at ?? null}::timestamptz else deleted_at end
+      where id = ${id} and workspace_id = ${workspaceId}
+      returning id`;
+    return rows.length > 0;
+  }
+
+  async listTrash(workspaceId: string) {
+    const rows = await this.sql<ThreadRow[]>`
+      select * from core.threads where workspace_id = ${workspaceId} and deleted_at is not null
+      order by deleted_at desc, id desc`;
+    return rows.map(trashFromRow);
+  }
+
+  async trashedBefore(workspaceId: string, cutoff: Date) {
+    const rows = await this.sql<{ id: string }[]>`
+      select id from core.threads
+      where workspace_id = ${workspaceId} and deleted_at is not null
+        and deleted_at < ${cutoff.toISOString()}::timestamptz
+      order by deleted_at, id`;
+    return rows.map((r) => r.id);
+  }
+
+  async purge(ids: string[]) {
+    if (ids.length === 0) return [];
+    return this.sql.begin(async (tx) => {
+      // Deleted threads only, and never one a run is still answering in (bulk.ts checks too; this
+      // holds even if a run starts between that check and this transaction).
+      const gone = await tx<{ id: string }[]>`
+        select t.id from core.threads t
+        where t.id = any(${ids}) and t.deleted_at is not null
+          and not exists (
+            select 1 from core.runs r where r.thread_id = t.id
+              and r.status in ('queued','running','waiting_approval','waiting_compute'))
+        for update of t`;
+      const list = gone.map((r) => r.id);
+      // What happens to each table is PURGE_PLAN's, reviewed there; usage is rolled up first.
+      await purgeThreads(tx as unknown as Sql, list);
+      return list;
+    });
+  }
+
+  async markSeen(id: string) {
+    await this.sql`update core.threads set seen_at = now() where id = ${id}`;
   }
 
   async searchMessages(workspaceId: string, q: string, limit: number) {
@@ -450,6 +575,12 @@ export class MemoryThreadRepo implements ThreadRepo {
   private tick = 0;
   /** Runs that are live, for listThreads(); tests set this. */
   liveThreads = new Set<string>();
+  /** Threads whose run waits on an approval; tests set this. */
+  waitingThreads = new Set<string>();
+  /** Spend of purged threads, rolled up as core.usage_archive holds it (usage/archive.ts). */
+  readonly usageArchive: UsageArchiveRow[] = [];
+  /** A run's kind, for the roll-up's engine; tests that care set this. */
+  runKind: (runId: string) => string | null = () => null;
 
   private stamp() {
     return new Date(Date.UTC(2026, 9, 7, 12, 0, 0, this.tick++)).toISOString();
@@ -468,6 +599,7 @@ export class MemoryThreadRepo implements ThreadRepo {
       settings: t.settings ?? {},
       archived_at: null,
       pinned_at: null,
+      seen_at: at,
       created_at: at,
       updated_at: at,
     };
@@ -500,8 +632,95 @@ export class MemoryThreadRepo implements ThreadRepo {
         const { deleted_at: _d, ...rest } = t;
         const mine = all.filter((m) => m.thread_id === t.id);
         const leaves = mine.filter((m) => !mine.some((c) => c.parent_id === m.id)).length;
-        return { ...rest, leaves, live: this.liveThreads.has(t.id) };
+        const seen = t.seen_at ?? t.created_at;
+        return {
+          ...rest,
+          leaves,
+          live: this.liveThreads.has(t.id),
+          waiting: this.waitingThreads.has(t.id),
+          unread: mine.some(
+            (m) => m.role === 'assistant' && m.status === 'complete' && !m.deleted_at && m.created_at > seen,
+          ),
+        };
       });
+  }
+
+  async statesOf(workspaceId: string, ids: string[]) {
+    return ids.flatMap((id) => {
+      const t = this.threads.get(id);
+      return t && t.workspace_id === workspaceId
+        ? [
+            {
+              id: t.id,
+              title: t.title,
+              notebook_id: t.notebook_id,
+              archived_at: t.archived_at,
+              pinned_at: t.pinned_at,
+              updated_at: t.updated_at,
+              deleted_at: t.deleted_at ?? null,
+            },
+          ]
+        : [];
+    });
+  }
+
+  async setFields(workspaceId: string, id: string, f: ThreadFields) {
+    const t = this.threads.get(id);
+    if (!t || t.workspace_id !== workspaceId) return false;
+    if (f.notebook_id !== undefined) t.notebook_id = f.notebook_id;
+    if (f.archived_at !== undefined) t.archived_at = f.archived_at;
+    if (f.pinned_at !== undefined) t.pinned_at = f.pinned_at;
+    if (f.updated_at !== undefined) t.updated_at = f.updated_at;
+    if (f.deleted_at !== undefined) t.deleted_at = f.deleted_at;
+    return true;
+  }
+
+  async listTrash(workspaceId: string) {
+    return [...this.threads.values()]
+      .filter((t) => t.workspace_id === workspaceId && t.deleted_at)
+      .sort((a, b) => (b.deleted_at ?? '').localeCompare(a.deleted_at ?? '') || b.id.localeCompare(a.id))
+      .map((t) => {
+        const deleted_at = t.deleted_at as string;
+        return {
+          id: t.id,
+          title: t.title,
+          notebook_id: t.notebook_id,
+          deleted_at,
+          purge_at: purgeAt(deleted_at),
+        };
+      });
+  }
+
+  async trashedBefore(workspaceId: string, cutoff: Date) {
+    const at = cutoff.toISOString();
+    return [...this.threads.values()]
+      .filter((t) => t.workspace_id === workspaceId && t.deleted_at && t.deleted_at < at)
+      .sort((a, b) => (a.deleted_at ?? '').localeCompare(b.deleted_at ?? ''))
+      .map((t) => t.id);
+  }
+
+  async purge(ids: string[]) {
+    const gone: string[] = [];
+    for (const id of ids) {
+      const t = this.threads.get(id);
+      if (!t?.deleted_at || this.liveThreads.has(id) || this.waitingThreads.has(id)) continue;
+      const own = [...this.msgs.values()].filter((m) => m.thread_id === id);
+      this.usageArchive.push(
+        ...rollUp(own, {
+          workspaceOf: (tid) => this.threads.get(tid)?.workspace_id ?? null,
+          runKind: this.runKind,
+        }),
+      );
+      for (const m of own) this.msgs.delete(m.id);
+      this.threads.delete(id);
+      gone.push(id);
+    }
+    return gone;
+  }
+
+  async markSeen(id: string) {
+    const t = this.threads.get(id);
+    if (t) t.seen_at = this.stamp();
   }
 
   async searchMessages(workspaceId: string, q: string, limit: number) {

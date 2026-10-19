@@ -173,5 +173,33 @@ export function factcheckReply(prompt: string): string | undefined {
     }));
     return JSON.stringify(fakeVerdict(claim, evidence));
   }
+  if (/Return JSON matching SelectionCheck/.test(prompt)) return selectionReply(prompt);
   return undefined;
+}
+
+/** A card for a highlighted claim, worked out by the same word-overlap rules (offline test model). */
+function selectionReply(prompt: string): string {
+  const claim =
+    /The highlighted text:\n<untrusted[^>]*>\n([\s\S]*?)\n<\/untrusted/.exec(prompt)?.[1]?.trim() ?? '';
+  const evidence = [...prompt.matchAll(/\[(E\d+)\][^\n]*\n"""\n([\s\S]*?)\n"""/g)].map((m) => ({
+    ref: m[1] ?? '',
+    text: m[2] ?? '',
+  }));
+  const v = fakeVerdict(claim, evidence);
+  const lines = v.evidence.map((e) => ({ text: e.quote, ref: e.ref, stance: e.stance }));
+  if (!lines.length)
+    lines.push({ text: 'Nothing in the evidence settles this.', ref: '', stance: 'neutral' as never });
+  const against = v.evidence.find((e) => e.stance === 'contradicts');
+  const verdict =
+    v.stance === 'contradicted' ? 'doesnt_hold' : v.stance === 'supported' ? 'holds' : 'cant_tell';
+  return JSON.stringify({
+    verdict,
+    headline: v.rationale,
+    corrected: against ? against.quote : null,
+    evidence: lines,
+    closing:
+      verdict === 'doesnt_hold'
+        ? 'The surrounding answer would need to start from the corrected claim.'
+        : 'The surrounding answer stands as written.',
+  });
 }

@@ -84,10 +84,13 @@ import { isLocalModel } from './engines/select';
 import { PgEngineStore } from './engines/store';
 import { loadEnv } from './env';
 import { PgEventBus } from './events/bus';
+import { preflightJudge } from './factcheck/allow';
 import { factcheckHandler, startFactcheck } from './factcheck/handler';
 import { trustRoutes } from './factcheck/routes';
-import { JudgeSlots } from './factcheck/steps';
+import { checkSelection } from './factcheck/selection';
+import { canonicalFamily, familyFromModelId, JudgeSlots } from './factcheck/steps';
 import { PgFactcheckStore } from './factcheck/store';
+import { searxngSearch, webPolicy } from './factcheck/web';
 import { nativeProbe as filesProbe, rootSource } from './files/roots';
 import { fileRoutes } from './files/routes';
 import { FileService } from './files/service';
@@ -210,6 +213,7 @@ import { Telemetry } from './telemetry/service';
 import { PgTelemetryStore } from './telemetry/store';
 import { PgBranchStore } from './threads/branches';
 import { branchRoutes } from './threads/branchRoutes';
+import { scheduleTrashPurge } from './threads/bulk';
 import { PgThreadRepo } from './threads/repo';
 import { threadRoutes } from './threads/routes';
 import { PgSendLocks } from './threads/send-lock';
@@ -922,7 +926,7 @@ async function main() {
     },
     afterAnswer: async (a) => {
       await startFactcheck(
-        { repo: threads, runs: runStore, store: factchecks, worker, familyOf },
+        { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor },
         a.messageId,
         { workspaceId: a.workspaceId, notebookId: a.notebookId },
       );
@@ -975,6 +979,16 @@ async function main() {
   const factchecks = new PgFactcheckStore(sql);
   // ---- Flows (Phase 5b): graphs that decide how a message is answered ----
   const flowStore = new PgFlowStore(sql, owner.workspaceId);
+  // The Trash keeps deleted threads 30 days; a daily pass removes older ones, and never during a run.
+  scheduleTrashPurge({
+    repo: threads,
+    runs: runStore,
+    workspaceId: owner.workspaceId,
+    afterPurge: async (id) => {
+      await flowStore.orphan('thread', id);
+      await imageStore.deleteThread(id);
+    },
+  });
   const flows = new FlowsService({
     store: flowStore,
     repo: threads,
@@ -1003,7 +1017,22 @@ async function main() {
         .catch(() => false),
   });
   // ---- end Flows ----
-  const familyOf = (id: string | null) => (id ? (registry.get(id)?.family ?? null) : null);
+  // One name per family (Claude Code's `claude` is the Anthropic API's `anthropic`), so a judge is never the writer's family by another spelling (GR24).
+  const familyOf = (id: string | null) =>
+    id ? (canonicalFamily(registry.get(id)?.family) ?? familyFromModelId(id)) : null;
+  // Every fact-check shares these: at most "fact-check judges at once" Claude Code sessions (Settings → Claude Code).
+  const factcheckJudges = new JudgeSlots(async () => (await claudeCode.service.settings()).factcheck_judges);
+  // Fact-checks on the web (FC4): the notebook's setting, this check's allow, and the scope's keep-local rules.
+  const factcheckWeb = env.SEARXNG_URL ? searxngSearch({ baseUrl: env.SEARXNG_URL }) : null;
+  const webFor: NonNullable<Parameters<typeof startFactcheck>[0]['webFor']> = async (a) =>
+    webPolicy({
+      scope: await scopes.effective({ threadId: a.threadId }).catch(() => null),
+      notebookWeb:
+        config.factcheck?.web_search === true ||
+        (a.notebookId ? ((await notebooks.get(a.notebookId))?.check_on_web ?? false) : false),
+      requested: a.requested,
+      configured: !!factcheckWeb,
+    });
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
   const engines: Engines = new Engines({
     images,
@@ -1091,7 +1120,7 @@ async function main() {
               .catch((err: unknown) => log.warn({ err }, 'a Pro after-answer step failed'));
           if (!a.notebookId || !(await notebooks.get(a.notebookId))?.grounded) return;
           await startFactcheck(
-            { repo: threads, runs: runStore, store: factchecks, worker, familyOf },
+            { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor },
             a.messageId,
             { workspaceId: a.workspaceId, notebookId: a.notebookId },
           );
@@ -1105,10 +1134,14 @@ async function main() {
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
         kn,
         // Each Claude Code judge is a session on your Claude plan: Settings → Claude Code caps them.
-        judges: new JudgeSlots(async () => (await claudeCode.service.settings()).factcheck_judges),
+        judges: factcheckJudges,
         repo: threads,
         store: factchecks,
         config: config.factcheck ?? undefined,
+        scopeOf: (ref) => scopes.effective(ref),
+        web: factcheckWeb,
+        gate,
+        userId: owner.userId,
       }),
       ...(engine &&
         mirror && {
@@ -1672,6 +1705,9 @@ async function main() {
         registry,
         workspaceId: owner.workspaceId,
         notebookExists: async (id) => (await notebooks.get(id))?.workspace_id === owner.workspaceId,
+        notebookPrivate: async (id) =>
+          (await sql<{ private: boolean }[]>`select private from core.notebooks where id = ${id}`)[0]
+            ?.private === true,
         flowStore,
         branches: branchStore,
         sendLocks,
@@ -1737,6 +1773,33 @@ async function main() {
         actionOf: (tool) => tools.get(tool)?.action,
         scopeOf: (ref) => scopes.effective(ref),
         integrity,
+        webFor,
+        preflight: (a) => preflightJudge({ registry, scopeOf: (ref) => scopes.effective(ref) }, a),
+        selection: {
+          run: (input, signal) =>
+            checkSelection(
+              {
+                gateway,
+                registry,
+                promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
+                kn,
+                judges: factcheckJudges,
+                repo: threads,
+                familyOf,
+                scopeOf: (ref) => scopes.effective(ref),
+                notebookWeb: async (id) =>
+                  config.factcheck?.web_search === true || ((await notebooks.get(id))?.check_on_web ?? false),
+                web: factcheckWeb,
+                gate,
+                userId: owner.userId,
+                codeTier: tools.get('python_run')?.tier,
+                runPython: (a, sig) =>
+                  interpreter.run({ threadId: a.threadId, callId: null, code: a.code, files: [] }, sig),
+              },
+              input,
+              signal,
+            ).then((r) => ({ check: r.check, cached: r.cached })),
+        },
       }),
       permissionRoutes({
         onReady: (api) => {

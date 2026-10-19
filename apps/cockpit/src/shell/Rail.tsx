@@ -14,6 +14,14 @@
  *           |  More threads load as the list nears its end.
  *  Note     |  Under 820 px the rail is an overlay: it closes itself
  *           |  once you pick something.
+ *           |  Threads can be selected (Ctrl or Shift click; Space,
+ *           |  Shift+arrows, Ctrl+A on the keyboard). The selection
+ *           |  lives in the rail, not in its rows, so a range runs
+ *           |  across rows the window has not drawn. Selected threads
+ *           |  drag onto a notebook together, and a bar offers move,
+ *           |  archive, export and delete with one Undo. Threads that
+ *           |  need you float to the top; answering ones pulse; an
+ *           |  unread answer leaves a solid dot until you open it.
  * ------------------------------------------------------------------
  */
 
@@ -22,10 +30,14 @@ import { Link, useNavigate, useParams, useRouterState } from '@tanstack/react-ro
 import { m as motion } from 'motion/react';
 import {
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
+  lazy,
+  type MouseEvent,
   memo,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -40,7 +52,15 @@ import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
 import { useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
-import { deleteThread, moveThread, renameThread, setArchived, setPinned } from '../lib/threads';
+import {
+  deleteThread,
+  markSeen,
+  moveThread,
+  moveThreads,
+  renameThread,
+  setArchived,
+  setPinned,
+} from '../lib/threads';
 import type { Hue, NotebookView, ThreadSummary } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { runHindsight } from '../memory/api';
@@ -51,7 +71,31 @@ import { loadError } from '../ui/LoadFailed';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
 import { Kbd, Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
+import {
+  ATTENTION_LABEL,
+  type Attention,
+  attentionOf,
+  dragIds,
+  EMPTY,
+  extendTo,
+  nextNeeding,
+  prune,
+  type RollUp,
+  rollUp,
+  type Selection,
+  selectAll,
+  selectionSaid,
+  toggle as toggleSel,
+  topOf,
+} from './selection';
 import { WindowedList } from './WindowedList';
+
+// Loaded when first needed: the empty shell draws neither.
+const BulkBar = lazy(() => import('./BulkBar').then((m) => ({ default: m.BulkBar })));
+const TrashView = lazy(() => import('./TrashView').then((m) => ({ default: m.TrashView })));
+
+/** What a dragged thread carries: the ids of every thread moving with it. */
+export const DRAG_TYPE = 'application/x-ancile-threads';
 
 /** A read that failed, sized for the rail: its own words and Try again, never "Nothing here yet". */
 function RailFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => unknown }) {
@@ -130,6 +174,29 @@ function InlineRename({ initial, onDone }: { initial: string; onDone: (title: st
   );
 }
 
+/**
+ * What a thread wants of you, in one small mark. Working pulses (the live dot, the one place
+ * signal violet means "live"); needs you is an amber shield; an unread answer is a solid dot
+ * that stays until you open the thread. Reduced motion turns the pulse into a still ring.
+ */
+export function AttentionMark({ state, count }: { state: Attention; count?: number }) {
+  if (state === 'none') return null;
+  const label = count && count > 1 ? `${ATTENTION_LABEL[state]}: ${count}` : ATTENTION_LABEL[state];
+  if (state === 'working') return <span className="live-dot rail__working" role="img" aria-label={label} />;
+  if (state === 'needs_you')
+    return (
+      <span className="rail__needs" role="img" aria-label={label}>
+        <Icon name="shield" size={12} />
+        {count && count > 1 ? <span data-num>{count}</span> : null}
+      </span>
+    );
+  return (
+    <span className="rail__unread" role="img" aria-label={label}>
+      {count && count > 1 ? <span data-num>{count}</span> : null}
+    </span>
+  );
+}
+
 const ThreadRow = memo(function ThreadRow({
   t,
   active,
@@ -142,6 +209,8 @@ const ThreadRow = memo(function ThreadRow({
   setRenaming,
   showTime,
   icon,
+  selected,
+  attention,
 }: {
   t: ThreadSummary;
   active: boolean;
@@ -155,6 +224,8 @@ const ThreadRow = memo(function ThreadRow({
   setRenaming: (id: string | null) => void;
   showTime: boolean;
   icon?: boolean;
+  selected: boolean;
+  attention: Attention;
 }) {
   const navigate = useNavigate();
   const items: MenuEntry[] = [
@@ -266,6 +337,9 @@ const ThreadRow = memo(function ThreadRow({
           params={{ threadId: t.id }}
           className="rail__item"
           data-active={active || undefined}
+          data-thread={t.id}
+          data-selected={selected || undefined}
+          draggable
           tabIndex={roving ? 0 : -1}
           onFocus={() => onFocusRow('thread', t.id)}
           onDoubleClick={(e) => {
@@ -290,7 +364,8 @@ const ThreadRow = memo(function ThreadRow({
             />
           ) : null}
           <span className="rail__label">{t.title}</span>
-          {t.live ? <span className="live-dot" role="img" aria-label="Answering or waiting on you" /> : null}
+          {selected ? <span className="sr-only">, selected</span> : null}
+          <AttentionMark state={attention} />
           {draft && !active ? (
             <span className="rail__draft" title="Unsent draft">
               Draft
@@ -436,6 +511,10 @@ export function Rail() {
   const [filter, setFilter] = useState('');
   const [renaming, setRenaming] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [sel, setSel] = useState<Selection>(EMPTY);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const [archiveTab, setArchiveTab] = useState<'archive' | 'trash'>('archive');
+  const [said, setSaid] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -454,8 +533,11 @@ export function Rail() {
   const groups = useMemo(() => {
     const nbs = (notebooks.data ?? []).filter((n) => !n.archived);
     const ts = (threads.data ?? []).filter((t) => match(t.title));
-    const pinned = ts.filter((t) => t.pinned);
-    const rest = ts.filter((t) => !t.pinned && !t.notebookId);
+    // A thread waiting on you floats to the top and appears only there.
+    const needsYou = ts.filter((t) => attentionOf(t) === 'needs_you');
+    const calm = ts.filter((t) => attentionOf(t) !== 'needs_you');
+    const pinned = calm.filter((t) => t.pinned);
+    const rest = calm.filter((t) => !t.pinned && !t.notebookId);
     const now = Date.now();
     const byDate: { label: string; items: ThreadSummary[] }[] = [];
     for (const t of rest) {
@@ -465,6 +547,7 @@ export function Rail() {
       else byDate.push({ label, items: [t] });
     }
     return {
+      needsYou,
       pinned,
       // Notebooks of one repository the person chose to show together stay side by side.
       notebooks: groupTogether(
@@ -472,7 +555,7 @@ export function Rail() {
           .filter((n) => match(n.title) || ts.some((t) => t.notebookId === n.id))
           .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)),
         links.data?.groups ?? [],
-      ).items.map((n) => ({ ...n, threads: ts.filter((t) => t.notebookId === n.id && !t.pinned) })),
+      ).items.map((n) => ({ ...n, threads: calm.filter((t) => t.notebookId === n.id && !t.pinned) })),
       byDate,
     };
   }, [notebooks.data, threads.data, q, links.data]);
@@ -483,6 +566,7 @@ export function Rail() {
 
   const rows: Row[] = useMemo(
     () => [
+      ...groups.needsYou.map((t) => ({ kind: 'thread' as const, id: t.id })),
       ...groups.pinned.map((t) => ({ kind: 'thread' as const, id: t.id })),
       ...groups.notebooks.flatMap((n) => [
         { kind: 'notebook' as const, id: n.id },
@@ -492,6 +576,51 @@ export function Rail() {
     ],
     [groups],
   );
+
+  // Every selectable thread in the rail's order, drawn or not: a Shift range runs along this.
+  const order = useMemo(() => rows.filter((r) => r.kind === 'thread').map((r) => r.id), [rows]);
+  const selectedIds = useMemo(() => order.filter((id) => sel.ids.has(id)), [order, sel]);
+  const allIds = useMemo(() => new Set((threads.data ?? []).map((t) => t.id)), [threads.data]);
+  const byId = useMemo(() => new Map((threads.data ?? []).map((t) => [t.id, t] as const)), [threads.data]);
+  const openId = params.threadId;
+  const rolled = useMemo(() => {
+    const m = new Map<string, RollUp>();
+    const by = new Map<string, ThreadSummary[]>();
+    for (const t of threads.data ?? [])
+      if (t.notebookId) by.set(t.notebookId, [...(by.get(t.notebookId) ?? []), t]);
+    for (const [id, list] of by) m.set(id, rollUp(list, openId));
+    return m;
+  }, [threads.data, openId]);
+
+  // Threads that are gone leave the selection; the count is said once it changes.
+  useEffect(() => setSel((s) => prune(s, [...allIds])), [allIds]);
+  const lastCount = useRef(0);
+  useEffect(() => {
+    if (sel.ids.size !== lastCount.current) setSaid(selectionSaid(sel.ids.size));
+    lastCount.current = sel.ids.size;
+  }, [sel]);
+
+  // Opening a thread reads it: the unread dot goes, here and in Core.
+  const openThread = openId ? byId.get(openId) : undefined;
+  const openUnread = openThread?.unread === true && !openThread.live;
+  useEffect(() => {
+    if (openId && openUnread) void markSeen(openId);
+  }, [openId, openUnread]);
+
+  // Alt+Down: the next thread that needs you.
+  useBinding('rail.nextAttention', () => {
+    const next = nextNeeding(
+      groups.needsYou.map((t) => t.id),
+      openId,
+    );
+    if (!next) {
+      setSaid('No thread needs you.');
+      return;
+    }
+    const at = rows.findIndex((r) => r.kind === 'thread' && r.id === next);
+    if (at >= 0) setCursor(at);
+    void navigate({ to: '/t/$threadId', params: { threadId: next } });
+  });
 
   const openRow = (row: Row | undefined) => {
     if (!row) return;
@@ -572,7 +701,51 @@ export function Rail() {
   );
   const onListKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const t = e.target as HTMLElement;
-    if (e.altKey || e.ctrlKey || e.metaKey || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+    // Selecting: Ctrl+A all, Space one, Shift with an arrow a range, Escape none.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      setSel(selectAll(order));
+      return;
+    }
+    if (e.key === 'Escape' && sel.ids.size > 0) {
+      e.preventDefault();
+      setSel(EMPTY);
+      return;
+    }
+    const onThreadLink = t.closest('a[data-thread]');
+    if (e.key === ' ' && !e.altKey && !e.ctrlKey && !e.metaKey && onThreadLink) {
+      e.preventDefault();
+      const id = onThreadLink.getAttribute('data-thread');
+      if (id) setSel((s) => (e.shiftKey ? extendTo(s, order, id) : toggleSel(s, id)));
+      return;
+    }
+    if (
+      e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === 'ArrowDown' || e.key === 'ArrowUp')
+    ) {
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      let at = cursor + step;
+      while (rows[at] && rows[at]?.kind !== 'thread') at += step;
+      const row = rows[at];
+      if (!row) return;
+      e.preventDefault();
+      const from = rows[cursor];
+      // Start the range on the row you were on, so the first Shift+arrow takes both.
+      setSel((s) =>
+        extendTo(
+          s.ids.size === 0 && from?.kind === 'thread' ? { ids: new Set([from.id]), anchor: from.id } : s,
+          order,
+          row.id,
+        ),
+      );
+      setCursor(at);
+      return;
+    }
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     const to =
       e.key === 'ArrowDown'
         ? cursor + 1
@@ -609,6 +782,54 @@ export function Rail() {
     if (e.key === 'Enter') openRow(rows[0]);
   };
 
+  // Ctrl or Cmd click toggles, Shift click takes the range (across rows the window has not drawn),
+  // and a plain click opens the thread and drops the selection.
+  const onListClickCapture = (e: MouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement).closest('a[data-thread]');
+    const id = link?.getAttribute('data-thread');
+    if (!id) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      setSel((s) => extendTo(s, order, id, e.ctrlKey || e.metaKey));
+    } else if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setSel((s) => toggleSel(s, id));
+    } else if (sel.ids.size > 0) setSel(EMPTY);
+  };
+
+  // Dragging a selected thread takes the whole selection; any other takes just itself.
+  const onListDragStart = (e: DragEvent<HTMLDivElement>) => {
+    const id = (e.target as HTMLElement).closest('a[data-thread]')?.getAttribute('data-thread');
+    if (!id) return;
+    const ids = dragIds(sel, id, order);
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids));
+    e.dataTransfer.setData(
+      'text/plain',
+      ids.length === 1 ? (byId.get(id)?.title ?? '') : `${ids.length} threads`,
+    );
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const dragging = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes(DRAG_TYPE);
+  const dropOnNotebook = (e: DragEvent, nb: { id: string; title: string }) => {
+    setDropOn(null);
+    if (!dragging(e)) return;
+    e.preventDefault();
+    let ids: string[] = [];
+    try {
+      const raw = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as unknown;
+      ids = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      ids = [];
+    }
+    // A thread dropped on the notebook it is already in stays put.
+    const moving = ids.filter((id) => byId.get(id)?.notebookId !== nb.id);
+    if (moving.length === 0) {
+      setSaid(`Already in ${nb.title}.`);
+      return;
+    }
+    void moveThreads(moving, nb.id, nb.title);
+  };
+
   // Drag the edge to resize; double-click it to reset.
   const onResize = (e: ReactPointerEvent<HTMLDivElement>) => {
     const startX = e.clientX;
@@ -635,6 +856,7 @@ export function Rail() {
     setRenaming,
     onFocusRow,
   };
+  const markOf = (t: ThreadSummary) => attentionOf(t, openId);
 
   return (
     <nav
@@ -693,13 +915,40 @@ export function Rail() {
         ref={listRef}
         tabIndex={-1}
         onKeyDown={onListKey}
+        onClickCapture={onListClickCapture}
+        onDragStart={onListDragStart}
         role="region"
         aria-label="Notebooks and threads list"
       >
-        <p className="sr-only">{`${(threads.data ?? []).length} threads loaded. Arrow keys, Home and End move between them.`}</p>
+        <p className="sr-only">{`${(threads.data ?? []).length} threads loaded. Arrow keys, Home and End move between them. Space selects a thread, Shift with an arrow selects a range, Control A selects all.`}</p>
+        <p className="sr-only" role="status" aria-live="polite">
+          {said}
+        </p>
         {showArchive ? (
-          <Section id="archive" title="Archive">
-            {archived.isPending ? (
+          <Section id="archive" title={archiveTab === 'trash' ? 'Trash' : 'Archive'}>
+            <div className="rail__tabs" role="group" aria-label="Archive or Trash">
+              <button
+                type="button"
+                className="rail__tab"
+                aria-pressed={archiveTab === 'archive'}
+                onClick={() => setArchiveTab('archive')}
+              >
+                Archived
+              </button>
+              <button
+                type="button"
+                className="rail__tab"
+                aria-pressed={archiveTab === 'trash'}
+                onClick={() => setArchiveTab('trash')}
+              >
+                Trash
+              </button>
+            </div>
+            {archiveTab === 'trash' ? (
+              <Suspense fallback={<Skeleton lines={4} label="Loading the Trash" />}>
+                <TrashView compact />
+              </Suspense>
+            ) : archived.isPending ? (
               <Skeleton lines={5} label="Loading the archive" />
             ) : archived.isError && !archived.data ? (
               <RailFailed error={archived.error} what="The archive" onRetry={() => archived.refetch()} />
@@ -736,6 +985,32 @@ export function Rail() {
           <RailFailed error={threads.error} what="Threads" onRetry={() => threads.refetch()} />
         ) : (
           <>
+            {/* TODO(phase-0.1.1): Pro saved smart sections ("Claude Code this week", "Cost over $1") draw here,
+                through the Pro surface slot and a new entry in the closed list in contracts/pro.ts. */}
+            {groups.needsYou.length > 0 ? (
+              <Section id="needs" title="Needs you">
+                <ul className="rail__list">
+                  {groups.needsYou.map((t) => (
+                    <li key={t.id}>
+                      <ThreadRow
+                        t={t}
+                        {...rowProps}
+                        icon
+                        active={params.threadId === t.id}
+                        cursor={isCursor('thread', t.id)}
+                        roving={isRoving('thread', t.id)}
+                        draft={drafts.has(t.id)}
+                        renaming={renaming === t.id}
+                        showTime={false}
+                        selected={sel.ids.has(t.id)}
+                        attention={markOf(t)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            ) : null}
+
             {groups.pinned.length > 0 ? (
               <Section id="pinned" title="Pinned">
                 <ul className="rail__list">
@@ -751,6 +1026,8 @@ export function Rail() {
                         draft={drafts.has(t.id)}
                         renaming={renaming === t.id}
                         showTime={false}
+                        selected={sel.ids.has(t.id)}
+                        attention={markOf(t)}
                       />
                     </li>
                   ))}
@@ -786,7 +1063,21 @@ export function Rail() {
               ) : null}
               <ul className="rail__list">
                 {groups.notebooks.map((n) => (
-                  <li key={n.id}>
+                  <li
+                    key={n.id}
+                    data-drop={dropOn === n.id || undefined}
+                    onDragEnter={(e) => dragging(e) && setDropOn(n.id)}
+                    onDragOver={(e) => {
+                      if (!dragging(e)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dropOn !== n.id) setDropOn(n.id);
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropOn(null);
+                    }}
+                    onDrop={(e) => dropOnNotebook(e, n)}
+                  >
                     <div className="rail__row" data-cursor={isCursor('notebook', n.id) || undefined}>
                       <Link
                         to="/n/$notebookId"
@@ -807,6 +1098,10 @@ export function Rail() {
                         )}
                         <span className="rail__label">{n.title}</span>
                         {n.pinned ? <Icon name="pin" size={11} className="gilt-ink" /> : null}
+                        {(() => {
+                          const top = topOf(rolled.get(n.id) ?? { needs_you: 0, working: 0, unread: 0 });
+                          return top ? <AttentionMark state={top.state} count={top.count} /> : null;
+                        })()}
                         <span className="rail__meta" data-num title={`${n.sources} sources`}>
                           {n.sources}
                         </span>
@@ -831,6 +1126,8 @@ export function Rail() {
                             draft={drafts.has(t.id)}
                             renaming={renaming === t.id}
                             showTime={false}
+                            selected={sel.ids.has(t.id)}
+                            attention={markOf(t)}
                           />
                         )}
                       </WindowedList>
@@ -859,6 +1156,8 @@ export function Rail() {
                       draft={drafts.has(t.id)}
                       renaming={renaming === t.id}
                       showTime={g.label === 'Today' || g.label === 'Yesterday'}
+                      selected={sel.ids.has(t.id)}
+                      attention={markOf(t)}
                     />
                   )}
                 </WindowedList>
@@ -885,6 +1184,12 @@ export function Rail() {
           </>
         )}
       </div>
+
+      {selectedIds.length > 0 ? (
+        <Suspense fallback={null}>
+          <BulkBar ids={selectedIds} notebooks={nbs} onClear={() => setSel(EMPTY)} />
+        </Suspense>
+      ) : null}
 
       <div className="rail__foot">
         <Checklist />
@@ -918,16 +1223,6 @@ export function Rail() {
             >
               <Icon name="shield" size={14} />
             </Link>
-          </Tip>
-          <Tip label="Help" binding="help.open" side="top">
-            <button
-              type="button"
-              className="icon-btn icon-btn--sm"
-              aria-label="Help"
-              onClick={() => useUi.getState().setHelp(true)}
-            >
-              <Icon name="book" size={14} />
-            </button>
           </Tip>
         </div>
       </div>

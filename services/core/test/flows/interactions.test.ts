@@ -247,7 +247,7 @@ describe('a thread’s step overrides', () => {
 });
 
 describe('deleting a flow’s home', () => {
-  it('keeps a deleted thread’s own flow as an inactive workspace draft', async () => {
+  it('keeps a deleted thread’s own flow as an inactive workspace draft once it is purged', async () => {
     h = await harness();
     const t = await h.newThread();
     const f = (
@@ -260,6 +260,13 @@ describe('deleting a flow’s home', () => {
       })
     ).body;
     expect((await h.call('DELETE', `/threads/${t}`)).status).toBe(204);
+    // In the Trash the thread can still come back, so its flow stays with it...
+    expect((await h.call<Flow>('GET', `/flows/${f.id}`)).body).toMatchObject({
+      scope: 'thread',
+      scope_ref: t,
+    });
+    // ...and becomes an inactive workspace draft only when the thread is removed for good.
+    expect((await h.call('POST', '/threads/trash/empty', { confirm: true })).status).toBe(200);
     const kept = (await h.call<Flow>('GET', `/flows/${f.id}`)).body;
     expect(kept).toMatchObject({ scope: 'workspace', scope_ref: null, active: false });
     // Never the workspace default by accident.

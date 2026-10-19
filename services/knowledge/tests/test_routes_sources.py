@@ -32,7 +32,8 @@ ARTICLE = (
 
 FIELDS = {
     "id", "kind", "title", "uri", "mime", "bytes", "status", "progress", "error", "tags", "summary", "chunks",
-    "pages", "stale", "fetched_at", "created_at", "updated_at", "duplicate_of", "language",
+    "pages", "stale", "fetched_at", "created_at", "updated_at", "duplicate_of", "language", "author",
+    "published_on",
 }  # fmt: skip
 
 
@@ -282,6 +283,29 @@ def test_patch_link_levels_and_delete(client: TestClient) -> None:
         "hits"
     ]
     assert hits == []
+
+
+def test_patch_author_date_and_language_by_hand(client: TestClient) -> None:
+    """S6: author, date and language are editable; a hand-set language is kept, and clearing frees it."""
+    sid = add_text(client)["id"]
+    wait_for(client, sid)
+    url = f"/kn/v1/sources/{sid}"
+
+    r = client.patch(
+        url, json={"author": "  A. Writer ", "published_on": "2025-03-04", "language": "fr"}, headers=AUTH
+    )
+    body = r.json()
+    assert (body["author"], body["published_on"], body["language"]) == ("A. Writer", "2025-03-04", "fr")
+
+    # A field that is absent is left alone; null clears.
+    r = client.patch(url, json={"tags": ["x"]}, headers=AUTH)
+    assert (r.json()["author"], r.json()["language"]) == ("A. Writer", "fr")
+    r = client.patch(url, json={"author": None, "published_on": None, "language": None}, headers=AUTH)
+    assert (r.json()["author"], r.json()["published_on"]) == (None, None)
+    assert r.json()["language"] is None
+
+    assert client.patch(url, json={"language": "english"}, headers=AUTH).status_code == 422
+    assert client.patch(url, json={"published_on": "last week"}, headers=AUTH).status_code == 422
 
 
 def test_list_by_ids_and_workspace_guard(client: TestClient) -> None:

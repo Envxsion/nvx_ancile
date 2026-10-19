@@ -26,6 +26,7 @@ import type { Part } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
+import { judgeChain } from '../factcheck/steps';
 import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
@@ -60,6 +61,9 @@ const ChatMessage = z.discriminatedUnion('role', [
     .passthrough(),
   z.object({ role: z.literal('tool'), tool_call_id: z.string(), content: Content }).passthrough(),
 ]);
+
+/** Task classes whose model may fall back to Claude Code or a small local model when none is set. */
+const JUDGED = /^(utility|factcheck(\.|$))/;
 
 export const ChatCompletionRequest = z
   .object({
@@ -214,8 +218,16 @@ export function internalRoutes(deps?: InternalDeps) {
     try {
       chain = deps.registry.chain(taskClass, isModelId ? req.model : null);
     } catch (err) {
-      const e = openAIError(503, (err as Error).message, 'model_not_configured');
-      return c.json(e.body, e.status as 503);
+      // Knowledge asks for a task class ("task:utility"). With no model set for it, the same judges a
+      // fact-check falls back to answer (Claude Code's quickest, then a small local model), so a
+      // machine with only Claude Code signed in is not told that no model is ready (roadmap FC2).
+      try {
+        if (!(err instanceof NoRouteError) || !JUDGED.test(taskClass)) throw err;
+        chain = judgeChain(deps.registry, taskClass);
+      } catch (e2) {
+        const e = openAIError(503, (e2 as Error).message, 'model_not_configured');
+        return c.json(e.body, e.status as 503);
+      }
     }
     const mreq = fromOpenAI(req);
     const id = `chatcmpl-${randomBytes(12).toString('hex')}`;

@@ -147,6 +147,8 @@ export const threads = core.table(
     archivedAt: ts('archived_at'),
     pinnedAt: ts('pinned_at'),
     deletedAt: ts('deleted_at'),
+    /** When the thread was last opened: an answer newer than this is unread in the rail. */
+    seenAt: ts('seen_at'),
     createdAt: created(),
     updatedAt: updated(),
   },
@@ -1043,4 +1045,29 @@ export const promptEpochs = core.table(
     lastUsedAt: ts('last_used_at').notNull().defaultNow(),
   },
   (t) => [index('prompt_epochs_thread').on(t.threadId, t.startedAt)],
+);
+
+// ---- Usage that outlives a purged thread (0038) ----
+
+/** A purged thread's billed answers, rolled up by 15-minute UTC slot so the Usage report keeps them (usage/archive.ts). */
+export const usageArchive = core.table(
+  'usage_archive',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    bucketAt: ts('bucket_at').notNull(),
+    engine: text('engine').notNull(),
+    modelId: text('model_id'),
+    provider: text('provider'),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+    cachedTokens: bigint('cached_tokens', { mode: 'number' }).notNull().default(0),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+    costUsd: numeric('cost_usd').notNull().default('0'),
+    estimatedUsd: numeric('estimated_usd').notNull().default('0'),
+    answers: integer('answers').notNull().default(0),
+    archivedAt: ts('archived_at').notNull().defaultNow(),
+  },
+  (t) => [index('usage_archive_ws_at').on(t.workspaceId, t.bucketAt)],
 );

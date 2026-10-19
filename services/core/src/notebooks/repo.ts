@@ -32,6 +32,8 @@ export interface NotebookRecord {
   updated_at: string;
   /** Grounded mode: every answer is fact-checked when it finishes (DESIGN.md §10.7). */
   grounded: boolean;
+  /** Fact-checks here may look claims up on the web (FC4). */
+  check_on_web: boolean;
 }
 
 export interface NotebookPatch {
@@ -43,6 +45,7 @@ export interface NotebookPatch {
   archived?: boolean;
   opened?: boolean;
   grounded?: boolean;
+  check_on_web?: boolean;
 }
 
 export interface NoteRecord extends Note {
@@ -127,6 +130,7 @@ const nbFromRow = (r: NotebookRow): NotebookRecord => ({
   created_at: r.created_at.toISOString(),
   updated_at: r.updated_at.toISOString(),
   grounded: r.settings?.grounded === true,
+  check_on_web: r.settings?.check_on_web === true,
 });
 
 interface NoteRow {
@@ -197,8 +201,10 @@ export class PgNotebookRepo implements NotebookRepo {
         archived_at = case when ${p.archived === undefined} then archived_at
           when ${p.archived === true} then coalesce(archived_at, now()) else null end,
         last_opened_at = case when ${p.opened === true} then now() else last_opened_at end,
-        settings = case when ${p.grounded === undefined} then settings
-          else jsonb_set(settings, '{grounded}', to_jsonb(${p.grounded === true}::boolean)) end,
+        settings = settings || ${this.sql.json({
+          ...(p.grounded !== undefined && { grounded: p.grounded === true }),
+          ...(p.check_on_web !== undefined && { check_on_web: p.check_on_web === true }),
+        } as never)},
         updated_at = case when ${p.opened === true && Object.keys(p).length === 1} then updated_at else now() end
       where id = ${id} and deleted_at is null
       returning *`;
@@ -315,6 +321,7 @@ export class MemoryNotebookRepo implements NotebookRepo {
       created_at: at,
       updated_at: at,
       grounded: false,
+      check_on_web: false,
     };
     this.books.set(n.id, rec);
     return { ...rec };
@@ -330,6 +337,7 @@ export class MemoryNotebookRepo implements NotebookRepo {
     if (p.pinned !== undefined) b.pinned_at = p.pinned ? (b.pinned_at ?? this.stamp()) : null;
     if (p.archived !== undefined) b.archived_at = p.archived ? (b.archived_at ?? this.stamp()) : null;
     if (p.grounded !== undefined) b.grounded = p.grounded;
+    if (p.check_on_web !== undefined) b.check_on_web = p.check_on_web;
     if (p.opened) b.last_opened_at = this.stamp();
     if (!(p.opened && Object.keys(p).length === 1)) b.updated_at = this.stamp();
     return this.get(id);

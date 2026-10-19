@@ -74,7 +74,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `KNOWLEDGE_OCR` | `false` | OCR for scans and images. |
 | `KNOWLEDGE_CHUNK_TOKENS` / `KNOWLEDGE_CHUNK_OVERLAP` | `512` / `64` | Chunking. |
 | `KNOWLEDGE_CONTEXTUAL_CHUNKS` | `true` | Add a short LLM-written context blurb to each chunk before indexing. |
-| `SEARXNG_URL` | empty | Web search for evidence. Empty disables it. |
+| `SEARXNG_URL` | empty | Web search for fact-checks (SearXNG, JSON). Empty: claims are checked against sources only. Used only for notebooks with **Check on the web** on, or one check you allow, and never for a private notebook (docs/factcheck.md). |
 
 #### Changing the embedding model
 

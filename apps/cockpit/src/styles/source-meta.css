@@ -1,0 +1,90 @@
+/* ==========================================================================
+   Tags, details and bulk tagging on sources (ROADMAP S6). Tokens only.
+   ========================================================================== */
+
+.source-tags {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0 6px 6px;
+  list-style: none;
+}
+.source-tags .tag {
+  height: 20px;
+}
+.tag--btn {
+  cursor: pointer;
+  transition:
+    background-color var(--d-micro) var(--ease-out),
+    color var(--d-micro) var(--ease-out);
+}
+.tag--btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--chalk);
+}
+.tag--btn[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--chalk-2);
+  box-shadow: inset 0 0 0 1px var(--edge-2);
+}
+.tag--btn:disabled {
+  cursor: default;
+}
+.dialog .source-tags {
+  padding: 0 0 6px;
+}
+.dialog .source-tags .tag {
+  gap: 2px;
+  padding-right: 2px;
+}
+
+/* Select mode: a checkbox sits over the card's left edge, and the card makes room for it. */
+.source-card__pick {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.source-card__pick + .source-card__main,
+.source-card__pick + .source-card__rename {
+  padding-left: 30px;
+}
+
+.panel__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 0 8px;
+}
+.tagbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: var(--r-md);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+}
+.tagbar__count {
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--fg-3);
+}
+.tagbar .input {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.panel__bar-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}

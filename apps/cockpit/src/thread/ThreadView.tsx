@@ -71,6 +71,7 @@ import { ComposerHints } from './ComposerHints';
 import { headOf, overlay, withHead } from './liveOverlay';
 import { MessageList } from './MessageList';
 import { ModelGoneNotice } from './ModelGoneNotice';
+import { NewTextPill } from './NewTextPill';
 import { stayAtBottomOnShrink } from './stayAtBottom';
 
 // Claude Code's status line, notices and pickers belong to threads from Claude Code only: they load
@@ -583,6 +584,14 @@ export function ThreadView({ threadId }: { threadId: string }) {
       </div>
 
       <div className="thread__composer">
+        <NewTextPill
+          scroller={scroller}
+          following={following}
+          lastId={lastBase?.id}
+          messageCount={messages.length}
+          threadId={threadId}
+          ready={!thread.isPending}
+        />
         <div className="thread__measure">
           {demo ? null : <BusyNotice threadId={threadId} onSent={clearComposer} />}
           {demo ? null : <ModelGoneNotice threadId={threadId} />}

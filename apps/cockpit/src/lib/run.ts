@@ -66,6 +66,18 @@ export interface LiveTurn {
   reportedTokens: number | null;
   /** What the run is doing between steps (hooks, compaction), from `activity` events. */
   activity: { phase: 'hooks' | 'compacting'; detail: string | null } | null;
+  /** What the search of the notebook's sources found, once it is done (EV2). */
+  retrieval?: LiveRetrieval | null;
+}
+
+/** The search step of a turn: what was asked, where it looked and each passage with its score. */
+export interface LiveRetrieval {
+  query: string;
+  searched: 'notebook' | 'mentioned' | 'links';
+  chunks: number;
+  sources: number;
+  ms: number;
+  found: { source_title: string; page: number | null; score: number }[];
 }
 
 export interface StepClock {
@@ -103,6 +115,18 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
       return { ...next, parts: e.parts };
     case 'model':
       return { ...next, modelId: e.model_id, modelName: e.display_name, waking: null };
+    case 'retrieval.done':
+      return {
+        ...next,
+        retrieval: {
+          query: e.query,
+          searched: e.searched,
+          chunks: e.chunks,
+          sources: e.sources,
+          ms: e.ms,
+          found: e.found,
+        },
+      };
     case 'text.delta':
       return {
         ...next,

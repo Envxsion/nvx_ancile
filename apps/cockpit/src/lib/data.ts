@@ -80,6 +80,7 @@ export async function orDemo<T>(call: () => Promise<T>, fixture: T, notBuilt?: T
 export const keys = {
   threads: ['threads'] as const,
   archived: ['archived-threads'] as const,
+  trash: ['trash-threads'] as const,
   notebooks: ['notebooks'] as const,
   thread: (id: string) => ['thread', id] as const,
   sources: (notebookId: string) => ['sources', notebookId] as const,

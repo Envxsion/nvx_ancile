@@ -15,6 +15,7 @@
 
 import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
+import { useBinding } from '../keys/dispatch';
 import { type Notice, useNotify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { Icon, type IconName } from '../ui/Icon';
@@ -33,7 +34,13 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
   const sound = usePrefs((s) => s.prefs.notifications.sound);
   const [paused, setPaused] = useState(false);
   const remaining = useRef(
-    duration === null ? null : t.level === 'error' ? Math.max(8000, duration) : duration,
+    t.ttlMs !== undefined
+      ? t.ttlMs
+      : duration === null
+        ? null
+        : t.level === 'error'
+          ? Math.max(8000, duration)
+          : duration,
   );
   const started = useRef(Date.now());
 
@@ -79,6 +86,8 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
           <button
             type="button"
             className="link-btn"
+            aria-keyshortcuts="U"
+            title="Undo (U)"
             onClick={() => {
               t.undo?.();
               dismiss(t.id);
@@ -115,6 +124,19 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
 export function Toaster() {
   const toasts = useNotify((s) => s.toasts);
   const position = usePrefs((s) => s.prefs.notifications.position);
+  const dismiss = useNotify((s) => s.dismiss);
+  // U undoes the newest change still on screen, so Undo never needs a pointer.
+  const undoable = toasts.filter((t) => t.undo);
+  useBinding(
+    'undo.last',
+    () => {
+      const t = undoable.at(-1);
+      if (!t) return;
+      t.undo?.();
+      dismiss(t.id);
+    },
+    undoable.length > 0,
+  );
   return (
     <ol className="toaster" data-position={position} aria-label="Notifications">
       <AnimatePresence initial={false}>

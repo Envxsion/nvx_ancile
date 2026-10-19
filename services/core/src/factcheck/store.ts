@@ -41,7 +41,7 @@ export interface FactcheckRecord {
   status: 'running' | 'done' | 'failed';
   confidence: number | null;
   verifier_model_id: string | null;
-  scope: { notebook_id: string | null; web: boolean };
+  scope: { notebook_id: string | null; web: boolean; web_note?: string | null };
   error: { code: string; title: string; hint: string } | null;
   claims: StoredClaim[];
   created_at: string;
@@ -104,7 +104,11 @@ const fromRow = (r: FactcheckRow, claims: StoredClaim[]): FactcheckRecord => ({
   status: r.status,
   confidence: r.confidence,
   verifier_model_id: r.verifier_model_id,
-  scope: { notebook_id: r.scope?.notebook_id ?? null, web: r.scope?.web === true },
+  scope: {
+    notebook_id: r.scope?.notebook_id ?? null,
+    web: r.scope?.web === true,
+    web_note: r.scope?.web_note ?? null,
+  },
   error: r.error,
   claims,
   created_at: r.created_at.toISOString(),

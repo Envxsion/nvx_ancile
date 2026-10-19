@@ -42,6 +42,8 @@ export const ClaimEvidence = z.object({
   stance: EvidenceStance,
   /** How closely this passage matches the claim, in [0, 1]. */
   score: z.number(),
+  /** Where it came from: your sources, or the web (FC4). Absent on checks from before the web was used. */
+  origin: z.enum(['source', 'web']).optional(),
 });
 export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
 
@@ -86,7 +88,13 @@ export const Factcheck = z.object({
   /** The message-level score in words. */
   summary: z.string(),
   /** Where the evidence came from. */
-  scope: z.object({ notebook_id: z.string().nullable(), web: z.boolean() }),
+  scope: z.object({
+    notebook_id: z.string().nullable(),
+    /** The web was searched for this check (FC4). */
+    web: z.boolean(),
+    /** Why the web was not used when it was asked for (a private notebook, no search set up); null otherwise. */
+    web_note: z.string().nullable().optional(),
+  }),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   created_at: z.string(),
   finished_at: z.string().nullable(),
@@ -111,12 +119,128 @@ export const Factcheck = z.object({
 });
 export type Factcheck = z.infer<typeof Factcheck>;
 
+/** POST /messages/:id/factcheck: the optional body. `web: true` allows the web for this one check (FC4). */
+export const StartFactcheckRequest = z.object({ web: z.boolean().optional() }).strict();
+export type StartFactcheckRequest = z.infer<typeof StartFactcheckRequest>;
+
 export const StartFactcheckResponse = z.object({
   factcheck_id: z.string(),
   run_id: z.string(),
   stream_url: z.string(),
+  /** Whether this check searches the web, and why not when it was asked to (FC4). */
+  web: z.object({ used: z.boolean(), note: z.string().nullable() }).optional(),
 });
 export type StartFactcheckResponse = z.infer<typeof StartFactcheckResponse>;
+
+/* ---- Checking a highlighted claim (FC3, guard rail GR24) -------------------- */
+
+/** The one-line verdict on a highlighted claim. */
+export const SelectionVerdict = z.enum(['holds', 'partly', 'doesnt_hold', 'cant_tell']);
+export type SelectionVerdict = z.infer<typeof SelectionVerdict>;
+
+/** What the highlighted text is, so it is checked the right way: prose, code (docs or a sandbox run), maths, a link. */
+export const SelectionKind = z.enum(['prose', 'code', 'math', 'link']);
+export type SelectionKind = z.infer<typeof SelectionKind>;
+
+/** Where a line of evidence came from. */
+export const SelectionOrigin = z.enum(['source', 'web', 'run', 'model']);
+export type SelectionOrigin = z.infer<typeof SelectionOrigin>;
+
+export const SELECTION_LIMITS = {
+  /** The most characters of highlighted text that are checked. */
+  textChars: 2_000,
+  /** Evidence lines on a card: three to five. */
+  maxEvidence: 5,
+  minEvidence: 3,
+  evidenceChars: 220,
+  verdictChars: 140,
+  correctedChars: 360,
+  closingChars: 240,
+  /** Tokens the checker may write: a card, never an essay. */
+  maxOutputTokens: 700,
+} as const;
+
+export const SelectionEvidence = z.object({
+  /** One short line, the fact itself. */
+  text: z.string(),
+  origin: SelectionOrigin,
+  /** Where it is from: a source's title, a site's name, "Sandbox run", "Model knowledge". */
+  source: z.string(),
+  /** The source in your notebook, or the page on the web, when there is one to open. */
+  source_id: z.string().nullable().default(null),
+  url: z.string().nullable().default(null),
+  stance: EvidenceStance,
+});
+export type SelectionEvidence = z.infer<typeof SelectionEvidence>;
+
+export const SelectionCheck = z.object({
+  id: z.string(),
+  message_id: z.string(),
+  /** The highlighted text, as checked. */
+  text: z.string(),
+  /** Where it sits in the message's text, when it could be found there. */
+  char_start: z.number().int().nullable(),
+  char_end: z.number().int().nullable(),
+  kind: SelectionKind,
+  /** The model family that wrote the text (an answer), or null for your own message. */
+  written_by_family: z.string().nullable(),
+  verdict: SelectionVerdict,
+  /** One line: why. */
+  headline: z.string(),
+  /** The claim as it should read, when it does not hold (or holds only partly). */
+  corrected: z.string().nullable(),
+  evidence: z.array(SelectionEvidence).max(SELECTION_LIMITS.maxEvidence),
+  /** One line: how the surrounding answer would change if the corrected claim were the starting point. */
+  closing: z.string().nullable(),
+  checker_model_id: z.string().nullable(),
+  checker_family: z.string().nullable(),
+  /** What the check cost (0 on a plan or a local model); `billed` says who pays. */
+  cost_usd: z.number(),
+  billed: z.enum(['key', 'plan', 'free']),
+  /** The web, as it was used: not asked for, allowed and used, or forbidden with the reason. */
+  web: z.object({ used: z.boolean(), note: z.string().nullable() }),
+  /** Code run in the sandbox: what it printed, or why it was not run. */
+  ran: z
+    .object({
+      /** The code was run (false: it was not, and `output` says why). */
+      ran: z.boolean(),
+      ok: z.boolean(),
+      output: z.string(),
+    })
+    .nullable()
+    .default(null),
+  created_at: z.string(),
+});
+export type SelectionCheck = z.infer<typeof SelectionCheck>;
+
+/** POST /messages/:id/selection-checks */
+export const StartSelectionCheckRequest = z
+  .object({
+    text: z
+      .string()
+      .trim()
+      .min(2)
+      .max(SELECTION_LIMITS.textChars * 2),
+    /** Offsets into the message's text, when the Cockpit knows them. */
+    start: z.number().int().min(0).optional(),
+    end: z.number().int().min(0).optional(),
+    /** What the Cockpit saw it was in (inside a code block, a formula, a link); Core checks it again. */
+    kind: SelectionKind.optional(),
+    /** Allow the web for this check (FC4); ignored where the notebook keeps everything local. */
+    web: z.boolean().optional(),
+    /** Check again even though the same claim was checked before. */
+    again: z.boolean().optional(),
+  })
+  .strict();
+export type StartSelectionCheckRequest = z.infer<typeof StartSelectionCheckRequest>;
+
+/** The answer to POST /messages/:id/selection-checks: the card, and whether it was the one made before. */
+export const StartSelectionCheckResponse = z.object({ check: SelectionCheck, cached: z.boolean() });
+export type StartSelectionCheckResponse = z.infer<typeof StartSelectionCheckResponse>;
+
+/** GET /messages/:id/selection-checks */
+export const SelectionCheckList = z.object({ checks: z.array(SelectionCheck) });
+export type SelectionCheckList = z.infer<typeof SelectionCheckList>;
 
 /** What Core asks Knowledge for: passages for each claim, with quotes. */
 export const EvidenceRequest = z.object({
@@ -235,6 +359,8 @@ export const Explain = z.object({
   compaction: ExplainCompaction.nullable(),
   usage: Usage.nullable(),
   factcheck: Factcheck.nullable(),
+  /** Claims highlighted in this message and checked (FC3), newest first. */
+  selection_checks: z.array(SelectionCheck).default([]),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   /** Problems that fixed themselves while the answer was written (provenance.recovered); empty on older answers. */
   recovered: z.array(Recovered).default([]),

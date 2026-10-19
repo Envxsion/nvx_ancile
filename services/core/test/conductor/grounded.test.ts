@@ -128,7 +128,15 @@ describe('a grounded turn', () => {
     expect(prov.retrieval?.hits.find((x) => x.marker === 1)?.cited).toBe(true);
     expect(prov.retrieval?.grounded).toBe(true);
     const evs = await h.eventsOf(sent.run_id);
-    expect(evs.some((e) => e.type === 'retrieval.done')).toBe(true);
+    const done = evs.find((e) => e.type === 'retrieval.done');
+    expect(done).toBeDefined();
+    // EV2: what was searched for and what came back, not only how many.
+    if (done?.type === 'retrieval.done') {
+      expect(done.query.length).toBeGreaterThan(0);
+      expect(done.searched).toBe('notebook');
+      expect(done.found.length).toBe(done.chunks);
+      expect(done.found[0]).toMatchObject({ source_title: expect.any(String), score: expect.any(Number) });
+    }
     expect(evs.some((e) => e.type === 'citation')).toBe(true);
   });
 

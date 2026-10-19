@@ -34,6 +34,22 @@ Ancile is built to be driven from the keyboard. Every action has a shortcut, the
 | `x` | Select (for bulk actions) |
 | `#` | Archive |
 
+### In the sidebar
+
+| Keys | Does |
+|---|---|
+| `Space` | Select or unselect the thread you are on |
+| `Shift` + `Down` / `Up` | Select a range as you move |
+| `Ctrl` + `A` | Select every thread in the list, drawn or not |
+| `Esc` | Clear the selection |
+| `Ctrl` / `Shift` click | Toggle one / select a range |
+| `Alt` + `Down` | Jump to the next thread that needs you |
+| `U` | Undo the change in the notice on screen (moves, archives, deletes: ten seconds) |
+
+Drag a thread, or a selection, onto a notebook to move it. A bar over the foot of the sidebar offers Move, Archive, Export and Delete for the selection, with one notice that names the count and one Undo. A thread that is answering is left where it is and named in that notice. Delete moves threads to the Trash, kept 30 days (sidebar, Archive, Trash; or Settings, Trash); only Empty Trash, which asks first, removes them sooner.
+
+In the sidebar a pulsing dot means a thread is answering, an amber shield means it needs your decision (those threads gather at the top under Needs you), and a solid dot means an answer you have not opened yet. With reduced motion the pulsing dot is a still ring.
+
 ### In a thread (navigate mode)
 
 | Keys | Does |
@@ -98,9 +114,13 @@ Single-key shortcuts never fire while you're typing. Leave the composer with `Es
 
 **Confirmation chains** for anything touching infrastructure: Requested → Acknowledged → In progress → Confirmed, each step lit as it's reported, with timestamps and the provider's words.
 
+**Where things live (one home each).** Settings: the foot of the sidebar, `Ctrl ,` and the palette (not the top bar). The guide: the top bar, `G H` and the palette. Admin: the foot of the sidebar and `G A`. Notifications: the top bar and `G I`. Flows and Automations: their rows in the sidebar, `G W`, `G U`. Old addresses still work: `/settings/models`, `/admin/grants` and `/automations` redirect to Admin, Models, Admin, Permissions and Admin, Automations.
+
 **Optimistic, with rollback.** Sending, renaming, pinning, archiving, attaching, revoking a grant and editing memory appear instantly. If the server disagrees, the change rolls back with a toast that says why.
 
-**Toasts** appear bottom-right and never block. At most three are shown; the rest go to the notification centre. Undo is offered wherever an action can be reversed.
+**Toasts** appear bottom-right and never block. At most three are shown; the rest go to the notification centre. Undo is offered wherever an action can be reversed, and `U` uses it. A move, an archive or a delete keeps its notice for ten seconds. Permission changes and anything that spends money ask first instead.
+
+**Press feedback.** Rows, cards, chips and menu items all give the same small press (a step to 98.5% and a faint shade) without changing size; with reduced motion the step goes and the shade stays. While an answer arrives and you have scrolled up, a "New text below" pill with the live dot appears over the composer; it is announced once, politely, and a press brings you to the end.
 
 **Hover actions** on every message: branch, fact-check, cite, edit, copy, regenerate, change model. All of them are also on the keyboard, so nothing is hidden behind a menu.
 

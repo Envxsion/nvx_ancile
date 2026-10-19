@@ -36,6 +36,7 @@ import { startFactcheck, useExplain } from '../lib/factcheck';
 import { modelById, modelName, percent } from '../lib/format';
 import { shortResource } from '../lib/mappers';
 import { useReducedMotion } from '../lib/motion';
+import { VERDICT_WORDS } from '../lib/selectionWords';
 import type { MessageView } from '../lib/types';
 import { billingWords } from '../models/billing';
 import { ServedBy } from '../openrouter/ServedBy';
@@ -56,6 +57,7 @@ import {
   ratePerMillion,
   recoveredWords,
   savingWords,
+  searchFactsOf,
   secondsWords,
   toolPartsOf,
   whyThisModel,
@@ -193,6 +195,7 @@ function WhatItCost({ m, facts, x }: { m: MessageView; facts: ReceiptFacts; x: E
     recovered,
     priced: kind === 'key',
     contextDetail: null,
+    search: searchFactsOf(x?.retrieval ?? m.provenance?.retrieval ?? null),
   });
   const provider = u.billing?.payer === 'openrouter' ? 'OpenRouter' : 'The provider';
 
@@ -490,6 +493,27 @@ function WorthKnowing({ m, x }: { m: MessageView; x: Explain | undefined }) {
         ) : (
           (f.error?.title ?? 'The fact-check did not finish.')
         )}
+      </p>,
+    );
+  // Claims highlighted in this answer and checked (FC3): the verdict, and the way to the evidence.
+  const highlighted = x?.selection_checks ?? m.provenance?.selection_checks ?? [];
+  for (const c of highlighted.slice(0, 3))
+    items.push(
+      <p key={c.id} className="rc-line">
+        Highlighted claim checked: “{c.text.length > 80 ? `${c.text.slice(0, 80)}…` : c.text}”.{' '}
+        <strong>{VERDICT_WORDS[c.verdict].label}.</strong> {c.headline}{' '}
+        <button type="button" className="link-btn" onClick={() => useUi.getState().showEvidence(m.id, c.id)}>
+          Show the evidence
+        </button>
+      </p>,
+    );
+  if (highlighted.length > 3)
+    items.push(
+      <p key="more-checks" className="rc-line">
+        {highlighted.length - 3} more highlighted claims were checked.{' '}
+        <button type="button" className="link-btn" onClick={() => useUi.getState().showEvidence(m.id)}>
+          Show them all
+        </button>
       </p>,
     );
   if (!items.length) return null;

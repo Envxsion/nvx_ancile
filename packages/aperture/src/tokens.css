@@ -396,6 +396,9 @@
   --d-view: 400ms;
   --d-theme: 500ms;
   --press: 0.97;
+  /* Rows, cards, chips and menu items give less than a button does (ROADMAP TC2). */
+  --press-soft: 0.985;
+  --press-shade: color-mix(in srgb, var(--fg) 9%, transparent);
   --pop-from: 0.96;
 
   /* Reading (Settings → Reading): the answer's prose and its code */

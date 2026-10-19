@@ -990,11 +990,20 @@ ${noted.stop.forModel}`,
           log.warn({ err }, 'retrieval failed; answering without sources');
         }
         const hits = cp.grounding?.trace.hits ?? [];
+        // EV2: what was searched for and what came back, not only how many: the query, where it looked,
+        // and each passage's source with its score (the same figures the receipt shows afterwards).
         await emit({
           type: 'retrieval.done',
           chunks: hits.length,
           sources: new Set(hits.map((h) => h.source_id)).size,
           ms: Date.now() - started,
+          query: query.slice(0, 300),
+          searched: linked.length ? 'links' : cp.input.sourceIds?.length ? 'mentioned' : 'notebook',
+          found: hits.slice(0, 24).map((h) => ({
+            source_title: h.source_title,
+            page: h.page,
+            score: Math.round(h.score * 1000) / 1000,
+          })),
         });
       };
 

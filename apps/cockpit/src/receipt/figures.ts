@@ -353,6 +353,61 @@ export function askedWords(tools: ExplainTool[], resourceWords: (r: string) => s
   return `${asked.length} ${declinedByPolicy ? (asked.length === 1 ? 'tool was refused' : 'tools were refused') : `${noun} you first`} (${items.join('; ')})`;
 }
 
+/* ---- the search step (EV2) ------------------------------------------------------------ */
+
+export interface SearchFacts {
+  query: string;
+  searched?: 'notebook' | 'mentioned' | 'links' | undefined;
+  chunks: number;
+  sources: number;
+  found: { source_title: string; page: number | null; score: number }[];
+}
+
+/** The search a retrieval trace records, as the facts a step reads. Null when no search ran. */
+export function searchFactsOf(
+  r: {
+    query: string;
+    hits: { source_id: string; source_title: string; page: number | null; score: number; via?: unknown }[];
+  } | null,
+): SearchFacts | null {
+  if (!r) return null;
+  return {
+    query: r.query,
+    searched: r.hits.some((h) => h.via) ? 'links' : 'notebook',
+    chunks: r.hits.length,
+    sources: new Set(r.hits.map((h) => h.source_id)).size,
+    found: [...r.hits]
+      .sort((a, b) => b.score - a.score)
+      .map((h) => ({ source_title: h.source_title, page: h.page, score: h.score })),
+  };
+}
+
+/** "Searched 3 sources", "Searched the sources you mentioned: nothing matched". */
+export function searchedLabel(s: Pick<SearchFacts, 'searched' | 'chunks' | 'sources'>): string {
+  const where =
+    s.searched === 'mentioned'
+      ? 'the sources you mentioned'
+      : s.searched === 'links'
+        ? 'this notebook and its linked notebooks'
+        : 'your sources';
+  if (!s.chunks) return `Searched ${where}: nothing matched`;
+  if (s.searched === 'mentioned')
+    return `Searched ${s.sources} ${s.sources === 1 ? 'source' : 'sources'} you mentioned`;
+  return `Searched ${s.sources} ${s.sources === 1 ? 'source' : 'sources'}${s.searched === 'links' ? ', linked notebooks too' : ''}`;
+}
+
+/** The query and the best passages with their scores, as one line: "“pump priming” · Pump manual, p. 2 (0.91), Notes (0.62)". */
+export function searchDetail(s: Pick<SearchFacts, 'query' | 'found'>, max = 3): string | null {
+  const q = s.query.trim();
+  const query = q ? `“${q.length > 70 ? `${q.slice(0, 70)}…` : q}”` : null;
+  const best = s.found
+    .slice(0, max)
+    .map((f) => `${f.source_title}${f.page != null ? `, p. ${f.page}` : ''} (${f.score.toFixed(2)})`);
+  const more = s.found.length > max ? ` and ${s.found.length - max} more` : '';
+  const hits = best.length ? `${best.join(', ')}${more}` : null;
+  return [query, hits].filter(Boolean).join(' · ') || null;
+}
+
 /* ---- step by step ------------------------------------------------------------------ */
 
 export interface Step {
@@ -422,6 +477,8 @@ export function buildSteps(a: {
   priced: boolean;
   /** One line on what was gathered before the first call, if known. */
   contextDetail?: string | null;
+  /** What the search of the notebook's sources found, when one ran (EV2). */
+  search?: SearchFacts | null;
 }): Step[] {
   const parts = a.parts ?? [];
   const calls = a.calls ?? [];
@@ -464,6 +521,18 @@ export function buildSteps(a: {
       costUsd: null,
       note: null,
       atMs: 0,
+    });
+
+  if (a.search)
+    steps.push({
+      id: 'search',
+      kind: 'context',
+      label: searchedLabel(a.search),
+      detail: searchDetail(a.search),
+      ms: null,
+      costUsd: null,
+      note: null,
+      atMs: first && first.started_ms > 0 ? 0 : null,
     });
 
   const runs = toolRuns(parts);

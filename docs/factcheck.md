@@ -5,6 +5,7 @@ Any answer can be checked claim by claim against your sources, and optionally th
 ## Using it
 
 - Press `f` on a message, or **Fact-check** in its hover actions.
+- Or **highlight any words** in any message (a model's answer or your own; prose, LaTeX, code, a link) and choose **Fact-check** on the bar beside them, in the context menu or with `f`. See [Checking a highlighted claim](#checking-a-highlighted-claim).
 - In a notebook with **grounded mode** on (Notebook settings), every answer is checked automatically, and any answer without citations is flagged "not grounded in your sources".
 
 Each checked claim is underlined in place:
@@ -20,8 +21,8 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
 ## How it works
 
 1. **Find the claims.** A small model splits the answer into atomic, checkable claims (numbers, dates, names, causal statements) and skips opinions and advice. Each claim keeps its exact position in the text.
-2. **Gather evidence.** Your notebook's sources are searched first (hybrid search, then reranking). If web search is on and permitted, the top results are fetched as untrusted content.
-3. **Verify independently.** A verifier model **from a different family** than the one that answered judges each claim against the evidence alone: *supported*, *contradicted* or *insufficient*, with exact quotes. If only one family is available, the check still runs and says so.
+2. **Gather evidence.** Your notebook's sources are searched first (hybrid search, then reranking). Claims they do not cover are looked up on the web when the notebook's **Check on the web** is on (or you allow it for one check) and the notebook may use the web (see below). Web results are titles, links and snippets, wrapped as untrusted content; each piece of evidence is marked **Source** or **Web**.
+3. **Verify independently.** A verifier model **from a different family** than the one that answered judges each claim against the evidence alone: *supported*, *contradicted* or *insufficient*, with exact quotes. This is guard rail GR24 and Core enforces it: a fact-check is never judged by the family that wrote the answer, and **if no other family is ready the check says so and does not run** (`factcheck.no_other_family`; there is no same-family fallback). A check of your own words has no writer, so any family may judge it.
 4. **Score.**
 
 **When no model is set for a step.** With no provider key (so no model on the utility or `factcheck.verify` chain is ready), the fact-check does not give up at once. It asks, in order: Claude Code's quickest model (`claude-code/haiku`, when Claude Code is installed and verified; one lean call each, with no tools, none of your Claude Code settings and a 90-second limit, so it counts against your Claude plan like any Claude Code use), then the smallest Ollama model you pulled of 14B or less. Only when none of these is there does it stop with `factcheck.no_model`, and the message lists each thing it tried.
@@ -50,6 +51,32 @@ The message score is the importance-weighted average across claims: claims the a
 - **Claim 1** ("Trial B's dropout rate was 31%"): supported. support 0.94, agreement 1, retrieval 0.9, so confidence 0.95. **Verified.**
 - **Claim 2** ("the highest of the three"): contradicted by Trial C's 34%. confidence 0.18. **Contradicted.** Both quotes are shown.
 
+## Checking a highlighted claim
+
+Highlight words in a message and a small bar offers **Fact-check** (a long press, a drag, Shift and the arrows, or the context menu; `f` while words are highlighted). A card opens beside the words, which stay marked while you read it:
+
+- **A verdict in one line**: Holds, Partly holds, Doesn't hold or Can't tell, in a status colour (never signal violet) with an icon and the word.
+- **The corrected claim**, when it does not hold.
+- **Three to five dot-point evidence lines**, each with its source and a label: **Source** (your notebook, first), **Sandbox run**, **Web** or **Model knowledge**.
+- **One closing line** on how the surrounding answer would change if the corrected claim were the starting point.
+- The cost and who checked, in the footer. A check costs money only when you press the button.
+- **Copy**, **Open in Evidence** and **Use the corrected claim**, which writes a follow-up in the message box and never sends it.
+
+It is never an essay: the judge is asked for a small JSON object with at most 700 tokens, lines are trimmed (220 characters each, the closing to one sentence), and a reply that runs on, says nothing or gives no correction for "doesn't hold" is thrown away for the next model. The highlight, the surrounding conversation and the evidence reach the judge inside the untrusted wrapper.
+
+- **Whose family.** For a highlight in an answer, the judge differs in family from the model that wrote that answer. For a highlight in your own message, any family may judge. The judge also follows the notebook's scope: in a private notebook, or where nothing may leave the machine, only a local model judges (`factcheck.judge_not_allowed` says so when none is).
+- **What it is.** Prose is checked against the notebook's sources. **Code** is checked against what is known and, where safe, by running it: only Python, only when the permission gate already allows `code.run` (a standing grant or Auto mode; a check never asks), in the existing sandbox and only with a Cockpit window open. Otherwise the card says "Not run" and why. **LaTeX** is checked as mathematics. A **link** is not opened: the check judges what the surrounding text says it shows.
+- **Several claims in one highlight** are judged together ("Partly holds" when some hold and some do not, with the lines naming which). Up to 2,000 characters. A highlight in an answer still being written waits until it is done. The same highlight checked twice is answered from the record; **Check again** asks again.
+- **Kept.** Each check is recorded on its message (`provenance.selection_checks`), so it survives a reload, is listed under **Highlighted claims** in the Evidence tab and appears in the receipt's **Worth knowing**.
+
+## The web (FC4)
+
+**Check on the web** is a switch per notebook (Sources panel), off by default; **Check again with the web** allows it for one check. It is also on for every notebook when `web_search: true` is set in `config/factcheck.yaml`. Needs `SEARXNG_URL` (a SearXNG address, [configuration.md](configuration.md)).
+
+- A **private notebook, or one where nothing may leave the machine,** never uses the web, whatever was asked; neither does one with the network off or `web.search` blocked. The check says why on its card and in the Evidence tab.
+- Each search goes through the permission gate on its real query (`web.search`, `web:search/<query>`). If the gate would have to ask, the check carries on without the web, never stalls. At most 8 claims of a check are looked up, only those the sources cover least, with 3 results each. A search that fails costs the check nothing.
+- Web and source evidence are shown side by side, so when the web contradicts your own sources you see both.
+
 ## Citations during generation
 
 Before a model answers in a notebook, each retrieved excerpt gets a marker, and the model is asked to cite with it (`[^3]`). Ancile then checks every citation: the marker must exist and the quoted text must overlap the excerpt. Invalid citations are removed and counted in the trace, so you never see a link to something that doesn't say what's claimed.
@@ -63,5 +90,5 @@ Citations hold up the same way. Each citation keeps the passage it quoted, its s
 ## Limits
 
 - The verifier sees only the evidence found. If your sources don't cover a claim, the best possible result is *unverified*, never *verified*.
-- Web evidence is only as good as the pages found, and it's treated as untrusted content.
+- Web evidence is only as good as the snippets found (pages are never opened, so a dead link costs nothing), and it's treated as untrusted content.
 - The score is a guide to where to look, not a guarantee.

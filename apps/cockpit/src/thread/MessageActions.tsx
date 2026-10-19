@@ -27,6 +27,7 @@ import type { MessageView, ThreadView } from '../lib/types';
 import { openBeam } from '../pro/beam';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
+import { useSelectionCheck } from '../state/selectionCheck';
 import { useUi } from '../state/ui';
 import { askDelete } from '../tree/store';
 import { Icon, type IconName } from '../ui/Icon';
@@ -194,6 +195,11 @@ export function MessageActions({
       }
       case 'factcheck':
         if (demo || !message.parts) return openDrawer('evidence');
+        {
+          // Words are highlighted in this answer: F checks them, not the whole answer.
+          const hl = useSelectionCheck.getState().toolbar;
+          if (hl?.messageId === message.id) return useSelectionCheck.getState().openCard(hl);
+        }
         return startFactcheck(message.id);
       case 'model':
         // The picker is the menu on the button; the shortcut opens the

@@ -52,6 +52,8 @@ interface UiState {
   /** When something asked for a particular tab (a citation, Why, a note), so opening a thread does not undo it. */
   drawerTabAt: number;
   focusedClaim: string | null;
+  /** A checked highlight the Evidence tab should scroll to and mark (FC3). */
+  focusedCheck: string | null;
   /** The answer the Evidence panel shows; null means the latest checked one. */
   evidenceMessage: string | null;
   /** The thread open last, this session: Settings → Usage shows its context. Never stored. */
@@ -96,7 +98,7 @@ interface UiState {
   openNote: (id: string | null) => void;
   focusClaim: (id: string | null, messageId?: string) => void;
   /** Open the Evidence panel on one answer's fact-check. */
-  showEvidence: (messageId: string) => void;
+  showEvidence: (messageId: string, checkId?: string) => void;
   openPalette: (scope?: PaletteScope, query?: string) => void;
   setHelp: (open: boolean, article?: string | null) => void;
   toggleFocus: () => void;
@@ -133,6 +135,7 @@ export const useUi = create<UiState>()(
       drawerTab: usePrefs.getState().prefs.layout.drawerTab,
       drawerTabAt: 0,
       focusedClaim: null,
+      focusedCheck: null,
 
       paletteOpen: false,
       paletteScope: 'all',
@@ -183,10 +186,11 @@ export const useUi = create<UiState>()(
               }
             : { focusedClaim: null },
         ),
-      showEvidence: (messageId) =>
+      showEvidence: (messageId, checkId) =>
         set({
           evidenceMessage: messageId,
           focusedClaim: null,
+          focusedCheck: checkId ?? null,
           drawerOpen: true,
           sheetOpen: true,
           drawerTab: 'evidence',

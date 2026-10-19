@@ -18,7 +18,7 @@
 
 import type { RetrievalTrace } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
-import { type CSSProperties, memo, type ReactNode, useMemo, useState } from 'react';
+import { type CSSProperties, memo, type ReactNode, useMemo, useRef, useState } from 'react';
 import { UnknownMark } from '../claudecode/ThreadMarker';
 import { StartNodeButton } from '../compute/StartNodeButton';
 import { WakingNotice } from '../compute/WakingNotice';
@@ -32,6 +32,7 @@ import { aliasAnswered } from '../models/lines';
 import { receiptFacts } from '../receipt/facts';
 import { ReceiptStrip } from '../receipt/ReceiptStrip';
 import { usePrefs } from '../state/prefs';
+import { useSelectionCheck } from '../state/selectionCheck';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { lazyHost } from '../ui/lazyHost';
@@ -46,7 +47,9 @@ import { MemoryTray } from './MemoryTray';
 import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
 import { SavedNote } from './SavedNote';
+import { SelectionToolbar } from './SelectionToolbar';
 import { useLiveTeam } from './teamworkState';
+import { useHighlight } from './useHighlight';
 import { displayUserParts } from './userText';
 
 // Closed, a receipt takes no room, and a flow's fold is a one-line header: both load after the
@@ -55,6 +58,8 @@ export const loadReceipt = () => import('../receipt/Receipt');
 export const loadTeamwork = () => import('./Teamwork');
 const Receipt = lazyHost(loadReceipt, 'Receipt');
 const Teamwork = lazyHost(loadTeamwork, 'Teamwork', <div style={{ minHeight: 38 }} aria-hidden="true" />);
+// The fact-check card for a highlighted claim: nothing of it loads until a highlight is checked.
+const FactcheckCard = lazyHost(() => import('./FactcheckCard'), 'FactcheckCard');
 
 function renderSpans(spans: Span[], citations: CitationView[] | undefined): ReactNode[] {
   return spans.map((s, i) => {
@@ -267,6 +272,25 @@ export const Message = memo(function Message({
   const writingHidden = streaming && whole && hasText;
 
   const [editing, setEditing] = useState(false);
+  const article = useRef<HTMLElement>(null);
+  // Highlight any words in this message (an answer, or your own) to fact-check just them (FC3).
+  const hasWords = (m.parts ?? []).some((p) => p.type === 'text' && p.text);
+  useHighlight(article, {
+    messageId: m.id,
+    threadId,
+    enabled: !demo && !streaming && !editing && hasWords && !m.cc,
+  });
+  const cardOpen = useSelectionCheck((s) => s.card?.messageId === m.id);
+  const barUp = useSelectionCheck((s) => s.toolbar?.messageId === m.id);
+  // F checks the highlight. An answer's own F (check it all) is in MessageActions, which defers to a highlight.
+  useBinding(
+    'message.factcheck',
+    () => {
+      const h = useSelectionCheck.getState().toolbar;
+      if (h?.messageId === m.id) useSelectionCheck.getState().openCard(h);
+    },
+    m.role === 'user' && barUp,
+  );
   const [hovered, setHovered] = useState(false);
   const [draft, setDraft] = useState('');
   // A long paste (a log, a file) starts at a dozen lines, the rest one click away.
@@ -301,6 +325,7 @@ export const Message = memo(function Message({
 
   return (
     <article
+      ref={article}
       className="msg"
       data-role={m.role}
       data-selected={selected || undefined}
@@ -567,6 +592,9 @@ export const Message = memo(function Message({
           endedAt={streaming ? null : Date.parse(team?.startedAt ?? m.createdAt) + (team?.ms ?? 60_000)}
         />
       ) : null}
+
+      <SelectionToolbar messageId={m.id} />
+      {cardOpen ? <FactcheckCard messageId={m.id} /> : null}
 
       <MessageActions
         message={m}

@@ -38,6 +38,7 @@ SOURCE_COLUMNS = f"""
   s.id, s.workspace_id, s.kind, s.title, s.uri, s.mime, s.bytes, s.status, s.progress, s.error,
   s.tags, s.stale, s.fetched_at, s.created_at, s.updated_at, s.current_version, s.pending_version,
   s.deleted_at, s.content_hash, s.etag, s.last_modified, s.title_auto, s.topics, s.attempts, s.language,
+  s.author, s.published_on, s.language_edited,
   (SELECT count(*) FROM {S}.chunks c
      WHERE c.source_id = s.id AND c.version = s.current_version AND c.parent_id IS NOT NULL) AS chunk_count,
   (SELECT jsonb_array_length(v.pages) FROM {S}.source_versions v
@@ -186,6 +187,8 @@ def serialize(row: dict[str, Any], context_level: str | None = None) -> dict[str
             else None
         ),
         "language": row.get("language"),
+        "author": row.get("author"),
+        "published_on": row["published_on"].isoformat() if row.get("published_on") else None,
     }
     if context_level is not None:
         out["context_level"] = context_level

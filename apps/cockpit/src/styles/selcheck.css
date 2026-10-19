@@ -1,0 +1,435 @@
+/* ==========================================================================
+   Fact-check a highlighted claim (roadmap FC3)
+   The bar beside a highlight, the card that answers it, and the checked
+   highlight as it reads in the Evidence tab. Tokens only. The verdict wears
+   a semantic colour (never signal violet), plus an icon and a word.
+   ========================================================================== */
+
+/* The words stay marked while the card is read (the CSS highlight API). */
+::highlight(fc-anchor) {
+  background-color: var(--chalk-3);
+  color: inherit;
+}
+
+/* ---- The bar ---------------------------------------------------------------- */
+
+.selbar {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--lift-3);
+  box-shadow: var(--elev-3);
+  animation: selbar-in var(--d-micro) var(--ease-out);
+}
+.selbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.selbar__btn:hover {
+  background: var(--chalk);
+  color: var(--fg);
+}
+.selbar__btn:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+@keyframes selbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* ---- The card --------------------------------------------------------------- */
+
+.selcard {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 12px;
+  max-height: min(78vh, 640px);
+  overflow: auto;
+  padding: 14px 16px 12px;
+  border-radius: var(--r-lg);
+  background: var(--lift-3);
+  color: var(--fg-2);
+  box-shadow: var(--elev-3);
+  animation: selcard-in var(--d-short) var(--ease-out);
+}
+.selcard:focus {
+  outline: none;
+}
+.selcard:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+@keyframes selcard-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(var(--pop-from));
+  }
+}
+.selcard__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.selcard__wait {
+  display: grid;
+  gap: 10px;
+  padding-right: 24px;
+}
+.selcard__title {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 600;
+}
+.selcard__hint {
+  margin: 2px 0 0;
+  color: var(--mute);
+  line-height: 1.5;
+}
+.selcard__pulse {
+  display: block;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, transparent, var(--chalk-3), transparent);
+  background-size: 200% 100%;
+  animation: selcard-pulse 1.6s var(--ease) infinite;
+}
+@keyframes selcard-pulse {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+:root[data-motion='reduced'] .selcard,
+:root[data-motion='reduced'] .selbar {
+  animation: none;
+}
+:root[data-motion='reduced'] .selcard__pulse {
+  animation: none;
+  background: var(--chalk-2);
+}
+.selcard__error {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding-right: 24px;
+  color: var(--warn);
+}
+.selcard__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+}
+.selcard__cost {
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+.selcard__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.selcard__foot .selcard__actions {
+  margin-top: 0;
+}
+
+/* On a phone the card is a sheet at the foot of the screen. */
+@media (max-width: 640px) {
+  .selcard {
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: 8px;
+    width: auto !important;
+    max-height: 70vh;
+  }
+}
+
+/* ---- What a checked highlight reads like ------------------------------------ */
+
+.selbody {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.selbody__head {
+  display: grid;
+  gap: 6px;
+  padding-right: 24px;
+}
+.selbody__headline {
+  margin: 0;
+  color: var(--fg);
+  line-height: 1.45;
+}
+.selbody__claim {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--hair-2);
+  color: var(--mute);
+  font-size: var(--t-small);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.selbody[data-compact] .selbody__claim {
+  -webkit-line-clamp: 2;
+}
+.selbody__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--mute-2);
+}
+.selbody__corrected {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--wash-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.selbody__corrected p {
+  margin: 0;
+  color: var(--fg);
+  line-height: 1.5;
+}
+.selbody__evidence {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: disc;
+}
+.selbody__evidence li::marker {
+  color: var(--mute-2);
+}
+.selev {
+  display: grid;
+  gap: 2px;
+  line-height: 1.5;
+}
+.selev[data-stance='contradicts']::marker {
+  color: var(--fail);
+}
+.selev[data-stance='supports']::marker {
+  color: var(--ok);
+}
+.selev__text {
+  color: var(--fg-2);
+}
+.selev__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+.selev__origin {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--chalk);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mute);
+}
+.selev__origin[data-origin='web'] {
+  background: rgb(var(--ok-rgb) / 0.1);
+  color: var(--ok);
+}
+.selev__source {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mute-2);
+  text-decoration: none;
+}
+a.selev__source:hover,
+button.selev__source:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.selbody__closing {
+  margin: 0;
+  color: var(--fg-3);
+  line-height: 1.5;
+}
+.selbody__note {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--t-small);
+  line-height: 1.45;
+  color: var(--mute);
+}
+.selbody__note svg {
+  flex: none;
+  align-self: center;
+}
+
+/* The verdict: an icon and a word, in a semantic colour. */
+.selverdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 2px 9px 2px 7px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--mute);
+  background: var(--chalk);
+}
+.selverdict[data-verdict='holds'] {
+  color: var(--ok);
+  background: rgb(var(--ok-rgb) / 0.12);
+}
+.selverdict[data-verdict='partly'] {
+  color: var(--warn);
+  background: rgb(var(--warn-rgb) / 0.12);
+}
+.selverdict[data-verdict='doesnt_hold'] {
+  color: var(--fail);
+  background: rgb(var(--fail-rgb) / 0.12);
+}
+
+/* ---- In the Evidence tab ---------------------------------------------------- */
+
+.selrows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.selrows__head {
+  margin: 14px 0 6px;
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--mute);
+}
+.selrow {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--lift-2);
+  box-shadow: var(--elev-1);
+}
+.selrow[data-focused] {
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--edge-3);
+}
+.selrow__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+
+/* ---- A check that is still running (EV1) ------------------------------------ */
+
+.claim-card[data-live='found'] {
+  opacity: 0.78;
+}
+.claim-card__wait {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+.claim-card__by {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--mute-2);
+}
+.ev-quote__origin {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--chalk);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mute);
+}
+.ev-quote__origin[data-origin='web'] {
+  background: rgb(var(--ok-rgb) / 0.1);
+  color: var(--ok);
+}
+
+/* ---- What the search found, live (EV2) --------------------------------------- */
+
+.live-search {
+  margin: 4px 0 0;
+  font-size: var(--t-small);
+  color: var(--mute-2);
+}
+.live-search summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.live-search summary:hover {
+  color: var(--fg-2);
+}
+.live-search__query {
+  margin: 4px 0 2px;
+  color: var(--mute);
+  overflow-wrap: anywhere;
+}
+.live-search__query:empty {
+  display: none;
+}
+.live-search__found {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.live-search__found li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.live-search__found li > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

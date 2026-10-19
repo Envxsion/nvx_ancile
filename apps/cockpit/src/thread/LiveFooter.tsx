@@ -17,6 +17,9 @@
  *           |  writing. Tokens are what the engine reported, or about
  *           |  one per four characters streamed. Only the seconds tick,
  *           |  on the one shared clock (ToolSteps).
+ *           |  Once the notebook's sources have been searched, a quiet
+ *           |  "Searched 3 sources" line opens to the query and each
+ *           |  passage's source with its score (EV2), not only the count.
  *  Note     |  The same for every engine: it needs only the run's events.
  * ------------------------------------------------------------------
  */
@@ -24,6 +27,7 @@
 import { stepTitle } from '@nvx/contracts';
 import { useMemo } from 'react';
 import { type LiveTurn, useRuns } from '../lib/run';
+import { searchedLabel } from '../receipt/figures';
 import { Icon } from '../ui/Icon';
 import { Since } from './ToolSteps';
 import { WorkingNow, workingNow } from './WorkingNow';
@@ -75,6 +79,38 @@ export function shortCount(n: number): string {
   return `${Math.round(n / 1000).toLocaleString('en-GB')}k`;
 }
 
+/** What the search of the notebook's sources found: a line that opens to the query and the passages. */
+export function SearchedLine({ r }: { r: NonNullable<LiveTurn['retrieval']> }) {
+  if (!r.found.length && !r.query)
+    return (
+      <p className="live-search" data-none>
+        {searchedLabel(r)}
+      </p>
+    );
+  return (
+    <details className="live-search">
+      <summary>{searchedLabel(r)}</summary>
+      {r.query ? <p className="live-search__query">“{r.query}”</p> : null}
+      {r.found.length ? (
+        <ul className="live-search__found">
+          {r.found.slice(0, 6).map((f, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: ranked in a fixed order
+            <li key={i}>
+              <span>
+                {f.source_title}
+                {f.page != null ? `, p. ${f.page}` : ''}
+              </span>
+              <span data-num className="mute">
+                {f.score.toFixed(2)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
+}
+
 export function LiveFooter({
   messageId,
   waiting,
@@ -110,6 +146,7 @@ export function LiveFooter({
           </button>
         ) : null}
       </div>
+      {t?.retrieval ? <SearchedLine r={t.retrieval} /> : null}
       <WorkingNow steps={steps} />
     </div>
   );
