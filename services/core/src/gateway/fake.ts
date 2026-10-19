@@ -22,6 +22,7 @@
  *           |    break:<n>:<text>     stream n words of <text>, then drop
  *           |    script               obey directives in the message:
  *           |      /tool <name> <json>   call a tool, then report on it
+ *           |      /loop <name> <json>   call it again after every result, up to 6 times (LB1 tests)
  *           |      /fail <500|timeout|auth|refusal>
  *           |      /slow                 one word every 150 ms
  *           |      /ttft <ms>            wait before the first word, like a
@@ -161,14 +162,15 @@ export class FakeProvider implements ModelClient {
       if (/(^|\n)\/slow\b/.test(prompt)) delay = Math.max(delay, 150);
       // `/thinktool <tool> <json>`: like /tool, with a signed reasoning block before the call and after its result (CA1 tests).
       const think = directive?.[1] === 'thinktool';
-      if (results.length) {
+      const loop = directive?.[1] === 'loop' && results.length < 6;
+      if (results.length && !loop) {
         if (think) {
           yield { type: 'reasoning', delta: '', block: true };
           yield { type: 'reasoning', delta: 'Weighing what the tool returned. ' };
           yield { type: 'reasoning', delta: '', meta: { anthropic: { signature: 'sig-after' } } };
         }
         text = describeResults(results);
-      } else if (directive?.[1] === 'tool' || think) {
+      } else if (directive?.[1] === 'tool' || think || loop) {
         if (think) {
           yield { type: 'reasoning', delta: '', block: true };
           yield { type: 'reasoning', delta: 'I should call the tool. ' };

@@ -16,18 +16,22 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError } from '@nvx/contracts';
+import { createHash } from 'node:crypto';
+import { AncileError, LabInitRequest, PatchLabSettings } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
 import type { AppEnv } from '../app';
 import { currentContext, newTraceId } from '../context';
+import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { RunStore } from '../runs/engine';
 import { alreadyRunning } from '../runs/store';
 import type { RunWorker } from '../runs/worker';
+import { SETTING, type SettingsStore } from '../settings';
 import { type ThreadRepo, textOf } from '../threads/repo';
 import type { Engine } from './engine-client';
 import { type LabCheckpoint, labPlace, snapshotDir } from './handler';
+import { initDraft } from './init';
 import { diffSnapshot, restoreSnapshot, snapshotUsable } from './snapshot';
 
 export interface LabRouteDeps {
@@ -39,6 +43,10 @@ export interface LabRouteDeps {
   workspaceDir: string;
   workspaceRoot: string;
   snapshotsDir: string;
+  /** Where the lab settings are kept (LB3). */
+  settings?: SettingsStore;
+  /** The owner's registered repositories, for /init (LB2). */
+  repos?: { get(id: string): Promise<{ root: string; name: string }> };
 }
 
 export const labUnavailable = () =>
@@ -121,6 +129,32 @@ export function labRoutes(deps: LabRouteDeps) {
         stream_url: `/api/v1/runs/${runId}/stream`,
       },
       202,
+    );
+  });
+
+  const labSettings = async () => ({
+    format_on_edit: (await deps.settings?.get<boolean>(SETTING.labFormat)) === true,
+  });
+
+  r.get('/lab/settings', async (c) => c.json(await labSettings()));
+
+  r.put('/lab/settings', async (c) => {
+    const patch = await body(c, PatchLabSettings);
+    if (patch.format_on_edit !== undefined)
+      await deps.settings?.set(SETTING.labFormat, patch.format_on_edit ? true : null);
+    return c.json(await labSettings());
+  });
+
+  // LB2 /init: a draft only. Saving it is the editor's file write (PUT /files), which the gate decides,
+  // which confines the path, and which refuses a file that is already there.
+  r.post('/lab/init', async (c) => {
+    if (!deps.repos) throw notFound('That repository');
+    const { repo_id } = await body(c, LabInitRequest);
+    const repo = await deps.repos.get(repo_id);
+    return c.json(
+      await initDraft(repo.root, repo.name, (s) =>
+        createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex'),
+      ),
     );
   });
 

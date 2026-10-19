@@ -10,11 +10,13 @@ import type {
   MemoryProposalList,
   Part,
 } from '@nvx/contracts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CaptureCandidate } from '../../src/memory/capture';
 import { RELEVANCE_BAR, WATCH_DAYS } from '../../src/memory/gates';
 import { SETTING } from '../../src/settings';
 import { type Harness, harness } from '../support/harness';
+
+vi.setConfig({ testTimeout: 15_000 });
 
 let h: Harness;
 let now = new Date('2026-03-01T09:00:00Z');

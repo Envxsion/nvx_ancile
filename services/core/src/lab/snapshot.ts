@@ -22,6 +22,7 @@ import { cp, lstat, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from
 import { dirname, join, relative, sep } from 'node:path';
 import { AncileError } from '@nvx/contracts';
 import { createTwoFilesPatch } from 'diff';
+import { confineEntry } from '../files/confine';
 import type { FileDiff } from './engine-client';
 
 const SKIP = new Set(['node_modules', '.git', '.venv', '__pycache__', 'dist', '.next', 'target']);
@@ -165,6 +166,8 @@ export async function restoreSnapshot(labDir: string, snapDir: string): Promise<
     await mkdir(dirname(to), { recursive: true });
     // mkdir may have met a link planted since the check: look again.
     await safeTarget(labDir, f);
+    // SC1: the same check by real path, which also covers a junction the lstat walk could miss.
+    await confineEntry(to, [labDir]);
     await cp(join(snapDir, 'files', f), to);
     changed++;
   }

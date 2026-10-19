@@ -25,7 +25,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import {
   AncileError,
@@ -37,6 +37,7 @@ import {
 import { gateRoot, resourcePath } from '../claudecode/permission-map';
 import type { Gate, GateRequest } from '../permissions/gate';
 import type { PermissionStore } from '../permissions/store';
+import { confinedRename, confineEntry } from './confine';
 import {
   type FileRoot,
   type Located,
@@ -250,12 +251,15 @@ export class FileService {
         status: 404,
         errorClass: 'permanent',
       });
-    const tmp = join(dirname(at.path), `.${basename(at.path)}.ancile-${randomBytes(4).toString('hex')}.tmp`);
+    // SC1: the entry is not a link and its folder is still inside the root; checked again before the swap-in.
+    const entry = (await confineEntry(at.path, [at.root.path], { platform: this.deps.platform })).path;
+    const tmp = join(dirname(entry), `.${basename(entry)}.ancile-${randomBytes(4).toString('hex')}.tmp`);
     try {
       await writeFile(tmp, req.content, { encoding: 'utf8', flag: 'wx' });
-      await rename(tmp, at.path);
+      await confinedRename(tmp, entry, [at.root.path], { platform: this.deps.platform });
     } catch (err) {
       await unlink(tmp).catch(() => undefined);
+      if (err instanceof AncileError) throw err;
       throw new AncileError({
         code: 'files.write_failed',
         title: `${basename(at.path)} could not be saved`,

@@ -122,6 +122,8 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `auto.plan_too_broad` | 422 | "A plan step must say what it touches." / Name a folder or command, such as fs:/workspace/src/** or shell:pnpm test*. |
 | `auto.plan_not_pending` | 409 | "This plan was already answered." / A newer plan may have replaced it; refresh to see the current one. |
 | `auto.plan_not_active` | 409 | "This plan is no longer the approved one." / A newer plan may have replaced it, or it was declined. Allow the step once instead. (Add to plan, `POST /auto/plans/:id/steps`.) |
+| `auto.check_not_confirmed` | 400 | "The check has not been started." / Choose Run the check in Settings, Auto mode. Nothing runs and nothing is spent until you do. (`POST /auto/reviewer-check` without `confirm: true`.) |
+| `auto.check_running` | 409 | "The check is already running." / Wait for it to finish, then run it again if you need to. |
 
 ### Runs
 
@@ -136,6 +138,7 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `lab.undo_unsafe` | 409 | "Undo stopped at a link inside the lab folder." / Remove the link from the lab folder, then undo again. |
 | `lab.timed_out` | 504 | "The lab did not finish within N minutes." / It was stopped; check what it changed, then run a smaller task. The limit is `ANCILE_LAB_TIMEOUT_S`. |
 | `lab.failed` | 502 | "The lab stopped with an error." / The message names what went wrong; try again. |
+| `fs.path_escape` | 403 | "That path leaves the folder this agent may use." / Use a path inside the notebook or lab folder. Links and junctions that point elsewhere are not followed. (A write, rename or delete through a symlink, junction or `..`; the lab answers the engine with a reject and this reason.) |
 | `run.crashed` | 500 | "This run stopped unexpectedly." / Try again. If it keeps happening, the trace has the details. Also when a run stopped its worker five times and Ancile gave up. |
 | `run.step_uncertain` | 409 | "A tool may or may not have run before a restart." / Check the result, then ask again if it is needed. Reads run again by themselves; anything else is never repeated without a person. |
 

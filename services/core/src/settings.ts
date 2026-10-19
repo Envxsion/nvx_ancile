@@ -53,6 +53,8 @@ export class PgSettings implements SettingsStore {
 
 export const SETTING = {
   setupComplete: 'setup.complete',
+  /** true: the coding lab formats the files a run edited (lab/format.ts). Off when absent. */
+  labFormat: 'lab.format',
   preset: 'permissions.preset',
   /** { [modelId]: boolean } overrides on top of config/models.yaml */
   modelEnabled: 'models.enabled',

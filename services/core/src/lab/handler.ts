@@ -34,7 +34,14 @@ import {
 import type { ThreadRepo } from '../threads/repo';
 import type { Engine } from './engine-client';
 import type { LabMirror, LabOutcome } from './event-mirror';
-import { takeSnapshot } from './snapshot';
+import { type FormatOutcome, formatEdited } from './format';
+import {
+  foldersMentioned,
+  loadProjectInstructions,
+  type ProjectInstructions,
+  withInstructions,
+} from './instructions';
+import { diffSnapshot, takeSnapshot } from './snapshot';
 
 export interface LabCheckpoint {
   v: 1;
@@ -57,6 +64,18 @@ export interface LabDeps {
   snapshotsDir: string;
   /** How long one lab run may take before it is stopped (default 30 minutes). */
   deadlineMs?: number;
+  /**
+   * LB2/LB3: the repository this thread works for, when it is one the owner
+   * registered. Without it the lab reads no AGENTS.md or CLAUDE.md.
+   */
+  projectRoot?: (threadId: string) => Promise<{ root: string; name: string } | null>;
+  /** LB3: is format on edit switched on? */
+  formatOnEdit?: () => Promise<boolean>;
+  /** LB3: may this formatter command run? The permission gate decides (shell.exec). */
+  allowFormat?: (
+    line: string,
+    who: { threadId: string; runId: string; traceId: string; workspaceId: string },
+  ) => Promise<boolean>;
 }
 
 const log = logFor('lab');
@@ -93,6 +112,18 @@ export function labHandler(deps: LabDeps): RunHandler {
         await ctx.checkpoint(cp);
       }
       const sessionId = cp.sessionId;
+      // LB2: the owner's AGENTS.md / CLAUDE.md go with the prompt, only for a repository they registered.
+      const project = await deps.projectRoot?.(cp.threadId).catch(() => null);
+      const instructions: ProjectInstructions = project
+        ? await loadProjectInstructions(project.root, await foldersMentioned(cp.prompt, project.root)).catch(
+            () => ({ files: [], omitted: [], text: '' }),
+          )
+        : { files: [], omitted: [], text: '' };
+      if (instructions.files.length)
+        log.info(
+          { run_id: run.id, files: instructions.files.map((f) => f.path) },
+          'lab: project instructions loaded',
+        );
       await deps.mirror.attach({
         runId: run.id,
         traceId: run.traceId,
@@ -129,7 +160,7 @@ export function labHandler(deps: LabDeps): RunHandler {
         try {
           await ctx.once(1, 'lab_prompt', { sessionId }, async () => {
             deps.mirror.markStarted(sessionId);
-            await deps.engine.prompt(sessionId, place.realDir, cp.prompt);
+            await deps.engine.prompt(sessionId, place.realDir, withInstructions(cp.prompt, instructions));
             return true;
           });
         } catch (err) {
@@ -167,6 +198,34 @@ export function labHandler(deps: LabDeps): RunHandler {
         }
         // Another worker owns this run now: leave the message to it.
         if (ctx.signal.reason instanceof RunOwnershipLost) throw ctx.signal.reason;
+        // LB3: format what the run edited, before the diff is read. It never blocks the edit.
+        let format: FormatOutcome | null = null;
+        if (
+          outcome.status === 'complete' &&
+          !ctx.signal.aborted &&
+          (await deps.formatOnEdit?.().catch(() => false))
+        ) {
+          try {
+            const changed = (await diffSnapshot(place.realDir, snapshotDir(deps, run.id)))
+              .filter((d) => d.status !== 'deleted')
+              .flatMap((d) => (d.file ? [d.file] : []));
+            if (changed.length)
+              format = await formatEdited(place.realDir, changed, {
+                ...(project && { repoRoot: project.root }),
+                allow: (line) =>
+                  deps.allowFormat?.(line, {
+                    threadId: cp.threadId,
+                    runId: run.id,
+                    traceId: run.traceId,
+                    workspaceId: cp.workspaceId,
+                  }) ?? Promise.resolve(false),
+              });
+          } catch (err) {
+            log.warn({ err, run_id: run.id }, 'lab: format on edit failed; the edit is unchanged');
+          }
+          if (format && format.status !== 'none')
+            log.info({ run_id: run.id, status: format.status }, 'lab: format on edit');
+        }
         cp.promptMessageId = outcome.promptMessageId;
         await ctx.checkpoint(cp);
         const status = ctx.signal.aborted ? 'stopped' : outcome.status;
@@ -187,6 +246,22 @@ export function labHandler(deps: LabDeps): RunHandler {
               session_id: sessionId,
               prompt_message_id: outcome.promptMessageId,
               folder: place.virtualDir,
+              ...(instructions.files.length && {
+                instructions: instructions.files.map((f) => ({
+                  file: f.path,
+                  bytes: f.bytes,
+                  truncated: f.truncated,
+                })),
+              }),
+              ...(format &&
+                format.status !== 'none' && {
+                  format: {
+                    status: format.status,
+                    formatter: format.name,
+                    note: format.note,
+                    ...(format.status === 'formatted' && { files: format.files }),
+                  },
+                }),
             },
             ...(outcome.error && { error: { code: 'lab.failed', ...outcome.error } }),
           },

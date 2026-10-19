@@ -41,6 +41,7 @@ import { APPROVAL_TTL_MS } from '../permissions/reconcile';
 import type { ApprovalRecord, PermissionStore } from '../permissions/store';
 import type { RunEventLog } from '../runs/events';
 import type { ToolRegistry } from '../tools/registry';
+import { labRefusal } from './confine';
 import type { Engine, EngineEvent, PendingPermission } from './engine-client';
 import { hostedTool, hostedToolForAsk, type LabPasses } from './hosted';
 import { type LabPlace, mapAsk } from './permission-map';
@@ -546,6 +547,19 @@ export class LabMirror {
       turn.place,
       (name) => (this.deps.tools ? hostedToolForAsk(this.deps.tools, name) : undefined),
     );
+    // SC1: a file write through a link, or into another lab, is refused before anyone is asked.
+    const refusal = await labRefusal(
+      { permission: ask.permission, patterns: ask.patterns ?? [], metadata: ask.metadata ?? {} },
+      turn.place,
+    ).catch(() => null);
+    if (refusal) {
+      log.warn(
+        { session: ask.sessionID, permission: ask.permission, code: 'fs.path_escape' },
+        'lab write refused',
+      );
+      await this.deps.engine.reply(ask.id, turn.place.realDir, 'reject', refusal);
+      return;
+    }
     const decision = await this.deps.gate.check({
       userId: this.deps.userId,
       principal: LAB_PRINCIPAL,

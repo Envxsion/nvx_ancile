@@ -145,3 +145,88 @@ export const AutoReviewRecord = z.object({
   reason: z.string(),
 });
 export type AutoReviewRecord = z.infer<typeof AutoReviewRecord>;
+
+/* ---- Check my reviewers (R2) -------------------------------------------------- */
+
+/** What the check will do and cost, shown before anything runs. GET /auto/reviewer-check. */
+export const ReviewerCheckEstimate = z.object({
+  /** Fixed cases: tool calls that carry injections, and an ordinary coding session. */
+  injection_cases: z.number().int().nonnegative(),
+  normal_cases: z.number().int().nonnegative(),
+  /** How many of them get past the built-in rules and reach a reviewer. */
+  reviewer_calls: z.number().int().nonnegative(),
+  /** The reviewer that will answer first, or null when only the rules are available. */
+  first_reviewer: AutoReviewerId.nullable(),
+  /** Reviewers in the order they are asked. */
+  reviewers: z.array(
+    z.object({
+      id: AutoReviewerId,
+      label: z.string(),
+      available: z.boolean(),
+      /** Runs on this computer: nothing leaves it. */
+      local: z.boolean(),
+    }),
+  ),
+  /**
+   * The most the run may cost, in US dollars: the measured size of each request
+   * that reaches the reviewer, at its rates, plus its longest answer. The run
+   * stops asking a paid reviewer once the cost it reports reaches this.
+   */
+  est_usd_max: z.number().nonnegative(),
+  /** Prompt tokens in all the requests that reach a reviewer (about four characters to a token). */
+  est_input_tokens: z.number().int().nonnegative(),
+  /** listed: the model's own price. assumed: no price is published, so a cautious rate. free: it runs here. */
+  price_basis: z.enum(['listed', 'assumed', 'free']),
+  /** True when a paid reviewer will be asked. */
+  costs_money: z.boolean(),
+  /** True when the fixed cases (synthetic, none from your work) are sent to a service. */
+  sends_cases_out: z.boolean(),
+});
+export type ReviewerCheckEstimate = z.infer<typeof ReviewerCheckEstimate>;
+
+/** POST /auto/reviewer-check. Nothing runs, and nothing is spent, unless `confirm` is true. */
+export const ReviewerCheckRequest = z
+  .object({
+    confirm: z.boolean(),
+    /** A lower ceiling than the estimate; never a higher one. */
+    max_usd: z.number().nonnegative().optional(),
+  })
+  .strict();
+export type ReviewerCheckRequest = z.infer<typeof ReviewerCheckRequest>;
+
+export const ReviewerCheckCategory = z.object({
+  category: z.string(),
+  injection_cases: z.number().int().nonnegative(),
+  /** Injection cases that were asked about or blocked. */
+  caught: z.number().int().nonnegative(),
+  /** Injection cases that would have run by themselves. */
+  missed: z.number().int().nonnegative(),
+  normal_cases: z.number().int().nonnegative(),
+  /** Ordinary calls that asked or were blocked. */
+  false_alarms: z.number().int().nonnegative(),
+});
+export type ReviewerCheckCategory = z.infer<typeof ReviewerCheckCategory>;
+
+export const ReviewerCheckResult = z.object({
+  ran_at: z.string(),
+  categories: z.array(ReviewerCheckCategory),
+  injection_cases: z.number().int().nonnegative(),
+  caught: z.number().int().nonnegative(),
+  /** Of those caught, how many the built-in rules stopped before a reviewer was asked. */
+  caught_by_rules: z.number().int().nonnegative(),
+  missed: z.number().int().nonnegative(),
+  normal_cases: z.number().int().nonnegative(),
+  false_alarms: z.number().int().nonnegative(),
+  /** False alarms per 10 ordinary calls. */
+  false_alarms_per_10: z.number().nonnegative(),
+  reviewer_calls: z.number().int().nonnegative(),
+  /** Reviewers that actually answered at least once. */
+  answered_by: z.array(AutoReviewerId),
+  cost_usd: z.number().nonnegative(),
+  /** The run stopped asking a paid reviewer because it reached its ceiling. */
+  stopped_at_ceiling: z.boolean(),
+  /** Cases that ran by themselves (injection) or asked (ordinary), by name, to look into. */
+  missed_names: z.array(z.string()),
+  false_alarm_names: z.array(z.string()),
+});
+export type ReviewerCheckResult = z.infer<typeof ReviewerCheckResult>;

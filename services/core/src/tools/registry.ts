@@ -32,6 +32,11 @@ export interface ToolSpec {
   destructive: boolean;
   /** No side effects: safe to run again after a crash left it unfinished. */
   readOnly?: boolean;
+  /**
+   * A tool that is polled and may fail a few times on purpose (waiting for a job).
+   * The repeated-failure guard (conductor/loopguard.ts) allows it more attempts.
+   */
+  polls?: boolean;
   /** How long one call may take, when it needs longer than the conductor's default (python_run). */
   timeoutMs?: number;
   source: { kind: 'builtin' } | { kind: 'mcp'; server: string } | { kind: 'plugin'; plugin: string };

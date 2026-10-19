@@ -337,3 +337,39 @@
   font-size: var(--t-micro);
   color: var(--fg-3);
 }
+
+/* Check my reviewers (Settings, Auto mode) */
+.rcheck__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+.rcheck__table th,
+.rcheck__table td {
+  padding: 6px 10px;
+  text-align: right;
+  box-shadow: inset 0 -1px 0 var(--hair);
+}
+.rcheck__table th:first-child,
+.rcheck__table td:first-child {
+  text-align: left;
+}
+.rcheck__table thead th {
+  font-weight: 500;
+  color: var(--fg-3);
+}
+.rcheck__bad {
+  color: var(--warn);
+}
+.rcheck__total th,
+.rcheck__total td {
+  font-weight: 500;
+  color: var(--fg);
+}
+.rcheck__facts {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}

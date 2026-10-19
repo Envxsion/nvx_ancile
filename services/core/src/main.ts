@@ -115,7 +115,7 @@ import { pythonTool } from './interpreter/tool';
 import { knowledgeClient } from './knowledge/client';
 import { PgTombstoneStore, sourceIntegrity } from './knowledge/integrity';
 import { HttpEngine } from './lab/engine-client';
-import { LabMirror } from './lab/event-mirror';
+import { LAB_PRINCIPAL, LabMirror } from './lab/event-mirror';
 import { labHandler } from './lab/handler';
 import { LabPasses } from './lab/hosted';
 import { LabMcpEndpoint } from './lab/mcp-server';
@@ -165,6 +165,7 @@ import { EndpointsCache } from './openrouter/endpoints';
 import { openRouterRoutes } from './openrouter/routes';
 import { OpenRouterService } from './openrouter/service';
 import { AutoReview, PgPlanStore } from './permissions/auto';
+import { ReviewerCheck } from './permissions/auto/check';
 import { autoRoutes } from './permissions/auto/routes';
 import { coreReviewers } from './permissions/auto/wire';
 import { loadCedarEvaluator } from './permissions/cedar';
@@ -1107,6 +1108,28 @@ async function main() {
             workspaceRoot: workspace.root,
             snapshotsDir: labSnapshots,
             deadlineMs: env.ANCILE_LAB_TIMEOUT_S * 1000,
+            // LB2: only a repository the owner registered and linked is theirs to take instructions from.
+            projectRoot: async (threadId) => {
+              const t = await threads.getThread(threadId);
+              const linked = await repos.linkedFor({ threadId, notebookId: t?.notebook_id ?? null });
+              return linked ? { root: await repos.root(linked.id), name: linked.name } : null;
+            },
+            formatOnEdit: async () => (await settings.get<boolean>(SETTING.labFormat)) === true,
+            // LB3: the formatter is a command like any other, so the gate decides it, on the real command.
+            allowFormat: async (line, who) =>
+              (
+                await gate.check({
+                  userId: owner.userId,
+                  principal: LAB_PRINCIPAL,
+                  action: 'shell.exec',
+                  resource: `shell:${line}`,
+                  toolTier: 'gated',
+                  destructive: false,
+                  scope: { threadId: who.threadId, notebookId: null, workspaceId: who.workspaceId },
+                  runId: who.runId,
+                  traceId: who.traceId,
+                })
+              ).outcome === 'allow',
           }),
         }),
     },
@@ -1686,6 +1709,7 @@ async function main() {
         plans: autoPlans,
         events: runEvents,
         reviewer: () => gateAuto.review.reviewerStatus(),
+        check: new ReviewerCheck({ reviewers: () => coreReviewers({ secrets, gateway, registry }) }),
       }),
       memoryRoutes({ service: memory, threads, registry, transfer: memoryTransfer }),
       localModelRoutes({ models: localModels }),
@@ -1868,6 +1892,8 @@ async function main() {
         workspaceDir: workspace.dir,
         workspaceRoot: workspace.root,
         snapshotsDir: labSnapshots,
+        settings,
+        repos,
       }),
       artifactRoutes({ store: new PgArtifactStore(sql), threads, workspaceId: owner.workspaceId }),
       interpreterRoutes({ runtime: pyodide, service: interpreter, figures: interpreterFigures }),

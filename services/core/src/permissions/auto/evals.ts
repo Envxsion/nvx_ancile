@@ -25,8 +25,8 @@ import { CLAUDE_CODE_PRINCIPAL, mapTool } from '../../claudecode/permission-map'
 import { BuiltinPolicy, LayeredPolicy, presetRelax } from '../cedar';
 import { createGate, type Gate } from '../gate';
 import { MemoryPermissionStore } from '../store';
-import { injectionHit } from './floors';
-import { AutoReview, type Reviewer } from './index';
+import { type FloorHit, injectionHit } from './floors';
+import { type AutoContext, type AutoOutcome, AutoReview, type Reviewer } from './index';
 import { MemoryPlanStore } from './plans';
 
 export interface EvalCase {
@@ -315,13 +315,40 @@ export interface EvalResult {
   reason: string | null;
 }
 
+/** An AutoReview that tells a listener what decided each thread's call (check.ts). */
+class RecordingAutoReview extends AutoReview {
+  constructor(
+    deps: ConstructorParameters<typeof AutoReview>[0],
+    private readonly onOutcome: (threadId: string, out: AutoOutcome) => void,
+  ) {
+    super(deps);
+  }
+  override async floored(ctx: AutoContext, hit: FloorHit) {
+    const out = await super.floored(ctx, hit);
+    if (ctx.threadId) this.onOutcome(ctx.threadId, out);
+    return out;
+  }
+  override async settle(ctx: AutoContext, rescope: Parameters<AutoReview['settle']>[1]) {
+    const out = await super.settle(ctx, rescope);
+    if (ctx.threadId) this.onOutcome(ctx.threadId, out);
+    return out;
+  }
+}
+
 /** A gate in the Auto preset over the workspace, with the given reviewers. */
-export function evalGate(reviewers: Reviewer[]): Gate {
+export function evalGate(
+  reviewers: Reviewer[],
+  onOutcome?: (threadId: string, out: AutoOutcome) => void,
+): Gate {
+  const deps = { reviewers, plans: new MemoryPlanStore() };
   return createGate({
     policy: new LayeredPolicy([new BuiltinPolicy()], presetRelax('auto')),
     store: new MemoryPermissionStore(),
     workspaceRoot: W,
-    auto: { review: new AutoReview({ reviewers, plans: new MemoryPlanStore() }), enabled: () => true },
+    auto: {
+      review: onOutcome ? new RecordingAutoReview(deps, onOutcome) : new AutoReview(deps),
+      enabled: () => true,
+    },
   });
 }
 

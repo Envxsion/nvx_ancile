@@ -110,6 +110,7 @@ import {
   warnToolsChanged,
 } from './epoch';
 import { explainLinks, searchWithLinks } from './links';
+import { type LoopState, noteResult } from './loopguard';
 import { noteCall, noteRecovery, recoveryOf, stopOf, usageOut } from './receipt';
 import {
   capPerSource,
@@ -180,6 +181,10 @@ export interface TurnCheckpoint {
   waiting: { approvalId: string; callId: string } | null;
   /** The last model round produced no tool calls: the answer is complete. */
   answered: boolean;
+  /** LB1: the call that has been failing the same way, and how many times in a row. */
+  loop?: LoopState;
+  /** LB1: set when that reached the limit; the line the user reads, added once the queue is settled. */
+  loopStop?: string;
   answeredBy: string | null;
   chain: string[];
   attempts: { model: string; reason: string; detail: string }[];
@@ -667,7 +672,35 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         cp.stepStarted = { ...cp.stepStarted, [callId]: Date.now() };
       };
 
-      const settle = async (call: QueuedCall, result: Extract<Part, { type: 'tool_result' }>) => {
+      const settle = async (
+        call: QueuedCall,
+        result: Extract<Part, { type: 'tool_result' }>,
+        guard = true,
+      ) => {
+        // LB1: the same call failing the same way, again and again, ends the turn out loud.
+        if (guard && !cp.input.replay) {
+          const text =
+            typeof result.result === 'string' ? result.result : JSON.stringify(result.result ?? '');
+          const noted = noteResult(
+            cp.loop,
+            { tool: call.tool, args: call.args, polls: deps.tools.get(call.tool)?.polls === true },
+            { ok: result.ok, text, declinedByUser: result.result === 'declined' },
+          );
+          cp.loop = noted.state;
+          if (noted.stop) {
+            result = {
+              ...result,
+              result: `${text}
+
+${noted.stop.forModel}`,
+            };
+            cp.loopStop = noted.stop.forUser;
+            log.warn(
+              { run_id: run.id, tool: call.tool, failures: noted.stop.count, call_sig: noted.stop.sig },
+              'the same tool call failed repeatedly; the turn is stopped',
+            );
+          }
+        }
         // A re-run answers from the record without running anything: it has no duration of its own.
         const ms = cp.input.replay ? undefined : stepDuration(cp.stepStarted?.[call.callId], Date.now());
         if (cp.stepStarted && call.callId in cp.stepStarted) {
@@ -1813,6 +1846,32 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         }
         // ---- end Flows ----
 
+        /** LB1: a call that kept failing ends the turn here, in words the user reads. */
+        const stopForLoop = async () => {
+          if (!cp.loopStop) return;
+          // Every call the model made needs an answer; the rest are not run.
+          for (const rest of cp.queue.splice(0))
+            await settle(
+              rest,
+              {
+                type: 'tool_result',
+                call_id: rest.callId,
+                ok: false,
+                result: 'Not run: the turn was stopped because an earlier call kept failing.',
+              },
+              false,
+            );
+          appendText(
+            cp.parts,
+            'text',
+            `
+
+${cp.loopStop}`,
+          );
+          cp.loopStop = undefined;
+          cp.answered = true;
+        };
+
         for (;;) {
           while (cp.queue.length) {
             const call = cp.queue[0] as QueuedCall;
@@ -1820,8 +1879,10 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
             if (settled === 'waiting') return { kind: 'pause', reason: 'approval', checkpoint: cp };
             if (settled === 'stopped') break;
             cp.queue.shift();
+            await stopForLoop();
             await ctx.checkpoint(cp);
           }
+          await stopForLoop(); // a call answered after an approval may have been the one that tripped it
           if (cp.answered || ctx.signal.aborted) break;
           if (cp.rounds >= maxRounds) {
             appendText(

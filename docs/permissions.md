@@ -147,3 +147,12 @@ when { resource.host == "api.internal.example.com" };
   - **Edit** narrows the pattern, changes where it applies, or sets a new expiry (which also brings an expired one back). A pattern can only narrow: the new one must sit inside the old (`fs:/workspace/**` → `fs:/workspace/docs/*.md` is fine; the reverse, or bringing in a `**` the old one lacked, is refused with `permission.pattern_too_broad`). To allow more, revoke and answer the next request. A new scope takes its thread or notebook from the approval it came from; under Careful a scope can narrow but never widen past one thread.
   - **Revoke** asks first, then shows an Undo for ten minutes (`POST /grants/:id/restore`). After that the revocation stands and the agent asks again.
 - **Decisions:** the latest 200 decisions: when, what, on what, the outcome and its tier (`GET /decisions?limit=`).
+
+## Path confinement (SC1)
+
+Permission checks resolve links on the path they are given (`normalizeFsPath`), but a link from one lab or notebook folder into another is still inside the workspace. So the places Core writes files for an agent confine again by real path (`services/core/src/files/confine.ts`) against the roots that agent may use, at execution time:
+
+- `fs_read`, `fs_list`, `fs_write` and `fs_delete` (`tools/builtin/fs.ts`), the editor's save (`files/service.ts`) and the lab's undo (`lab/snapshot.ts`).
+- The lab's own edits, writes and patches (`lab/confine.ts`, called by the permission bridge before anyone is asked): the real path must be inside that lab's folder and not a link; a request to leave the folder that lands in another lab is refused.
+
+A symlink, a Windows junction, `..`, a dangling link, or a link as the last part of a write, rename or delete is refused with `fs.path_escape`. Windows compares paths without case. Writes open without following a link where the OS has `O_NOFOLLOW`, then check the same path and the open file's device and inode again before writing. What is not covered: a shell command the lab runs (it stays CRITICAL and is decided on the command), and a folder swapped for a link in the instant between checking a rename or delete and doing it.

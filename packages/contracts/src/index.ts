@@ -23,6 +23,7 @@ export * from './ids';
 export * from './images';
 export * from './interpreter';
 export * from './knowledge';
+export * from './lab';
 export * as license from './license';
 export * from './localmodels';
 export * from './mcp';

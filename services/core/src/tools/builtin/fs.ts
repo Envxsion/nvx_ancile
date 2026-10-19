@@ -12,15 +12,21 @@
  *           |  the permission check runs on the virtual path after
  *           |  symlinks are resolved on the real disk (fsProbe), and
  *           |  execution happens only after that check passed.
+ *           |  At execution every read, write and delete is confined
+ *           |  again on the real path (files/confine.ts, SC1): a link,
+ *           |  junction or ".." that leaves the roots allowed for this
+ *           |  notebook is refused with fs.path_escape, and a write
+ *           |  opens without following a link and re-checks.
  *  Note     |  Paths may be given relative ("notes/a.md") or absolute
  *           |  ("/workspace/notes/a.md"); anything else is outside.
  * ------------------------------------------------------------------
  */
 
-import { mkdir, readdir, readFile, realpath, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join, posix, relative, sep } from 'node:path';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { join, posix, relative, resolve, sep } from 'node:path';
+import { confinedRemove, confinedWrite, confineRead, isInside, pathEscape } from '../../files/confine';
 import type { FsProbe } from '../../permissions/normalize';
-import type { ToolSpec } from '../registry';
+import type { ToolScope, ToolSpec } from '../registry';
 
 const MAX_READ_BYTES = 256 * 1024;
 
@@ -30,6 +36,11 @@ export class Workspace {
     readonly dir: string,
     /** The path models and permissions see. */
     readonly root = '/workspace',
+    /**
+     * The real folders an agent in this scope may use. Defaults to the whole
+     * workspace; a notebook's scope can narrow it. Never wider than `dir`.
+     */
+    readonly rootsFor: (scope?: ToolScope) => string[] = () => [dir],
   ) {}
 
   /** Model-supplied path → absolute virtual path (not yet checked). */
@@ -80,8 +91,13 @@ const pathArg = {
 
 function need(ws: Workspace, args: unknown): string {
   const real = ws.real(ws.virtual((args as { path?: unknown })?.path));
-  if (real === null) throw new Error('That path is outside the workspace.');
+  if (real === null) throw pathEscape('That path is outside the workspace.');
   return real;
+}
+
+/** Roots for this call, kept inside the workspace whatever a scope says. */
+function rootsOf(ws: Workspace, scope?: ToolScope): string[] {
+  return ws.rootsFor(scope).filter((r) => isInside(resolve(r), resolve(ws.dir)));
 }
 
 export function fsTools(ws: Workspace): ToolSpec[] {
@@ -102,8 +118,8 @@ export function fsTools(ws: Workspace): ToolSpec[] {
       readOnly: true,
       source: { kind: 'builtin' },
       resource,
-      async execute(args) {
-        const file = need(ws, args);
+      async execute(args, ctx) {
+        const file = (await confineRead(need(ws, args), rootsOf(ws, ctx.scope))).path;
         const info = await stat(file);
         if (info.isDirectory()) throw new Error('That is a folder; use fs_list.');
         const buf = await readFile(file);
@@ -130,8 +146,8 @@ export function fsTools(ws: Workspace): ToolSpec[] {
       readOnly: true,
       source: { kind: 'builtin' },
       resource,
-      async execute(args) {
-        const dir = need(ws, args);
+      async execute(args, ctx) {
+        const dir = (await confineRead(need(ws, args), rootsOf(ws, ctx.scope))).path;
         const entries = await readdir(dir, { withFileTypes: true });
         return {
           path: ws.virtual((args as { path?: string })?.path),
@@ -158,11 +174,10 @@ export function fsTools(ws: Workspace): ToolSpec[] {
       destructive: false,
       source: { kind: 'builtin' },
       resource,
-      async execute(args) {
+      async execute(args, ctx) {
         const file = need(ws, args);
         const content = String((args as { content?: unknown }).content ?? '');
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(file, content, 'utf8');
+        await confinedWrite(file, rootsOf(ws, ctx.scope), content, { mkdirp: true });
         return { path: ws.virtual((args as { path: string }).path), bytes: Buffer.byteLength(content) };
       },
     },
@@ -180,11 +195,10 @@ export function fsTools(ws: Workspace): ToolSpec[] {
       destructive: true,
       source: { kind: 'builtin' },
       resource,
-      async execute(args) {
+      async execute(args, ctx) {
         const file = need(ws, args);
         if (file === ws.dir) throw new Error('The workspace root cannot be deleted.');
-        if ((await stat(file)).isDirectory()) await rmdir(file);
-        else await unlink(file);
+        await confinedRemove(file, rootsOf(ws, ctx.scope));
         return { path: ws.virtual((args as { path: string }).path), deleted: true };
       },
     },

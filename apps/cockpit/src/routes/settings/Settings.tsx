@@ -21,10 +21,12 @@ import {
 } from '@nvx/contracts';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { CheckReviewers } from '../../auto/CheckReviewers';
 import { ClaudeCodeGroup } from '../../claudecode/ClaudeCodeGroup';
 import { ApiKeysGroup } from '../../credentials/ApiKeys';
 import { DesktopGroup } from '../../desktop/DesktopGroup';
 import { helpDone } from '../../help/store';
+import { LabGroup } from '../../lab/LabGroup';
 import { isDesktop } from '../../lib/runtime';
 import { ProSurfaceView } from '../../pro/slot';
 import { notify } from '../../state/notify';
@@ -47,7 +49,17 @@ import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
 const ALL_GROUPS: {
-  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code' | 'usage' | 'desktop';
+  id:
+    | PrefGroup
+    | 'about'
+    | 'privacy'
+    | 'sync'
+    | 'keys'
+    | 'claude-code'
+    | 'usage'
+    | 'desktop'
+    | 'auto'
+    | 'lab';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -103,6 +115,20 @@ const ALL_GROUPS: {
     icon: 'command',
     body: ClaudeCodeGroup,
     lede: 'Use the Claude Code on this computer, and keep its sessions here as threads.',
+  },
+  {
+    id: 'auto',
+    label: 'Auto mode',
+    icon: 'shield',
+    body: CheckReviewers,
+    lede: 'See how your Auto mode reviewers do on the built-in safety cases.',
+  },
+  {
+    id: 'lab',
+    label: 'Coding lab',
+    icon: 'command',
+    body: LabGroup,
+    lede: 'How the lab treats the files it edits.',
   },
   {
     id: 'usage',
@@ -400,7 +426,9 @@ export function SettingsScreen() {
             current.id !== 'keys' &&
             current.id !== 'claude-code' &&
             current.id !== 'desktop' &&
-            current.id !== 'usage' ? (
+            current.id !== 'usage' &&
+            current.id !== 'auto' &&
+            current.id !== 'lab' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

@@ -10,6 +10,8 @@
  *           |  still apply). "Add to plan" adds a step to the approved
  *           |  plan; GET /auto/reviewer says whether a reviewer is
  *           |  answering or Auto mode is on its rules alone.
+ *           |  /auto/reviewer-check estimates, then (on confirm) runs
+ *           |  the built-in eval cases through your reviewers.
  *  How      |  Thin over PlanStore. Each change is also a `plan.changed`
  *           |  run event when the plan belongs to a run, so an open
  *           |  thread sees it at once.
@@ -21,6 +23,7 @@ import {
   AncileError,
   PlanDecisionRequest,
   ProposePlanRequest,
+  ReviewerCheckRequest,
   type ReviewerStatus,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
@@ -28,6 +31,7 @@ import type { AppEnv } from '../../app';
 import { body } from '../../http/body';
 import { notFound } from '../../obs/errors';
 import type { RunEventLog } from '../../runs/events';
+import type { ReviewerCheck } from './check';
 import { type PlanStore, sessionKey } from './plans';
 
 export interface AutoRouteDeps {
@@ -35,6 +39,8 @@ export interface AutoRouteDeps {
   events?: Pick<RunEventLog, 'append'>;
   /** Is a reviewer answering? (AutoReview.reviewerStatus) */
   reviewer?: () => ReviewerStatus;
+  /** Check my reviewers (R2). */
+  check?: ReviewerCheck;
 }
 
 export function autoRoutes(deps: AutoRouteDeps) {
@@ -92,6 +98,19 @@ export function autoRoutes(deps: AutoRouteDeps) {
         } satisfies ReviewerStatus),
     ),
   );
+
+  // What the check would do and cost. Free: it asks no reviewer a question.
+  r.get('/auto/reviewer-check', async (c) => {
+    if (!deps.check) throw notFound('The reviewer check');
+    return c.json(await deps.check.estimate());
+  });
+
+  // Runs the fixed cases through the reviewers. Only with { confirm: true }: it may cost money.
+  r.post('/auto/reviewer-check', async (c) => {
+    if (!deps.check) throw notFound('The reviewer check');
+    const req = await body(c, ReviewerCheckRequest);
+    return c.json(await deps.check.run(req));
+  });
 
   r.post('/auto/plans/:id/steps', async (c) => {
     const id = c.req.param('id');

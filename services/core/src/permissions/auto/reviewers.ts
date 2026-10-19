@@ -39,6 +39,33 @@ export interface ReviewAnswer {
   cost_usd: number | null;
 }
 
+/**
+ * What one review costs, for the "Check my reviewers" ceiling: the rates it is
+ * billed at (null: free, it runs on this computer), the request it sends, and
+ * the most it can answer with.
+ */
+export interface CostProfile {
+  rates: { input_per_mtok: number; output_per_mtok: number } | null;
+  maxOutputTokens: number;
+  /** The whole request as text, so its size can be counted. */
+  requestText(input: ReviewInput): string;
+  /** Where the rates come from. */
+  basis: 'listed' | 'assumed' | 'free';
+}
+
+/** About four characters to a token, the usual rule when no tokenizer is at hand. */
+export const approxTokens = (text: string) => Math.ceil(text.length / 4);
+
+/** Dollars the most one review of `input` can cost under `p`. */
+export function callCeilingUsd(p: CostProfile, input: ReviewInput): number {
+  if (!p.rates) return 0;
+  return (
+    (approxTokens(p.requestText(input)) * p.rates.input_per_mtok +
+      p.maxOutputTokens * p.rates.output_per_mtok) /
+    1_000_000
+  );
+}
+
 export interface Reviewer {
   readonly id: AutoReviewerId;
   /** Runs on this machine: allowed when nothing may leave it. */
@@ -46,6 +73,8 @@ export interface Reviewer {
   /** Has what it needs (a key, a local model). Cheap; called per review. */
   available(): Promise<boolean>;
   review(input: ReviewInput, signal?: AbortSignal): Promise<ReviewAnswer>;
+  /** How its cost is bounded. Absent: treated as free. */
+  costProfile?(): CostProfile;
 }
 
 /* ---- quoting ------------------------------------------------------------------ */
@@ -151,7 +180,16 @@ export interface JevOptions {
   timeoutMs?: number;
   fetch?: typeof fetch;
   breaker?: CircuitBreaker;
+  /** Rates for the cost ceiling; the cautious assumption below when absent. */
+  rates?: { input_per_mtok: number; output_per_mtok: number };
 }
+
+/**
+ * Jev's price is not published in this repository, so the ceiling assumes a
+ * cautious rate (dollars per million tokens). The cost the service reports on
+ * each answer is what the running total uses, and it is held to the ceiling.
+ */
+export const JEV_ASSUMED_RATES = { input_per_mtok: 2, output_per_mtok: 10 } as const;
 
 /** The verified shapes (docs.typesafe.ai/api, openrouter.ai/docs/guides/community/jev). */
 interface JevResponse {
@@ -176,6 +214,16 @@ export class JevReviewer implements Reviewer {
 
   async available() {
     return !!(await this.opts.key())?.trim();
+  }
+
+  costProfile(): CostProfile {
+    return {
+      rates: this.opts.rates ?? JEV_ASSUMED_RATES,
+      maxOutputTokens: 64,
+      requestText: (input) =>
+        JSON.stringify({ model: this.opts.models[0], state: reviewState(input), questions: QUESTIONS }),
+      basis: this.opts.rates ? 'listed' : 'assumed',
+    };
   }
 
   async review(input: ReviewInput, signal?: AbortSignal): Promise<ReviewAnswer> {
@@ -285,6 +333,15 @@ export class LocalModelReviewer implements Reviewer {
 
   available() {
     return this.opts.available();
+  }
+
+  costProfile(): CostProfile {
+    return {
+      rates: null,
+      maxOutputTokens: 60,
+      requestText: (input) => `${LOCAL_SYSTEM}\n${localPrompt(input)}`,
+      basis: 'free',
+    };
   }
 
   async review(input: ReviewInput, signal?: AbortSignal): Promise<ReviewAnswer> {

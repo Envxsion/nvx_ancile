@@ -124,6 +124,10 @@ One plan per thread (or run); a new one supersedes the last. A step without a re
 ```http
 POST /api/v1/auto/plans/apl_…/steps   { "action": "shell.exec", "resource": "shell:git push origin fix", "note": "Push the fix" }  → AutoPlan
 GET  /api/v1/auto/reviewer            → ReviewerStatus { status: online | offline | unknown, outage_id, reason, local_only, since }
+GET  /api/v1/auto/reviewer-check      → ReviewerCheckEstimate { cases, reviewer_calls, est_usd_max, costs_money, … }   (free)
+GET  /api/v1/lab/settings              → LabSettings { format_on_edit }
+PUT  /api/v1/lab/settings              { format_on_edit? } → LabSettings   (format on edit is off until switched on; the formatter command still goes through the permission gate as shell.exec)
+POST /api/v1/auto/reviewer-check      { confirm: true, max_usd? } → ReviewerCheckResult (per category: caught, missed, false alarms)
 ```
 
 "Add to plan" on a step outside the approved plan (an `approval.batched` event with `out_of_plan: true`): the step is checked like any other (422 `auto.plan_too_broad`); a plan that is no longer the approved one in force is 409 `auto.plan_not_active`. The Cockpit then answers the waiting approval once. `GET /auto/reviewer` says whether a reviewer answers or Auto mode is on its rules alone; changes arrive as the `auto.reviewer` global event.
@@ -598,3 +602,4 @@ Live sessions (protocol 2). The bridge runs the SDK's `query()` in streaming-inp
 | `session.permission` | `{handle, request_id, tool_name, input, tool_use_id, agent_id?, suggestions?, decision_reason?, via: hook or can_use_tool}`: a tool call waiting for Core. Every call passes a PreToolUse hook on its real input; `canUseTool` reuses the answer the hook got for the same call. No answer within 30 minutes is a deny, "No answer from NVX Ancile" |
 | `session.state` | `{handle, state: starting, ready, working or closed, session_id?, error?}` |
 
+POST /api/v1/lab/init                  { repo_id } → LabInitDraft { path, content, exists, existing_sha256, diff }   (a draft only; saving is PUT /files)
