@@ -842,9 +842,11 @@ pub fn command(app: &AppHandle, name: &str) {
     });
 }
 
-// TODO(phase-0.1.1): Go back asks nvx.sh for `&pin=<version>`. The update server
-// (ancile.nvx.sh/api/updates) must serve that exact build for a Pro licence; until it does,
-// the check answers 204 and Go back reports nothing to install.
+// Go back asks nvx.sh for `&pin=<version>` (served since cyberfolio f78d1ee): 200 with
+// `pinned: true` for a Pro licence whose feat is `*` or includes `desktop`; 403
+// update.pin_needs_pro otherwise, 404 update.pin_not_found for a paused or pruned version
+// (nvx.sh keeps the newest three Pro builds per platform), 400 for a malformed pin. Any
+// failure leaves this version installed and says so on the card.
 /// Pro: install the version this one replaced. Core only queues this for Pro;
 /// the Cockpit has asked first, and the data is backed up before the older build goes in.
 fn go_back(app: &AppHandle) {
