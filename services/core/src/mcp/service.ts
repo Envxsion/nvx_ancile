@@ -114,7 +114,7 @@ const tierNotAllowed = (tool: string) =>
     errorClass: 'permanent',
   });
 
-const transportMismatch = (field: string, transport: 'stdio' | 'http') =>
+const transportMismatch = (field: string, transport: 'stdio' | 'http' | 'sse') =>
   new AncileError({
     code: 'mcp.transport_mismatch',
     title: `A ${transport === 'stdio' ? 'command (stdio)' : 'web address (http)'} server has no ${field}`,
@@ -172,7 +172,9 @@ export class McpService {
           env_secrets: [],
           env: row.env,
         }
-      : { ...common, transport: 'http', url: row.url ?? '', oauth: false, headers: row.headers };
+      : row.transport === 'sse'
+        ? { ...common, transport: 'sse', url: row.url ?? '', headers: row.headers }
+        : { ...common, transport: 'http', url: row.url ?? '', oauth: false, headers: row.headers };
   }
 
   /** Everything the manager should run now. */
@@ -204,7 +206,7 @@ export class McpService {
         command: s.transport === 'stdio' ? s.command : null,
         args: s.transport === 'stdio' ? (s.args ?? []) : [],
         env: {},
-        url: s.transport === 'http' ? s.url : null,
+        url: s.transport !== 'stdio' ? s.url : null,
         headers: {},
         secret_keys: keys,
         enabled: s.enabled !== false,
@@ -290,7 +292,7 @@ export class McpService {
       command: f.transport === 'stdio' ? f.command : null,
       args: f.transport === 'stdio' ? f.args : [],
       env: {},
-      url: f.transport === 'http' ? f.url : null,
+      url: f.transport !== 'stdio' ? f.url : null,
       headers: {},
       secrets: f.transport === 'stdio' ? f.env_secrets.map((key) => ({ key, set: saved.has(key) })) : [],
       ...this.live(f.name, f.enabled, false),
@@ -354,7 +356,7 @@ export class McpService {
     if (other && other.id !== exceptId) throw nameTaken(name, false);
   }
 
-  private static checkKeys(keys: string[], transport: 'stdio' | 'http') {
+  private static checkKeys(keys: string[], transport: 'stdio' | 'http' | 'sse') {
     const re = transport === 'stdio' ? ENV_KEY : HEADER_KEY;
     const seen = new Set<string>();
     for (const k of keys) {
@@ -362,13 +364,13 @@ export class McpService {
         throw badRequest(
           `secrets: ${k} is not a valid ${transport === 'stdio' ? 'environment variable' : 'header'} name`,
         );
-      const norm = transport === 'http' ? k.toLowerCase() : k;
+      const norm = transport !== 'stdio' ? k.toLowerCase() : k;
       if (seen.has(norm)) throw badRequest(`secrets: ${k} is listed twice`);
       seen.add(norm);
     }
   }
 
-  async create(req: CreateMcpServerRequest): Promise<McpServerView> {
+  async create(req: CreateMcpServerRequest, opts: { wait?: boolean } = {}): Promise<McpServerView> {
     await this.assertNameFree(req.name);
     McpService.checkKeys(
       req.secrets.map((s) => s.key),
@@ -384,8 +386,8 @@ export class McpService {
       command: req.transport === 'stdio' ? req.command : null,
       args: req.transport === 'stdio' ? req.args : [],
       env: req.transport === 'stdio' ? req.env : {},
-      url: req.transport === 'http' ? req.url : null,
-      headers: req.transport === 'http' ? req.headers : {},
+      url: req.transport !== 'stdio' ? req.url : null,
+      headers: req.transport !== 'stdio' ? req.headers : {},
       secret_keys: req.secrets.map((s) => s.key),
       enabled: req.enabled,
       tool_overrides: {},
@@ -395,8 +397,10 @@ export class McpService {
       throw nameTaken(req.name, false);
     }
     const row = (await this.deps.store.get(id)) as McpServerRow;
-    // In the background: the view says "connecting" until it has an answer.
-    void this.m.connect(this.appSpec(row));
+    // In the background: the view says "connecting" until it has an answer. A caller that wants
+    // the answer (a preset's connection test) waits for the first attempt.
+    if (opts.wait) await this.m.connect(this.appSpec(row));
+    else void this.m.connect(this.appSpec(row));
     log.info({ server: row.name, id, transport: row.transport }, 'MCP server added');
     return this.view(id);
   }

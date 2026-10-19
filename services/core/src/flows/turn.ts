@@ -16,6 +16,7 @@
  */
 
 import {
+  AncileError,
   type ContextPolicy,
   type EffectiveScope,
   type Flow,
@@ -263,9 +264,23 @@ export class FlowsService {
     sourceIds?: string[];
     /** Linked notebooks to search too, already checked against both scopes (links/service forTurn). */
     linked?: LinkedNotebook[];
+    /** A Retrieve node asked: say why a search cannot run instead of returning nothing. */
+    strict?: boolean;
   }): Promise<string> {
     const linked = q.linked ?? [];
-    if (!this.deps.retriever || (!q.notebookId && !linked.length)) return '';
+    if (!this.deps.retriever || (!q.notebookId && !linked.length)) {
+      if (q.strict)
+        throw new AncileError({
+          code: 'flow.retrieve_unavailable',
+          title: this.deps.retriever ? 'This chat has no notebook to search' : 'Source search is not running',
+          hint: this.deps.retriever
+            ? 'A Retrieve step searches the sources in a notebook. Move this chat into a notebook, or remove the Retrieve step.'
+            : 'Start the knowledge service (pnpm start), then send the message again.',
+          status: 422,
+          errorClass: 'permanent',
+        });
+      return '';
+    }
     try {
       if (linked.length) {
         const { response, via } = await searchWithLinks({
@@ -289,6 +304,15 @@ export class FlowsService {
       return groundingFrom(res, { query: q.query, notebookId: q.notebookId, notebookTitle: null }).block;
     } catch (err) {
       log.warn({ err }, 'flow retrieval failed');
+      if (q.strict)
+        throw new AncileError({
+          code: 'flow.retrieve_unavailable',
+          title: 'Searching your sources failed',
+          hint: 'Check that the knowledge service is running (Settings, Diagnostics), then send the message again.',
+          status: 502,
+          errorClass: 'transient',
+          cause: err,
+        });
       return '';
     }
   }
@@ -444,6 +468,7 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
       notebookId: own ? h.input.notebookId : null,
       query,
       k,
+      strict: true,
       ...(own?.ids?.length && { sourceIds: own.ids }),
       ...(linked.length && { linked }),
     });

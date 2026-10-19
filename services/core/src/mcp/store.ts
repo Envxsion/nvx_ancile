@@ -12,7 +12,7 @@
  *           |  the env vars or headers, and the values sit in the
  *           |  encrypted secret store (see service.ts for the names).
  *  Note     |  The env_secret_ids column holds the secret keys for both
- *           |  transports (env vars for stdio, headers for http).
+ *           |  transports (env vars for stdio, headers for http and sse).
  * ------------------------------------------------------------------
  */
 
@@ -22,7 +22,7 @@ import type { ToolOverride } from '../tools/registry';
 export interface McpServerRow {
   id: string;
   name: string;
-  transport: 'stdio' | 'http';
+  transport: 'stdio' | 'http' | 'sse';
   command: string | null;
   args: string[];
   env: Record<string, string>;
@@ -84,7 +84,7 @@ export class MemoryMcpServerStore implements McpServerStore {
 interface Row {
   id: string;
   name: string;
-  transport: 'stdio' | 'http';
+  transport: 'stdio' | 'http' | 'sse';
   command: string | null;
   args: string[] | null;
   env: Record<string, string> | null;

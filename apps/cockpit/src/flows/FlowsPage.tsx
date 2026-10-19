@@ -31,7 +31,7 @@ import { activateFlow, deleteFlow, needsCore, useFlow, useFlows } from './api';
 import { FlowEditor } from './FlowEditor';
 import { NewFlowDialog } from './NewFlow';
 import { FlowPreview } from './Preview';
-import { LOCAL_TEMPLATES } from './templates';
+import { useStarterTemplates } from './templates';
 import '../styles/flows.css';
 
 function FlowCard({ f, sub, onOpen }: { f: FlowSummary; sub?: string; onOpen: () => void }) {
@@ -115,7 +115,9 @@ export function FlowsScreen() {
     ref: string | null;
     name: string;
     activate: boolean;
+    template?: string;
   } | null>(null);
+  const starter = useStarterTemplates();
   const open = (id: string) => void navigate({ to: '/flows/$flowId', params: { flowId: id } });
   const missing = flows.isError && needsCore(flows.error);
   // Any other failure is not "No workspace flow": the lists wait for an answer, and so does
@@ -226,13 +228,21 @@ export function FlowsScreen() {
             <h2>Starting shapes</h2>
           </div>
           <div className="fflows__grid">
-            {LOCAL_TEMPLATES.map((t) => (
+            {starter.templates.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 className="fcard fcard--template"
                 disabled={!canCreate}
-                onClick={() => setCreating({ scope: 'workspace', ref: null, name: t.name, activate: false })}
+                onClick={() =>
+                  setCreating({
+                    scope: 'workspace',
+                    ref: null,
+                    name: t.name,
+                    activate: false,
+                    template: t.id,
+                  })
+                }
               >
                 <div className="fcard__preview">
                   <FlowPreview graph={t.graph} height={96} />
@@ -252,6 +262,7 @@ export function FlowsScreen() {
           scopeRef={creating.ref}
           defaultName={creating.name}
           activate={creating.activate}
+          {...(creating.template && { initialTemplate: creating.template })}
           onCreated={(f) => open(f.id)}
         />
       ) : null}

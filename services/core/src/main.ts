@@ -49,6 +49,7 @@ import { appVersion, chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys }
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeCodeMcpList } from './claudecode/mcp-list';
+import { ClaudeCodeMcpManage } from './claudecode/mcp-manage';
 import { ClaudeMcpEndpoint } from './claudecode/mcp-server';
 import { PlanLimits } from './claudecode/plan-limits';
 import { PgPlanSampleStore, PlanSamples } from './claudecode/plan-samples';
@@ -135,6 +136,7 @@ import { watchClaudeCodeMcp } from './mcp/claude-code-watch';
 import { mcpClientRoutes } from './mcp/clients';
 import { McpToolGuard, PgMcpApprovalStore } from './mcp/guard';
 import { McpManager } from './mcp/manager';
+import { McpPresets } from './mcp/presets';
 import { toolRoutes } from './mcp/routes';
 import { mcpEndpoint, PgMcpClientStore } from './mcp/server';
 import { McpService } from './mcp/service';
@@ -869,6 +871,16 @@ async function main() {
     bus: events,
   });
   claudeMcpList.watch();
+  // Use, add and remove Claude Code's MCP servers, only through its own `claude mcp` command.
+  const claudeMcpManage = new ClaudeCodeMcpManage({
+    cli: claudeCode.cli,
+    servers: mcpServers,
+    settings,
+    sourceOf: async (name) =>
+      (await claudeMcpList.get()).servers.find((s) => s.name === name)?.source ?? null,
+    changed: () => void claudeMcpList.get({ refresh: true }).catch(() => undefined),
+  });
+  const mcpPresets = new McpPresets(mcpServers);
   const claudeLive: ClaudeCodeLive = new ClaudeCodeLive({
     images,
     limits: planLimits,
@@ -1812,7 +1824,7 @@ async function main() {
       proRoutes({ routes: proFeatures?.routes ?? [], hasFeature: hasProFeature }),
       // A Pro feature with no route here (the free build) answers 402, so the Cockpit shows it as Pro.
       lockedProRoutes(),
-      toolRoutes({ tools, servers: mcpServers, guard: mcpGuard }),
+      toolRoutes({ tools, servers: mcpServers, guard: mcpGuard, presets: mcpPresets }),
       repoRoutes({ repos, github, secrets, mcp: mcpServers }),
       // The code editor: read and save files, through the same gate as fs.read and fs.write.
       fileRoutes({
@@ -1845,6 +1857,7 @@ async function main() {
         sendLocks,
         sameRepo: () => sameRepo,
         mcpList: () => claudeMcpList,
+        mcpManage: () => claudeMcpManage,
       }),
       activityRoutes({ activity }),
       engineRoutes({

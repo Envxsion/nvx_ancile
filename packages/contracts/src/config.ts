@@ -170,6 +170,13 @@ export const McpServerConfig = z.discriminatedUnion('transport', [
     enabled: z.boolean().default(true),
     tools: z.record(z.string(), ToolOverride).default({}),
   }),
+  z.object({
+    name: z.string(),
+    transport: z.literal('sse'),
+    url: z.string().url(),
+    enabled: z.boolean().default(true),
+    tools: z.record(z.string(), ToolOverride).default({}),
+  }),
 ]);
 export const McpFile = z.object({ version: z.literal(1), servers: z.array(McpServerConfig).default([]) });
 

@@ -79,6 +79,9 @@ export interface ModelCallResult {
 
 export type Waitable<T> = { status: 'done'; value: T } | { status: 'waiting' };
 
+/** A question to a person: answered, still open, or left unanswered until it expired. */
+export type Asked = Waitable<string> | { status: 'expired' };
+
 /** A router asking whether its route is already known (Pro: a router learned from your choices). */
 export interface RouteHintQuery {
   flowId: string;
@@ -126,7 +129,7 @@ export interface FlowRuntime {
   ): Promise<Waitable<{ ok: boolean; output: string }>>;
   /** The definitions of the named tools, as a model is offered them. */
   toolDefs?(names: string[]): ToolDef[];
-  ask?(key: string, question: string, preview: string): Promise<Waitable<string>>;
+  ask?(key: string, question: string, preview: string): Promise<Asked>;
   retrieve?(q: { query: string; k: number; sourceIds?: string[]; rerank: boolean }): Promise<string>;
   factcheck?(answer: string, verifier?: string): Promise<{ confidence: number | null; summary: string }>;
   loadFlow(id: string): Promise<Flow | undefined>;
@@ -962,6 +965,14 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       n.params.show_upstream ? upstreamText : '',
     );
     if (r.status === 'waiting') return { kind: 'waiting' };
+    if (r.status === 'expired')
+      throw new AncileError({
+        code: 'flow.human_timeout',
+        title: `Nobody answered "${render(n.params.question, vars()).slice(0, 80)}" in time`,
+        hint: 'Send the message again and answer when asked, or remove the Human step from the flow.',
+        status: 408,
+        errorClass: 'permanent',
+      });
     return { kind: 'done', output: r.value };
   };
 
@@ -1264,7 +1275,14 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
       }
 
       case 'retrieve': {
-        if (!rt.retrieve) return { kind: 'done', output: '', fire: 'all' };
+        if (!rt.retrieve)
+          throw new AncileError({
+            code: 'flow.retrieve_unavailable',
+            title: `${labelOf(n)} cannot search here`,
+            hint: 'Searching sources needs a notebook and the knowledge service. Open the flow from a notebook, or remove the Retrieve step.',
+            status: 422,
+            errorClass: 'permanent',
+          });
         const query = render(n.params.query, vars()).slice(0, 4_000) || rt.input.text;
         const out = await rt.retrieve({
           query,
@@ -1283,10 +1301,17 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
           await decide(n, replay, 'The same route as the answer this one replaces.', null);
           return { kind: 'done', output: answer, fire: replay };
         }
-        const res = rt.factcheck
-          ? await rt.factcheck(answer, n.params.verifier)
-          : { confidence: null, summary: 'Fact-checking is not available here.' };
-        const unsure = res.confidence !== null && res.confidence < n.params.min_confidence;
+        if (!rt.factcheck)
+          throw new AncileError({
+            code: 'flow.factcheck_unavailable',
+            title: `${labelOf(n)} cannot check facts here`,
+            hint: 'Fact-checking needs the knowledge service and a notebook with sources. Start it, or remove the Fact-check step.',
+            status: 422,
+            errorClass: 'permanent',
+          });
+        const res = await rt.factcheck(answer, n.params.verifier);
+        // A check that could not run is not a pass: with an "unsure" route, take it.
+        const unsure = res.confidence === null ? hasUnsure : res.confidence < n.params.min_confidence;
         const chose = unsure && hasUnsure ? ['unsure'] : ['ok'];
         await decide(
           n,

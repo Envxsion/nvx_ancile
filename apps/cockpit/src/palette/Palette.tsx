@@ -525,6 +525,14 @@ export function Palette() {
       run: () => thread && openEditor({ kind: 'instructions', level: 'thread', id: thread.id }),
     },
     {
+      id: 'thread-packs',
+      label: 'Context packs for this thread',
+      icon: 'archive',
+      words: 'pack packs context attach bundle',
+      when: !!thread,
+      run: () => thread && openEditor({ kind: 'packs', level: 'thread', id: thread.id, title: thread.title }),
+    },
+    {
       id: 'new-claude-code',
       label: 'New Claude Code thread in a folder',
       icon: 'terminal',

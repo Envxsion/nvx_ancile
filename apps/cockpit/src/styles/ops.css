@@ -1563,6 +1563,52 @@ button.logline__row:hover {
   font: inherit;
   cursor: pointer;
 }
+.mcp-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp-preset {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--chalk);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+  color: var(--fg-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.mcp-preset:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.mcp-preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.mcp-preset__name {
+  font-weight: 600;
+}
+.mcp-preset__desc {
+  color: var(--fg-3);
+  font-size: var(--t-small);
+}
+.mcp-preset__missing {
+  color: var(--warn);
+  font-size: var(--t-small);
+}
+.mcp-preset__tag {
+  color: var(--mute);
+  font-size: var(--t-small);
+}
 .mcp-form {
   display: grid;
   gap: 14px;
@@ -1940,4 +1986,32 @@ button.logline__row:hover {
 }
 .activate > .btn {
   margin-top: 22px;
+}
+
+/* Use in NVX Ancile: what will be copied. */
+.mcp__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+.mcp__note {
+  margin: 6px 0 0;
+  font-size: var(--t-small);
+}
+.use-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: var(--t-small);
+}
+.use-summary dt {
+  color: var(--fg-3);
+}
+.use-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
 }

@@ -1,7 +1,8 @@
 /**
- * Plugins → From Claude Code: your Claude Code MCP servers, read-only,
- * grouped by where they are set up, connected first, with nothing to
- * switch, edit or remove.
+ * Plugins → From Claude Code: your Claude Code MCP servers, grouped by where
+ * they are set up, connected first. "Use in NVX Ancile" copies one (a claude.ai
+ * connector says why it cannot be); only servers from your own config can be
+ * removed from Claude Code.
  */
 import type { ClaudeCodeMcpServers } from '@nvx/contracts';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -41,22 +42,25 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('From Claude Code', () => {
-  it('lists them by where they are set up, connected first, and says they are managed in Claude Code', async () => {
+  it('lists them by where they are set up, connected first, and says what can be copied', async () => {
     get.mockResolvedValue(LIST);
     wrap(<ClaudeCodeMcpSection />);
     expect(await screen.findByText('Vercel')).toBeInTheDocument();
     expect(screen.getByText('Supabase')).toBeInTheDocument();
     expect(screen.getByText('claude.ai connectors')).toBeInTheDocument();
     expect(screen.getByText('Claude Code plugins')).toBeInTheDocument();
-    expect(
-      screen.getByText(/managed in Claude Code and are available to Claude Code threads/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/available to Claude Code threads/)).toBeInTheDocument();
     expect(screen.queryByText('Adobe')).toBeNull();
-    fireEvent.click(screen.getAllByRole('button', { name: /Show 1 not connected/ })[0] as HTMLElement);
+    for (const b of screen.getAllByRole('button', { name: /Show 1 not connected/ })) fireEvent.click(b);
     expect(screen.getByText('Adobe')).toBeInTheDocument();
-    // Read-only: nothing to switch, edit or remove.
+    // Nothing to switch or edit; Remove only for the one server from your own config.
     expect(screen.queryByRole('switch')).toBeNull();
-    expect(screen.queryByRole('button', { name: /Remove|Edit/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
+    // A connector is tied to your Claude account: the button is off and says why.
+    const copies = screen.getAllByRole('button', { name: 'Use in NVX Ancile' });
+    expect(copies.filter((b) => (b as HTMLButtonElement).disabled).length).toBe(3);
+    expect(screen.getAllByText(/tied to your Claude account/).length).toBeGreaterThan(0);
     get.mockResolvedValue(LIST);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(get).toHaveBeenCalledWith('/claude-code/mcp-servers?refresh=1');

@@ -20,6 +20,8 @@ export type Editor =
   | { kind: 'new-claude-code'; notebookId: string | null; cwd: string | null }
   /** Context links of a thread or notebook (docs/notebooks.md). */
   | { kind: 'links'; level: 'notebook' | 'thread'; id: string; title: string; notebookId: string | null }
+  /** Attach or detach context packs, or make one from this thread (Pro; the free build explains). */
+  | { kind: 'packs'; level: 'notebook' | 'thread'; id: string; title: string }
   /** Merge another notebook into this one, optionally with it chosen already. */
   | { kind: 'merge'; into: { id: string; title: string }; from: string | null };
 

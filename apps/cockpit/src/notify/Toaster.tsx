@@ -13,7 +13,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { type Notice, useNotify } from '../state/notify';
 import { usePrefs } from '../state/prefs';

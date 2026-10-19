@@ -15,12 +15,14 @@
  *           |  /mcp/approvals lists each server's approved tool list
  *           |  (host and Claude Code's own) and approves a changed one
  *           |  once, by the fingerprint you were shown (guard.ts).
+ *           |  /mcp/presets is the Add server catalogue (presets.ts).
  *  Note     |  TODO(phase-5): OAuth sign-in for remote servers from the
  *           |  app (the oauth flag in config/mcp.yaml is not used yet).
  * ------------------------------------------------------------------
  */
 
 import {
+  AddMcpPresetRequest,
   ApproveMcpToolsRequest,
   CreateMcpServerRequest,
   UpdateMcpServerRequest,
@@ -32,9 +34,15 @@ import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { ToolRegistry } from '../tools/registry';
 import type { McpToolGuard } from './guard';
+import type { McpPresets } from './presets';
 import type { McpService } from './service';
 
-export function toolRoutes(deps: { tools: ToolRegistry; servers: McpService; guard?: McpToolGuard }) {
+export function toolRoutes(deps: {
+  tools: ToolRegistry;
+  servers: McpService;
+  guard?: McpToolGuard;
+  presets?: McpPresets;
+}) {
   const r = new Hono<AppEnv>();
   const { servers } = deps;
 
@@ -57,6 +65,18 @@ export function toolRoutes(deps: { tools: ToolRegistry; servers: McpService; gua
   r.post('/mcp/servers', async (c) =>
     c.json(await servers.create(await body(c, CreateMcpServerRequest)), 201),
   );
+
+  // The Add server catalogue: GET lists presets with what is missing to run each; POST adds one
+  // and answers with the server as it stands after its first connection attempt.
+  r.get('/mcp/presets', async (c) =>
+    c.json({ items: deps.presets ? await deps.presets.list() : [], next_cursor: null }),
+  );
+
+  r.post('/mcp/presets/:id/add', async (c) => {
+    if (!deps.presets) throw notFound('That MCP preset');
+    const req = await body(c, AddMcpPresetRequest);
+    return c.json(await deps.presets.add(c.req.param('id'), req), 201);
+  });
 
   r.get('/mcp/servers/:id', async (c) => c.json(await servers.view(c.req.param('id'))));
 

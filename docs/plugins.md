@@ -119,6 +119,7 @@ Open Admin → Plugins and press Add server. Give it a name (lower-case letters,
 
 - **Command (stdio):** the program and its arguments, plus any environment variables it needs.
 - **Web address (http):** the server's URL, plus any request headers.
+- **Web address (SSE):** the older server-sent-events address some remote servers still use. It takes the same fields as http.
 
 Tokens and keys go under **Secrets**: for a command they become environment variables, for a web address they become request headers (for example `Authorization` with `Bearer …`). Secrets are encrypted at rest and never shown again; the app only says whether each one is set. To change a secret, type a new value; leave it blank to keep the one stored.
 
@@ -127,6 +128,16 @@ The server connects as soon as you save, and its tools are available straight aw
 Each tool has its own settings: change its tier (auto, gated or critical), go back to the server's own, or switch the tool off. A tool the server marks as destructive can never be auto. Changes apply at once. When a server adds or removes tools while connected, the list follows.
 
 The GitHub preset (Add GitHub) sets up the official GitHub server this way; you can edit it afterwards like any other.
+
+### Add server: the list of presets
+
+Add server also opens a list of servers people reach for first: Filesystem, Playwright, Fetch, Git, Linear, Sentry, Supabase, Context7, Brave Search and Sequential thinking. Each was checked against the vendor's own documentation (the source is in `services/core/src/mcp/presets.ts`). Postgres, Slack, Notion and Vercel are not listed: their reference servers are archived or unsupported, or they only sign in with OAuth, so add them by hand if you accept that. Pick one and fill in only what it needs: a folder, a token. A token or password is stored encrypted under a name and never shown again. The server is added and connected at once, and the card says how the connection went. A server that runs with Node.js (npx) or uv (uvx) says what to install when that is missing. A server added while a thread is open is reached through the `mcp_call` bridge until the thread's next prompt epoch (docs/prompt-caching.md); nothing in the request being sent changes.
+
+### Servers you already have in Claude Code
+
+Admin → Plugins → From Claude Code lists the servers in your Claude Code. **Use in NVX Ancile** shows what would be copied (the command or address, the arguments, plain settings, and the names of the values that move into the encrypted store), asks for any `${VAR}` that has no value here, and copies it into NVX Ancile's own list. Claude Code keeps its own copy, unchanged; if Claude Code's settings change later, the list says so and offers to update the copy. claude.ai connectors are tied to your Claude account and cannot be copied; a server that only signs in through the browser needs an access token (use Add server). A server from your own Claude Code config can also be removed from Claude Code there.
+
+Reading and changing Claude Code's servers happens only through its own `claude mcp` command (`get`, `add-json`, `remove`); NVX Ancile never edits `~/.claude.json` or `.mcp.json`. `claude mcp add-json` takes its config as an argument, so a secret you give it is visible in that process's argument list for the moment it runs.
 
 ### From config/mcp.yaml
 

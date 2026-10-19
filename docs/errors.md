@@ -261,6 +261,9 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 | `flow.no_model_ready` | 422 | "None of this flow's models can answer yet." / Add a key in Settings → Models, or choose models you have set up, then turn the flow on. Returned when turning on a flow; the editor shows the same as a warning. |
 | `flow.bad_output` | 502 | "<Node> did not answer in the expected shape." / Try a stronger model for this node, or tighten its instructions. A router, manager, judge or loop needs a JSON answer. |
 | `flow.node_failed` | 502 | "<Node> failed." / The model's own error. Check its model and settings ("Run only this" in the editor). |
+| `flow.retrieve_unavailable` | 422 / 502 | "This chat has no notebook to search", "Source search is not running" or "Searching your sources failed" / A Retrieve step searches a notebook's sources. Move the chat into a notebook, start the knowledge service, or remove the step. It no longer passes on an empty result. |
+| `flow.factcheck_unavailable` | 422 | "<Node> cannot check facts here" / Fact-checking needs the knowledge service and a notebook with sources. A check that runs but cannot decide takes the "unsure" route instead of passing. |
+| `flow.human_timeout` | 408 | "Nobody answered the question in time" / Send the message again and answer when asked, or remove the Human step. It no longer passes "Nobody answered" on as if it were your answer. |
 | `flow.failed` | 500 | "The flow could not finish." / Check the node that failed in the teamwork view. |
 
 These are not errors but endings, written into the answer instead: `flow.budget` (the flow reached its cost cap for one message), `flow.steps` (it reached its step limit) and `flow.timeout` (it ran longer than its time limit). The answer keeps what was produced and says which limit to raise in the flow's settings. When trying a message, a Tool or Human node is skipped and a `flow.try_paused` warning says so.
@@ -449,7 +452,17 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `mcp.read_only` | 409 | "<name> comes from config/mcp.yaml." / Edit or remove it in config/mcp.yaml, then restart NVX Ancile. You can still change its tools here. |
 | `mcp.secret_missing` | 400 | "No value is stored for <key>." / Type the value for <key>, or take it out of the list. |
 | `mcp.tier_not_allowed` | 400 | "<tool> can delete or change things, so it always asks first." / Choose Gated or Critical for this tool. |
-| `mcp.transport_mismatch` | 400 | "A command (stdio) server has no <field>." (or a web address (http) one) / The way a server connects cannot change. Remove it and add it again. |
+| `mcp.transport_mismatch` | 400 | "A command (stdio) server has no <field>." (or a web address (http or sse) one) / The way a server connects cannot change. Remove it and add it again. |
+| `mcp.preset_unknown` | 404 | "There is no server preset called <id>." / Pick one from the Add server list, or add a server by hand. |
+| `mcp.preset_field` | 400 | "<Field>: this is needed" (or "use a single line") / Fill it in and press Add again. `error.context.field` names it. |
+| `mcp.runtime_missing` | 409 | "<name> cannot start on this machine." / It runs with Node.js (npx) or uv (uvx), and that is not installed: install it, then open the list again. |
+| `mcp.claude_code_unavailable` | 409 | "NVX Ancile cannot reach Claude Code." / Install Claude Code or check it in Settings, Claude Code. |
+| `mcp.claude_code_server_not_found` | 404 | "Claude Code has no server called <name>." / It may have been removed. Refresh the list. |
+| `mcp.claude_code_failed` | 502 | "Claude Code did not <show, add or remove> that server." / Its own message is in `error.detail`, with any secret taken out. |
+| `mcp.claude_code_exists` | 409 | "Claude Code already has a server called <name>." / Choose another name, or change the one it has. |
+| `mcp.not_copyable` | 409 | "<name> cannot be copied to NVX Ancile." / A claude.ai connector is tied to your Claude account; a server that signs in through the browser (OAuth) needs an access token instead; the hint says which. |
+| `mcp.needs_values` | 400 | "Claude Code reads <VAR> from its environment, and NVX Ancile does not have a value." / Type a value for each (`error.context.unresolved`), and copy again. They are stored encrypted. |
+| `mcp.secret_in_config` | 409 | "A secret sits in the arguments (or address), where it would be stored in plain text." / Move it into an environment variable or a header in Claude Code, then copy again. |
 | `mcp.tools_changed` | 403 (gate) | A gate refusal, not an HTTP error: `via: "mcp_changed"`, logged as `policy_deny` with this policy id. "<server> added (or changed) <tool> after you approved its tools." / Review the change in Admin → Plugins before it can run. docs/plugins.md. |
 | `mcp.tools_changed_again` | 409 | "<server> changed its tools again." / Look over the new list, then approve it. (`POST /mcp/approvals/:key/approve` with a fingerprint that is no longer current.) |
 

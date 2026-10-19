@@ -21,7 +21,7 @@
 
 import { fade, spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { relative } from '../lib/format';
 import { useReducedMotion } from '../lib/motion';

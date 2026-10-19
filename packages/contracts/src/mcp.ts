@@ -11,7 +11,9 @@
  *           |  secret values go to the encrypted secret store and come
  *           |  back only as `set: true`. Servers in config/mcp.yaml are
  *           |  listed too, read-only (source "file").
- *  Note     |  A secret is an env var (stdio) or a request header (http).
+ *  Note     |  A secret is an env var (stdio) or a request header (http,
+ *           |  sse). "sse" is the older server-sent-events transport some
+ *           |  remote servers still use; it takes the same fields as http.
  *           |  Leaving a secret's value out on update keeps the stored one.
  * ------------------------------------------------------------------
  */
@@ -53,8 +55,8 @@ const stdioFields = {
     .max(32)
     .default([]),
 };
-const httpFields = {
-  transport: z.literal('http'),
+const webFields = <T extends 'http' | 'sse'>(transport: T) => ({
+  transport: z.literal(transport),
   url: z
     .string()
     .trim()
@@ -67,11 +69,14 @@ const httpFields = {
     .array(McpSecretInput.extend({ key: HeaderKey }))
     .max(32)
     .default([]),
-};
+});
+const httpFields = webFields('http');
+const sseFields = webFields('sse');
 
 export const CreateMcpServerRequest = z.discriminatedUnion('transport', [
   z.object({ name: McpServerName, enabled: z.boolean().default(true), ...stdioFields }).strict(),
   z.object({ name: McpServerName, enabled: z.boolean().default(true), ...httpFields }).strict(),
+  z.object({ name: McpServerName, enabled: z.boolean().default(true), ...sseFields }).strict(),
 ]);
 export type CreateMcpServerRequest = z.infer<typeof CreateMcpServerRequest>;
 
@@ -178,7 +183,7 @@ export type ApproveMcpToolsRequest = z.infer<typeof ApproveMcpToolsRequest>;
 export const McpServerView = z.object({
   id: z.string(),
   name: z.string(),
-  transport: z.enum(['stdio', 'http']),
+  transport: z.enum(['stdio', 'http', 'sse']),
   /** "app": added here, editable. "file": config/mcp.yaml, read-only here. */
   source: z.enum(['app', 'file']),
   enabled: z.boolean(),
@@ -198,3 +203,127 @@ export const McpServerView = z.object({
   approval: McpToolApproval.nullable().optional(),
 });
 export type McpServerView = z.infer<typeof McpServerView>;
+
+/* ---- Presets: the "Add server" catalogue -------------------------------------- */
+
+/** What a preset needs installed to run: Node (npx) or Python (uvx); remote ones need nothing. */
+export const McpRuntime = z.enum(['node', 'python']);
+export type McpRuntime = z.infer<typeof McpRuntime>;
+
+/** One thing a person fills in for a preset. A `secret` one is stored encrypted and never shown again. */
+export const McpPresetField = z.object({
+  key: z.string(),
+  label: z.string(),
+  help: z.string(),
+  placeholder: z.string(),
+  required: z.boolean(),
+  secret: z.boolean(),
+  /** Where it goes: one or more command arguments, an environment variable, or a request header. */
+  target: z.enum(['args', 'env', 'header']),
+});
+export type McpPresetField = z.infer<typeof McpPresetField>;
+
+export const McpPreset = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  transport: z.enum(['stdio', 'http', 'sse']),
+  runtime: McpRuntime.nullable(),
+  fields: z.array(McpPresetField),
+  docs_url: z.string().nullable(),
+  /** The runtime it needs is on this machine (always true for a remote server). */
+  available: z.boolean(),
+  /** Plain words for what is missing, with the fix, when it is not available. */
+  missing: z.string().nullable(),
+  /** A server with this preset's name is already set up. */
+  added: z.boolean(),
+});
+export type McpPreset = z.infer<typeof McpPreset>;
+
+/** POST /mcp/presets/:id/add. `fields` is keyed by the preset's field keys. */
+export const AddMcpPresetRequest = z
+  .object({
+    fields: z.record(z.string(), z.string().max(8_000)).default({}),
+    name: McpServerName.optional(),
+  })
+  .strict();
+export type AddMcpPresetRequest = z.infer<typeof AddMcpPresetRequest>;
+
+/* ---- Claude Code's servers: use in NVX Ancile, add, remove ---------------------- */
+
+export const ClaudeCodeMcpScope = z.enum(['user', 'project', 'local']);
+export type ClaudeCodeMcpScope = z.infer<typeof ClaudeCodeMcpScope>;
+
+/** Claude Code's server names: letters, digits, dot, dash and underscore. */
+export const ClaudeCodeMcpName = z
+  .string()
+  .trim()
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/,
+    'Use 1 to 64 letters, digits, . - or _, starting with a letter or digit.',
+  );
+
+/**
+ * POST /claude-code/mcp-servers: add (or, with `replace`, change) a server in
+ * Claude Code itself, through its own `claude mcp` command. Secret values
+ * are handed to Claude Code once and never kept or shown by NVX Ancile.
+ */
+export const AddClaudeCodeMcpServerRequest = z.discriminatedUnion('transport', [
+  z
+    .object({
+      name: ClaudeCodeMcpName,
+      scope: ClaudeCodeMcpScope.default('user'),
+      transport: z.literal('stdio'),
+      command: stdioFields.command,
+      args: stdioFields.args,
+      env: stdioFields.env,
+      secrets: stdioFields.secrets,
+      replace: z.boolean().default(false),
+    })
+    .strict(),
+  z
+    .object({
+      name: ClaudeCodeMcpName,
+      scope: ClaudeCodeMcpScope.default('user'),
+      transport: z.enum(['http', 'sse']),
+      url: httpFields.url,
+      headers: httpFields.headers,
+      secrets: httpFields.secrets,
+      replace: z.boolean().default(false),
+    })
+    .strict(),
+]);
+export type AddClaudeCodeMcpServerRequest = z.infer<typeof AddClaudeCodeMcpServerRequest>;
+
+/** What "Use in NVX Ancile" would copy from a Claude Code server. Secret values are never in it. */
+export const ClaudeCodeMcpUsePreview = z.object({
+  name: z.string(),
+  /** The name it would have here. */
+  ancile_name: z.string(),
+  transport: z.enum(['stdio', 'http', 'sse']),
+  command: z.string().nullable(),
+  args: z.array(z.string()),
+  url: z.string().nullable(),
+  /** Plain environment or headers, copied as they are. */
+  plain: z.record(z.string(), z.string()),
+  /** Names of values that move into the encrypted store. */
+  secret_keys: z.array(z.string()),
+  /** `${VAR}` references that have no value here: type them to continue. */
+  unresolved: z.array(z.string()),
+  /** Already in NVX Ancile with the same settings, or with other settings under the same name. */
+  existing: z.enum(['none', 'same', 'different']),
+  /** Claude Code's settings differ from what was copied last time. */
+  changed_since_copy: z.boolean(),
+});
+export type ClaudeCodeMcpUsePreview = z.infer<typeof ClaudeCodeMcpUsePreview>;
+
+/** POST /claude-code/mcp-servers/:name/use. `values` fills what `unresolved` named. */
+export const UseClaudeCodeMcpRequest = z
+  .object({
+    ancile_name: McpServerName.optional(),
+    values: z.record(z.string(), z.string().max(8_000)).default({}),
+    /** Copy again over an earlier copy whose settings have changed. */
+    update: z.boolean().default(false),
+  })
+  .strict();
+export type UseClaudeCodeMcpRequest = z.infer<typeof UseClaudeCodeMcpRequest>;

@@ -89,7 +89,7 @@ A link refused when it is made answers 403 with the scope's own code. A link tha
 
 ## Context packs (Pro)
 
-A context pack is made from one notebook or thread: chosen sources (kept by id, and searched in the notebook they came from, with citations), notes, a thread's summary, memory entries and instructions (copied in). It attaches to a thread or notebook in one click, and every turn there reads it.
+A context pack is made from one notebook or thread: chosen sources (kept by id, and searched in the notebook they came from, with citations), notes, a thread's summary, memory entries and instructions (copied in). It attaches to a thread or notebook in one click, and every turn there reads it. Attach or detach it, and make a pack from the thread you are in, from that thread's or notebook's own menu (Context packs), as well as from Admin → Context packs.
 
 - **Scopes.** A pack remembers where its items came from. Attaching it, and every turn that reads it, passes the same check a context link does. A pack made from a private notebook, or one that keeps data local, is **local only**: it attaches only where nothing leaves this machine, and stays local only through export and import.
 - **Files.** Export gives a file with a manifest (each item's kind, title, size and sha256) signed with this computer's Ed25519 key. Importing shows what is inside, who signed it (a key fingerprint, or "this computer") and whether it verifies; a file that does not verify is never added. A pack's sources are added as text sources to a notebook you choose.

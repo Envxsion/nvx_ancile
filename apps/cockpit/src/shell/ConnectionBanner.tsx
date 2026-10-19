@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from '../lib/connection';
 import { queryClient } from '../lib/query';

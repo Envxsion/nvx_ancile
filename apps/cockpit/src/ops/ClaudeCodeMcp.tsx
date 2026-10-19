@@ -5,16 +5,19 @@
  *  ID       |  cockpit
  * ------------------------------------------------------------------
  *  Purpose  |  The MCP servers you already have in Claude Code (claude.ai
- *           |  connectors, your user and project config, plugins), read-
- *           |  only, with where each is set up and whether it is
- *           |  connected. They are managed in Claude Code and used by
- *           |  Claude Code threads.
+ *           |  connectors, your user and project config, plugins), with
+ *           |  where each is set up and whether it is connected. They are
+ *           |  used by Claude Code threads. "Use in NVX Ancile" copies
+ *           |  one into NVX Ancile's own list (UseInAncile.tsx); a server
+ *           |  from your own config can be removed from Claude Code here.
  *  How      |  GET /claude-code/mcp-servers (Core asks Claude Code from a
  *           |  session that sends nothing; Refresh asks again). Grouped
  *           |  by where each is set up; connected ones first, the rest
  *           |  folded under "not connected".
- *  Note     |  Nothing here changes a server: no switch, no edit, no
- *           |  remove. Names only, never a command, address or token.
+ *  Note     |  The list shows names only, never a command, address or
+ *           |  token. Removing runs `claude mcp remove` through Core;
+ *           |  claude.ai connectors and plugin servers are managed
+ *           |  elsewhere and have no remove.
  * ------------------------------------------------------------------
  */
 
@@ -24,9 +27,12 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { relative } from '../lib/format';
 import { queryClient } from '../lib/query';
+import { notify } from '../state/notify';
+import { type ConfirmCopy, ConfirmDialog } from '../ui/Confirm';
 import { Icon } from '../ui/Icon';
 import { Skeleton, StatusDot } from '../ui/primitives';
 import { LoadFailed, reportFailure } from './common';
+import { cannotCopy, UseInAncileDialog } from './UseInAncile';
 
 export const CC_MCP_KEY = ['claude-code', 'mcp-servers'] as const;
 
@@ -59,9 +65,23 @@ export function displayName(s: ClaudeCodeMcpServer): { name: string; from: strin
   return { name: s.name, from: null };
 }
 
+const REMOVABLE: ClaudeCodeMcpSource[] = ['user', 'project', 'local'];
+
 function Row({ s }: { s: ClaudeCodeMcpServer }) {
   const d = displayName(s);
   const st = s.status ? STATUS[s.status] : null;
+  const [using, setUsing] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmCopy | null>(null);
+  const why = cannotCopy(s);
+  const remove = async () => {
+    try {
+      await api.del(`/claude-code/mcp-servers/${encodeURIComponent(s.name)}?scope=${s.source}`);
+      notify({ level: 'success', title: `${d.name} is removed from Claude Code` });
+      void queryClient.invalidateQueries({ queryKey: CC_MCP_KEY });
+    } catch (e) {
+      reportFailure(e, 'Removing the server from Claude Code');
+    }
+  };
   return (
     <li className="mcp m-glass" data-status={s.status ?? 'unknown'}>
       <div className="mcp__head">
@@ -81,7 +101,36 @@ function Row({ s }: { s: ClaudeCodeMcpServer }) {
               .join(' · ')}
           </span>
         </div>
+        <div className="mcp__actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={!!why}
+            title={why ?? 'Copy this server into NVX Ancile'}
+            onClick={() => setUsing(true)}
+          >
+            Use in NVX Ancile
+          </button>
+          {REMOVABLE.includes(s.source) ? (
+            <button
+              type="button"
+              className="btn btn--quiet btn--sm"
+              onClick={() =>
+                setConfirm({
+                  title: `Remove ${d.name} from Claude Code?`,
+                  body: 'Claude Code stops using it, in every folder that uses this config. A copy already in NVX Ancile is not touched.',
+                  action: 'Remove from Claude Code',
+                })
+              }
+            >
+              Remove
+            </button>
+          ) : null}
+        </div>
       </div>
+      {why ? <p className="mute mcp__note">{why}</p> : null}
+      {using ? <UseInAncileDialog server={s} onOpenChange={setUsing} /> : null}
+      <ConfirmDialog copy={confirm} onClose={() => setConfirm(null)} onConfirm={() => void remove()} />
     </li>
   );
 }
@@ -157,8 +206,8 @@ export function ClaudeCodeMcpSection() {
             From Claude Code
           </h2>
           <p className="mute">
-            MCP servers you set up in Claude Code. They are managed in Claude Code and are available to Claude
-            Code threads; NVX Ancile only lists them here.
+            MCP servers you set up in Claude Code, available to Claude Code threads. Use one in NVX Ancile to
+            copy it here; Claude Code keeps its own copy.
           </p>
         </div>
         {data?.can_refresh ? (

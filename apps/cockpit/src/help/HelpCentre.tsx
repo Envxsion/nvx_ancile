@@ -14,7 +14,7 @@
 
 import { spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBinding, useLayer } from '../keys/dispatch';
 import { useUi } from '../state/ui';

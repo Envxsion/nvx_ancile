@@ -25,8 +25,8 @@ import { useRouterState } from '@tanstack/react-router';
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AutoSlot } from '../auto/AutoCards';
+import { lastTurn, useCcActions } from '../claudecode/actions';
 import { LimitNotice, limitOf, NearLimitLine } from '../claudecode/LimitNotice';
-import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
 import {
   interruptClaudeCode,
   refreshLive,
@@ -62,6 +62,7 @@ import { useUi } from '../state/ui';
 import { BranchLayer } from '../tree/BranchLayer';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
+import { lazyHost } from '../ui/lazyHost';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { nextAnnouncement } from './announce';
 import { BusyNotice } from './BusyNotice';
@@ -71,6 +72,13 @@ import { headOf, overlay, withHead } from './liveOverlay';
 import { MessageList } from './MessageList';
 import { ModelGoneNotice } from './ModelGoneNotice';
 import { stayAtBottomOnShrink } from './stayAtBottom';
+
+// Claude Code's status line, notices and pickers belong to threads from Claude Code only: they load
+// after the first paint (preloaded when idle) and are not in the first download (ROADMAP P1).
+export const loadCcBar = () => import('../claudecode/LiveBar');
+const CcLiveLine = lazyHost(loadCcBar, 'CcLiveLine');
+const CcNotices = lazyHost(loadCcBar, 'CcNotices');
+const CcPickers = lazyHost(loadCcBar, 'CcPickers');
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 /** Load the page before when the view is this close to the top of what is loaded (pixels). */

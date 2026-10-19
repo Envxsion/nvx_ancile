@@ -18,7 +18,7 @@
 import { spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
-import { motion } from 'motion/react';
+import { m as motion } from 'motion/react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useBinding } from '../keys/dispatch';
 import { useThreadIdFromRoute } from '../lib/models';

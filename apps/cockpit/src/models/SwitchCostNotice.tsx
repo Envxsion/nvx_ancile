@@ -17,7 +17,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useThread } from '../lib/data';
 import { useCurrentModel } from '../lib/models';
 import { Icon } from '../ui/Icon';

@@ -48,6 +48,7 @@ import {
   STATUS_WORDS,
   serverPath,
   TOOLS_KEY,
+  TRANSPORT_WORDS,
   tierOptions,
   toolPath,
 } from './mcp';
@@ -229,7 +230,7 @@ export function McpServerCard({
           </strong>
           <span className="mcp__where mute">
             <Icon name={s.transport === 'stdio' ? 'command' : 'globe'} size={12} />
-            <span>{s.transport === 'stdio' ? 'Local command' : 'Remote'}</span>
+            <span>{TRANSPORT_WORDS[s.transport]}</span>
             {where ? <code title={where}>{where}</code> : null}
           </span>
         </div>

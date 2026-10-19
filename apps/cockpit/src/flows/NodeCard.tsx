@@ -25,6 +25,8 @@ import { contextSummary, msText, nodeSummary, usd } from './describe';
 import { KINDS, modelOf, outputPorts, PROVIDER_NAMES, providerOf } from './kinds';
 import type { FlowModel } from './models';
 import { NoteMarkdown } from './noteMarkdown';
+import { SetupChip } from './SetupChip';
+import type { SetupNeed } from './setup';
 import type { LiveNode } from './store';
 
 export interface CardData extends Record<string, unknown> {
@@ -33,6 +35,8 @@ export interface CardData extends Record<string, unknown> {
   live?: LiveNode;
   decision?: { chose: string[]; reason: string; confidence: number | null };
   issues: FlowIssue[];
+  /** What this node still needs before it can run (key, GPU provider, MCP server). */
+  setup?: SetupNeed[];
   diff?: 'added' | 'changed' | null;
   /** Typical latency and cost from recent runs, when Core has them. */
   stats?: { p50: number; p95: number; cost: number } | null;
@@ -200,6 +204,7 @@ export const NodeCard = memo(function NodeCard({ data, selected }: NodeProps & {
           {data.decision.confidence != null ? ` · ${Math.round(data.decision.confidence * 100)}%` : ''}
         </div>
       ) : null}
+      {data.setup?.length ? <SetupChip needs={data.setup} /> : null}
       {data.live ? <LiveLine live={data.live} /> : null}
       <Badges n={n} data={data} />
 

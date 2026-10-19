@@ -15,11 +15,17 @@
  *           |  runs after `vite build` (package.json "build").
  *  Note     |  Budgets are ratchets: lower them when a split lands,
  *           |  never raise one without saying why in the change.
- *           |  Measured 19 Oct 2026 after P1: 1,364 KB raw and
- *           |  434 KB gzip (was 2,494 KB and 776 KB). The roadmap's
- *           |  900 KB goal is TODO(phase-6): it needs LazyMotion and
- *           |  the Claude Code, receipt and teamwork rows loaded on
- *           |  demand.
+ *           |  Measured 19 Oct 2026 after P1: 1,268 KB raw and 407 KB
+ *           |  gzip (was 2,494 KB and 776 KB), budget +3%. The 900 KB
+ *           |  goal is out of reach for now, and what remains is
+ *           |  measured: React DOM 211 KB, zod 94 KB, the router and
+ *           |  query 90 KB, Motion's core 77 KB, Radix and floating-ui
+ *           |  about 100 KB (642 KB of packages in all); Core's
+ *           |  contracts 85 KB; the sample-workspace fixtures 34 KB;
+ *           |  the rest is the thread, composer, rail and shell that
+ *           |  an idle thread needs. Next candidates: ToolSteps (25 KB,
+ *           |  needs a sized placeholder per step) and loading the
+ *           |  fixtures only in demo mode.
  * ------------------------------------------------------------------
  */
 
@@ -29,7 +35,7 @@ import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 /** The limits, in bytes. */
-export const BUDGET = { raw: 1_420_000, gzip: 455_000 };
+export const BUDGET = { raw: 1_306_000, gzip: 419_000 };
 
 const STATIC_IMPORT = /(?:^|[;}\s,])(?:import|export)\s*(?:[^'"()]*?from\s*)?["']\.\/([^"']+\.js)["']/g;
 

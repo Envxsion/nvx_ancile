@@ -21,9 +21,12 @@
  * ------------------------------------------------------------------
  */
 
-import { MotionConfig } from 'motion/react';
+import { LazyMotion, MotionConfig } from 'motion/react';
 import { type ReactNode, useSyncExternalStore } from 'react';
 import { lookOf, usePrefs } from '../state/prefs';
+
+/** Motion's animation, gesture and layout code arrives after the first paint, not in the entry (ROADMAP P1). */
+const loadFeatures = () => import('./motionFeatures').then((r) => r.default);
 
 const OS_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -56,7 +59,11 @@ export function useReducedMotion(): boolean {
 /** Motion's config for the whole app, driven by the resolved setting. */
 export function MotionPrefs({ children }: { children: ReactNode }) {
   const reduce = useReducedMotion();
-  return <MotionConfig reducedMotion={reduce ? 'always' : 'never'}>{children}</MotionConfig>;
+  return (
+    <MotionConfig reducedMotion={reduce ? 'always' : 'never'}>
+      <LazyMotion features={loadFeatures}>{children}</LazyMotion>
+    </MotionConfig>
+  );
 }
 
 /** For scrollIntoView and scrollTo: smooth only while motion is full. */

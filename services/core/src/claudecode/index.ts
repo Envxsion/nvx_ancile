@@ -29,6 +29,8 @@ import { ClaudeVerifier } from './verify';
 
 export interface ClaudeCodeAssembly {
   service: ClaudeCodeService;
+  /** The `claude` command, for the public subcommands (`mcp get`, `mcp add-json`, `mcp remove`). */
+  cli: ClaudeCli;
   bridge: BridgeClient;
   /** Claude Code processes outside NVX Ancile holding sessions (read-only). */
   holders: SessionHolders;
@@ -80,6 +82,7 @@ export function createClaudeCode(deps: {
   const svc = service;
   return {
     service: svc,
+    cli,
     bridge,
     holders,
     noFilesDir: join(deps.dataDir, 'claude-code', 'no-folder'),

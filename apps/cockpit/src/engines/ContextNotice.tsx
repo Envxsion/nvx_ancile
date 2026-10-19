@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { Icon } from '../ui/Icon';
 import { useContextNotices } from './notice';
 

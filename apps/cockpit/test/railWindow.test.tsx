@@ -36,14 +36,24 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       params: p,
       className,
       title,
+      tabIndex,
+      onFocus,
     }: {
       children: ReactNode;
       to: string;
       params?: Record<string, string>;
       className?: string;
       title?: string;
+      tabIndex?: number;
+      onFocus?: () => void;
     }) => (
-      <a href={p ? to.replace(/\$\w+/, Object.values(p)[0] ?? '') : to} className={className} title={title}>
+      <a
+        href={p ? to.replace(/\$\w+/, Object.values(p)[0] ?? '') : to}
+        className={className}
+        title={title}
+        tabIndex={tabIndex}
+        onFocus={onFocus}
+      >
         {children}
       </a>
     ),
@@ -128,6 +138,7 @@ const flush = () => act(() => new Promise<void>((r) => requestAnimationFrame(() 
 beforeEach(() => {
   for (const k of Object.keys(params)) delete params[k];
   useUi.setState({ demo: false, railOpen: true });
+  Element.prototype.scrollIntoView = vi.fn();
   get.mockReset();
   window.matchMedia = ((q: string) => ({
     matches: false,
@@ -325,5 +336,46 @@ describe('the rail with a thousand threads', () => {
     expect(await screen.findByText('Thread 990')).toBeInTheDocument();
     expect(container.querySelector('[data-windowed]')).toBeNull();
     scrollTo(container, 0);
+  });
+});
+
+describe('the rail as a keyboard list', () => {
+  const threadLinks = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('.rail__scroll a.rail__item')];
+
+  it('has one stop for Tab, and says how many threads there are', async () => {
+    workspace(1000);
+    const { container } = mountRail();
+    await screen.findByText('Notebook 1');
+    await flush();
+    const stops = threadLinks(container).filter((a) => a.tabIndex === 0);
+    expect(stops).toHaveLength(1);
+    expect(container.querySelector('.rail__scroll .sr-only')?.textContent).toMatch(/1000 threads loaded/);
+  });
+
+  it('moves with the arrow keys, Home and End, and focus follows, even to rows that were not drawn', async () => {
+    workspace(1000);
+    const { container } = mountRail();
+    await screen.findByText('Notebook 1');
+    await flush();
+    const region = container.querySelector('.rail__scroll') as HTMLElement;
+    const first = threadLinks(container).find((a) => a.tabIndex === 0) as HTMLElement;
+    first.focus();
+    const key = async (k: string) => {
+      fireEvent.keyDown(document.activeElement ?? region, { key: k });
+      await flush();
+    };
+    await key('ArrowDown');
+    const second = document.activeElement as HTMLElement;
+    expect(second).not.toBe(first);
+    expect(second.tabIndex).toBe(0);
+    expect(first.tabIndex).toBe(-1);
+    await key('ArrowUp');
+    expect(document.activeElement).toBe(first);
+    await key('End');
+    // The last row of a windowed list was never drawn; now it is, and it holds focus.
+    const last = document.activeElement as HTMLElement;
+    expect(last.textContent).toMatch(/Thread 999/);
+    await key('Home');
+    expect((document.activeElement as HTMLElement).textContent).toBe(first.textContent);
   });
 });

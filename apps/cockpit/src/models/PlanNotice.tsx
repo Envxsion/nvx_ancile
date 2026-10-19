@@ -17,7 +17,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useModels } from '../lib/data';
 import { chooseModel, useCurrentModel } from '../lib/models';
 import { useUi } from '../state/ui';

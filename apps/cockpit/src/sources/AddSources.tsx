@@ -14,7 +14,7 @@
 
 import { spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
-import { motion } from 'motion/react';
+import { m as motion } from 'motion/react';
 import { type DragEvent, useMemo, useRef, useState } from 'react';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';

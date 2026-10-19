@@ -33,7 +33,7 @@
 import type { AutoPlan, BatchDecisionResult, ReviewerStatus } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { usePermissionPreset } from '../approvals/preset';
 import { ApiCallError, api } from '../lib/api';

@@ -21,7 +21,7 @@
 
 import { spring } from '@nvx/aperture';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFlows } from '../flows/api';
 import { useNotebooks, useThreads } from '../lib/data';

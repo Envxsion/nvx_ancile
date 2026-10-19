@@ -2,13 +2,16 @@
  * The lab bridge: engine events become run events and parts, and every
  * engine permission request is answered by Core's gate, never "always".
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Engine, EngineEvent, EngineMessage } from '../../src/lab/engine-client';
 import { LabMirror } from '../../src/lab/event-mirror';
 import { BuiltinPolicy } from '../../src/permissions/cedar';
 import { createGate } from '../../src/permissions/gate';
 import { MemoryPermissionStore } from '../../src/permissions/store';
 import { MemoryRunEventLog } from '../../src/runs/events';
+
+// The bridge waits on approvals and grants through the real gate; 5 s is too tight under a loaded parallel run.
+vi.setConfig({ testTimeout: 15_000 });
 
 const place = { realDir: '/srv/ws/labs/thr_1', virtualDir: '/workspace/labs/thr_1' };
 

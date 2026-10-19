@@ -21,7 +21,7 @@
  */
 
 import type { FlowGraph } from '@nvx/contracts';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { type CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useModels } from '../lib/data';
 import { hueVar, modelById, usd } from '../lib/format';

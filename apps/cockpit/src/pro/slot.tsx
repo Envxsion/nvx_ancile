@@ -151,6 +151,14 @@ export interface FlowLinkDialogProps {
   onStarted: (threadId: string) => void;
 }
 
+/** What the context pack picker is opened with: the thread or notebook it works on. */
+export interface PackMenuProps {
+  target: { kind: 'thread' | 'notebook'; id: string };
+  /** Its title, for the words around the list. */
+  title: string;
+  onClose: () => void;
+}
+
 /** pro/cockpit/index.tsx's export. */
 export interface ProUi {
   /** One screen per surface id (PRO_SURFACES[].id). */
@@ -159,6 +167,8 @@ export interface ProUi {
   parts?: {
     BeamDialog?: ComponentType<BeamDialogProps>;
     FlowLinkDialog?: ComponentType<FlowLinkDialogProps>;
+    /** Attach or detach packs, and make a pack from this thread (ROADMAP CP1). */
+    PackMenu?: ComponentType<PackMenuProps>;
   };
 }
 type CreateProUi = (kit: ProKit) => ProUi;

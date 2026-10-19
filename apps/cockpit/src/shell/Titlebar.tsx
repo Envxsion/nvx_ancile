@@ -16,7 +16,7 @@
 
 import { AncileMark, type MarkState, type ThemeChoice } from '@nvx/aperture';
 import { Link, useRouter } from '@tanstack/react-router';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { useBinding } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { useNotify } from '../state/notify';

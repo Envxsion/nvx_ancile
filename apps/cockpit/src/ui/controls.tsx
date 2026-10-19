@@ -15,7 +15,7 @@
  */
 
 import { spring } from '@nvx/aperture';
-import { animate, motion, useMotionValue, useTransform } from 'motion/react';
+import { animate, m as motion, useMotionValue, useTransform } from 'motion/react';
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef } from 'react';
 import { useReducedMotion } from '../lib/motion';
 import { Icon } from './Icon';

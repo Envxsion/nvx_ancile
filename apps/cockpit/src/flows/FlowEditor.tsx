@@ -86,6 +86,8 @@ import type { CardData } from './NodeCard';
 import { NODE_TYPES } from './NodeCard';
 import { NodePanel } from './NodePanel';
 import { CloseCallsPanel, EdgePanel, LintPanel, SettingsPanel, TryPanel, VersionsPanel } from './Panels';
+import { useSetupContext } from './SetupChip';
+import { setupByNode } from './setup';
 import {
   dropDraft,
   type FlowMeta,
@@ -250,6 +252,7 @@ function Editor({
   const navigate = useNavigate();
   const wrap = useRef<HTMLDivElement>(null);
   const models = useFlowModels();
+  const setupCtx = useSetupContext(models.byId);
   const blocks = useFlows('workspace');
   const s = useEditor();
   const [addScreen, setAddScreen] = useState<{ x: number; y: number } | null>(null);
@@ -386,6 +389,8 @@ function Editor({
     [],
   );
 
+  const setupBy = useMemo(() => setupByNode(s.graph.nodes, setupCtx), [s.graph.nodes, setupCtx]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: derived from the editor state
   const nodes: Node[] = useMemo(() => {
     const list: Node[] = s.graph.nodes.map((n) => {
@@ -405,6 +410,7 @@ function Editor({
             }
           : null,
         issues: issuesBy.get(n.id) ?? [],
+        setup: setupBy.get(n.id) ?? [],
         diff: s.compare
           ? s.compare.diff.added.includes(n.id)
             ? 'added'
@@ -449,7 +455,18 @@ function Editor({
           });
       }
     return list;
-  }, [s.graph.nodes, s.selected, s.live, s.compare, issuesBy, models.byId, toggleGroup, measureTick, stats]);
+  }, [
+    s.graph.nodes,
+    s.selected,
+    s.live,
+    s.compare,
+    issuesBy,
+    models.byId,
+    setupBy,
+    toggleGroup,
+    measureTick,
+    stats,
+  ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: derived from the editor state
   const edges: Edge[] = useMemo(() => {

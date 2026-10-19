@@ -190,7 +190,7 @@ export function NotebookScreen() {
     {
       label: 'Context packs',
       icon: 'archive',
-      onSelect: () => void navigate({ to: '/admin/$section', params: { section: 'context-packs' } }),
+      onSelect: () => openEditor({ kind: 'packs', level: 'notebook', id: nb.id, title: nb.title }),
     },
     {
       label: 'Merge a notebook into this one',

@@ -52,6 +52,9 @@ import { CACHE_BUSTER, persistable, persister, queryClient } from './lib/query';
 import { markRuntime } from './lib/runtime';
 import { router } from './router';
 import { useUi } from './state/ui';
+import { loadReceipt, loadTeamwork } from './thread/Message';
+import { loadCcBar } from './thread/ThreadView';
+import { preloadOnIdle } from './ui/lazyHost';
 import { loadMarkdown } from './ui/Markdown';
 
 markRuntime();
@@ -107,3 +110,4 @@ createRoot(root).render(
 
 // The markdown chunk is fetched now that the shell is on its way, not when the first answer needs it.
 void loadMarkdown();
+preloadOnIdle(loadReceipt, loadTeamwork, loadCcBar);

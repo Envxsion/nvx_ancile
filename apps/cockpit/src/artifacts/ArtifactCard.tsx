@@ -19,7 +19,7 @@
 
 import { fade } from '@nvx/aperture';
 import { type ParsedArtifact, splitArtifacts } from '@nvx/contracts';
-import { motion } from 'motion/react';
+import { m as motion } from 'motion/react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useReducedMotion } from '../lib/motion';
 import { Icon } from '../ui/Icon';

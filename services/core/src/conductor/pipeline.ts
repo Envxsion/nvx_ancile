@@ -1248,13 +1248,9 @@ ${noted.stop.forModel}`,
             .catch(() => undefined);
           return { status: 'waiting' as const };
         }
-        const answer =
-          approval.reason?.trim() ||
-          (approval.status === 'approved'
-            ? 'Yes, go ahead.'
-            : approval.status === 'denied'
-              ? 'No.'
-              : 'Nobody answered in time.');
+        if (approval.status !== 'approved' && approval.status !== 'denied' && !approval.reason?.trim())
+          return { status: 'expired' as const };
+        const answer = approval.reason?.trim() || (approval.status === 'approved' ? 'Yes, go ahead.' : 'No.');
         return { status: 'done' as const, value: answer };
       };
 

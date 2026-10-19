@@ -18,8 +18,9 @@
  * ------------------------------------------------------------------
  */
 
-import type { ApiError, McpServerView } from '@nvx/contracts';
+import type { ApiError, McpPreset, McpServerView } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, api } from '../lib/api';
@@ -34,7 +35,9 @@ import {
   type DraftProblems,
   draftFromServer,
   emptyDraft,
+  fetchMcpPresets,
   fieldForCode,
+  MCP_PRESETS_KEY,
   MCP_SERVERS_KEY,
   type McpDraft,
   type PairRow,
@@ -90,7 +93,7 @@ function ServerForm({
   onDone: () => void;
 }) {
   const isNew = server === null;
-  const [mode, setMode] = useState<'form' | 'github'>('form');
+  const [mode, setMode] = useState<'form' | 'github' | 'presets'>('form');
   const [d, setD] = useState<McpDraft>(() => (server ? draftFromServer(server) : emptyDraft()));
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -140,6 +143,7 @@ function ServerForm({
   };
 
   if (mode === 'github') return <GitHubQuickStart onBack={() => setMode('form')} onDone={onDone} />;
+  if (mode === 'presets') return <McpPresetPicker onBack={() => setMode('form')} onDone={onDone} />;
 
   return (
     <>
@@ -150,13 +154,19 @@ function ServerForm({
           : 'Changes take effect at once: the server reconnects with the new settings.'}
       </p>
 
-      {offerGitHub ? (
+      {isNew ? (
         <div className="mcp-quick">
           <span className="mute">Quick start</span>
-          <button type="button" className="chip mcp-quick__btn" onClick={() => setMode('github')}>
-            <Icon name="branch" size={13} />
-            GitHub
+          <button type="button" className="chip mcp-quick__btn" onClick={() => setMode('presets')}>
+            <Icon name="plus" size={13} />
+            Choose from a list
           </button>
+          {offerGitHub ? (
+            <button type="button" className="chip mcp-quick__btn" onClick={() => setMode('github')}>
+              <Icon name="branch" size={13} />
+              GitHub
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -190,6 +200,7 @@ function ServerForm({
             options={[
               { value: 'stdio', label: 'Local command', icon: 'command' },
               { value: 'http', label: 'Remote', icon: 'globe' },
+              { value: 'sse', label: 'Remote (SSE)', icon: 'globe' },
             ]}
           />
         ) : (
@@ -616,6 +627,154 @@ function GitHubQuickStart({ onBack, onDone }: { onBack: () => void; onDone: () =
           </Dialog.Close>
           <button type="submit" className="btn btn--primary" disabled={busy} data-busy={busy || undefined}>
             {busy ? 'Adding…' : 'Add GitHub'}
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
+
+/**
+ * The Add server list: one click per preset, only the fields it needs, and the connection
+ * test on the way in. A preset that needs Node or Python says what to install instead.
+ */
+function McpPresetPicker({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+  const presets = useQuery({ queryKey: MCP_PRESETS_KEY, queryFn: fetchMcpPresets });
+  const [pick, setPick] = useState<McpPreset | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<ApiError | null>(null);
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!pick || busy) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      const saved = await api.post<McpServerView>(`/mcp/presets/${pick.id}/add`, { fields: values });
+      if (saved && typeof saved === 'object' && 'id' in saved) putServer(queryClient, saved);
+      notify(
+        saved.status === 'connected'
+          ? {
+              level: 'success',
+              title: `${pick.name} is connected`,
+              body: `${saved.tools.length} ${saved.tools.length === 1 ? 'tool' : 'tools'} ready.`,
+            }
+          : {
+              level: 'warn',
+              title: `${pick.name} was added but did not connect`,
+              body: saved.last_error ?? 'Open it in the list and press Test to see why.',
+            },
+      );
+      void queryClient.invalidateQueries({ queryKey: MCP_SERVERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: MCP_PRESETS_KEY });
+      void queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
+      onDone();
+    } catch (err) {
+      if (err instanceof ApiCallError) setFailure(err.body);
+      else reportFailure(err, `Adding ${pick.name}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!pick)
+    return (
+      <>
+        <Dialog.Title className="dialog__title">Add a server</Dialog.Title>
+        <p id="mcp-dialog-desc" className="dialog__lede">
+          Pick one. NVX Ancile asks only for what it needs, stores keys encrypted, and tests the connection.
+        </p>
+        {presets.isPending ? (
+          <p className="mute">Loading the list…</p>
+        ) : presets.isError ? (
+          <p className="field__error" role="alert">
+            The list did not load. Check that NVX Ancile is running, then try again.
+          </p>
+        ) : (
+          <ul className="mcp-presets">
+            {(presets.data ?? []).map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className="mcp-preset"
+                  disabled={!p.available}
+                  data-added={p.added || undefined}
+                  onClick={() => {
+                    setValues({});
+                    setFailure(null);
+                    setPick(p);
+                  }}
+                >
+                  <span className="mcp-preset__name">{p.name}</span>
+                  <span className="mcp-preset__desc">{p.description}</span>
+                  {p.missing ? <span className="mcp-preset__missing">{p.missing}</span> : null}
+                  {p.added ? <span className="mcp-preset__tag">Already added</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="dialog__actions">
+          <button type="button" className="btn btn--ghost mcp-form__back" onClick={onBack}>
+            Back
+          </button>
+          <Dialog.Close asChild>
+            <button type="button" className="btn btn--ghost">
+              Cancel
+            </button>
+          </Dialog.Close>
+        </div>
+      </>
+    );
+
+  return (
+    <>
+      <Dialog.Title className="dialog__title">Add {pick.name}</Dialog.Title>
+      <p id="mcp-dialog-desc" className="dialog__lede">
+        {pick.description}
+      </p>
+      <form className="mcp-form" onSubmit={(e) => void add(e)}>
+        {pick.fields.map((f, i) => (
+          <Field key={f.key} label={f.label} hint={f.help}>
+            {(a) =>
+              f.target === 'args' ? (
+                <textarea
+                  {...a}
+                  className="input input--mono"
+                  rows={3}
+                  value={values[f.key] ?? ''}
+                  placeholder={f.placeholder}
+                  spellCheck={false}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                />
+              ) : (
+                <input
+                  {...a}
+                  className="input input--mono"
+                  type={f.secret ? 'password' : 'text'}
+                  value={values[f.key] ?? ''}
+                  placeholder={f.placeholder}
+                  spellCheck={false}
+                  autoComplete="off"
+                  // biome-ignore lint/a11y/noAutofocus: the step opens to its first field
+                  autoFocus={i === 0}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                />
+              )
+            }
+          </Field>
+        ))}
+        {pick.fields.length === 0 ? (
+          <p className="mute">Nothing to fill in. It connects as soon as you add it.</p>
+        ) : null}
+        {failure ? <ErrorState error={failure} compact /> : null}
+        <div className="dialog__actions">
+          <button type="button" className="btn btn--ghost mcp-form__back" onClick={() => setPick(null)}>
+            Back
+          </button>
+          <button type="submit" className="btn btn--primary" disabled={busy} data-busy={busy || undefined}>
+            {busy ? 'Adding and testing…' : `Add ${pick.name}`}
           </button>
         </div>
       </form>

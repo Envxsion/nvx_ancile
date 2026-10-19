@@ -35,6 +35,7 @@
 
 import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -72,7 +73,7 @@ export type McpServerSpec = z.infer<typeof McpServerConfig> & {
 export interface McpServerHealth {
   server: string;
   id: string;
-  transport: 'stdio' | 'http';
+  transport: 'stdio' | 'http' | 'sse';
   enabled: boolean;
   status: McpServerStatus;
   connected: boolean;
@@ -108,7 +109,9 @@ export const defaultTransport: TransportFactory = (spec, resolved) =>
         env: { ...getDefaultEnvironment(), ...resolved },
         stderr: 'pipe',
       })
-    : new StreamableHTTPClientTransport(new URL(spec.url), { requestInit: { headers: resolved } });
+    : spec.transport === 'sse'
+      ? new SSEClientTransport(new URL(spec.url), { requestInit: { headers: resolved } })
+      : new StreamableHTTPClientTransport(new URL(spec.url), { requestInit: { headers: resolved } });
 
 const MAX_TOOL_NAME = 64;
 

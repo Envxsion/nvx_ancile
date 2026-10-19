@@ -19,13 +19,14 @@
 
 import { spring } from '@nvx/aperture';
 import { Link, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
-import { motion } from 'motion/react';
+import { m as motion } from 'motion/react';
 import {
   type CSSProperties,
   type KeyboardEvent,
   memo,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -133,6 +134,8 @@ const ThreadRow = memo(function ThreadRow({
   t,
   active,
   cursor,
+  roving,
+  onFocusRow,
   draft,
   notebooks,
   renaming,
@@ -143,6 +146,9 @@ const ThreadRow = memo(function ThreadRow({
   t: ThreadSummary;
   active: boolean;
   cursor: boolean;
+  /** The one row Tab reaches (roving tabindex); the others are reached with the arrow keys. */
+  roving: boolean;
+  onFocusRow: (kind: Row['kind'], id: string) => void;
   draft: boolean;
   notebooks: NotebookView[];
   renaming: boolean;
@@ -206,6 +212,11 @@ const ThreadRow = memo(function ThreadRow({
           notebookId: t.notebookId ?? null,
         }),
     },
+    {
+      label: 'Context packs',
+      icon: 'archive',
+      onSelect: () => openEditor({ kind: 'packs', level: 'thread', id: t.id, title: t.title }),
+    },
     ...(t.fromClaudeCode
       ? [
           {
@@ -255,6 +266,8 @@ const ThreadRow = memo(function ThreadRow({
           params={{ threadId: t.id }}
           className="rail__item"
           data-active={active || undefined}
+          tabIndex={roving ? 0 : -1}
+          onFocus={() => onFocusRow('thread', t.id)}
           onDoubleClick={(e) => {
             e.preventDefault();
             setRenaming(t.id);
@@ -298,6 +311,7 @@ const ThreadRow = memo(function ThreadRow({
             <button
               type="button"
               className="rail__more icon-btn icon-btn--xs"
+              tabIndex={roving ? 0 : -1}
               aria-label={`More for ${t.title}`}
             >
               <Icon name="more" size={14} />
@@ -519,7 +533,12 @@ export function Rail() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the cursor moves; the DOM holds the target
   useEffect(() => {
     if (!focused) return;
-    listRef.current?.querySelector<HTMLElement>('[data-cursor]')?.scrollIntoView({ block: 'nearest' });
+    const row = listRef.current?.querySelector<HTMLElement>('[data-cursor]');
+    row?.scrollIntoView({ block: 'nearest' });
+    // Focus follows the cursor, so Enter and screen readers act on the row it is on.
+    const at = document.activeElement;
+    if (row && at && listRef.current?.contains(at) && at.tagName !== 'INPUT' && !at.closest('[data-cursor]'))
+      row.querySelector<HTMLElement>('a')?.focus({ preventScroll: true });
   }, [cursor]);
 
   // "New notebook" from the palette or a tour.
@@ -542,6 +561,32 @@ export function Rail() {
     return () => io.disconnect();
   }, [hasMore, more]);
 
+  // Tab reaches the cursor's row only; the arrow keys, Home, End, j and k move it (and focus follows).
+  const isRoving = (kind: Row['kind'], id: string) => rows[cursor]?.kind === kind && rows[cursor]?.id === id;
+  const onFocusRow = useCallback(
+    (kind: Row['kind'], id: string) => {
+      const at = rows.findIndex((r) => r.kind === kind && r.id === id);
+      if (at >= 0) setCursor(at);
+    },
+    [rows],
+  );
+  const onListKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement;
+    if (e.altKey || e.ctrlKey || e.metaKey || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+    const to =
+      e.key === 'ArrowDown'
+        ? cursor + 1
+        : e.key === 'ArrowUp'
+          ? cursor - 1
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? rows.length - 1
+              : null;
+    if (to === null || rows.length === 0) return;
+    e.preventDefault();
+    setCursor(Math.max(0, Math.min(rows.length - 1, to)));
+  };
   const isCursor = (kind: Row['kind'], id: string) =>
     focused && rows[cursor]?.kind === kind && rows[cursor]?.id === id;
   const nbs = useMemo(() => notebooks.data ?? [], [notebooks.data]);
@@ -588,6 +633,7 @@ export function Rail() {
   const rowProps = {
     notebooks: nbs,
     setRenaming,
+    onFocusRow,
   };
 
   return (
@@ -645,11 +691,12 @@ export function Rail() {
         className="rail__scroll"
         data-scrollable
         ref={listRef}
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: the list takes focus so j/k can walk it
-        tabIndex={0}
+        tabIndex={-1}
+        onKeyDown={onListKey}
         role="region"
         aria-label="Notebooks and threads list"
       >
+        <p className="sr-only">{`${(threads.data ?? []).length} threads loaded. Arrow keys, Home and End move between them.`}</p>
         {showArchive ? (
           <Section id="archive" title="Archive">
             {archived.isPending ? (
@@ -700,6 +747,7 @@ export function Rail() {
                         icon
                         active={params.threadId === t.id}
                         cursor={isCursor('thread', t.id)}
+                        roving={isRoving('thread', t.id)}
                         draft={drafts.has(t.id)}
                         renaming={renaming === t.id}
                         showTime={false}
@@ -745,6 +793,8 @@ export function Rail() {
                         params={{ notebookId: n.id }}
                         className={`rail__item rail__item--notebook${joined.has(n.id) ? ' rail__item--joined' : ''}`}
                         data-active={params.notebookId === n.id || undefined}
+                        tabIndex={isRoving('notebook', n.id) ? 0 : -1}
+                        onFocus={() => onFocusRow('notebook', n.id)}
                         title={joined.has(n.id) ? 'Same repository as the notebook above' : undefined}
                         style={{ '--hue': hueVar((n.color as Hue) ?? 'chalk') } as CSSProperties}
                         dir="auto"
@@ -777,6 +827,7 @@ export function Rail() {
                             {...rowProps}
                             active={params.threadId === t.id}
                             cursor={isCursor('thread', t.id)}
+                            roving={isRoving('thread', t.id)}
                             draft={drafts.has(t.id)}
                             renaming={renaming === t.id}
                             showTime={false}
@@ -804,6 +855,7 @@ export function Rail() {
                       {...rowProps}
                       active={params.threadId === t.id}
                       cursor={isCursor('thread', t.id)}
+                      roving={isRoving('thread', t.id)}
                       draft={drafts.has(t.id)}
                       renaming={renaming === t.id}
                       showTime={g.label === 'Today' || g.label === 'Yesterday'}

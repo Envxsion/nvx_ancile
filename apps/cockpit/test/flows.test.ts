@@ -28,7 +28,7 @@ import {
 import { newNode, outputPorts } from '../src/flows/kinds';
 import { autoLayout } from '../src/flows/layout';
 import { localLint } from '../src/flows/lint';
-import { LOCAL_TEMPLATES } from '../src/flows/templates';
+import { FALLBACK_TEMPLATES } from '../src/flows/templates';
 
 function chain(): FlowGraph {
   let g = emptyGraph();
@@ -195,7 +195,7 @@ describe('local checks', () => {
   });
 
   it('every starter template is clean', () => {
-    for (const t of LOCAL_TEMPLATES) {
+    for (const t of FALLBACK_TEMPLATES) {
       const errors = localLint(t.graph, new Map()).issues.filter((i) => i.level === 'error');
       expect({ t: t.id, errors }).toEqual({ t: t.id, errors: [] });
     }

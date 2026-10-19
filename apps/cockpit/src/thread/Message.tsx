@@ -30,11 +30,11 @@ import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns'
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { aliasAnswered } from '../models/lines';
 import { receiptFacts } from '../receipt/facts';
-import { Receipt } from '../receipt/Receipt';
 import { ReceiptStrip } from '../receipt/ReceiptStrip';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { lazyHost } from '../ui/lazyHost';
 import { claudeCodeCostWords, isClaudeCodeModel } from '../usage/planCost';
 import { CiteProvider } from './Citations';
 import { Cite, Claim, ClaimsProvider } from './Claims';
@@ -46,9 +46,15 @@ import { MemoryTray } from './MemoryTray';
 import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
 import { SavedNote } from './SavedNote';
-import { Teamwork } from './Teamwork';
 import { useLiveTeam } from './teamworkState';
 import { displayUserParts } from './userText';
+
+// Closed, a receipt takes no room, and a flow's fold is a one-line header: both load after the
+// first paint (preloaded when idle, main.tsx), so neither is in the first download (ROADMAP P1).
+export const loadReceipt = () => import('../receipt/Receipt');
+export const loadTeamwork = () => import('./Teamwork');
+const Receipt = lazyHost(loadReceipt, 'Receipt');
+const Teamwork = lazyHost(loadTeamwork, 'Teamwork', <div style={{ minHeight: 38 }} aria-hidden="true" />);
 
 function renderSpans(spans: Span[], citations: CitationView[] | undefined): ReactNode[] {
   return spans.map((s, i) => {

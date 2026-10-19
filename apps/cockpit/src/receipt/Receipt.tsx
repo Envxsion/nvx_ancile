@@ -28,7 +28,7 @@ import {
   isLineAlias,
   type Recovered,
 } from '@nvx/contracts';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m as motion } from 'motion/react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { demoExplain } from '../fixtures/demo';
 import { useThread } from '../lib/data';

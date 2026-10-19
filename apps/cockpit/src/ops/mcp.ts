@@ -24,6 +24,7 @@
 import {
   CreateMcpServerRequest,
   type GlobalEvent,
+  type McpPreset,
   type McpServerView,
   type McpToolApproval,
   type McpToolDiff,
@@ -37,6 +38,19 @@ import { api } from '../lib/api';
 export const MCP_SERVERS_KEY = ['ops', 'mcp-servers'] as const;
 export const TOOLS_KEY = ['ops', 'tools'] as const;
 export const MCP_APPROVALS_KEY = ['ops', 'mcp-approvals'] as const;
+export const MCP_PRESETS_KEY = ['ops', 'mcp-presets'] as const;
+
+/** GET /mcp/presets: the Add server catalogue. */
+export function fetchMcpPresets(): Promise<McpPreset[]> {
+  return api.get<{ items: McpPreset[] }>('/mcp/presets').then((r) => r.items ?? []);
+}
+
+/** How a server connects, in words. */
+export const TRANSPORT_WORDS: Record<McpServerView['transport'], string> = {
+  stdio: 'Local command',
+  http: 'Remote',
+  sse: 'Remote (SSE)',
+};
 
 /** GET /mcp/approvals: every server's approved tool list, host and Claude Code's own. */
 export function fetchMcpApprovals(): Promise<McpToolApproval[]> {
@@ -176,7 +190,7 @@ export interface SecretRow extends PairRow {
 
 export interface McpDraft {
   name: string;
-  transport: 'stdio' | 'http';
+  transport: 'stdio' | 'http' | 'sse';
   command: string;
   /** One argument per line. */
   args: string;
@@ -245,7 +259,7 @@ function rowProblems(d: McpDraft): DraftProblems {
   if (plain.some((r) => !r.key.trim() && r.value)) out[plainField] = `Give every ${what} a name.`;
   if (d.secrets.some((r) => !r.key.trim() && (r.value || r.saved))) out.secrets = 'Give every secret a name.';
   const all = [...named(plain), ...named(d.secrets)];
-  const fold = (k: string) => (d.transport === 'http' ? k.toLowerCase() : k);
+  const fold = (k: string) => (d.transport !== 'stdio' ? k.toLowerCase() : k);
   const dup = all.find((k, i) => all.findIndex((x) => fold(x) === fold(k)) !== i);
   if (dup) {
     const inSecrets = named(d.secrets).some((k) => fold(k) === fold(dup));
@@ -292,7 +306,7 @@ export function createBody(d: McpDraft): Built<CreateMcpServerRequest> {
         }
       : {
           name: d.name.trim(),
-          transport: 'http' as const,
+          transport: d.transport,
           url: d.url.trim(),
           headers: recordOf(d.headers),
           secrets,

@@ -21,12 +21,12 @@ import { useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
-import { createFlow, needsCore, useTemplates } from './api';
+import { createFlow, needsCore } from './api';
 import { emptyGraph } from './graph';
 import { modelOf, newNode } from './kinds';
 import { type FlowModel, useFlowModels } from './models';
 import { FlowPreview } from './Preview';
-import { LOCAL_TEMPLATES } from './templates';
+import { useStarterTemplates } from './templates';
 
 /** The models a shape needs that cannot answer yet, by name. */
 function unready(t: FlowTemplate, byId: Map<string, FlowModel>): string[] {
@@ -65,6 +65,7 @@ export function NewFlowDialog({
   scopeRef,
   defaultName,
   activate,
+  initialTemplate,
   onCreated,
 }: {
   open: boolean;
@@ -73,13 +74,15 @@ export function NewFlowDialog({
   scopeRef: string | null;
   defaultName: string;
   activate: boolean;
+  /** A starting shape to select first (its id). */
+  initialTemplate?: string;
   onCreated: (f: Flow) => void;
 }) {
   useLayer(open);
-  const remote = useTemplates();
-  const fromCore = !!remote.data?.length;
-  const templates = [BLANK, ...(fromCore ? (remote.data ?? []) : LOCAL_TEMPLATES)];
-  const [pick, setPick] = useState('router');
+  const starter = useStarterTemplates();
+  const fromCore = starter.fromCore;
+  const templates = [BLANK, ...starter.templates];
+  const [pick, setPick] = useState(initialTemplate ?? 'tpl_router');
   const [name, setName] = useState(defaultName);
   const [busy, setBusy] = useState(false);
   const chosen = templates.find((t) => t.id === pick) ?? (templates[0] as FlowTemplate);

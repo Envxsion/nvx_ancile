@@ -18,8 +18,10 @@
  */
 
 import {
+  AddClaudeCodeMcpServerRequest,
   CLIENT_ID_HEADER,
   ClaudeCodeFolderRequest,
+  ClaudeCodeMcpScope,
   ClaudeCodeProject,
   CreateClaudeCodeThreadRequest,
   ExcludeClaudeCodeFolderRequest as ExcludeFolderRequest,
@@ -27,6 +29,7 @@ import {
   PatchClaudeCodeSettings,
   SameRepoChoice,
   SendClaudeCodeRequest,
+  UseClaudeCodeMcpRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -37,6 +40,7 @@ import { holderOf, type SendLocks, withSendLock } from '../threads/send-lock';
 import { ccErrors } from './errors';
 import type { ClaudeCodeLive } from './live';
 import type { ClaudeCodeMcpList } from './mcp-list';
+import type { ClaudeCodeMcpManage } from './mcp-manage';
 import type { TurnQueue } from './queue';
 import type { SameRepoFinder } from './same-repo';
 import type { ClaudeCodeService } from './service';
@@ -54,6 +58,8 @@ export function claudeCodeRoutes(deps: {
   sameRepo?: () => SameRepoFinder | null;
   /** Claude Code's own MCP servers, read-only (mcp-list.ts). */
   mcpList?: () => ClaudeCodeMcpList | null;
+  /** Use, add and remove Claude Code's MCP servers through its own command (mcp-manage.ts). */
+  mcpManage?: () => ClaudeCodeMcpManage | null;
 }) {
   const r = new Hono<AppEnv>();
 
@@ -61,6 +67,29 @@ export function claudeCodeRoutes(deps: {
     const list = deps.mcpList?.();
     if (!list) return c.json({ servers: [], from: null, updated_at: null, can_refresh: false });
     return c.json(await list.get({ refresh: c.req.query('refresh') === '1' }));
+  });
+  const manage = () => {
+    const m = deps.mcpManage?.();
+    if (!m) throw ccErrors.sdkUnavailable('Claude Code servers cannot be managed in this Core');
+    return m;
+  };
+  // "Use in NVX Ancile": what would be copied (no secret value in it), then the copy. Claude Code is not changed.
+  r.post('/claude-code/mcp-servers/:name/use/preview', async (c) => {
+    const req = await body(c, UseClaudeCodeMcpRequest);
+    return c.json(await manage().preview(c.req.param('name'), req));
+  });
+  r.post('/claude-code/mcp-servers/:name/use', async (c) =>
+    c.json(await manage().use(c.req.param('name'), await body(c, UseClaudeCodeMcpRequest)), 201),
+  );
+  // Add or change (replace: true) a server in Claude Code, and remove one, through `claude mcp`.
+  r.post('/claude-code/mcp-servers', async (c) =>
+    c.json(await manage().add(await body(c, AddClaudeCodeMcpServerRequest)), 201),
+  );
+  r.delete('/claude-code/mcp-servers/:name', async (c) => {
+    const scope = ClaudeCodeMcpScope.safeParse(c.req.query('scope') ?? 'user');
+    if (!scope.success) throw badRequest('scope: use user, project or local');
+    await manage().remove(c.req.param('name'), scope.data);
+    return c.body(null, 204);
   });
   const svc = deps.service;
   const live = () => {

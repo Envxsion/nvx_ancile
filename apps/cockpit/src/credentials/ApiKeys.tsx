@@ -247,7 +247,7 @@ interface Moved {
   value: string;
 }
 
-function CredentialRow({
+export function CredentialRow({
   meta,
   status,
   info,

@@ -42,7 +42,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
-import { motion } from 'motion/react';
+import { m as motion } from 'motion/react';
 import { type CSSProperties, type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { chordOf } from '../keys/dispatch';
 import { keysFor, normalise } from '../keys/registry';
