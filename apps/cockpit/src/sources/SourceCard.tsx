@@ -24,6 +24,7 @@ import {
   deleteSource,
   dismissDuplicate,
   mergeSources,
+  readWithOcr,
   refetchSource,
   removeSource,
   renameSource,
@@ -265,6 +266,16 @@ export function SourceCard({
         {failed && s.error ? (
           <div className="source-card__error" role="alert">
             <p>{s.error.hint}</p>
+            {s.error.code === 'extract.scanned_pdf' ? (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => void readWithOcr(notebookId, s.id)}
+              >
+                <Icon name="eye" size={12} />
+                Read with OCR
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn--ghost btn--sm"

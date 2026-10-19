@@ -30,6 +30,8 @@ export type ProFeature = z.infer<typeof ProFeature>;
 export const PRO_SEAM_ROUTES: readonly { method: 'GET' | 'POST'; path: string; feature: ProFeature }[] = [
   { method: 'GET', path: '/insights', feature: 'insights' },
   { method: 'GET', path: '/insights/engines', feature: 'insights' },
+  // FL1: the shadow flow's answer to a message (Pro: Flow lab). TODO(phase-0.1.1): Pro serves it from pro.shadow_results.
+  { method: 'GET', path: '/messages/:id/shadow', feature: 'flow_lab' },
 ];
 
 /** How each feature is named and described wherever Pro is shown. */

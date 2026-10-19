@@ -4,6 +4,21 @@ Every provider caches a request by its exact start (Anthropic with markers; Open
 
 Code: `services/core/src/conductor/epoch.ts` (epochs, tools block, context block), `conductor/pipeline.ts` (the turn), `gateway/convert.ts` (stored sent forms), `gateway/replay.ts` (reasoning, CA1), `gateway/cache.ts` (per-provider settings, CA5, and lifetimes, CA12), `threads/cache-state.ts` (CA12). Shapes: `packages/contracts/src/epochs.ts`, `cache.ts`. Tests: `test/conductor/epochs.test.ts`, `test/gateway/reasoning-replay.test.ts`, `test/gateway/cache-settings.test.ts`, `test/threads/cache-state.test.ts`.
 
+## Reasoning effort
+
+A thread's reasoning effort (`low`, `medium`, `high`; `PATCH /threads/:id {effort}`, the chip beside the model chip, or `/effort`) rides on each request as a **request parameter in the provider's own words**, never as text in the prompt (`gateway/effort.ts`, the `reasoning.effort` section of each profile). It is **not** an epoch reason: changing it leaves the system prompt, tools and every earlier message byte for byte as they were, so the cached start of the conversation holds. Turning thinking itself on or off still starts an epoch (`thinking_toggled`).
+
+| Provider | Sent as | Levels |
+|---|---|---|
+| Anthropic | `effort` option (`output_config.effort`) | low, medium, high |
+| OpenAI (o-series, gpt-5) | `reasoning_effort` | low, medium, high |
+| Google | `thinkingConfig.thinkingLevel` (Gemini 3 and later), `thinkingBudget` of 1,024 / 8,192 / 24,576 tokens (2.5) | low, medium, high |
+| OpenRouter | `reasoning.effort` in the body | low, medium, high |
+| xAI (`grok-*-mini`) | `reasoning_effort` | low, high |
+| Ollama (gpt-oss) | `think` set to the level | low, medium, high |
+
+Any other model takes none: the chip is not shown and a value sent anyway is dropped (other Ollama models only think or not; DeepSeek, Kimi, Qwen, GLM and the rest have no effort option in their profile yet). Higher effort can use more tokens, so the cost shown for a turn can change with it.
+
 ## Epochs
 
 An **epoch** is the stretch of one thread branch where the start of the request does not change. It freezes:

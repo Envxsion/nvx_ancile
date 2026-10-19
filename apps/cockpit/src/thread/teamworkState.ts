@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { FlowProvenance, RunEvent } from '@nvx/contracts';
+import type { FlowProvenance, LearnedHint, RunEvent } from '@nvx/contracts';
 import { create } from 'zustand';
 
 export type StepStatus = 'running' | 'done' | 'skipped' | 'failed' | 'pinned' | 'cached';
@@ -48,6 +48,8 @@ export interface TeamDecision {
   chose: string[];
   reason: string;
   confidence: number | null;
+  /** A router that learns from your choices took part (FL1). */
+  learned?: LearnedHint;
 }
 
 export interface TeamState {
@@ -156,7 +158,13 @@ export function foldTeam(t: TeamState | undefined, e: FlowEvent): TeamState | un
         ...base,
         decisions: {
           ...base.decisions,
-          [e.node_id]: { nodeId: e.node_id, chose: e.chose, reason: e.reason, confidence: e.confidence },
+          [e.node_id]: {
+            nodeId: e.node_id,
+            chose: e.chose,
+            reason: e.reason,
+            confidence: e.confidence,
+            ...(e.learned && { learned: e.learned }),
+          },
         },
       };
     }
@@ -207,7 +215,13 @@ export function teamFromProvenance(p: FlowProvenance): TeamState {
     decisions: Object.fromEntries(
       p.decisions.map((d) => [
         d.node_id,
-        { nodeId: d.node_id, chose: d.chose, reason: d.reason, confidence: d.confidence },
+        {
+          nodeId: d.node_id,
+          chose: d.chose,
+          reason: d.reason,
+          confidence: d.confidence,
+          ...(d.learned && { learned: d.learned }),
+        },
       ]),
     ),
     active: [],

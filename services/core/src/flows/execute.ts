@@ -36,6 +36,7 @@ import {
   type FlowProvenance,
   type FlowStepRecord,
   FULL_CONTEXT,
+  type LearnedHint,
   type ModelConfig,
   type ModelInfo,
   type ModelParams,
@@ -95,6 +96,11 @@ export interface RouteHint {
   label: string;
   confidence: number;
   reason: string;
+  /**
+   * The router only suggests (FL1): Core does not take the route, asks the router's model as usual,
+   * and records the suggestion beside its decision. TODO(phase-0.1.1): Pro answers with this in "suggest" mode.
+   */
+  suggest_only?: boolean;
 }
 
 export interface FlowRuntime {
@@ -928,8 +934,9 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
     reason: string,
     confidence: number | null,
     scores?: Record<string, number>,
+    learned?: LearnedHint,
   ) => {
-    const d: FlowDecision = { node_id: evId(n.id), chose, reason, confidence };
+    const d: FlowDecision = { node_id: evId(n.id), chose, reason, confidence, ...(learned && { learned }) };
     state.decisions.push(d);
     await rt.emit({ type: 'flow.decision', message_id: rt.input.messageId, ...d });
     if (state.depth === 0) await rt.recordDecision?.({ ...d, node_id: n.id, ...(scores && { scores }) });
@@ -1044,13 +1051,23 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
           await decide(n, replay, 'The same route as the answer this one replaces.', null);
           return { kind: 'done', output: replay.join(', '), fire: replay };
         }
+        let suggested: LearnedHint | undefined;
         if (!rt.mock && rt.routeHint) {
           const hint = await rt
             .routeHint({ flowId: state.flow.id, nodeId: n.id, text: rt.input.text, labels })
             .catch(() => null);
           if (hint && labels.includes(hint.label)) {
-            await decide(n, [hint.label], hint.reason, hint.confidence);
-            return { kind: 'done', output: hint.label, fire: [hint.label] };
+            const learned: LearnedHint = {
+              label: hint.label,
+              confidence: Math.max(0, Math.min(1, hint.confidence)),
+              taken: !hint.suggest_only,
+            };
+            if (learned.taken) {
+              await decide(n, [hint.label], hint.reason, hint.confidence, undefined, learned);
+              return { kind: 'done', output: hint.label, fire: [hint.label] };
+            }
+            // Suggest-only: the router's own model decides; the suggestion is shown beside it.
+            suggested = learned;
           }
         }
         const model = rt.mock ? (rt.mock.models[0] as ModelConfig) : rt.model(n.params.model);
@@ -1089,7 +1106,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
             chose = [fallback];
           }
         }
-        await decide(n, chose, reason, value.confidence, value.scores);
+        await decide(n, chose, reason, value.confidence, value.scores, suggested);
         return { kind: 'done', output: chose.join(', '), fire: chose };
       }
 

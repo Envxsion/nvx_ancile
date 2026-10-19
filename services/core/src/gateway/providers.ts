@@ -26,7 +26,7 @@
  *           |  provider's rule (replay.ts); CA5 adds each provider's
  *           |  cache settings (cache.ts): Anthropic markers, cache keys,
  *           |  conversation ids, OpenRouter's pinned upstream.
- *           |  TODO(phase-4): provider options (reasoning effort).
+ *           |  Reasoning effort (EN1) goes out as a provider option (effort.ts).
  * ------------------------------------------------------------------
  */
 
@@ -57,6 +57,7 @@ import {
   pinnedProvider,
 } from './cache';
 import { type SdkMessage as StoredMessage, toSdkMessages } from './convert';
+import { effortOptions } from './effort';
 import { isOllama, ollamaChat } from './ollama-chat';
 import {
   ANTHROPIC_WORKSPACE_SECRET,
@@ -577,6 +578,9 @@ export class AiSdkClient implements ModelClient {
     } else if (req.system !== undefined) system = { system: req.system };
 
     const providerOptions = { ...extras.options } as Record<string, Record<string, JSONValue>>;
+    // EN1: the reasoning effort, under this provider's own option name (effort.ts).
+    for (const [k, v] of Object.entries(effortOptions(m, req.effort).options))
+      providerOptions[k] = { ...providerOptions[k], ...(v as Record<string, JSONValue>) };
     if (m.provider === 'openrouter' && (routing || pin)) {
       const provider = pin ? pinnedProvider(routing?.provider, pin.provider) : routing?.provider;
       providerOptions.openrouter = {

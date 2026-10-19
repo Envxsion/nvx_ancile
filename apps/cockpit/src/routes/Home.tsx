@@ -3,8 +3,11 @@
  *  Title    |  Home: a new thread
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  The blank page, made useful: where to start, what you
- *           |  were doing, and the composer already focused.
+ *  Purpose  |  A fresh new-thread screen on every launch (HM1): the
+ *           |  composer centred and focused, the model or flow chip,
+ *           |  a place to drop files, and at most three starters from
+ *           |  the current notebook. It does not repeat the sidebar:
+ *           |  recent threads live there.
  *  How      |  Pick a notebook (or none) at the start of the composer;
  *           |  ?notebook= arrives pre-picked from a notebook's "New
  *           |  thread here". Sending creates the thread there with the
@@ -15,44 +18,25 @@
  */
 
 import { AncileMark } from '@nvx/aperture';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { type CSSProperties, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { type DragEvent, useState } from 'react';
 import { FirstSteps } from '../help/FirstSteps';
 import { useFirstSteps } from '../help/steps';
+import { startersFor } from '../home/starters';
 import { api } from '../lib/api';
-import { keys, useNotebooks, useThreads } from '../lib/data';
-import { hueVar, relative } from '../lib/format';
+import { keys, useNotebooks, useNotes, useSources } from '../lib/data';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
 import { startCoreHint } from '../lib/runtime';
+import { insertIntoComposer } from '../lib/selectionWords';
 import { createThread, sendMessage } from '../lib/turns';
-import type { Hue } from '../lib/types';
 import { notify } from '../state/notify';
+import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Composer, type SendExtras } from '../thread/Composer';
 import { Icon } from '../ui/Icon';
-import { LoadFailed } from '../ui/LoadFailed';
 import { NotebookPick } from '../ui/NotebookPick';
-import { Skeleton } from '../ui/primitives';
-
-const STARTERS = [
-  {
-    title: 'Ask across a notebook',
-    body: 'Answers cite the exact passage they came from.',
-    scope: 'notebooks' as const,
-  },
-  {
-    title: 'Compare two models on one question',
-    body: 'Branch after the question, then regenerate with another model.',
-    scope: 'models' as const,
-  },
-  {
-    title: 'See what NVX Ancile remembers',
-    body: 'Preferences, projects and lessons, all plain files you can edit.',
-    scope: 'commands' as const,
-  },
-];
 
 function greeting(d = new Date()): string {
   const h = d.getHours();
@@ -63,10 +47,8 @@ function greeting(d = new Date()): string {
 }
 
 export function HomeScreen() {
-  const threads = useThreads();
   const notebooks = useNotebooks().data ?? [];
   const search = useSearch({ strict: false }) as { notebook?: string };
-  const openPalette = useUi((s) => s.openPalette);
   const mark = useUi((s) => s.mark);
   const demo = useUi((s) => s.demo);
   const navigate = useNavigate();
@@ -76,8 +58,27 @@ export function HomeScreen() {
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
   // An explicit pick wins; otherwise the notebook the link came from.
   const notebookId = picked === undefined ? (search.notebook ?? null) : picked;
-  const recent = (threads.data ?? []).slice(0, 5);
-  const titleOf = new Map(notebooks.map((n) => [n.id, n]));
+  const presenting = usePrefs((s) => s.prefs.layout.presentation);
+  // Starters come from the notebook in scope; with none picked, from the one worked in most recently.
+  const fallback = notebooks
+    .filter((n) => !n.archived)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
+  const startersFrom = notebookId ?? (!presenting ? (fallback?.id ?? null) : null);
+  const sources = useSources(presenting ? null : startersFrom);
+  const notes = useNotes(presenting ? null : startersFrom);
+  const starters = startersFor({
+    notebookId: startersFrom,
+    notes: notes.data ?? [],
+    sources: sources.data ?? [],
+    presenting,
+  });
+  const startersNotebook = notebooks.find((n) => n.id === startersFrom);
+  const [dragging, setDragging] = useState(false);
+  const overDrop = (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    setDragging(true);
+  };
 
   const start = async (text: string, extras: SendExtras): Promise<boolean> => {
     if (demo) {
@@ -112,7 +113,19 @@ export function HomeScreen() {
   };
 
   return (
-    <div className="home">
+    // biome-ignore lint/a11y/noStaticElementInteractions: a drag target only; the composer inside does the work
+    <div
+      className="home"
+      onDragOver={overDrop}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false);
+      }}
+      onDrop={(e) => {
+        // Files dropped away from the message box must not open in the window.
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+        setDragging(false);
+      }}
+    >
       <div className="home__inner">
         <div className="home__mark" aria-hidden="true">
           <AncileMark size={44} state={mark === 'ask' ? 'ask' : 'idle'} />
@@ -130,65 +143,36 @@ export function HomeScreen() {
           scope={<NotebookPick notebooks={notebooks} value={notebookId} onChange={setPicked} />}
         />
 
+        <p className="home__drop mute" data-over={dragging || undefined}>
+          <Icon name="attach" size={13} />
+          {notebookId
+            ? `Drop files here to add them to ${startersNotebook?.title ?? 'this notebook'}.`
+            : 'Drop files here to attach them, or pick a notebook to keep them.'}
+        </p>
+
         <ShareStatsCard place="home" />
 
-        {showSteps ? (
-          <FirstSteps />
-        ) : (
-          <div className="home__starters">
-            {STARTERS.map((s) => (
-              <button key={s.title} type="button" className="starter" onClick={() => openPalette(s.scope)}>
+        {showSteps ? <FirstSteps /> : null}
+
+        {starters.length > 0 ? (
+          <section
+            className="home__starters"
+            aria-label={`Starters from ${startersNotebook?.title ?? 'your notebook'}`}
+          >
+            {starters.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="starter"
+                onClick={() => {
+                  if (startersFrom && startersFrom !== notebookId) setPicked(startersFrom);
+                  insertIntoComposer('new', s.text);
+                }}
+              >
+                <span className="starter__label">{s.label}</span>
                 <span className="starter__title">{s.title}</span>
-                <span className="starter__body">{s.body}</span>
               </button>
             ))}
-          </div>
-        )}
-
-        {threads.isPending || threads.isError ? (
-          <section className="home__recent" aria-label="Recent threads">
-            <h2 className="home__h">Pick up where you left off</h2>
-            {threads.isPending ? (
-              <Skeleton lines={3} label="Loading recent threads" />
-            ) : (
-              <LoadFailed
-                compact
-                error={threads.error}
-                what="Recent threads"
-                onRetry={() => threads.refetch()}
-              />
-            )}
-          </section>
-        ) : recent.length > 0 ? (
-          <section className="home__recent" aria-label="Recent threads">
-            <h2 className="home__h">Pick up where you left off</h2>
-            <ul>
-              {recent.map((t) => {
-                const nb = t.notebookId ? titleOf.get(t.notebookId) : undefined;
-                return (
-                  <li key={t.id}>
-                    <Link to="/t/$threadId" params={{ threadId: t.id }} className="recent">
-                      <Icon name="thread" size={14} />
-                      <span className="recent__title" dir="auto">
-                        {t.title}
-                      </span>
-                      {nb ? (
-                        <span
-                          className="recent__nb"
-                          style={
-                            nb.color ? ({ '--hue': hueVar(nb.color as Hue) } as CSSProperties) : undefined
-                          }
-                        >
-                          {nb.title}
-                        </span>
-                      ) : null}
-                      {t.live ? <span className="recent__live">Waiting on you</span> : null}
-                      <span className="mute">{relative(t.updatedAt)}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
           </section>
         ) : null}
       </div>

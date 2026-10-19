@@ -202,6 +202,14 @@ export const PURGE_PLAN: readonly PurgeEntry[] = [
     column: 'thread_id',
     why: "The thread's own content. Before it goes, its billed answers are rolled up into core.usage_archive, which the Usage report and the month-to-date budget read, so past spend does not change.",
   },
+  // ---- chat imports (SU1) ----
+  {
+    table: 'core.chat_import_items',
+    action: 'delete',
+    by: 'thread',
+    column: 'thread_id',
+    why: 'The note that a conversation from ChatGPT, Claude or Open WebUI became this thread. Once the thread is gone for good, the same export may bring that conversation in again.',
+  },
   // ---- keep: plain ids with no foreign key ----
   {
     table: 'core.flow_decisions',

@@ -6,7 +6,7 @@
 import type { ModelInfo } from '@nvx/contracts';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,5 +82,35 @@ describe('Settings → Models', () => {
     expect(screen.queryByText('Claude Sonnet 5.5')).toBeNull();
     expect(screen.queryByText('Qwen3 14B (Ollama)')).toBeNull();
     expect(screen.getByText(/Add a key in Settings → API keys/)).toBeInTheDocument();
+  });
+
+  it('MD2: offers models beyond the starter three under "Add more models"', async () => {
+    mocked.get.mockImplementation(async (path: string) =>
+      path === '/models'
+        ? {
+            items: [
+              info({ id: 'anthropic/claude-opus-5-5', display_name: 'Claude Opus 5.5', listed: true }),
+              info({
+                id: 'anthropic/claude-sonnet-4-5',
+                display_name: 'Claude Sonnet 4.5',
+                listed: false,
+                unlisted_reason: 'more',
+              }),
+            ],
+          }
+        : null,
+    );
+    mocked.post.mockResolvedValue({});
+    wrap(<LiveModels />);
+    expect(await screen.findByText('Claude Opus 5.5')).toBeInTheDocument();
+    expect(screen.queryByText('Claude Sonnet 4.5')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Add more models/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Show Claude Sonnet 4.5' }));
+    await waitFor(() =>
+      expect(mocked.post).toHaveBeenCalledWith('/models/shown', {
+        id: 'anthropic/claude-sonnet-4-5',
+        shown: true,
+      }),
+    );
   });
 });

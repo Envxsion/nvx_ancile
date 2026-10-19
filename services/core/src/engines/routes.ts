@@ -67,6 +67,7 @@ export function engineRoutes(deps: {
         ...(req.effort && { effort: req.effort }),
         ...(req.source_ids && { sourceIds: req.source_ids }),
         ...(req.image_ids?.length && { imageIds: req.image_ids }),
+        ...(req.attachment_ids?.length && { attachmentIds: req.attachment_ids }),
         ...(req.as_branch && { asBranch: true }),
         ...(req.task_class && { taskClass: req.task_class }),
         idempotencyKey: req.idempotency_key,

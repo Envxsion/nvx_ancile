@@ -400,6 +400,21 @@ export function LayoutGroup() {
           />
         </Row>
       </Block>
+      <Block title="Presentation">
+        <Row
+          group="layout"
+          k="presentation"
+          label="Presentation mode"
+          desc="The start screen shows nothing from your notebooks, so a screen share does not reveal them. Stays on this computer."
+          keywords="screen share hide private starters demo"
+        >
+          <Switch
+            label="Presentation mode"
+            checked={l.presentation}
+            onChange={(presentation) => set({ presentation })}
+          />
+        </Row>
+      </Block>
       <Block title="Status bar" lede="Choose what the bar along the bottom shows.">
         {STATUS.map((s) => (
           <Row key={s.k} group="layout" k="status" label={s.label} keywords="status bar footer">
@@ -905,19 +920,6 @@ export function AdvancedGroup() {
           keywords="tips help"
         >
           <Switch label="Help hints" checked={v.hints} onChange={(hints) => set({ hints })} />
-        </Row>
-        <Row
-          group="advanced"
-          k="tryoutModels"
-          label="Keep test models (no AI) in pickers"
-          desc="The built-in test models leave the model switcher and the flow pickers once a real model is ready. Turn this on to keep them."
-          keywords="offline test echo model switcher pickers try-out tryout no ai"
-        >
-          <Switch
-            label="Keep test models (no AI) in pickers"
-            checked={v.tryoutModels}
-            onChange={(tryoutModels) => set({ tryoutModels })}
-          />
         </Row>
         <Row
           group="advanced"

@@ -21,6 +21,7 @@ import {
   CLAUDE_CODE_MODEL_PREFIX,
   type EffectiveScope,
   type EngineInfo,
+  type FilePart,
   type ImagePart,
   type SendClaudeCodeRequest,
   type SendClaudeCodeResult,
@@ -28,6 +29,7 @@ import {
   type SendTurnResult,
 } from '@nvx/contracts';
 import type { Sql } from 'postgres';
+import { claudeCodeFiles, goneOrOther } from '../attachments/service';
 import type { ClaudeCodeLive } from '../claudecode/live';
 import type { ModelRegistry } from '../gateway/registry';
 import { getEffectiveScope, type ScopeStore } from '../scopes';
@@ -37,9 +39,10 @@ import { assertAllowed, selectEngine } from './select';
 import type { Engine, EngineStatus, EngineTurn } from './types';
 
 /** What a caller asks for: the turn, before the engine and its model are chosen. */
-type TurnRequest = Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId' | 'images'> & {
+type TurnRequest = Omit<EngineTurn, 'thread' | 'modelId' | 'requestedModelId' | 'images' | 'files'> & {
   model: string | null;
   imageIds?: string[];
+  attachmentIds?: string[];
 };
 
 export type { Engine, EngineTurn } from './types';
@@ -79,7 +82,7 @@ export class GatewayEngine implements Engine {
     const parentId = t.parentId === undefined ? (t.thread.active_head_id ?? null) : t.parentId;
     const r = await startTurn(this.deps, {
       thread: t.thread,
-      user: { parentId, parts: [{ type: 'text', text: t.text }, ...(t.images ?? [])] },
+      user: { parentId, parts: [{ type: 'text', text: t.text }, ...(t.files ?? []), ...(t.images ?? [])] },
       ...(t.modelId !== null && { model: t.modelId }),
       ...(t.taskClass && { taskClass: t.taskClass }),
       mentions: (t.sourceIds ?? []).map((id) => ({ kind: 'source' as const, id })),
@@ -168,6 +171,8 @@ export interface EnginesDeps {
   scopeOf: (thread: ThreadRecord) => Promise<EffectiveScope>;
   /** A turn's attached images (images/service.ts). */
   images?: { partsFor(threadId: string, ids: string[]): Promise<ImagePart[]> };
+  /** A turn's attached files (attachments/service.ts, CH6). */
+  attachments?: { partsFor(threadId: string, ids: string[]): FilePart[]; release(ids: string[]): void };
 }
 
 /** The model chosen cannot see images: say so plainly instead of sending them as nothing. */
@@ -237,7 +242,14 @@ export class Engines {
     // The scope first: an image goes wherever the turn goes, so the engine and model checks cover it.
     await assertAllowed(this.deps.scopeOf, thread, s);
     const engine = s.mode === 'session' ? this.deps.claudeCode : this.deps.gateway;
-    const { imageIds, ...rest } = req;
+    const { imageIds, attachmentIds, ...rest } = req;
+    // Files for this message only (CH6). Claude Code reads files from its folder, so it is given a path instead.
+    let files: FilePart[] = [];
+    if (attachmentIds?.length) {
+      if (engine === this.deps.claudeCode) throw claudeCodeFiles();
+      if (!this.deps.attachments) throw goneOrOther();
+      files = this.deps.attachments.partsFor(thread.id, attachmentIds);
+    }
     let images: ImagePart[] = [];
     if (imageIds?.length) {
       if (!this.deps.images || !engine.capabilities(s.checkModel).images) throw noVision(s.checkModel);
@@ -246,6 +258,7 @@ export class Engines {
     const turn: EngineTurn = {
       ...rest,
       ...(images.length && { images }),
+      ...(files.length && { files }),
       thread,
       modelId: s.mode === 'session' ? s.engineModel : s.modelId,
       requestedModelId: s.modelId,
@@ -253,6 +266,7 @@ export class Engines {
     // A CLI session that is busy (answering, or open in a terminal): the turn waits its turn (CC6).
     const r =
       req.queueIfBusy && engine.startOrQueue ? await engine.startOrQueue(turn) : await engine.start(turn);
+    if (attachmentIds?.length) this.deps.attachments?.release(attachmentIds);
     if ('queued' in r) return r;
     return { ...r, engine: s.engine, context_notice: r.context_notice ?? null };
   }

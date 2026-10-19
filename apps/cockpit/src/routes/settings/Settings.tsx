@@ -29,6 +29,7 @@ import { helpDone } from '../../help/store';
 import { LabGroup } from '../../lab/LabGroup';
 import { isDesktop } from '../../lib/runtime';
 import { ProSurfaceView } from '../../pro/slot';
+import { SourcesGroup } from '../../sources/SourcesGroup';
 import { notify } from '../../state/notify';
 import { usePrefs } from '../../state/prefs';
 import { useUi } from '../../state/ui';
@@ -61,6 +62,7 @@ const ALL_GROUPS: {
     | 'desktop'
     | 'auto'
     | 'lab'
+    | 'sources'
     | 'trash';
   label: string;
   icon: IconName;
@@ -131,6 +133,13 @@ const ALL_GROUPS: {
     icon: 'command',
     body: LabGroup,
     lede: 'How the lab treats the files it edits.',
+  },
+  {
+    id: 'sources',
+    label: 'Sources',
+    icon: 'sources',
+    body: SourcesGroup,
+    lede: 'How scanned PDFs are read.',
   },
   {
     id: 'usage',
@@ -287,6 +296,8 @@ export function SettingsScreen() {
   const searchRef = useRef<HTMLInputElement>(null);
   const current = GROUPS.find((g) => g.id === group) ?? GROUPS[0];
   const opened = useRef(changedAt);
+  const mainRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
 
   // Changing anything here ticks "Make it yours" on the checklist.
   useEffect(() => {
@@ -300,6 +311,17 @@ export function SettingsScreen() {
     else if (!GROUPS.some((g) => g.id === group))
       void navigate({ to: '/settings/$group', params: { group: 'appearance' }, replace: true });
   }, [group, navigate]);
+
+  // SE2: the open section is in view when Settings opens (a short window, a deep link), and each
+  // section or search starts at the top of the panel instead of wherever the last one was left.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the open section changes
+  useEffect(() => {
+    navRef.current?.querySelector('[data-active]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [group]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the top when the section or the search changes
+  useEffect(() => {
+    mainRef.current?.scrollTo?.({ top: 0 });
+  }, [group, q]);
 
   const exportFile = () => {
     // Device-only settings (custom CSS, zoom, panel widths, effects) stay on this device.
@@ -339,8 +361,8 @@ export function SettingsScreen() {
   const searching = q.trim().length > 0;
 
   return (
-    <div className="settings page" data-scrollable>
-      <aside className="settings__nav" aria-label="Settings groups">
+    <div className="settings page">
+      <aside ref={navRef} className="settings__nav" aria-label="Settings groups" data-scrollable>
         <h1 className="settings__title" data-display>
           Settings
         </h1>
@@ -418,7 +440,8 @@ export function SettingsScreen() {
       </aside>
 
       {/* A section, not a second main landmark: the shell already has one. */}
-      <section className="settings__main" aria-label="Settings">
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling panel must take focus so the keyboard can scroll it (WCAG 2.1.1) */}
+      <section ref={mainRef} className="settings__main" aria-label="Settings" tabIndex={0} data-scrollable>
         <header className="settings__head">
           <div>
             <h2 className="settings__group-title" data-display>
@@ -437,7 +460,8 @@ export function SettingsScreen() {
             current.id !== 'desktop' &&
             current.id !== 'usage' &&
             current.id !== 'auto' &&
-            current.id !== 'lab' ? (
+            current.id !== 'lab' &&
+            current.id !== 'sources' ? (
               <button
                 type="button"
                 className="btn btn--quiet btn--sm"

@@ -10,7 +10,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ErrorClass, ModelConfig, Part, RoutingSettings } from '@nvx/contracts';
+import type { Effort, ErrorClass, ModelConfig, Part, RoutingSettings } from '@nvx/contracts';
 import type { CallUsage } from './usage';
 
 export interface ModelMessage {
@@ -73,6 +73,11 @@ export interface ModelRequest {
   routing?: RoutingSettings;
   /** CA5: where the call is made from, for cache keys. Absent: no key is sent. */
   cache?: CacheScope;
+  /**
+   * EN1: how hard to think. Sent as a request parameter in the provider's own words (effort.ts)
+   * and dropped for a model that takes none. Never in the prompt, so the cached start holds.
+   */
+  effort?: Effort;
 }
 
 export type StreamChunk =

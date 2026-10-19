@@ -27,6 +27,8 @@
  * ------------------------------------------------------------------
  */
 
+import type { Effort } from '@nvx/contracts';
+
 export type ErrorKind =
   | 'bad_key'
   | 'no_credit'
@@ -114,12 +116,28 @@ export interface CacheProfile {
   confirmed: boolean;
 }
 
+/**
+ * EN1: how this provider takes a reasoning effort. Always a request parameter, never
+ * part of the prompt, so changing it leaves the cached start of the request alone.
+ */
+export interface EffortProfile {
+  /** param: an option on the request. think: Ollama's `think` field. */
+  via: 'param' | 'think';
+  /** Where it goes, in words ("reasoningEffort", "reasoning.effort"). */
+  field: string;
+  /** The levels it takes; the Cockpit offers these and no others. */
+  levels: readonly Effort[];
+  confirmed: boolean;
+}
+
 export interface ReasoningProfile {
   /** none: nothing to send back. with_tools: send it back during a tool loop. always: send it back every turn. unknown. */
   replay: 'none' | 'with_tools' | 'always' | 'unknown';
   /** Where it travels ("reasoning_content", "thought signature"). */
   field: string | null;
   confirmed: boolean;
+  /** EN1: set when the provider takes a reasoning effort; absent: it does not, or Ancile cannot send one. */
+  effort?: EffortProfile;
 }
 
 export interface HeaderContext {
@@ -209,11 +227,15 @@ const reasoning = (
   replay: ReasoningProfile['replay'],
   field: string | null,
   confirmed = true,
+  effort?: EffortProfile,
 ): ReasoningProfile => ({
   replay,
   field,
   confirmed,
+  ...(effort && { effort }),
 });
+
+const ALL_EFFORTS: readonly Effort[] = ['low', 'medium', 'high'];
 
 const modelsCheck = (path = '/models', confirmed = true): KeyCheck => ({
   kind: 'models',
@@ -312,7 +334,12 @@ const anthropic: ProviderProfile = {
     readDiscount: true,
     confirmed: true,
   },
-  reasoning: reasoning('with_tools', 'thinking blocks, returned unmodified'),
+  reasoning: reasoning('with_tools', 'thinking blocks, returned unmodified', true, {
+    via: 'param',
+    field: 'effort (output_config.effort)',
+    levels: ALL_EFFORTS,
+    confirmed: true,
+  }),
 };
 
 const openai: ProviderProfile = {
@@ -365,7 +392,12 @@ const openai: ProviderProfile = {
   usage: { ...OPENAI_USAGE },
   // TODO(phase-0.1.1): CA11 uses prompt_cache_key and the 30m option on GPT-5.6+.
   cache: autoCache({ minTokens: 1024, blockTokens: 128, ttl: ['in_memory', '24h', '30m'] }),
-  reasoning: reasoning('none', 'reasoning items (Responses API only; Chat Completions returns none)'),
+  reasoning: reasoning('none', 'reasoning items (Responses API only; Chat Completions returns none)', true, {
+    via: 'param',
+    field: 'reasoning_effort',
+    levels: ALL_EFFORTS,
+    confirmed: true,
+  }),
 };
 
 const google: ProviderProfile = {
@@ -427,7 +459,12 @@ const google: ProviderProfile = {
     confirmed: false,
   },
   cache: autoCache({ minTokens: 4096, ttl: ['1h'], confirmed: false }),
-  reasoning: reasoning('with_tools', 'thought signature on each function call', false),
+  reasoning: reasoning('with_tools', 'thought signature on each function call', false, {
+    via: 'param',
+    field: 'thinkingConfig.thinkingLevel',
+    levels: ALL_EFFORTS,
+    confirmed: false,
+  }),
 };
 
 const openrouter: ProviderProfile = {
@@ -465,7 +502,12 @@ const openrouter: ProviderProfile = {
     confirmed: true,
   },
   cache: autoCache({ mode: 'both' }),
-  reasoning: reasoning('with_tools', 'reasoning_details'),
+  reasoning: reasoning('with_tools', 'reasoning_details', true, {
+    via: 'param',
+    field: 'reasoning.effort',
+    levels: ALL_EFFORTS,
+    confirmed: true,
+  }),
 };
 
 const deepseek: ProviderProfile = {
@@ -778,7 +820,12 @@ const xai: ProviderProfile = {
   ],
   usage: { ...OPENAI_USAGE, write: [], confirmed: true },
   cache: autoCache({ routingHeader: 'x-grok-conv-id' }),
-  reasoning: reasoning('none', null, false),
+  reasoning: reasoning('none', null, false, {
+    via: 'param',
+    field: 'reasoning_effort (low or high only)',
+    levels: ['low', 'high'],
+    confirmed: false,
+  }),
 };
 
 const mistral: ProviderProfile = {
@@ -1064,7 +1111,12 @@ const ollama: ProviderProfile = {
     confirmed: false,
   },
   cache: { ...autoCache({ confirmed: false }), readDiscount: false },
-  reasoning: reasoning('none', 'reasoning', false),
+  reasoning: reasoning('none', 'reasoning', false, {
+    via: 'think',
+    field: 'think ("low", "medium" or "high" for gpt-oss; other models only think or not)',
+    levels: ALL_EFFORTS,
+    confirmed: false,
+  }),
 };
 
 /**

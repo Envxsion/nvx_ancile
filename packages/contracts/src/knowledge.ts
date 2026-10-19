@@ -309,6 +309,37 @@ export const EmbeddingStatus = z.object({
 });
 export type EmbeddingStatus = z.infer<typeof EmbeddingStatus>;
 
+/* ---- OCR for scanned PDFs (SR1) ------------------------------------------- */
+
+/**
+ * PUT /knowledge/ocr: Settings → Sources. With OCR on, a PDF page that has no text layer is read
+ * on this computer (RapidOCR, or Tesseract when the language needs it) and stays searchable and
+ * citable on its own page. `language` is an ISO 639-1 code ("de"), a Tesseract code ("chi_sim"),
+ * or several joined with "+".
+ */
+export const OcrSettings = z
+  .object({
+    enabled: z.boolean(),
+    language: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(
+        /^[a-z]{2,3}(_[a-z]{2,8})?(\+[a-z]{2,3}(_[a-z]{2,8})?){0,3}$/,
+        'Use a language code such as en, de or chi_sim',
+      ),
+  })
+  .strict();
+export type OcrSettings = z.infer<typeof OcrSettings>;
+
+/** GET and PUT /knowledge/ocr: the settings, and which OCR engines this computer has. */
+export const OcrView = z.object({
+  enabled: z.boolean(),
+  language: z.string(),
+  installed: z.object({ rapidocr: z.boolean(), tesseract: z.boolean() }),
+});
+export type OcrView = z.infer<typeof OcrView>;
+
 /* ---- Retrieval trace (Core writes it into an answer's provenance) -------- */
 
 /** What a grounded answer was given and what it used: the "why" view reads this. */

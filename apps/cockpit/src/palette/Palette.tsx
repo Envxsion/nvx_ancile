@@ -15,10 +15,15 @@
  *           |  dozens of times a day.
  *  Note     |  Command hints come from the keymap, so they are never
  *           |  out of date.
+ *  KP1      |  Enter does the one obvious thing. Tab or Ctrl+Enter opens
+ *           |  the action panel for the highlighted result (actions.ts);
+ *           |  Shift+Enter does the obvious thing and leaves the palette
+ *           |  open. A settings result that is on or off, or one of a
+ *           |  few choices, changes right there (settingsIndex.ts).
  * ------------------------------------------------------------------
  */
 
-import type { ClaudeCodeStatus, ThreadSearchHit } from '@nvx/contracts';
+import type { ClaudeCodeStatus, PrefGroup, ThreadSearchHit } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from '@tanstack/react-router';
 import { Command } from 'cmdk';
@@ -35,11 +40,12 @@ import { useBinding, useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { api } from '../lib/api';
 import { compactNow } from '../lib/branching';
-import { useNotebooks, useThreads } from '../lib/data';
+import { threadQuery, useModels, useNotebooks, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
 import { PRELOAD_DELAY_MS, paletteTarget, prefetchTarget } from '../lib/prefetch';
-import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
+import { queryClient } from '../lib/query';
+import { deleteThread, exportThread, moveThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
 import { useWarmMarks, WarmMark } from '../models/WarmMark';
 import { openBeam } from '../pro/beam';
@@ -50,6 +56,16 @@ import { type PaletteScope, useUi } from '../state/ui';
 import { useBranchLayer } from '../tree/store';
 import { Icon, type IconName } from '../ui/Icon';
 import { Kbd } from '../ui/primitives';
+import { ActionPanel } from './ActionPanel';
+import { type ActionDeps, actionsFor, type PanelAction, type Target, targetOf } from './actions';
+import {
+  announceChange,
+  nextState,
+  SETTINGS_INDEX,
+  type SettingDef,
+  settingByKey,
+  stateWords,
+} from './settingsIndex';
 
 const PREFIX: Record<string, PaletteScope> = {
   '>': 'commands',
@@ -82,41 +98,6 @@ const PLACEHOLDER: Record<PaletteScope, string> = {
   help: 'Search the guide',
   settings: 'Find a setting',
 };
-
-/** Settings the palette can jump to; the Settings page is the source of truth. */
-const SETTINGS_INDEX: { label: string; group: string; words: string }[] = [
-  { label: 'Theme', group: 'appearance', words: 'dark light system mode' },
-  { label: 'Accent colour', group: 'appearance', words: 'colour color signal violet iris rose jade' },
-  { label: 'Ground tint', group: 'appearance', words: 'graphite ink obsidian background' },
-  { label: 'Contrast', group: 'appearance', words: 'high contrast accessibility' },
-  { label: 'Glass or solid surfaces', group: 'appearance', words: 'blur transparency material' },
-  { label: 'Film grain', group: 'appearance', words: 'noise texture' },
-  { label: 'Gilt details', group: 'appearance', words: 'gold brass' },
-  { label: 'Corners', group: 'appearance', words: 'radius sharp rounded' },
-  { label: 'Interface font', group: 'appearance', words: 'archivo system typeface' },
-  { label: 'Zoom', group: 'appearance', words: 'scale size bigger smaller' },
-  { label: 'Density', group: 'layout', words: 'compact comfortable spacious' },
-  { label: 'Sidebar and panel widths', group: 'layout', words: 'rail drawer width' },
-  { label: 'Status bar items', group: 'layout', words: 'footer bar' },
-  { label: 'Text size', group: 'reading', words: 'font size reading' },
-  { label: 'Line spacing', group: 'reading', words: 'leading line height' },
-  { label: 'Reading width', group: 'reading', words: 'measure column' },
-  { label: 'Citations style', group: 'reading', words: 'footnote superscript' },
-  { label: 'Send with Enter or Ctrl Enter', group: 'composer', words: 'send key newline' },
-  { label: 'Snippets', group: 'composer', words: 'abbreviation template' },
-  { label: 'Change a shortcut', group: 'keyboard', words: 'keys rebind shortcuts' },
-  { label: 'Toasts', group: 'notifications', words: 'notification position duration' },
-  { label: 'Motion', group: 'accessibility', words: 'reduce animation' },
-  { label: 'Larger buttons', group: 'accessibility', words: 'touch targets' },
-  { label: 'Custom CSS', group: 'advanced', words: 'style theme css' },
-  { label: 'Claude Code', group: 'claude-code', words: 'claude code install sign in sessions anthropic' },
-  {
-    label: 'Bring Claude Code sessions in by themselves',
-    group: 'claude-code',
-    words: 'claude code import sessions automatic',
-  },
-  { label: 'Effects and performance', group: 'advanced', words: 'lite blur performance' },
-];
 
 /* ---- Frecency: what you reach for, and how lately ---------------------- */
 
@@ -234,10 +215,16 @@ export function Palette() {
   const prefs = usePrefs((s) => s.prefs);
   const setPref = usePrefs((s) => s.set);
   const [value, setValue] = useState('');
+  // KP1: the highlighted result, the action panel on it, what to tell a screen reader, and Shift+Enter.
+  const [highlighted, setHighlighted] = useState('');
+  const [panel, setPanel] = useState<{ target: Target; title: string } | null>(null);
+  const [said, setSaid] = useState('');
+  const keepOpen = useRef(false);
   // The thread or notebook the highlighted item opens is fetched once the highlight rests on it.
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(highlightTimer.current), []);
   const onHighlight = (item: string) => {
+    setHighlighted(item);
     clearTimeout(highlightTimer.current);
     const target = paletteTarget(item);
     if (target) highlightTimer.current = setTimeout(() => prefetchTarget(target), PRELOAD_DELAY_MS);
@@ -252,6 +239,8 @@ export function Palette() {
   useEffect(() => {
     if (!open) return;
     setValue(`${SCOPE_PREFIX[initialScope]}${initialQuery}`);
+    setPanel(null);
+    setSaid('');
     helpDone('palette');
     tourEvent('palette-opened');
   }, [open, initialScope, initialQuery]);
@@ -270,7 +259,9 @@ export function Palette() {
 
   const run = (fn: () => void, use?: { key: string; label: string; kind: Use['kind'] }) => {
     if (use) recordUse(use.key, { label: use.label, kind: use.kind });
-    close();
+    // Shift+Enter: do the thing and stay, so the next result is one arrow away.
+    if (keepOpen.current) keepOpen.current = false;
+    else close();
     fn();
   };
 
@@ -281,6 +272,68 @@ export function Palette() {
   const go = (to: string, params?: Record<string, string>) => () =>
     navigate({ to, ...(params && { params }) } as Parameters<typeof navigate>[0]);
 
+  // KP1: what the action panel needs, from the same functions the rest of the app uses.
+  const modelViews = useModels({ all: true }).data ?? [];
+  const actionDeps: ActionDeps = {
+    origin: window.location.origin,
+    threadId,
+    threads: threads.data ?? [],
+    notebooks: notebooks.data ?? [],
+    models: modelViews,
+    prefs,
+    open: (to, params, search) =>
+      void navigate({
+        to,
+        ...(params && { params }),
+        ...(search && { search }),
+      } as Parameters<typeof navigate>[0]),
+    openWindow: (url) => void window.open(url, '_blank', 'noopener'),
+    copy: (text) => void navigator.clipboard?.writeText(text),
+    say: (n) => notify(n),
+    threadsApi: {
+      setPinned,
+      setArchived,
+      moveThread,
+      deleteThread: (id, title) =>
+        deleteThread(id, title, id === threadId ? () => void navigate({ to: '/' }) : undefined),
+      exportThread: async (id) => {
+        await queryClient.fetchQuery(threadQuery(id)).catch(() => undefined);
+        exportThread(id);
+      },
+    },
+    chooseModel,
+    setPref: (group, patch) => setPref(group as PrefGroup, patch as never),
+  };
+  const targetDef = (t: Target | null): SettingDef | undefined =>
+    t?.kind === 'setting' ? settingByKey(t.id) : undefined;
+  const titleOf = (t: Target): string => {
+    if (t.kind === 'thread') return threads.data?.find((x) => x.id === t.id)?.title ?? 'Thread';
+    if (t.kind === 'notebook') return notebooks.data?.find((x) => x.id === t.id)?.title ?? 'Notebook';
+    if (t.kind === 'model') return modelViews.find((x) => x.id === t.id)?.name ?? 'Model';
+    return targetDef(t)?.label ?? 'Result';
+  };
+  const openPanel = () => {
+    const target = targetOf(highlighted);
+    const acts = actionsFor(target, actionDeps, targetDef(target));
+    if (!target || acts.length === 0) {
+      setSaid('No other actions for this result. Enter does its one thing.');
+      return;
+    }
+    setSaid('');
+    setPanel({ target, title: titleOf(target) });
+  };
+  const panelActions: PanelAction[] = panel
+    ? actionsFor(panel.target, actionDeps, targetDef(panel.target))
+    : [];
+  /** Enter on a setting that is on or off, or one of a few choices: change it where it is. */
+  const changeInPlace = (def: SettingDef) => {
+    if (def.kind === 'opens') return;
+    const { group, patch } = nextState(prefs, def);
+    setPref(group, patch as never);
+    setSaid(announceChange(def, usePrefs.getState().prefs));
+  };
+
+  // TODO(phase-0.1.1): Pro commands of your own (chains of these, or a flow run on the selection) join this list from the Pro slot.
   const allCommands: Cmd[] = [
     { id: 'new', label: 'New thread', icon: 'plus', binding: 'thread.new', run: go('/') },
     ...repoCommands,
@@ -606,323 +659,394 @@ export function Palette() {
           className="palette m-glass-thick"
           aria-describedby={undefined}
           data-tour-target="palette-dialog"
+          // Escape in the action panel goes back to the results; a second one closes the palette.
+          onEscapeKeyDown={(e) => {
+            if (panel) {
+              e.preventDefault();
+              setPanel(null);
+            }
+          }}
+          onKeyDownCapture={(e) => {
+            if (panel) return;
+            const ctrlEnter = e.key === 'Enter' && (e.ctrlKey || e.metaKey);
+            if ((e.key === 'Tab' && !e.shiftKey) || ctrlEnter) {
+              e.preventDefault();
+              e.stopPropagation();
+              openPanel();
+            } else if (e.key === 'Enter' && e.shiftKey) {
+              keepOpen.current = true;
+              // If cmdk finds nothing to select, the flag must not leak into the next Enter.
+              setTimeout(() => {
+                keepOpen.current = false;
+              }, 0);
+            }
+          }}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
-          <Command label="Command palette" shouldFilter loop onValueChange={onHighlight}>
-            <div className="palette__input">
-              <Icon name="search" />
-              {scope !== 'all' ? <span className="palette__scope">{SCOPE_LABEL[scope]}</span> : null}
-              <Command.Input
-                value={scope === 'all' ? value : query}
-                onValueChange={(v) => setValue(scope === 'all' ? v : `${SCOPE_PREFIX[scope]}${v}`)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Backspace' && scope !== 'all' && query === '') {
-                    e.preventDefault();
-                    setValue('');
-                  }
-                }}
-                placeholder={PLACEHOLDER[scope]}
-              />
-              {busy ? <span className="palette__busy" role="status" aria-label="Searching messages" /> : null}
-            </div>
-            <Command.List className="palette__list">
-              <Command.Empty className="palette__empty">
-                {busy ? 'Searching messages…' : 'Nothing matches. Try fewer words, or ? to search the guide.'}
-              </Command.Empty>
+          <p className="sr-only" role="status" aria-live="polite">
+            {said}
+          </p>
+          {panel ? (
+            <ActionPanel
+              title={panel.title}
+              actions={panelActions}
+              onBack={() => setPanel(null)}
+              onChosen={(a) => {
+                if (a.keepOpen) {
+                  setSaid(`${a.label} chosen.`);
+                  return;
+                }
+                close();
+              }}
+            />
+          ) : (
+            <Command
+              label="Command palette"
+              shouldFilter
+              loop
+              // cmdk reports a highlight only to a list whose value is held here.
+              value={highlighted}
+              onValueChange={onHighlight}
+            >
+              <div className="palette__input">
+                <Icon name="search" />
+                {scope !== 'all' ? <span className="palette__scope">{SCOPE_LABEL[scope]}</span> : null}
+                <Command.Input
+                  value={scope === 'all' ? value : query}
+                  onValueChange={(v) => setValue(scope === 'all' ? v : `${SCOPE_PREFIX[scope]}${v}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Backspace' && scope !== 'all' && query === '') {
+                      e.preventDefault();
+                      setValue('');
+                    }
+                  }}
+                  placeholder={PLACEHOLDER[scope]}
+                />
+                {busy ? (
+                  <span className="palette__busy" role="status" aria-label="Searching messages" />
+                ) : null}
+              </div>
+              <Command.List className="palette__list">
+                <Command.Empty className="palette__empty">
+                  {busy
+                    ? 'Searching messages…'
+                    : 'Nothing matches. Try fewer words, or ? to search the guide.'}
+                </Command.Empty>
 
-              {!typed && scope === 'all' && recent.length > 0 ? (
-                <Command.Group heading="Recent">
-                  {recent.map(([key, u]) => {
-                    const [kind, id] = key.split(':') as [Use['kind'], string];
-                    const cmd = kind === 'command' ? commands.find((c) => c.id === id) : undefined;
-                    if (kind === 'command' && (!cmd || cmd.disabled)) return null;
-                    return (
+                {!typed && scope === 'all' && recent.length > 0 ? (
+                  <Command.Group heading="Recent">
+                    {recent.map(([key, u]) => {
+                      const [kind, id] = key.split(':') as [Use['kind'], string];
+                      const cmd = kind === 'command' ? commands.find((c) => c.id === id) : undefined;
+                      if (kind === 'command' && (!cmd || cmd.disabled)) return null;
+                      return (
+                        <Command.Item
+                          key={`recent-${key}`}
+                          value={`recent ${key} ${u.label}`}
+                          onSelect={() =>
+                            run(
+                              () => {
+                                if (cmd) cmd.run();
+                                else if (kind === 'thread')
+                                  void navigate({ to: '/t/$threadId', params: { threadId: id } });
+                                else void navigate({ to: '/n/$notebookId', params: { notebookId: id } });
+                              },
+                              { key, label: u.label, kind },
+                            )
+                          }
+                        >
+                          <Icon name={cmd?.icon ?? (kind === 'thread' ? 'thread' : 'notebook')} size={15} />
+                          <span className="palette__label">{u.label}</span>
+                          <span className="mute palette__meta">
+                            {kind === 'command' ? 'Command' : kind === 'thread' ? 'Thread' : 'Notebook'}
+                          </span>
+                        </Command.Item>
+                      );
+                    })}
+                  </Command.Group>
+                ) : null}
+
+                {scope === 'all' && hits.length > 0 ? (
+                  <Command.Group heading="In messages">
+                    {hits.map((h) => (
                       <Command.Item
-                        key={`recent-${key}`}
-                        value={`recent ${key} ${u.label}`}
+                        key={`${h.thread_id}-${h.message_id}`}
+                        value={`message ${h.message_id} ${query} ${h.title}`}
                         onSelect={() =>
                           run(
-                            () => {
-                              if (cmd) cmd.run();
-                              else if (kind === 'thread')
-                                void navigate({ to: '/t/$threadId', params: { threadId: id } });
-                              else void navigate({ to: '/n/$notebookId', params: { notebookId: id } });
+                            () =>
+                              navigate({
+                                to: '/t/$threadId',
+                                params: { threadId: h.thread_id },
+                                hash: h.message_id,
+                              }),
+                            {
+                              key: `thread:${h.thread_id}`,
+                              label: h.title,
+                              kind: 'thread',
                             },
-                            { key, label: u.label, kind },
                           )
                         }
                       >
-                        <Icon name={cmd?.icon ?? (kind === 'thread' ? 'thread' : 'notebook')} size={15} />
-                        <span className="palette__label">{u.label}</span>
-                        <span className="mute palette__meta">
-                          {kind === 'command' ? 'Command' : kind === 'thread' ? 'Thread' : 'Notebook'}
+                        <Icon name="quote" size={15} />
+                        <span className="palette__stack">
+                          <span className="palette__label">{h.title}</span>
+                          <Snippet text={h.snippet} />
                         </span>
                       </Command.Item>
-                    );
-                  })}
-                </Command.Group>
-              ) : null}
+                    ))}
+                  </Command.Group>
+                ) : null}
 
-              {scope === 'all' && hits.length > 0 ? (
-                <Command.Group heading="In messages">
-                  {hits.map((h) => (
-                    <Command.Item
-                      key={`${h.thread_id}-${h.message_id}`}
-                      value={`message ${h.message_id} ${query} ${h.title}`}
-                      onSelect={() =>
-                        run(
-                          () =>
-                            navigate({
-                              to: '/t/$threadId',
-                              params: { threadId: h.thread_id },
-                              hash: h.message_id,
-                            }),
-                          {
-                            key: `thread:${h.thread_id}`,
-                            label: h.title,
-                            kind: 'thread',
-                          },
-                        )
-                      }
-                    >
-                      <Icon name="quote" size={15} />
-                      <span className="palette__stack">
-                        <span className="palette__label">{h.title}</span>
-                        <Snippet text={h.snippet} />
-                      </span>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              ) : null}
-
-              {show('commands') && (scope === 'commands' || typed) ? (
-                <Command.Group heading="Commands">
-                  {commands.map((c) => (
-                    <Command.Item
-                      key={c.id}
-                      value={`command ${c.label} ${c.words ?? ''}`}
-                      disabled={!!c.disabled}
-                      data-unavailable={c.disabled ? true : undefined}
-                      onSelect={() => run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })}
-                    >
-                      <Icon name={c.icon} size={15} />
-                      <span className="palette__label">{c.label}</span>
-                      {c.disabled ? <span className="mute palette__meta">{c.disabled}</span> : null}
-                      {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              ) : null}
-
-              {show('models') && (scope === 'models' || typed)
-                ? modelGroups.map((g) => (
-                    <Command.Group key={g.kind} heading={g.label}>
-                      {g.items.map((e) => (
-                        <Command.Item
-                          key={e.id}
-                          value={`model ${e.name} ${e.badge} ${e.id}`}
-                          disabled={!!e.disabled}
-                          data-unavailable={
-                            e.disabled || (e.model?.status && e.model.status !== 'ready') ? true : undefined
-                          }
-                          onSelect={() =>
-                            run(() => {
-                              if (!e.model) {
-                                if (threadId) chooseInClaudeCodeThread(threadId, e);
-                                return;
-                              }
-                              const m = e.model;
-                              if (threadId) void chooseModel(m, threadId);
-                              else {
-                                void chooseModel(m);
-                                if (!m.status || m.status === 'ready')
-                                  notify({
-                                    level: 'success',
-                                    title: `New threads use ${m.name}`,
-                                    body: 'Change it any time with M.',
-                                  });
-                              }
-                            })
-                          }
-                        >
-                          <span
-                            className="palette__swatch"
-                            style={{ '--hue': hueVar(e.hue) } as CSSProperties}
-                          />
-                          <span className="palette__label">{e.name}</span>
-                          <span className="mute palette__meta">
-                            {e.disabled ??
-                              (e.model?.offline ? 'Test model · no AI' : (e.note ?? e.model?.provider ?? ''))}
-                          </span>
-                          {(() => {
-                            const w = warmOf(e);
-                            return w ? <WarmMark warm={w} /> : null;
-                          })()}
-                          <span
-                            className="model-badge"
-                            data-kind={e.kind}
-                            {...(e.badgeTitle && { title: e.badgeTitle })}
-                          >
-                            {e.badge}
-                          </span>
-                          {e.current ? <span className="palette__current">Current</span> : null}
-                        </Command.Item>
-                      ))}
-                    </Command.Group>
-                  ))
-                : null}
-              {/* Claude Code that cannot answer is an action here, never a model. */}
-              {show('models') && (scope === 'models' || typed) && ccSetup ? (
-                <Command.Group heading="Claude Code">
-                  <Command.Item
-                    value={`model set up claude code ${ccSetup}`}
-                    onSelect={() =>
-                      run(() => navigate({ to: '/settings/$group', params: { group: 'claude-code' } }))
-                    }
-                  >
-                    <Icon name="terminal" size={15} />
-                    <span className="palette__label">{SET_UP_CLAUDE_CODE}</span>
-                    <span className="mute palette__meta">{ccSetup}</span>
-                  </Command.Item>
-                </Command.Group>
-              ) : null}
-
-              {show('notebooks') && (scope === 'notebooks' || typed) ? (
-                <Command.Group heading="Notebooks">
-                  {(notebooks.data ?? []).map((n) => (
-                    <Command.Item
-                      key={n.id}
-                      value={`notebook ${n.id} ${n.title}`}
-                      onSelect={() =>
-                        run(() => navigate({ to: '/n/$notebookId', params: { notebookId: n.id } }), {
-                          key: `notebook:${n.id}`,
-                          label: n.title,
-                          kind: 'notebook',
-                        })
-                      }
-                    >
-                      <span
-                        className="palette__swatch"
-                        style={{ '--hue': hueVar((n.color as Hue) ?? 'chalk') } as CSSProperties}
-                      />
-                      <span className="palette__label">{n.title}</span>
-                      <span className="mute palette__meta" data-num>
-                        {n.sources} {n.sources === 1 ? 'source' : 'sources'}
-                      </span>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              ) : null}
-
-              {scope === 'all' && typed ? (
-                <Command.Group heading="Threads">
-                  {(threads.data ?? []).map((t) => (
-                    <Command.Item
-                      key={t.id}
-                      value={`thread ${t.id} ${t.title}`}
-                      onSelect={() =>
-                        run(() => navigate({ to: '/t/$threadId', params: { threadId: t.id } }), {
-                          key: `thread:${t.id}`,
-                          label: t.title,
-                          kind: 'thread',
-                        })
-                      }
-                    >
-                      <Icon
-                        name={t.pinned ? 'pin' : 'thread'}
-                        size={15}
-                        className={t.pinned ? 'gilt-ink' : undefined}
-                      />
-                      <span className="palette__label" dir="auto">
-                        {t.title}
-                      </span>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              ) : null}
-
-              {show('settings') && (scope === 'settings' || typed) ? (
-                <Command.Group heading="Settings">
-                  {SETTINGS_INDEX.map((s) => (
-                    <Command.Item
-                      key={s.label}
-                      value={`setting ${s.label} ${s.words}`}
-                      onSelect={() =>
-                        run(() => navigate({ to: '/settings/$group', params: { group: s.group } }))
-                      }
-                    >
-                      <Icon name="settings" size={15} />
-                      <span className="palette__label">{s.label}</span>
-                      <span className="mute palette__meta">
-                        {s.group[0]?.toUpperCase() + s.group.slice(1)}
-                      </span>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              ) : null}
-
-              {helpHits.length > 0 || (scope === 'help' && !typed) ? (
-                <Command.Group heading="Guide">
-                  {helpHits.map((a) => (
-                    <Command.Item
-                      key={a.id}
-                      value={`help ${a.id} ${a.title} ${query}`}
-                      onSelect={() => run(() => useUi.getState().setHelp(true, a.id))}
-                    >
-                      <Icon name="book" size={15} />
-                      <span className="palette__stack">
-                        <span className="palette__label">{a.title}</span>
-                        <span className="mute palette__snippet">{a.summary}</span>
-                      </span>
-                    </Command.Item>
-                  ))}
-                  {scope === 'help' && !typed ? (
-                    <Command.Item
-                      value="help open guide"
-                      onSelect={() => run(() => useUi.getState().setHelp(true))}
-                    >
-                      <Icon name="book" size={15} />
-                      <span className="palette__label">Open the guide</span>
-                    </Command.Item>
-                  ) : null}
-                </Command.Group>
-              ) : null}
-
-              {!typed && scope === 'all' ? (
-                <Command.Group heading="Start here">
-                  {commands
-                    .filter((c) => !c.disabled)
-                    .slice(0, 6)
-                    .map((c) => (
+                {show('commands') && (scope === 'commands' || typed) ? (
+                  <Command.Group heading="Commands">
+                    {commands.map((c) => (
                       <Command.Item
-                        key={`start-${c.id}`}
-                        value={`start ${c.label}`}
+                        key={c.id}
+                        value={`command ${c.id} ${c.label} ${c.words ?? ''}`}
+                        disabled={!!c.disabled}
+                        data-unavailable={c.disabled ? true : undefined}
                         onSelect={() =>
                           run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })
                         }
                       >
                         <Icon name={c.icon} size={15} />
                         <span className="palette__label">{c.label}</span>
+                        {c.disabled ? <span className="mute palette__meta">{c.disabled}</span> : null}
                         {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
                       </Command.Item>
                     ))}
-                </Command.Group>
-              ) : null}
-            </Command.List>
-            <footer className="palette__foot">
-              <span>
-                <Kbd keys="enter" /> open
-              </span>
-              <span>
-                <kbd>↑</kbd>
-                <kbd>↓</kbd> move
-              </span>
-              <span className="palette__prefixes">
-                <kbd>&gt;</kbd> commands <kbd>@</kbd> models <kbd>#</kbd> notebooks <kbd>?</kbd> guide{' '}
-                <kbd>,</kbd> settings
-              </span>
-            </footer>
-          </Command>
+                  </Command.Group>
+                ) : null}
+
+                {show('models') && (scope === 'models' || typed)
+                  ? modelGroups.map((g) => (
+                      <Command.Group key={g.kind} heading={g.label}>
+                        {g.items.map((e) => (
+                          <Command.Item
+                            key={e.id}
+                            value={`model ${e.id} ${e.name} ${e.badge}`}
+                            disabled={!!e.disabled}
+                            data-unavailable={
+                              e.disabled || (e.model?.status && e.model.status !== 'ready') ? true : undefined
+                            }
+                            onSelect={() =>
+                              run(() => {
+                                if (!e.model) {
+                                  if (threadId) chooseInClaudeCodeThread(threadId, e);
+                                  return;
+                                }
+                                const m = e.model;
+                                if (threadId) void chooseModel(m, threadId);
+                                else {
+                                  void chooseModel(m);
+                                  if (!m.status || m.status === 'ready')
+                                    notify({
+                                      level: 'success',
+                                      title: `New threads use ${m.name}`,
+                                      body: 'Change it any time with M.',
+                                    });
+                                }
+                              })
+                            }
+                          >
+                            <span
+                              className="palette__swatch"
+                              style={{ '--hue': hueVar(e.hue) } as CSSProperties}
+                            />
+                            <span className="palette__label">{e.name}</span>
+                            <span className="mute palette__meta">
+                              {e.disabled ??
+                                (e.model?.offline
+                                  ? 'Test model · no AI'
+                                  : (e.note ?? e.model?.provider ?? ''))}
+                            </span>
+                            {(() => {
+                              const w = warmOf(e);
+                              return w ? <WarmMark warm={w} /> : null;
+                            })()}
+                            <span
+                              className="model-badge"
+                              data-kind={e.kind}
+                              {...(e.badgeTitle && { title: e.badgeTitle })}
+                            >
+                              {e.badge}
+                            </span>
+                            {e.current ? <span className="palette__current">Current</span> : null}
+                          </Command.Item>
+                        ))}
+                      </Command.Group>
+                    ))
+                  : null}
+                {/* Claude Code that cannot answer is an action here, never a model. */}
+                {show('models') && (scope === 'models' || typed) && ccSetup ? (
+                  <Command.Group heading="Claude Code">
+                    <Command.Item
+                      value={`model set up claude code ${ccSetup}`}
+                      onSelect={() =>
+                        run(() => navigate({ to: '/settings/$group', params: { group: 'claude-code' } }))
+                      }
+                    >
+                      <Icon name="terminal" size={15} />
+                      <span className="palette__label">{SET_UP_CLAUDE_CODE}</span>
+                      <span className="mute palette__meta">{ccSetup}</span>
+                    </Command.Item>
+                  </Command.Group>
+                ) : null}
+
+                {show('notebooks') && (scope === 'notebooks' || typed) ? (
+                  <Command.Group heading="Notebooks">
+                    {(notebooks.data ?? []).map((n) => (
+                      <Command.Item
+                        key={n.id}
+                        value={`notebook ${n.id} ${n.title}`}
+                        onSelect={() =>
+                          run(() => navigate({ to: '/n/$notebookId', params: { notebookId: n.id } }), {
+                            key: `notebook:${n.id}`,
+                            label: n.title,
+                            kind: 'notebook',
+                          })
+                        }
+                      >
+                        <span
+                          className="palette__swatch"
+                          style={{ '--hue': hueVar((n.color as Hue) ?? 'chalk') } as CSSProperties}
+                        />
+                        <span className="palette__label">{n.title}</span>
+                        <span className="mute palette__meta" data-num>
+                          {n.sources} {n.sources === 1 ? 'source' : 'sources'}
+                        </span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                ) : null}
+
+                {scope === 'all' && typed ? (
+                  <Command.Group heading="Threads">
+                    {(threads.data ?? []).map((t) => (
+                      <Command.Item
+                        key={t.id}
+                        value={`thread ${t.id} ${t.title}`}
+                        onSelect={() =>
+                          run(() => navigate({ to: '/t/$threadId', params: { threadId: t.id } }), {
+                            key: `thread:${t.id}`,
+                            label: t.title,
+                            kind: 'thread',
+                          })
+                        }
+                      >
+                        <Icon
+                          name={t.pinned ? 'pin' : 'thread'}
+                          size={15}
+                          className={t.pinned ? 'gilt-ink' : undefined}
+                        />
+                        <span className="palette__label" dir="auto">
+                          {t.title}
+                        </span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                ) : null}
+
+                {show('settings') && (scope === 'settings' || typed) ? (
+                  <Command.Group heading="Settings">
+                    {SETTINGS_INDEX.map((def) => {
+                      const state = stateWords(prefs, def);
+                      return (
+                        <Command.Item
+                          key={def.key}
+                          value={`setting ${def.key} ${def.label} ${def.words}`}
+                          onSelect={() => {
+                            // On or off, or one of a few choices: change it here and stay.
+                            if (def.kind !== 'opens') return changeInPlace(def);
+                            run(() => navigate({ to: '/settings/$group', params: { group: def.group } }));
+                          }}
+                        >
+                          <Icon name="settings" size={15} />
+                          <span className="palette__label">{def.label}</span>
+                          {state ? (
+                            <span className="palette__state" data-num>
+                              {state}
+                            </span>
+                          ) : null}
+                          <span className="mute palette__meta">
+                            {def.group[0]?.toUpperCase() + def.group.slice(1)}
+                          </span>
+                        </Command.Item>
+                      );
+                    })}
+                  </Command.Group>
+                ) : null}
+
+                {helpHits.length > 0 || (scope === 'help' && !typed) ? (
+                  <Command.Group heading="Guide">
+                    {helpHits.map((a) => (
+                      <Command.Item
+                        key={a.id}
+                        value={`help ${a.id} ${a.title} ${query}`}
+                        onSelect={() => run(() => useUi.getState().setHelp(true, a.id))}
+                      >
+                        <Icon name="book" size={15} />
+                        <span className="palette__stack">
+                          <span className="palette__label">{a.title}</span>
+                          <span className="mute palette__snippet">{a.summary}</span>
+                        </span>
+                      </Command.Item>
+                    ))}
+                    {scope === 'help' && !typed ? (
+                      <Command.Item
+                        value="help open guide"
+                        onSelect={() => run(() => useUi.getState().setHelp(true))}
+                      >
+                        <Icon name="book" size={15} />
+                        <span className="palette__label">Open the guide</span>
+                      </Command.Item>
+                    ) : null}
+                  </Command.Group>
+                ) : null}
+
+                {!typed && scope === 'all' ? (
+                  <Command.Group heading="Start here">
+                    {commands
+                      .filter((c) => !c.disabled)
+                      .slice(0, 6)
+                      .map((c) => (
+                        <Command.Item
+                          key={`start-${c.id}`}
+                          value={`start ${c.label}`}
+                          onSelect={() =>
+                            run(c.run, { key: `command:${c.id}`, label: c.label, kind: 'command' })
+                          }
+                        >
+                          <Icon name={c.icon} size={15} />
+                          <span className="palette__label">{c.label}</span>
+                          {c.binding ? <Kbd keys={keysFor(c.binding) ?? ''} binding={c.binding} /> : null}
+                        </Command.Item>
+                      ))}
+                  </Command.Group>
+                ) : null}
+              </Command.List>
+              <footer className="palette__foot">
+                <span>
+                  <Kbd keys="enter" /> open
+                </span>
+                <span>
+                  <Kbd keys="shift+enter" /> open and stay
+                </span>
+                <span>
+                  <kbd>Tab</kbd> actions
+                </span>
+                <span>
+                  <kbd>↑</kbd>
+                  <kbd>↓</kbd> move
+                </span>
+                <span className="palette__prefixes">
+                  <kbd>&gt;</kbd> commands <kbd>@</kbd> models <kbd>#</kbd> notebooks <kbd>?</kbd> guide{' '}
+                  <kbd>,</kbd> settings
+                </span>
+              </footer>
+            </Command>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

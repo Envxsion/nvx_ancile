@@ -26,6 +26,7 @@ import { useConnection } from '../lib/connection';
 import { useApprovals, useSystemHealth } from '../lib/data';
 import { usd } from '../lib/format';
 import { useCurrentModel, useThreadIdFromRoute } from '../lib/models';
+import { WarmingDot } from '../models/warmStore';
 import { EditionMark } from '../pro/edition';
 import { RepoSegment } from '../repos/RepoSegment';
 import { usePrefs } from '../state/prefs';
@@ -134,6 +135,7 @@ export function StatusBar() {
             aria-label={`Model: ${model?.name ?? 'none ready'}. Change model`}
           >
             {model ? <HueChip hue={model.hue}>{model.name}</HueChip> : <span>Choose a model</span>}
+            <WarmingDot modelId={model?.id} />
             <Icon name="chevronDown" size={12} />
           </button>
         </Tip>

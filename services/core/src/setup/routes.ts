@@ -28,6 +28,7 @@ import {
   type RoutingList,
   SetupCompleteRequest,
   type SetupStatus,
+  ShowModelRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -297,6 +298,16 @@ export function setupRoutes(deps: SetupRouteDeps) {
   r.get('/models', async (c) => {
     await registry.refresh();
     return c.json({ items: registry.info(), next_cursor: null });
+  });
+
+  /** MD2: "Add more models" shows a model beyond a provider's starter three; the same call hides it again. */
+  r.post('/models/shown', async (c) => {
+    const req = await body(c, ShowModelRequest);
+    const m = registry.getExact(req.id);
+    if (!m) throw notFound('That model');
+    await registry.setShown(m.id, req.shown);
+    await registry.refresh();
+    return c.json(registry.info().find((x) => x.id === m.id));
   });
 
   r.put('/models/:id{.+}', async (c) => {

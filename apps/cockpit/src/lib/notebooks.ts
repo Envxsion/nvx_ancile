@@ -363,6 +363,21 @@ export async function retrySource(notebookId: string, sourceId: string): Promise
   }
 }
 
+/** SR1: read a scanned PDF with OCR, whatever the Sources setting says. */
+export async function readWithOcr(notebookId: string, sourceId: string): Promise<void> {
+  try {
+    await api.post(`/sources/${sourceId}/ocr`);
+    refreshSources(notebookId);
+    notify({
+      level: 'info',
+      title: 'Reading it with OCR',
+      body: 'Each page is read on this computer. You can keep working.',
+    });
+  } catch (error) {
+    report(error, 'Reading with OCR');
+  }
+}
+
 export async function refetchSource(notebookId: string, sourceId: string): Promise<void> {
   try {
     await api.post(`/sources/${sourceId}/refetch`);

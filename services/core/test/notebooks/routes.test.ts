@@ -294,6 +294,28 @@ describe('sources', () => {
     ]);
   });
 
+  it('SR1: reads a scan with OCR, and reads and saves the OCR setting through Knowledge', async () => {
+    const view = { enabled: false, language: 'en', installed: { rapidocr: true, tesseract: false } };
+    mount({
+      'GET /maintenance/ocr': view,
+      'PUT /maintenance/ocr': (b: unknown) => ({ ...view, ...(b as object) }),
+    });
+    await call('POST', '/sources/src_1/ocr');
+    expect((await call<typeof view>('GET', '/knowledge/ocr')).body.installed.rapidocr).toBe(true);
+    const saved = await call<typeof view>('PUT', '/knowledge/ocr', { enabled: true, language: 'DE ' });
+    expect(saved.body).toMatchObject({ enabled: true, language: 'de' });
+    // Anything that is not a language code, or any extra field, is refused before Knowledge hears of it.
+    expect((await call('PUT', '/knowledge/ocr', { enabled: true, language: 'German please' })).status).toBe(
+      400,
+    );
+    expect((await call('PUT', '/knowledge/ocr', { enabled: true, language: 'en', x: 1 })).status).toBe(400);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /sources/src_1/ocr',
+      'GET /maintenance/ocr',
+      'PUT /maintenance/ocr',
+    ]);
+  });
+
   it('serves an original file that can be shown, never run', async () => {
     const res = await app.request('/sources/src_1/file');
     expect(res.status).toBe(200);

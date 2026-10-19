@@ -23,6 +23,7 @@
 import type { FlowGraph } from '@nvx/contracts';
 import { AnimatePresence, m as motion } from 'motion/react';
 import { type CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { ShadowAnswerLink } from '../flows/ShadowAnswer';
 import { useModels } from '../lib/data';
 import { hueVar, modelById, usd } from '../lib/format';
 import { useReducedMotion } from '../lib/motion';
@@ -230,6 +231,7 @@ export function Teamwork({ m, threadId }: { m: MessageView; threadId: string }) 
               <span>
                 {team.name} · version <span data-num>{team.version}</span>
               </span>
+              <ShadowAnswerLink messageId={m.id} />
               <button type="button" className="link-btn" onClick={() => useUi.getState().showReceipt(m.id)}>
                 Open the receipt
               </button>
@@ -341,6 +343,14 @@ const StepRow = memo(function StepRow({
 
       {decision ? (
         <div className="tw-decision">
+          {decision.learned ? (
+            <p className="tw-learned" data-taken={decision.learned.taken || undefined}>
+              <Icon name="sparkle" size={10} />
+              {decision.learned.taken
+                ? `Learned router chose ${decision.learned.label}, ${Math.round(decision.learned.confidence * 100)}%`
+                : `Learned router suggests ${decision.learned.label}, ${Math.round(decision.learned.confidence * 100)}%. Suggest only.`}
+            </p>
+          ) : null}
           <span className="tw-decision__routes">
             {decision.chose.map((r) => (
               <span key={r} className="tw-route">

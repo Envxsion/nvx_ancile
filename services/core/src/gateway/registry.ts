@@ -39,6 +39,7 @@ import {
   type ModelHue,
   type ModelInfo,
   type ModelLine,
+  type ModelTier,
 } from '@nvx/contracts';
 import {
   currentOf,
@@ -56,6 +57,7 @@ import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { billingOf, type ClaudeAuth } from './billing';
+import { effortLevels } from './effort';
 import { OFFLINE_MODELS } from './fake';
 import {
   discoveredModel,
@@ -134,6 +136,10 @@ export class ModelRegistry {
   private lineByModel = new Map<string, string>();
   private secretNames = new Set<string>();
   private overrides: Record<string, boolean> = {};
+  /** MD2: models you showed or hid beyond a provider's starter three. */
+  private shown: Record<string, boolean> = {};
+  /** MD2: per keyed provider, one current model of each tier (fast, balanced, best), from the live list when it has one. */
+  private starters = new Set<string>();
   /** Chip hues chosen for config models. */
   private hues: Record<string, ModelHue> = {};
   /** Chains saved in Admin → Routing, held here so chain() never reads the database. */
@@ -167,6 +173,7 @@ export class ModelRegistry {
     const secretNames = new Set(await this.opts.secrets.names());
     const overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
     const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
+    const shown = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelShown)) ?? {};
     const custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
     const chains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
     const lineStates = (await this.opts.settings.get<Record<string, LineState>>(SETTING.modelLines)) ?? {};
@@ -175,6 +182,7 @@ export class ModelRegistry {
     // Applied together, with nothing awaited in between, so chain() never sees half a refresh.
     this.secretNames = secretNames;
     this.overrides = overrides;
+    this.shown = shown;
     this.hues = hues;
     this.savedChains = chains;
     this.lineStates = lineStates;
@@ -493,6 +501,7 @@ export class ModelRegistry {
       });
     }
     this.groups = groupLines(members);
+    this.pickStarters();
   }
 
   /**
@@ -548,17 +557,86 @@ export class ModelRegistry {
   }
 
   /**
-   * Whether something real stands behind a model, so Settings lists it:
-   * its provider's key is saved, Ollama has pulled it, or (for a node model
-   * from config) you switched it on. Models you added are always listed.
+   * Why Settings does not list a model, or null when it does (MD2). Something real must stand
+   * behind it: a provider's key is saved (then its starter three: one current model each of fast,
+   * balanced and best, plus any you added with "Add more models"), Ollama has pulled it, a GPU
+   * node serves it (or you switched a config node model on), Claude Code is signed in. Models you
+   * added yourself are always listed.
    */
-  listed(m: ModelConfig): boolean {
-    if (this.customIds.has(m.id)) return true;
+  unlistedReason(m: ModelConfig): NonNullable<ModelInfo['unlisted_reason']> | null {
+    if (this.customIds.has(m.id)) return null;
+    if (m.provider === 'fake') return null;
+    if (m.provider === 'claude_code') return this.claudeAuth?.signed_in === true ? null : 'signed_out';
+    if (m.provider === NODE_PROVIDER) return null;
+    if (m.provider === 'controller') return this.enabled(m) ? null : 'no_node';
     const secret = secretFor(m);
-    if (secret && !this.secretNames.has(secret)) return false;
-    if (isLocalOllama(m) && this.status(m) === 'not_pulled') return false;
-    if (m.provider === 'controller') return this.enabled(m);
-    return true;
+    if (secret && !this.secretNames.has(secret)) return 'no_key';
+    if (isLocalOllama(m) && this.status(m) === 'not_pulled') return 'not_pulled';
+    if (this.lifecycleOf(m.id) === 'retired') return 'retired';
+    if (!secret) return null;
+    const chosen = this.shown[m.id];
+    if (chosen !== undefined) return chosen ? null : 'more';
+    return this.starters.has(m.id) ? null : 'more';
+  }
+
+  listed(m: ModelConfig): boolean {
+    return this.unlistedReason(m) === null;
+  }
+
+  /** Save that a model of a keyed provider is shown (or hidden) beyond the starter three. */
+  async setShown(id: string, shown: boolean): Promise<void> {
+    const next = { ...((await this.opts.settings.get<Record<string, boolean>>(SETTING.modelShown)) ?? {}) };
+    next[id] = shown;
+    await this.opts.settings.set(SETTING.modelShown, next);
+    this.shown = next;
+  }
+
+  /**
+   * One current model of each tier for every keyed provider. The tier is its line's (Opus is best,
+   * Sonnet balanced, Haiku fast); a provider with no lines is ranked by price (dearest best, cheapest
+   * fast). Retired and deprecated models and previews step aside, so a provider whose live list
+   * has been read starts from what it still serves; with no live list yet, this is the bundled
+   * list (config/models.yaml, dated by prices_as_of).
+   */
+  private pickStarters(): void {
+    const byProvider = new Map<string, ModelConfig[]>();
+    for (const m of this.models) {
+      if (this.customIds.has(m.id) || !secretFor(m) || m.via !== 'direct' || !canChat(m)) continue;
+      if (this.lifecycleOf(m.id) !== 'active') continue;
+      const arr = byProvider.get(m.provider) ?? [];
+      arr.push(m);
+      byProvider.set(m.provider, arr);
+    }
+    const out = new Set<string>();
+    for (const list of byProvider.values()) {
+      const info = list.map((m) => ({ m, line: lineFor(m.provider, m.base_url, m.provider_model) }));
+      const withLines = info.filter((x) => x.line && !x.line.preview);
+      const tiers = new Map<ModelTier, ModelConfig>();
+      if (withLines.length) {
+        // Prefer the model its line answers with now, then the order of the config.
+        const now = (x: (typeof withLines)[number]) =>
+          Number(this.currentOfLine(x.line?.line_id ?? '') === x.m.id);
+        const ranked = [...withLines].sort((a, b) => now(b) - now(a));
+        for (const x of ranked) if (x.line && !tiers.has(x.line.tier)) tiers.set(x.line.tier, x.m);
+      } else {
+        const byPrice = [...list].sort(
+          (a, b) =>
+            b.price.output_per_mtok - a.price.output_per_mtok ||
+            b.price.input_per_mtok - a.price.input_per_mtok,
+        );
+        const best = byPrice[0];
+        const fast = byPrice[byPrice.length - 1];
+        const mid = byPrice[Math.floor((byPrice.length - 1) / 2)];
+        if (byPrice.length === 1 && best) tiers.set('balanced', best);
+        else {
+          if (best) tiers.set('best', best);
+          if (fast && fast !== best) tiers.set('fast', fast);
+          if (mid && mid !== best && mid !== fast) tiers.set('balanced', mid);
+        }
+      }
+      for (const m of tiers.values()) out.add(m.id);
+    }
+    this.starters = out;
   }
 
   info(): ModelInfo[] {
@@ -600,12 +678,17 @@ export class ModelRegistry {
       status: this.status(m),
       billing: billingOf(m, this.claudeAuth),
       listed: this.listed(m),
+      ...(this.unlistedReason(m) && {
+        unlisted_reason: this.unlistedReason(m) as NonNullable<ModelInfo['unlisted_reason']>,
+      }),
       secret: secretFor(m),
       offline: m.provider === 'fake',
       ...(this.customIds.has(m.id) && { custom: true, base_url: m.base_url ?? null }),
       ...((this.hues[m.id] ?? m.hue) && { hue: this.hues[m.id] ?? m.hue }),
       ...(lineId && { line_id: lineId }),
       lifecycle: this.lifecycleOf(m.id),
+      // EN1: the efforts the provider's profile lets this model take; absent when none.
+      ...(effortLevels(m).length > 0 && { effort_levels: [...effortLevels(m)] }),
     };
   }
 

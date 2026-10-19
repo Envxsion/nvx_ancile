@@ -71,7 +71,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `KNOWLEDGE_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Local cross-encoder. |
 | `KNOWLEDGE_MODEL_CACHE` | `./data/models` | Model weights cache. |
 | `KNOWLEDGE_USE_DOCLING` | `true` | Layout-aware PDF parsing: slower, much better tables. |
-| `KNOWLEDGE_OCR` | `false` | OCR for scans and images. |
+| `KNOWLEDGE_OCR` | `false` | Not read: OCR is a setting now (Settings → Sources, `PUT /knowledge/ocr`). |
 | `KNOWLEDGE_CHUNK_TOKENS` / `KNOWLEDGE_CHUNK_OVERLAP` | `512` / `64` | Chunking. |
 | `KNOWLEDGE_CONTEXTUAL_CHUNKS` | `true` | Add a short LLM-written context blurb to each chunk before indexing. |
 | `SEARXNG_URL` | empty | Web search for fact-checks (SearXNG, JSON). Empty: claims are checked against sources only. Used only for notebooks with **Check on the web** on, or one check you allow, and never for a private notebook (docs/factcheck.md). |
@@ -272,8 +272,8 @@ They run through the same scheduler and history as the built-in jobs. Schedules 
 # The test models (Offline test model, Offline echo): answer without a key
 # or a network, for trying NVX Ancile out and for tests. They don't use AI.
 # `pnpm start` and the desktop app turn them on. The model switcher and
-# pickers hide them once a real model is ready, unless Settings → Advanced →
-# Keep test models (no AI) in pickers is on.
+# pickers hide them once a real model is ready, and show them again only if
+# none can answer (there is no setting for this).
 ANCILE_OFFLINE_MODELS=1
 
 # Where the file tools and the lab work. Models see it as /workspace.

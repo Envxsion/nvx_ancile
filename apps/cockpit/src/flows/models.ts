@@ -20,7 +20,6 @@ import { api } from '../lib/api';
 import { hideTryout, hueFor } from '../lib/mappers';
 import type { Hue } from '../lib/types';
 import { type OffPeakRates, offPeakOf } from '../models/offPeak';
-import { usePrefs } from '../state/prefs';
 
 export interface FlowModel {
   id: string;
@@ -43,6 +42,8 @@ export interface FlowModel {
   awake: boolean | null;
   nodeName: string | null;
   chat: boolean;
+  /** MD2: nothing real stands behind it, or it is beyond the provider's starter three; pickers leave it out. */
+  unlisted?: boolean;
   /** OpenRouter models: the OpenRouter id, for routing and cost on a step. */
   openrouter?: string;
   /** A line's "latest" entry: the concrete model it answers with now (MD4). */
@@ -58,7 +59,6 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
     queryFn: () => api.get<{ items: ModelInfo[] }>('/models').then((r) => r.items),
   });
   const nodes = useNodes();
-  const keepTryout = usePrefs((s) => s.prefs.advanced.tryoutModels);
   return useMemo(() => {
     const list: FlowModel[] = (models.data ?? []).map((m) => {
       const short = m.id.replace(/^controller\//, '');
@@ -86,6 +86,7 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         awake: m.via === 'controller' ? node?.observed_state === 'running' : null,
         nodeName: node?.name ?? null,
         chat: !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'),
+        ...(m.listed === false && { unlisted: true }),
         ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
         ...(m.alias_of && { aliasOf: m.alias_of }),
         ...(m.line_id && { lineId: m.line_id }),
@@ -94,11 +95,11 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
     });
     // A flow that already names a try-out model still resolves it; only the picker list hides it.
     return {
-      list: hideTryout(list, keepTryout),
+      list: hideTryout(list.filter((m) => !m.unlisted)),
       byId: new Map(list.map((m) => [m.id, m])),
       loading: models.isPending,
     };
-  }, [models.data, models.isPending, nodes.data, keepTryout]);
+  }, [models.data, models.isPending, nodes.data]);
 }
 
 /** "$3 / $15 per M" or "Free". */

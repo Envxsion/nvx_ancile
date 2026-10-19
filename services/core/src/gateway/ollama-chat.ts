@@ -26,6 +26,7 @@ import type { ModelConfig } from '@nvx/contracts';
 import { ClassifiedError, classifyStatus } from '@nvx/resilience';
 import { tracedFetch } from '../context';
 import { type SdkMessage, toSdkMessages } from './convert';
+import { effortOptions } from './effort';
 import type { ModelRequest, StreamChunk } from './types';
 
 /** The most context Ollama is asked to load, whatever a model's card says. */
@@ -145,10 +146,13 @@ export async function* ollamaChat(
   );
   if (req.system !== undefined) messages.unshift({ role: 'system', content: req.system });
   const numCtx = servedWindow(m);
+  const think = effortOptions(m, req.effort).think;
   const body = {
     model: m.provider_model,
     messages,
     stream: true,
+    // EN1: gpt-oss reads "low", "medium" or "high"; undefined for a model that takes no effort.
+    ...(think && { think }),
     options: {
       num_ctx: numCtx,
       ...(req.maxOutputTokens !== undefined && { num_predict: req.maxOutputTokens }),

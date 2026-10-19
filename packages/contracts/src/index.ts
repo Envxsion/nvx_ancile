@@ -1,11 +1,13 @@
 export * from './activity';
 export * from './api';
 export * from './artifacts';
+export * from './attachments';
 export * from './auto';
 export * from './billing';
 export * from './branching';
 export * from './bulk';
 export * from './cache';
+export * from './chatimport';
 export * from './claudecode';
 export * from './config';
 export * as controller from './controller';

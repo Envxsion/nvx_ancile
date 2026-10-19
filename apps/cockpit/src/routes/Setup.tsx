@@ -12,8 +12,12 @@
  *           |  first thread with the composer ready.
  *  Note     |  With no key at all, the offline test model lets you try
  *           |  everything; the screen says plainly what it is.
- *           |  TODO(phase-3): a first-notebook step with real upload.
- *           |  TODO(phase-5): the Controller check.
+ *           |  SU1: the first step asks how you are starting (new, from
+ *           |  another computer, bring my chats), then Models, Look, Safety
+ *           |  (permissions and memory), an optional first notebook, and a
+ *           |  last step that holds the statistics choice (ST2 comes last).
+ *           |  Every step can be skipped, and Skip setup finishes with the
+ *           |  defaults. TODO(phase-5): the Controller check.
  * ------------------------------------------------------------------
  */
 
@@ -41,6 +45,9 @@ import { ApiCallError, api } from '../lib/api';
 import { keys as queryKeys, useSetup } from '../lib/data';
 import { queryClient } from '../lib/query';
 import { startCoreHint } from '../lib/runtime';
+import { ChatImportPanel } from '../setup/ChatImport';
+import { FirstNotebook, MakeItYours } from '../setup/MakeItYours';
+import { MoveComputer } from '../setup/MoveComputer';
 import { notify } from '../state/notify';
 import { ShareStatsCard } from '../telemetry/ShareStats';
 import { Icon } from '../ui/Icon';
@@ -49,7 +56,13 @@ import { Kbd } from '../ui/primitives';
 /** How often to look for Ollama again while it is missing. */
 const OLLAMA_POLL_MS = 4_000;
 
-const STEPS = ['Welcome', 'Models', 'Permissions', 'Memory', 'Shortcuts'] as const;
+const STEPS = ['Start', 'Models', 'Look', 'Safety', 'Notebook', 'Finish'] as const;
+
+const STARTS = [
+  { id: 'new', name: 'New here', body: 'Start fresh. This takes about a minute.' },
+  { id: 'move', name: 'Moving from another computer', body: 'Bring everything over from a backup.' },
+  { id: 'chats', name: 'Bring my chats', body: 'From ChatGPT, Claude or Open WebUI.' },
+] as const;
 
 const PROVIDERS: { id: ProviderId; name: string; placeholder: string }[] = [
   { id: 'anthropic', name: 'Anthropic', placeholder: 'sk-ant-…' },
@@ -116,6 +129,7 @@ export function SetupScreen() {
   const [capture, setCapture] = useState<(typeof CAPTURE)[number]['id']>('auto_confident');
   const [about, setAbout] = useState('');
   const [finishing, setFinishing] = useState(false);
+  const [start, setStart] = useState<(typeof STARTS)[number]['id']>('new');
   const navigate = useNavigate();
 
   // Providers already connected (a key in .env was imported, or setup was run before).
@@ -284,6 +298,16 @@ export function SetupScreen() {
           ))}
         </ol>
         <p className="setup__privacy mute">Everything you set here stays on this machine.</p>
+        {!last ? (
+          <button
+            type="button"
+            className="link-btn setup__skip"
+            disabled={finishing}
+            onClick={() => void finish()}
+          >
+            Skip setup and use the defaults
+          </button>
+        ) : null}
       </aside>
 
       <main className="setup__main">
@@ -303,6 +327,21 @@ export function SetupScreen() {
                 <li>Decide once what the AI may do on its own.</li>
                 <li>Add sources and get answers that cite them.</li>
               </ul>
+              <RadioGroup.Root
+                className="options"
+                value={start}
+                onValueChange={(v) => setStart(v as typeof start)}
+                aria-label="How are you starting?"
+              >
+                {STARTS.map((o) => (
+                  <RadioGroup.Item key={o.id} value={o.id} className="option" aria-label={o.name}>
+                    <span className="option__name">{o.name}</span>
+                    <span className="option__body">{o.body}</span>
+                  </RadioGroup.Item>
+                ))}
+              </RadioGroup.Root>
+              {start === 'chats' ? <ChatImportPanel /> : null}
+              {start === 'move' ? <MoveComputer /> : null}
             </>
           ) : null}
 
@@ -449,6 +488,16 @@ export function SetupScreen() {
           {step === 2 ? (
             <>
               <h1 className="setup__title" data-display>
+                Make it yours
+              </h1>
+              <p className="setup__lede">Pick how it looks. You will see it change as you choose.</p>
+              <MakeItYours />
+            </>
+          ) : null}
+
+          {step === 3 ? (
+            <>
+              <h1 className="setup__title" data-display>
                 What may the AI do without asking?
               </h1>
               <p className="setup__lede">
@@ -477,9 +526,9 @@ export function SetupScreen() {
 
           {step === 3 ? (
             <>
-              <h1 className="setup__title" data-display>
+              <h2 className="setup__title setup__title--sub" data-display>
                 How should it learn from you?
-              </h1>
+              </h2>
               <p className="setup__lede">
                 Memory is a set of plain files, versioned with git. You can read, edit or roll back any of it.
               </p>
@@ -510,6 +559,19 @@ export function SetupScreen() {
           ) : null}
 
           {step === 4 ? (
+            <>
+              <h1 className="setup__title" data-display>
+                Your first notebook
+              </h1>
+              <p className="setup__lede">
+                A notebook holds sources and the threads about them. Drag in a few files to ask questions of
+                them, or skip and do this later.
+              </p>
+              <FirstNotebook />
+            </>
+          ) : null}
+
+          {step === 5 ? (
             <>
               <h1 className="setup__title" data-display>
                 Five keys worth knowing
@@ -544,6 +606,11 @@ export function SetupScreen() {
           ) : (
             <span />
           )}
+          {!last && step > 0 ? (
+            <button type="button" className="btn btn--quiet" onClick={() => setStep((s) => s + 1)}>
+              Skip this step
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn--primary"

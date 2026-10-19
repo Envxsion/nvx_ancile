@@ -26,7 +26,9 @@ import { relative } from '../../lib/format';
 import { shortResource } from '../../lib/mappers';
 import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
+import { LoadedNow } from '../../models/LoadedNow';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
+import { MoreModelsDialog, moreModels } from '../../models/MoreModels';
 import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
 import { Segmented } from '../../ui/controls';
@@ -283,6 +285,7 @@ export function LiveModels() {
   const models = useModels({ all: true });
   const showAdd = useAddModel((s) => s.show);
   const showLocal = useLocalModelsDialog((s) => s.show);
+  const [moreOpen, setMoreOpen] = useState(false);
   if (models.isPending) return <Skeleton lines={6} label="Loading models" />;
   if (models.isError && !models.data)
     return <LoadFailed error={models.error} what="Models" onRetry={() => void models.refetch()} />;
@@ -295,7 +298,8 @@ export function LiveModels() {
         <p className="mute admin__lede">
           Models you can use, grouped by who pays: your Claude plan, each provider's API key, and your own
           computer and GPU nodes.
-          {waiting > 0 ? ' Add a key in Settings → API keys to see that provider’s models.' : ''}
+          {waiting > 0 ? ' Add a key in Settings → API keys to see that provider’s models.' : ''} Each
+          provider starts with its fast, balanced and best models.
         </p>
         <div className="admin__bar-actions">
           <AdvisorButton />
@@ -303,6 +307,12 @@ export function LiveModels() {
             <Icon name="download" size={14} />
             Download a local model
           </button>
+          {moreModels(models.data ?? []).length > 0 ? (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setMoreOpen(true)}>
+              <Icon name="plus" size={14} />
+              Add more models
+            </button>
+          ) : null}
           <button type="button" className="btn btn--primary btn--sm" onClick={() => showAdd()}>
             <Icon name="plus" size={14} />
             Add a model
@@ -310,7 +320,9 @@ export function LiveModels() {
         </div>
       </div>
       <AddModelDialog />
+      <MoreModelsDialog models={models.data ?? []} open={moreOpen} onOpenChange={setMoreOpen} />
       <LocalModelsDialog />
+      <LoadedNow />
       <ModelUpdates />
       <ModelBlocksView models={shown} />
     </>

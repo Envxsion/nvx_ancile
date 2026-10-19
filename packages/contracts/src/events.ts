@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { ImportProgress } from './claudecode';
 import { Attempt, ErrorClass } from './errors';
+import { LearnedHint } from './flows';
 import { Part, Usage } from './messages';
 
 const base = { seq: z.number().int().nonnegative(), at: z.string() };
@@ -257,6 +258,8 @@ export const RunEvent = z.discriminatedUnion('type', [
     chose: z.array(z.string()),
     reason: z.string(),
     confidence: z.number().nullable(),
+    /** A router that learns from your choices took part (FL1). */
+    learned: LearnedHint.optional(),
   }),
   /** A fact-check run's progress (DESIGN.md §10): stage, and claims done of total. */
   z.object({

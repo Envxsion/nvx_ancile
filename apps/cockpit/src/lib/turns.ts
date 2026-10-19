@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ImageRecord, Part, SendTurnResult } from '@nvx/contracts';
+import type { AttachmentRecord, ImageRecord, Part, SendTurnResult } from '@nvx/contracts';
 import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
 import { useCcStore } from '../claudecode/store';
 import { newIdempotencyKey } from '../engines/api';
@@ -148,10 +148,25 @@ export async function sendMessage(opts: {
   flowId?: string | null;
   /** Images attached to this message (POST /threads/:id/images); they go through /turns only. */
   images?: ImageRecord[];
+  /** Files attached to this message only (POST /threads/:id/attachments); they go through /turns only. */
+  attachments?: AttachmentRecord[];
 }): Promise<boolean> {
   const images = opts.images ?? [];
+  const attachments = opts.attachments ?? [];
   const parts: Part[] = [
     { type: 'text', text: opts.text },
+    // The file's text lives on Core; the row shows its name and pages until the thread is read again.
+    ...attachments.map(
+      (a): Part => ({
+        type: 'file',
+        name: a.name,
+        mime: a.mime,
+        url: '',
+        text: '',
+        ...(a.pages && { pages: a.pages }),
+        ...(a.truncated && { truncated: true }),
+      }),
+    ),
     ...images.map(
       (i): Part => ({
         type: 'image',
@@ -169,11 +184,11 @@ export async function sendMessage(opts: {
   // /turns takes sources only; a flow, a notebook or a repo still go the older way.
   const viaTurns =
     !opts.flowId && turnModel !== undefined && (opts.mentions ?? []).every((m) => m.kind === 'source');
-  if (images.length && !viaTurns) {
+  if ((images.length || attachments.length) && !viaTurns) {
     notify({
       level: 'info',
-      title: 'Images go to one model, not a flow',
-      body: 'Pick a model for this message with @, or send it without the images.',
+      title: `${attachments.length ? 'Files' : 'Images'} go to one model, not a flow`,
+      body: `Pick a model for this message with @, or send it without the ${attachments.length ? 'files' : 'images'}.`,
     });
     return false;
   }
@@ -186,6 +201,7 @@ export async function sendMessage(opts: {
         ...(turnModel && { model: turnModel }),
         ...(sourceIds.length && { source_ids: sourceIds }),
         ...(images.length && { image_ids: images.map((i) => i.id) }),
+        ...(attachments.length && { attachment_ids: attachments.map((a) => a.id) }),
         idempotency_key: newIdempotencyKey(),
       });
       s = {

@@ -49,7 +49,7 @@ describe('try-out models', () => {
     expect(hideTryout([tryout, embed], false)).toHaveLength(2);
   });
 
-  it('stay when "Keep test models (no AI) in pickers" is on', () => {
+  it('stay in a dev build that asks for them (the second argument stands for that flag)', () => {
     expect(hideTryout([tryout, { ...claude, status: 'ready' }], true)).toHaveLength(2);
   });
 });

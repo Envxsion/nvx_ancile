@@ -30,9 +30,11 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
 from . import jobs
+from .attachments import router as attachments_router
 from .automations import router as automations_router
 from .errors import AncileError
 from .ingest import embed, reembed
+from .ingest.ocr import router as ocr_router
 from .search import evidence as evidence_service
 from .search import service as search_service
 from .settings import get_settings
@@ -97,6 +99,8 @@ router.include_router(integrity_router)
 router.include_router(merge_router)
 router.include_router(tidy_router)
 router.include_router(automations_router)
+router.include_router(ocr_router)
+router.include_router(attachments_router)
 
 
 @router.post("/search")

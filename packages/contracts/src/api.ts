@@ -103,6 +103,13 @@ export const Page = <T extends z.ZodTypeAny>(item: T) =>
 
 /* ---- Threads (Phase 2) --------------------------------------------------- */
 
+/**
+ * How hard a reasoning model thinks (EN1). A request parameter, never part of the
+ * prompt, so changing it leaves the cached start of the request alone (CA2).
+ */
+export const Effort = z.enum(['low', 'medium', 'high']);
+export type Effort = z.infer<typeof Effort>;
+
 export const ThreadSettings = z
   .object({
     /** The model this thread asks first; null means the task class decides. */
@@ -130,6 +137,11 @@ export const ThreadSettings = z
      * prompt epoch (docs/prompt-caching.md). TODO(phase-0.1.1): the Cockpit toggle.
      */
     thinking: z.boolean().optional(),
+    /**
+     * Reasoning effort for this thread's own models (EN1). Absent: the model's default.
+     * Not an epoch reason: it is sent as a request parameter, so the cached prefix holds.
+     */
+    effort: Effort.nullable().optional(),
   })
   .partial();
 
@@ -186,6 +198,8 @@ export const PatchThreadRequest = z
     claude_code_lean: z.boolean().optional(),
     /** Extended thinking on or off; a change starts a new prompt epoch (docs/prompt-caching.md). */
     thinking: z.boolean().optional(),
+    /** Reasoning effort for this thread (EN1); null goes back to the model's default. */
+    effort: Effort.nullable().optional(),
   })
   .strict();
 
@@ -294,6 +308,13 @@ export const ModelInfo = z.object({
    * listed models; routing and traces still find the rest by id. Absent means listed.
    */
   listed: z.boolean().optional(),
+  /**
+   * Why a model is not listed (MD2). no_key: its provider has no saved key. not_pulled / no_node /
+   * signed_out: nothing real behind it yet. more: the provider is set up and this is a model beyond
+   * its starter three (fast, balanced, best); "Add more models" shows it. retired: the provider
+   * retired it. Absent when listed.
+   */
+  unlisted_reason: z.enum(['no_key', 'not_pulled', 'no_node', 'signed_out', 'more', 'retired']).optional(),
   /** The secret this model needs, so Settings can ask for exactly that key. */
   secret: z.string().nullable(),
   /** The built-in offline test model: answers without a key or a network. */
@@ -304,8 +325,17 @@ export const ModelInfo = z.object({
   base_url: z.string().nullable().optional(),
   /** The chip's hue you chose; null or absent follows the family. */
   hue: ModelHue.nullable().optional(),
+  /**
+   * The reasoning efforts this model takes through its provider (EN1, from the provider
+   * profile). Empty or absent: no effort chip, and a value sent anyway is dropped.
+   */
+  effort_levels: z.array(Effort).optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
+
+/** POST /models/shown: show one more model of a provider you have a key for, or hide one (MD2). */
+export const ShowModelRequest = z.object({ id: z.string().min(1), shown: z.boolean() }).strict();
+export type ShowModelRequest = z.infer<typeof ShowModelRequest>;
 
 /* ---- Routing chains (Admin → Routing) ------------------------------------ */
 

@@ -61,6 +61,15 @@ Rules for new codes:
 | `model.secret_missing` | 422 | "No key called <name> is stored." / Check the name, or paste the key itself instead. |
 | `model.restore_expired` | 410 | "Too late to undo that removal." / Undo works for ten minutes, and not across a restart; add the model again from Admin → Models. |
 | `model.catalogue_failed` | 502 | "Could not list the models <source> offers." / For OpenRouter, check your connection (you can still add a model by its id); for a server, check the address, key, and that it answers GET /models. |
+| `local_model.not_managed` | 409 | "<model> was not loaded by NVX Ancile." / Only models listed in Admin → Models can be unloaded or kept from Loaded now. Use Ollama itself for the rest. |
+| `local_model.ollama_silent` | 503 | "Ollama is not answering." / Open Ollama (or run `ollama serve`), then try again. Raised by Unload and Keep loaded; the Loaded now strip itself just hides. |
+| `import.too_large` | 413 | "That file is too large to import." / Imports hold up to 300 MB. Open the export's zip and bring in conversations.json on its own, or export fewer conversations. |
+| `import.unreadable` | 422 | "That file is not a chat export." / Pick conversations.json from your ChatGPT or Claude export (or the .zip it came in), or the chats file Open WebUI exports. |
+| `import.unknown_format` | 422 | "NVX Ancile does not recognise those chats." / It reads exports from ChatGPT, Claude and Open WebUI. Check you picked the conversations file. |
+| `import.empty` | 422 | "That file has no conversations." / Export again from the tool, then pick the new file. |
+| `import.zip_no_chats` | 422 | "That zip has no conversations in it." / Pick the zip the export came in, or conversations.json from inside it. |
+| `import.not_found` | 404 | "That import does not exist." / Start a new import. |
+| `import.failed` | (job) | "The import stopped part way." / Start it again with the same file: conversations already brought in are skipped. Shown on the import, not as a response. |
 | `local_model.unknown` | 404 | "That model is not in the list of local models." / Pick one from Admin → Models → Download a local model. |
 | `local_model.ollama_missing` | 409 | "Ollama is not installed" (or "installed but not running", or "Ollama at <url> is not answering") / Install it from its official page (never done for you), or open it, then try again. `error.context.ollama` and `download_url` say which. |
 | `local_model.no_disk` | 507 | "Not enough disk for <model>." / Says how much it needs and how much is free, and where. Never overridden. |
@@ -227,12 +236,14 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 | `source.no_original` | 404 | "There is no original file for this source." / Only uploaded files keep an original; open the extracted text instead. |
 | `extract.url_blocked` | 422 | "This URL points somewhere Ancile will not fetch from." / Names why (private, loopback, link-local address or a non-http scheme); use a public link or paste the text. |
 | `extract.fetch_failed` | 502 | "The page could not be fetched." / Check the link opens in a browser, or paste the text instead. Detail gives the HTTP status. |
-| `extract.scanned_pdf` | 422 | "This PDF has no text layer." / It looks scanned. Enable OCR in Settings → Sources, then retry. |
+| `extract.scanned_pdf` | 422 | "This PDF has no text layer." / It looks scanned. Turn on OCR in Settings → Sources, or choose Read with OCR on this source. |
+| `extract.ocr_unavailable` | 422 | "OCR is not installed." / Install RapidOCR (`uv pip install rapidocr-onnxruntime`) or Tesseract on this computer, then retry. Languages other than Latin letters and Chinese need Tesseract with that language's data. |
+| `source.ocr_unsupported` | 409 | "Only PDF files can be read with OCR." / Paste a page of text, or put an image in a PDF first. |
 | `extract.pdf_unreadable` | 422 | "This PDF could not be opened." / It may be damaged or password protected; save a fresh copy and add that. |
 | `extract.unsupported` | 422 | "This file type cannot be read yet." / Convert it to PDF, DOCX or text and add it again. |
 | `extract.engine_missing` | 501 | "The <engine> extractor is not installed." / Install it with `uv sync --extra <extra>`, or use the Docker image. |
 | `extract.failed` | 422 | "The text could not be read from this source." / Check the file opens normally; if it does, convert it and add it again. |
-| `extract.empty` | 422 | "No text was found in this source." / Check it has readable text; for images or scans, enable OCR. |
+| `extract.empty` | 422 | "No text was found in this source." / Check it has readable text; for scans, turn on OCR in Settings → Sources. After OCR it reads "OCR found no text in this PDF": the scan may be too faint, rotated or handwritten, which OCR reads poorly. |
 | `extract.original_missing` | 422 | "The uploaded file is missing." / Upload the file again. |
 | `embed.unavailable` | 503 | "The embedding model is unavailable." / Retry, or change the embedder in Settings. Text search still works meanwhile. |
 | `embed.download_off` | 409 | "Downloading models is switched off for the knowledge service." / Set KNOWLEDGE_MODEL_DOWNLOAD=true, or put the model in KNOWLEDGE_MODEL_CACHE yourself. |
@@ -521,6 +532,19 @@ Model provider keys fail with `provider.auth_failed` or `provider.unavailable`, 
 | `image.remote_not_allowed` | 403 | "Images from <host> have not been allowed here." / Choose "Load image" on the image first. The choice is remembered for this notebook. |
 | `image.remote_blocked` | 400 | "That image address cannot be loaded." / Why (not http or https, an unusual port, inside your network or this computer); only public addresses are fetched. |
 | `image.remote_failed` | 502 | "The image from <host> could not be loaded." / What happened; open the link in your browser instead, if you trust it. |
+
+### Attachments
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `attachment.too_large` | 413 | "<name> is too large to attach." / A file can be up to 25 MB. Attach a smaller copy, or add it to a notebook as a source. |
+| `attachment.type_not_allowed` | 415 | "<name> is not a file a message can carry." / Attach a PDF, or a text, code or CSV file. For other files, add them to a notebook as sources. |
+| `attachment.unreadable` | 422 | "<name> could not be read as text." / It looks like a binary file. Attach a text copy, or add it to a notebook as a source. |
+| `attachment.empty` | 422 | "<name> is empty." / Choose the file again. |
+| `attachment.scanned_pdf` | 422 | "This PDF has no text to read." / It looks scanned. Add it to a notebook as a source with OCR on, or attach a copy that has a text layer. |
+| `attachment.not_found` | 404 | "An attached file is no longer here." / Files wait an hour for their message, and Core forgets them when it restarts. Attach the file again. |
+| `attachment.too_many` | 422 | "Up to 5 files go with one message." / Send this message, then attach the rest to the next. |
+| `attachment.claude_code` | 422 | "Claude Code reads files from its folder." / Put the file in the session folder and name its path in your message. |
 
 Scope refusals for images use the scope codes (`scope.private_notebook`, `scope.data_stays_local`) with titles that name what would have left the machine.
 

@@ -35,9 +35,13 @@ export interface ModelView {
   price?: { in: number; out: number; offPeak?: OffPeakRates };
   /** Nothing real behind it yet (no key, not pulled, no node): Settings leaves it out. */
   unlisted?: boolean;
+  /** Why it is unlisted (MD2); 'more' means "Add more models" offers it. */
+  unlistedReason?: 'no_key' | 'not_pulled' | 'no_node' | 'signed_out' | 'more' | 'retired';
   offline?: boolean;
   /** False for embedding and rerank models: listed in settings, never chosen for chat. */
   chat?: boolean;
+  /** EN1: the reasoning efforts its provider takes; absent: no effort chip. */
+  effortLevels?: readonly import('@nvx/contracts').Effort[];
   /** Added in Settings → Models: can be edited and removed. */
   custom?: boolean;
   /** Where an OpenAI-compatible model is served. */
@@ -191,6 +195,8 @@ export interface ThreadView {
   activeRun?: { id: string; messageId: string | null } | null;
   /** The Claude Code session this thread came from, if it did. */
   claudeCode?: import('@nvx/contracts').ClaudeCodeBinding | null;
+  /** EN1: the reasoning effort chosen for this thread; null or absent: the model's default. */
+  effort?: import('@nvx/contracts').Effort | null;
   /**
    * Paging (lib/threadPages.ts): the path's head, how many messages it has,
    * the id of the first one loaded (the cursor for the page before it) and
@@ -229,7 +235,7 @@ export interface SourceView {
   pages?: number | null;
   /** 0..1 while a stage reports counts. */
   progress?: number | null;
-  error?: { title: string; hint: string } | null;
+  error?: { title: string; hint: string; code?: string } | null;
   duplicateOf?: { sourceId: string; title: string; kind: string } | null;
   createdAt?: string;
   /** Who wrote it, when known (ROADMAP S6). */

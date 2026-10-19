@@ -273,13 +273,26 @@ export interface WhyModelInput {
   /** The thread is a Claude Code session. */
   claudeCodeSession: boolean;
   flowName?: string | null | undefined;
+  /** A router that learns from your choices took part (FL1): the route it picked or suggested. */
+  learned?: { label: string; confidence: number; taken: boolean } | null | undefined;
   /** The name of a thread model that could no longer answer. */
   unreadyName?: string | null | undefined;
 }
 
+/** FL1: what a router that learns did, in a sentence to follow "The X flow routed it." */
+export function learnedWords(
+  l: { label: string; confidence: number; taken: boolean } | null | undefined,
+): string {
+  if (!l) return '';
+  const pct = `${Math.round(l.confidence * 100)}%`;
+  return l.taken
+    ? ` The learned router chose ${l.label} (${pct} sure).`
+    : ` The learned router would have chosen ${l.label} (${pct} sure), but it only suggests for now.`;
+}
+
 /** One or two sentences on why this model answered. */
 export function whyThisModel(i: WhyModelInput): string {
-  if (i.flowName) return `The ${i.flowName} flow routed it.`;
+  if (i.flowName) return `The ${i.flowName} flow routed it.${learnedWords(i.learned)}`;
   if (i.claudeCodeSession)
     return `This thread is a Claude Code session. Claude Code chose ${shortModelName(i.name)} for it.`;
   const short = shortModelName(i.name);

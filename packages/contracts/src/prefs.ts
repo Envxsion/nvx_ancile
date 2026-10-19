@@ -45,6 +45,8 @@ export const LayoutPrefs = z.object({
     .preprocess((v) => (v === 'why' ? 'sources' : v), z.enum(['sources', 'tree', 'evidence', 'notes']))
     .default('sources'),
   drawerWidth: z.number().int().min(280).max(560).default(380),
+  /** Presentation mode (HM1): the start screen shows nothing from your notebooks, for a screen share. */
+  presentation: z.boolean().default(false),
   railWidth: z.number().int().min(200).max(360).default(248),
   status: z
     .object({
@@ -144,8 +146,6 @@ export const AdvancedPrefs = z.object({
   developer: z.boolean().default(false),
   performance: z.enum(['auto', 'full', 'lite']).default('auto'),
   hints: z.boolean().default(true),
-  /** Keep the test models (no AI) in the switcher and pickers after a real model is ready. */
-  tryoutModels: z.boolean().default(false),
 });
 
 export const Preferences = z.object({
@@ -172,7 +172,7 @@ export const DEFAULT_PREFERENCES: Preferences = Preferences.parse({});
  */
 export const DEVICE_PREFS = {
   appearance: ['zoom'],
-  layout: ['rail', 'railWidth', 'drawerWidth'],
+  layout: ['rail', 'railWidth', 'drawerWidth', 'presentation'],
   keyboard: ['browserSafe'],
   advanced: ['css', 'performance'],
 } as const satisfies { [G in PrefGroup]?: readonly (keyof Preferences[G])[] };

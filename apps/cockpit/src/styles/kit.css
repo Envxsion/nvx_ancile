@@ -1121,15 +1121,26 @@ li[data-done] .checklist__step {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   height: 100%;
-  overflow: auto;
+  /* SE2: the section list and the panel scroll on their own; the page does not. */
+  overflow: hidden;
+}
+.settings__nav,
+.settings__main {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hair) transparent;
 }
 .settings__nav {
-  position: sticky;
-  top: 0;
-  align-self: start;
+  align-content: start;
   display: grid;
   gap: 12px;
   padding: 28px 14px 24px 20px;
+}
+.settings__main:focus-visible {
+  outline: 2px solid var(--signal-ink);
+  outline-offset: -2px;
 }
 .settings__title {
   font-size: var(--t-h2);
@@ -1562,6 +1573,14 @@ li[data-done] .checklist__step {
      the accent swatches) and pushed the page past the screen edge. */
   .settings {
     grid-template-columns: minmax(0, 1fr);
+    /* One column: the strip sits above the panel and the page scrolls as one. */
+    overflow: auto;
+    grid-template-rows: auto auto;
+    align-content: start;
+  }
+  .settings__nav,
+  .settings__main {
+    overflow: visible;
   }
   .settings__nav {
     position: static;

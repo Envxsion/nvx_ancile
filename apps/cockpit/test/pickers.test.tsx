@@ -8,7 +8,7 @@
  *           |  model that needs its key, is switched off or is not in
  *           |  Ollama is never offered, and Admin → Models still lists
  *           |  it with what it needs. The test models (no AI) follow
- *           |  the "Keep test models" setting, as before.
+ *           |  the dev-build flag only (TO2: no setting).
  * ------------------------------------------------------------------
  */
 
@@ -31,7 +31,6 @@ import { canAnswer, keys, pickable, useModels } from '../src/lib/data';
 import { queryClient } from '../src/lib/query';
 import type { ModelView } from '../src/lib/types';
 import { RoutingEditor } from '../src/routes/admin/RoutingEditor';
-import { usePrefs } from '../src/state/prefs';
 
 const mocked = api as unknown as Record<'get' | 'put', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) => render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
@@ -56,23 +55,17 @@ const EMBED = model({ id: 'ollama/nomic-embed-text', name: 'Embeddings', chat: f
 const TRYOUT = model({ id: 'offline/test', name: 'Offline test model', offline: true });
 const ALL = [SONNET, GEMINI, QWEN, LLAMA, NODE, OR, EMBED, TRYOUT];
 
-const setKeep = (keep: boolean) =>
-  usePrefs.setState((s) => ({
-    prefs: { ...s.prefs, advanced: { ...s.prefs.advanced, tryoutModels: keep } },
-  }));
-
 beforeEach(() => {
   queryClient.clear();
   mocked.get.mockReset();
   mocked.put.mockReset();
-  setKeep(false);
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('what a picker offers', () => {
   it('only models that can answer now; the test models leave once a real one is ready', () => {
     expect(pickable(ALL, false).map((m) => m.id)).toEqual([LLAMA.id, NODE.id, OR.id]);
-    // "Keep test models (no AI) in pickers" keeps them.
+    // A dev build started with VITE_ANCILE_TEST_MODELS=1 keeps them (TO2: no setting).
     expect(pickable(ALL, true).map((m) => m.id)).toEqual([LLAMA.id, NODE.id, OR.id, TRYOUT.id]);
     // Nothing real can answer yet: the test models stay, so there is something to try.
     expect(pickable([SONNET, QWEN, TRYOUT], false).map((m) => m.id)).toEqual([TRYOUT.id]);

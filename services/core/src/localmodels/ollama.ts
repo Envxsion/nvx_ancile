@@ -41,6 +41,15 @@ export interface PullEvent {
 export const NETWORK_TROUBLE =
   /i\/o timeout|timed? ?out|dial tcp|connection (?:reset|refused)|no such host|TLS handshake|unexpected EOF|network is unreachable/i;
 
+/** One model Ollama has in memory (GET /api/ps). */
+export interface OllamaLoaded {
+  name: string;
+  size: number;
+  size_vram: number;
+  /** When Ollama will unload it; a date far in the future means "kept until unloaded". */
+  expires_at: string | null;
+}
+
 export class OllamaError extends Error {
   constructor(
     message: string,
@@ -148,6 +157,74 @@ export class OllamaClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * What Ollama has in memory right now (GET /api/ps). `supported` is false on an
+   * Ollama older than 0.1.33, which has no such call; an unreachable Ollama throws.
+   */
+  async ps(): Promise<{ supported: boolean; models: OllamaLoaded[] }> {
+    try {
+      const r = await this.json<{
+        models?: {
+          name?: string;
+          model?: string;
+          size?: number;
+          size_vram?: number;
+          expires_at?: string;
+        }[];
+      }>('/api/ps', {}, 2_500);
+      return {
+        supported: true,
+        models: (r.models ?? []).map((m) => ({
+          name: m.name ?? m.model ?? '',
+          size: m.size ?? 0,
+          size_vram: m.size_vram ?? 0,
+          expires_at: m.expires_at ?? null,
+        })),
+      };
+    } catch (err) {
+      if (err instanceof ClassifiedError && err.status === 404) return { supported: false, models: [] };
+      throw err;
+    }
+  }
+
+  /**
+   * Load a model into memory without asking it anything (an empty generate), or change how long it
+   * stays: `keepAlive` 0 unloads it, -1 keeps it until unloaded, "5m" is Ollama's own default.
+   * Loading a big model can take a minute, so this has a long timeout and no retries.
+   */
+  async load(model: string, opts: { keepAlive?: number | string; signal?: AbortSignal } = {}): Promise<void> {
+    await guarded(
+      {
+        key: `ollama:${this.base}`,
+        timeoutMs: opts.keepAlive === 0 ? 8_000 : 180_000,
+        retry: { maxAttempts: 1 },
+        ...(opts.signal && { signal: opts.signal }),
+      },
+      async (signal) => {
+        const res = await this.doFetch(`${this.base}/api/generate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            prompt: '',
+            stream: false,
+            ...(opts.keepAlive !== undefined && { keep_alive: opts.keepAlive }),
+          }),
+          signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new ClassifiedError(
+            classifyStatus(res.status, text),
+            `Ollama answered ${res.status}: ${text.slice(0, 200)}`,
+            { status: res.status },
+          );
+        }
+        await res.text().catch(() => '');
+      },
+    );
   }
 
   /** Ollama knows this model and can load it: the check after a pull. */

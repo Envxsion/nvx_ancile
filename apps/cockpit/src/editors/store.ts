@@ -23,7 +23,9 @@ export type Editor =
   /** Attach or detach context packs, or make one from this thread (Pro; the free build explains). */
   | { kind: 'packs'; level: 'notebook' | 'thread'; id: string; title: string }
   /** Merge another notebook into this one, optionally with it chosen already. */
-  | { kind: 'merge'; into: { id: string; title: string }; from: string | null };
+  | { kind: 'merge'; into: { id: string; title: string }; from: string | null }
+  /** The composer's /init: draft an AGENTS.md for a repository (lab/InitDialog.tsx). */
+  | { kind: 'init-agents'; repoId: string; repoName: string };
 
 interface EditorsState {
   open: Editor | null;

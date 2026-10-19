@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     model_download: bool = Field(default=True, alias="KNOWLEDGE_MODEL_DOWNLOAD")
     embed_batch: int = Field(default=64, alias="KNOWLEDGE_EMBED_BATCH", ge=1, le=1024)
     use_docling: bool = Field(default=True, alias="KNOWLEDGE_USE_DOCLING")
+    # Not read: OCR is a setting (Settings → Sources; ingest/ocr.py), kept so an old .env still loads.
     ocr: bool = Field(default=False, alias="KNOWLEDGE_OCR")
     chunk_tokens: int = Field(default=512, alias="KNOWLEDGE_CHUNK_TOKENS", ge=64, le=4096)
     chunk_overlap: int = Field(default=64, alias="KNOWLEDGE_CHUNK_OVERLAP", ge=0)

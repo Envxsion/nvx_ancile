@@ -14,9 +14,12 @@
           |  an ExtractedDocument whose markdown has "\n" line endings:
           |  that exact string is stored, chunked and served by
           |  /content, so offsets agree everywhere. A PDF whose pages
-          |  carry no text fails with extract.scanned_pdf.
- Note     |  TODO(phase-4): Docling adapter with bounding boxes, OCR
-          |  for scanned PDFs, YouTube and audio transcripts.
+          |  carry no text fails with extract.scanned_pdf, unless an
+          |  OcrPlan (ocr.py) reads the empty pages: then only those
+          |  pages are OCR'd, into their own span, so offsets and
+          |  page citations stay exact.
+ Note     |  TODO(phase-4): Docling adapter with bounding boxes,
+          |  YouTube and audio transcripts.
 ------------------------------------------------------------------
 """
 
@@ -33,8 +36,9 @@ from pathlib import Path
 from typing import Literal
 
 from ..errors import AncileError
+from .ocr import OcrPlan
 
-Engine = Literal["plain", "markitdown", "docling", "pdfium", "web"]
+Engine = Literal["plain", "markitdown", "docling", "pdfium", "pdfium+ocr", "web"]
 
 
 @dataclass
@@ -176,6 +180,8 @@ _OFFICE_EXT = {".docx", ".pptx", ".xlsx", ".xls", ".epub", ".html", ".htm", ".xh
 _EMPTY_PAGE_CHARS = 8
 # Share of empty pages at which a PDF is treated as scanned.
 _SCANNED_SHARE = 0.8
+# Render scale for OCR: 2.5 x 72 dpi is about 180 dpi, which both engines read well.
+_OCR_SCALE = 2.5
 
 
 def guess_mime(filename: str | None, declared: str | None = None) -> str | None:
@@ -284,11 +290,14 @@ def _clean_pdf_text(raw: str) -> str:
     return text.strip()
 
 
-def extract_pdf(path: Path, on_page: OnProgressT | None = None) -> ExtractedDocument:
+def extract_pdf(
+    path: Path, on_page: OnProgressT | None = None, ocr: OcrPlan | None = None
+) -> ExtractedDocument:
     """
     Page by page. Pages are joined with a blank line; PageSpan records each
     page's [char_start, char_end) in the final markdown, so a chunk's page is
-    the span containing its char_start.
+    the span containing its char_start. With an OcrPlan, a page with no text
+    layer is read by OCR and its text takes that page's place in the span.
     """
     try:
         import pypdfium2 as pdfium
@@ -310,6 +319,7 @@ def extract_pdf(path: Path, on_page: OnProgressT | None = None) -> ExtractedDocu
         parts: list[str] = []
         pages: list[PageSpan] = []
         empty = 0
+        by_ocr = 0
         pos = 0
         for i in range(total):
             if on_page:
@@ -321,6 +331,11 @@ def extract_pdf(path: Path, on_page: OnProgressT | None = None) -> ExtractedDocu
                     text = _clean_pdf_text(textpage.get_text_range())
                 finally:
                     textpage.close()
+                if ocr is not None and len(re.sub(r"\s", "", text)) < _EMPTY_PAGE_CHARS:
+                    if on_page:
+                        on_page(i, total, f"Reading page {i + 1:,} of {total:,} with OCR")
+                    text = ocr.read_page(i + 1, lambda page=page: page.render(scale=_OCR_SCALE).to_pil())
+                    by_ocr += 1
             finally:
                 page.close()
             if len(re.sub(r"\s", "", text)) < _EMPTY_PAGE_CHARS:
@@ -339,17 +354,28 @@ def extract_pdf(path: Path, on_page: OnProgressT | None = None) -> ExtractedDocu
     finally:
         pdf.close()
     if total == 0 or empty / total >= _SCANNED_SHARE:
+        if by_ocr:
+            raise AncileError(
+                "extract.empty",
+                "OCR found no text in this PDF",
+                "The scan may be too faint, rotated or handwritten, which OCR reads poorly. "
+                "Try a cleaner scan, or set the right language in Settings → Sources.",
+                status=422,
+                error_class="permanent",
+                detail=f"{empty} of {total} pages were still empty after OCR",
+            )
         raise AncileError(
             "extract.scanned_pdf",
             "This PDF has no text layer",
-            "It looks scanned. Enable OCR in Settings → Sources, then retry.",
+            "It looks scanned. Turn on OCR in Settings → Sources, or choose Read with OCR on this source.",
             status=422,
             error_class="permanent",
             detail=f"{empty} of {total} pages had no text",
         )
     if on_page:
-        on_page(total, total, f"Extracted {total:,} pages")
-    return ExtractedDocument("\n\n".join(parts), title or path.stem, "pdfium", "application/pdf", pages)
+        on_page(total, total, f"Extracted {total:,} pages" + (f", {by_ocr:,} with OCR" if by_ocr else ""))
+    engine: Engine = "pdfium+ocr" if by_ocr else "pdfium"
+    return ExtractedDocument("\n\n".join(parts), title or path.stem, engine, "application/pdf", pages)
 
 
 # --- Office and HTML (MarkItDown) --------------------------------------------------
@@ -465,6 +491,7 @@ async def extract(
     allow_private: bool = False,
     max_fetch_bytes: int = 50 * 1024 * 1024,
     on_progress: OnProgressT | None = None,
+    ocr: OcrPlan | None = None,
 ) -> ExtractedDocument:
     engine = choose_engine(item)
     if engine == "plain":
@@ -474,5 +501,5 @@ async def extract(
     assert item.path is not None
     if engine in ("pdfium", "docling"):
         # TODO(phase-4): Docling for layout-heavy PDFs (tables, bounding boxes).
-        return extract_pdf(item.path, on_progress)
+        return extract_pdf(item.path, on_progress, ocr)
     return extract_office(item.path, item.filename, item.mime)

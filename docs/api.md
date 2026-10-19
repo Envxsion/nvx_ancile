@@ -255,6 +255,35 @@ POST /api/v1/local-models/downloads/<download id>/cancel → LocalDownload
 
 `fit.verdict` is `good`, `slow` (on the processor, or only just), `no` (`blocker: disk | memory`) or `unknown` (Ollama on another computer), with plain `reasons`. A download refuses `local_model.ollama_missing` (409), `local_model.no_disk` (507, never overridden) and `local_model.too_big` (422, unless `anyway`). Chat models come through Ollama's `/api/pull`; done means Ollama's `/api/show` knows the model, which is then switched on, or added as `ollama/<tag>`, in every picker. The embedder comes through Knowledge's `/kn/v1/embeddings/prepare`.
 
+### Loaded models, shown models and OCR
+
+```http
+GET  /api/v1/local-models/loaded                → LoadedModelsView { state: ok|unreachable|too_old, items: [{ name, model_id, size_bytes, expires_at, keep_loaded, managed }], memory_bytes, crowded }
+POST /api/v1/local-models/loaded/unload { name }       → LoadedModelsView
+POST /api/v1/local-models/loaded/keep { name, keep }   → LoadedModelsView
+POST /api/v1/local-models/warm { model }               → WarmResult { state: loading|loaded|skipped, note }
+POST /api/v1/models/shown { id, shown }                → ModelInfo (Admin → Models, Add more models)
+GET  /api/v1/knowledge/ocr                             → OcrView { enabled, language, installed: { rapidocr, tesseract } }
+PUT  /api/v1/knowledge/ocr { enabled, language }       → OcrView
+POST /api/v1/sources/<id>/ocr                          → Source (read a scanned PDF with OCR, whatever the setting says)
+GET  /api/v1/messages/<id>/shadow                      → ShadowOutcome (Pro, Flow lab; 402 in the free build)
+```
+
+Contracts in `localmodels.ts`, `api.ts`, `knowledge.ts` and `flows.ts`. `unload` and `keep` refuse a model NVX Ancile does not list with `local_model.not_managed` (409).
+
+### Chat imports
+
+Contracts in `packages/contracts/src/chatimport.ts`.
+
+```http
+POST /api/v1/imports/chats          multipart: file (conversations.json or the export's .zip), notebook_id? → 202 ChatImport
+GET  /api/v1/imports/chats          → { items: [ChatImport] }  newest first
+GET  /api/v1/imports/chats/<id>     → ChatImport { status, total, done, imported, duplicates, empty, messages, error }
+POST /api/v1/imports/chats/<id>/cancel → ChatImport
+```
+
+ChatGPT, Claude and Open WebUI exports are read as they come: the branch you ended on, user and assistant text only. The file is kept in `<data>/imports` while the job runs, so a restart carries on from the conversation it reached. A conversation is recognised by the tool's own id and never brought in twice. Files up to 300 MB; `import.too_large`, `import.unreadable`, `import.unknown_format`, `import.empty`, `import.zip_no_chats`.
+
 ### Memory: export and import
 
 Contracts in `packages/contracts/src/memory.ts`.
@@ -541,6 +570,17 @@ Under `/api/v1` (packages/contracts/src/images.ts, docs/images.md). `image_gener
 | `GET /threads/:id/image-hosts` | `RemoteImageHosts {remembered_in: notebook \| thread, hosts, allowed}`; `allowed` is false where nothing may leave this machine |
 | `POST /threads/:id/image-hosts {host}` | Allow a host's images for the thread's notebook (or the thread). 403 `scope.private_notebook` / `scope.data_stays_local` where nothing may leave |
 | `GET /threads/:id/images/remote?url=` | A remote image, fetched by Core only from an allowed host: public addresses only, at most 10 MB, raster types only. `403 image.remote_not_allowed`, `400 image.remote_blocked`, `413 image.too_large`, `502 image.remote_failed` |
+
+## Attachments
+
+Under `/api/v1` (packages/contracts/src/attachments.ts). A file for one message: PDF, text, code or CSV, read when it is attached and kept on the message as a `file` part (`text`, `pages`, `truncated`); never a source, never indexed. `POST /threads/:id/turns` takes `attachment_ids` (up to 5, this thread's): `404 attachment.not_found` for one that is gone, `422 attachment.claude_code` for a Claude Code session, which reads a path. The model reads each file quoted as data, after the question.
+
+| Route | Does |
+|---|---|
+| `POST /threads/:id/attachments` | Multipart, the file as `file` (up to 25 MB). 201 `AttachmentRecord {id, name, mime, kind: pdf or text, bytes, pages, chars, truncated}`; never the text. A PDF is read by the knowledge service (`POST /kn/v1/attachments/extract`), the same reader as sources; text over 200,000 characters keeps its start (`truncated`). The file waits in memory for an hour. `413 attachment.too_large`, `415 attachment.type_not_allowed`, `422 attachment.unreadable`, `attachment.empty`, `attachment.scanned_pdf` |
+| `DELETE /threads/:id/attachments/:att` | 204: forget it |
+
+`PATCH /threads/:id {effort: low, medium, high or null}` sets the thread's reasoning effort (EN1); `GET /models` lists `effort_levels` for each model that takes one (from its provider's profile). Effort is a request setting and not an epoch reason (docs/prompt-caching.md).
 
 ## Works with Claude Code
 

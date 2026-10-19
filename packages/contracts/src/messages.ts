@@ -28,7 +28,18 @@ export const FilePart = z.object({
   name: z.string(),
   mime: z.string(),
   url: z.string(),
+  /**
+   * CH6: a file attached to this one message. Its text was read when it was attached and is kept
+   * here, so the message reads the same on every later turn (CA4); it is not a source and no
+   * other message sees it. Absent on a file that only names a source.
+   */
+  text: z.string().optional(),
+  /** Pages, for a PDF. */
+  pages: z.number().int().positive().optional(),
+  /** Only the start of the file was kept (a very long one). */
+  truncated: z.boolean().optional(),
 });
+export type FilePart = z.infer<typeof FilePart>;
 export const ImagePart = z.object({
   type: z.literal('image'),
   url: z.string(),

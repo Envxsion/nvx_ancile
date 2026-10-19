@@ -1,0 +1,82 @@
+/* Loaded now (LM1): the strip at the top of Admin → Models. */
+.loaded {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--sheen), var(--lift-2);
+  box-shadow: var(--elev-1);
+}
+.loaded__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.loaded__title {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 600;
+}
+.loaded__warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.loaded__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.loaded__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  flex-wrap: wrap;
+}
+.loaded__what {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.loaded__acts {
+  display: flex;
+  gap: 6px;
+}
+.loaded__old,
+.loaded__other {
+  font-size: var(--t-small);
+}
+
+/* The dot beside a model that is loading into memory (LM1). Calm ink, never the signal colour. */
+.warming-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--fg-3);
+  vertical-align: middle;
+  animation: warming-dot 1.4s ease-in-out infinite;
+}
+@keyframes warming-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+:root[data-motion='reduced'] .warming-dot {
+  animation: none;
+  opacity: 0.8;
+}

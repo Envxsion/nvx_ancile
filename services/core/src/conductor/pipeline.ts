@@ -1630,6 +1630,9 @@ ${noted.stop.forModel}`,
           engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough, sentMap),
           cp.parts,
         );
+        // EN1: the thread's reasoning effort rides on the request, never in the prompt, so it
+        // is not an epoch reason and the cached start of the request holds when it changes.
+        const effort = (await deps.repo.getThread(cp.input.threadId))?.settings?.effort;
         const req: ModelRequest = {
           // What stays the same from turn to turn comes first, so providers' prompt
           // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
@@ -1647,6 +1650,7 @@ ${noted.stop.forModel}`,
             epochId: frame.epochId,
           },
           ...(tools.length && { tools, toolChoice: 'auto' as const }),
+          ...(effort && { effort }),
         };
         // CA4: the newest question as it is sent now, stored as text for the turns that follow.
         if (cp.rounds === 0) {

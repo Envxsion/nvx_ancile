@@ -1,0 +1,86 @@
+/* SU1: first-run start choice, look step, chat import, first notebook. */
+.setup__title--sub {
+  font-size: var(--t-h2);
+  margin-top: 24px;
+}
+.setup__skip {
+  margin-top: 12px;
+  text-align: left;
+}
+.chatimp,
+.lookstep,
+.move {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+.chatimp__where,
+.move__steps,
+.move__list,
+.lookstep__files {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.move__list {
+  list-style: none;
+  padding-left: 0;
+}
+.chatimp__drop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  transition: box-shadow var(--d-short) var(--ease);
+}
+.chatimp__drop[data-over] {
+  box-shadow: inset 0 0 0 1px var(--signal-ink);
+}
+.chatimp__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hair);
+  overflow: hidden;
+}
+.chatimp__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transform-origin: left;
+  transition: transform var(--d-short) var(--ease);
+}
+.chatimp__job {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.chatimp__fail {
+  margin: 0;
+  color: var(--fail);
+}
+.chatimp__note {
+  margin: 0;
+  font-size: var(--t-small);
+}
+.lookstep__row {
+  display: grid;
+  gap: 6px;
+}
+.lookstep__label {
+  font-weight: 600;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}
+.lookstep__done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+:root[data-motion='reduced'] .chatimp__bar > span,
+:root[data-motion='reduced'] .chatimp__drop {
+  transition: none;
+}

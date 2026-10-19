@@ -31,6 +31,7 @@ import {
 import { AnimatePresence, m as motion } from 'motion/react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { demoExplain } from '../fixtures/demo';
+import { ShadowAnswerLink } from '../flows/ShadowAnswer';
 import { useThread } from '../lib/data';
 import { startFactcheck, useExplain } from '../lib/factcheck';
 import { modelById, modelName, percent } from '../lib/format';
@@ -143,6 +144,7 @@ function AnsweredBy({
     aliasName,
     claudeCodeSession: !!prov?.claude_code,
     flowName: flow?.name ?? null,
+    learned: flow?.decisions.find((d) => d.learned)?.learned ?? null,
     unreadyName: prov?.route?.thread_model_unready ? modelName(prov.route.thread_model_unready) : null,
   });
   const billing = facts?.billing;
@@ -172,6 +174,7 @@ function AnsweredBy({
           <button type="button" className="link-btn" onClick={() => useUi.getState().showTeamwork(m.id)}>
             Show the flow's steps
           </button>
+          <ShadowAnswerLink messageId={m.id} />
         </p>
       ) : null}
       {facts ? <ServedBy usage={facts.usage} threadId={threadId} messageId={m.id} /> : null}

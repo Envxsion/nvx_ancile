@@ -513,3 +513,31 @@
 .tw-step__handoff {
   font-size: 11px;
 }
+
+/* FL1: a router that learns, and a shadow flow's answer. Calm ink: neither is live state. */
+.tw-learned {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 4px;
+  font-size: var(--t-micro);
+  color: var(--fg-3);
+}
+.tw-learned[data-taken] {
+  color: var(--fg-2);
+}
+.shadow-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--t-small);
+}
+.shadow-answer {
+  max-height: 50vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--void-rgb) / 0.35);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

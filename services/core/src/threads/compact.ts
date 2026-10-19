@@ -70,7 +70,12 @@ export function partsText(parts: Part[], opts: { reasoning?: boolean } = {}): st
       if (p.type === 'tool_result')
         return `[result ${typeof p.result === 'string' ? p.result : JSON.stringify(p.result ?? null)}]`;
       if (p.type === 'image') return p.caption ? `[image: ${p.caption}]` : '[image]';
-      if (p.type === 'file') return `[file ${p.name}]`;
+      // CH6: an attached file's text counts toward the context, and is summarised with the rest.
+      if (p.type === 'file')
+        return p.text
+          ? `[file ${p.name}]
+${p.text}`
+          : `[file ${p.name}]`;
       return '';
     })
     .filter(Boolean)

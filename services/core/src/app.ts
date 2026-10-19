@@ -91,6 +91,8 @@ export interface AppDeps {
 
 /** Largest JSON body /api/v1 accepts. */
 export const MAX_BODY_BYTES = 25 * 1024 * 1024;
+/** A chat export brought in on first run (CHAT_IMPORT_MAX_MB). */
+export const MAX_CHAT_IMPORT_BYTES = 300 * 1024 * 1024 + 64 * 1024;
 /** Files added as sources. */
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024 + 64 * 1024;
 
@@ -139,13 +141,14 @@ export function createApp(deps: AppDeps) {
   const general = limit(MAX_BODY_BYTES, '25 MB');
   // A file added as a source may be large; nothing else may.
   const upload = limit(MAX_UPLOAD_BYTES, '200 MB per file');
-  api.use('*', (c, next) =>
-    c.req.method === 'POST' &&
-    c.req.path.endsWith('/sources') &&
-    (c.req.header('content-type') ?? '').startsWith('multipart/form-data')
-      ? upload(c, next)
-      : general(c, next),
-  );
+  const chatExport = limit(MAX_CHAT_IMPORT_BYTES, '300 MB per file');
+  api.use('*', (c, next) => {
+    const multipart = (c.req.header('content-type') ?? '').startsWith('multipart/form-data');
+    if (c.req.method === 'POST' && multipart && c.req.path.endsWith('/sources')) return upload(c, next);
+    if (c.req.method === 'POST' && multipart && c.req.path.endsWith('/imports/chats'))
+      return chatExport(c, next);
+    return general(c, next);
+  });
 
   api.get('/system/health', async (c) => {
     // ?fresh=1 probes live, inside this request's trace (the dashboard's

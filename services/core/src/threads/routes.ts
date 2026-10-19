@@ -298,6 +298,8 @@ export function threadRoutes(deps: ThreadRouteDeps) {
       ...(req.flow_overrides !== undefined && { flow_overrides: req.flow_overrides }),
       ...(req.flow_overrides_flow !== undefined && { flow_overrides_flow: req.flow_overrides_flow }),
       ...(req.thinking !== undefined && { thinking: req.thinking }),
+      // EN1: not an epoch reason; read per request by the pipeline. null goes back to the model's default.
+      ...(req.effort !== undefined && { effort: req.effort }),
       // Lean Claude Code sessions: the next turn opens with only the project's own settings.
       ...(req.claude_code_lean !== undefined && {
         claude_code: { ...claudeCodeOf(t), lean: req.claude_code_lean },

@@ -27,12 +27,21 @@ export type SetupFix =
   | { kind: 'runpod' }
   | { kind: 'claude' }
   | { kind: 'enable-model'; model: string }
+  | { kind: 'choose-model' }
   | { kind: 'mcp'; server: string | null; status: McpServerView['status'] | 'missing' };
 
 export interface SetupNeed {
   node_id: string;
   /** Stable code, for tests and the help centre. */
-  code: 'key' | 'runpod' | 'claude_sign_in' | 'model_off' | 'model_unknown' | 'mcp_down' | 'mcp_missing';
+  code:
+    | 'key'
+    | 'runpod'
+    | 'claude_sign_in'
+    | 'model_off'
+    | 'model_unknown'
+    | 'test_model'
+    | 'mcp_down'
+    | 'mcp_missing';
   /** What is missing, in a few words (the chip). */
   missing: string;
   /** Why this node needs it, in a sentence. */
@@ -51,6 +60,7 @@ export interface SetupContext {
 }
 
 const name = (n: FlowNode) => n.label || n.id;
+const realAndReady = (m: FlowModel) => !m.offline && m.chat && m.status === 'ready';
 
 /**
  * The server an MCP tool belongs to, or null for any other tool. The assistant sees
@@ -83,6 +93,16 @@ export function setupNeeds(n: FlowNode, ctx: SetupContext): SetupNeed[] {
         why: `${name(n)} calls ${id}, which this workspace does not have.`,
         action: 'Choose a model',
         fix: { kind: 'enable-model', model: id },
+      });
+    } else if (m.offline && [...ctx.models.values()].some(realAndReady)) {
+      // TO2: a flow saved with a test model (no AI) once a real model is ready.
+      out.push({
+        node_id: n.id,
+        code: 'test_model',
+        missing: 'A real model',
+        why: `${name(n)} uses ${m.name}, a test model that does not use AI. Choose a model that does.`,
+        action: 'Choose a model',
+        fix: { kind: 'choose-model' },
       });
     } else if (m.via === 'controller' && m.status !== 'ready' && m.status !== 'disabled') {
       out.push({

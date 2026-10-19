@@ -165,3 +165,61 @@ export const LocalDownloadRequest = z
   })
   .strict();
 export type LocalDownloadRequest = z.infer<typeof LocalDownloadRequest>;
+
+/* ---- Loaded now (LM1) ---------------------------------------------------- */
+
+/** One model Ollama has in memory. */
+export const LoadedModel = z.object({
+  /** Ollama's own tag, "qwen3:8b". */
+  name: z.string(),
+  /** The NVX Ancile model it is, when it is one of yours; null for a model something else loaded. */
+  model_id: z.string().nullable(),
+  display_name: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  /** The part of it on the graphics card. */
+  vram_bytes: z.number().int().nonnegative(),
+  /** When Ollama will unload it; null when it stays until you unload it. */
+  expires_at: z.string().nullable(),
+  /** You asked for it to stay loaded. */
+  keep_loaded: z.boolean(),
+  /** A model NVX Ancile manages: Unload and Keep loaded work on it. Others are shown, not touched. */
+  managed: z.boolean(),
+});
+export type LoadedModel = z.infer<typeof LoadedModel>;
+
+/**
+ * unreachable: Ollama is not answering. too_old: an Ollama without GET /api/ps (before 0.1.33), so
+ * what is loaded cannot be listed. ok: the list is true.
+ */
+export const LoadedModelsView = z.object({
+  state: z.enum(['ok', 'unreachable', 'too_old']),
+  /** Ollama runs on this computer (memory figures are this computer's). */
+  local: z.boolean(),
+  items: z.array(LoadedModel),
+  /** This computer's memory, when Ollama runs here. */
+  memory_bytes: z.number().int().nonnegative().nullable(),
+  /** The loaded models use most of the memory: a second big model will push one out. */
+  crowded: z.boolean(),
+});
+export type LoadedModelsView = z.infer<typeof LoadedModelsView>;
+
+export const UnloadRequest = z.object({ name: z.string().min(1).max(200) }).strict();
+export type UnloadRequest = z.infer<typeof UnloadRequest>;
+
+export const KeepLoadedRequest = z.object({ name: z.string().min(1).max(200), keep: z.boolean() }).strict();
+export type KeepLoadedRequest = z.infer<typeof KeepLoadedRequest>;
+
+/** Picking an Ollama model in the composer asks to start loading it (POST /local-models/warm). */
+export const WarmRequest = z.object({ model: z.string().min(1).max(300) }).strict();
+export type WarmRequest = z.infer<typeof WarmRequest>;
+
+/**
+ * loading: asked Ollama to load it. loaded: it already is. skipped: not a model Ollama serves here
+ * (a cloud model, a node), or Ollama did not answer; nothing was started and nothing is wrong.
+ */
+export const WarmResult = z.object({
+  state: z.enum(['loading', 'loaded', 'skipped']),
+  /** A sentence worth showing, for example that another model has to make room. */
+  note: z.string().nullable(),
+});
+export type WarmResult = z.infer<typeof WarmResult>;

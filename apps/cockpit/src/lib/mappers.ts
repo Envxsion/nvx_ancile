@@ -78,12 +78,17 @@ export const PROVIDER_NAME: Record<string, string> = {
 };
 
 /**
- * The test models (built in, no AI) step out of the switcher and pickers
- * once a real model can answer, unless "Keep test models (no AI) in pickers" is on.
+ * TO2: the test models (built in, no AI) step out of the switcher and pickers
+ * once a real model can answer, and come back when none can. There is no
+ * setting for it. Only a dev build started with VITE_ANCILE_TEST_MODELS=1
+ * keeps them (to try /say, /slow and /fail next to a real model).
  */
+export const keepTestModelsInDev = (): boolean =>
+  import.meta.env.DEV && import.meta.env.VITE_ANCILE_TEST_MODELS === '1';
+
 export function hideTryout<T extends { offline?: boolean; status?: string | undefined; chat?: boolean }>(
   models: T[],
-  keep: boolean,
+  keep: boolean = keepTestModelsInDev(),
 ): T[] {
   if (keep) return models;
   const real = models.some(
@@ -112,8 +117,10 @@ export function toModelView(m: ModelInfo): ModelView {
       }),
     },
     ...(m.listed === false && { unlisted: true }),
+    ...(m.unlisted_reason && { unlistedReason: m.unlisted_reason }),
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
+    ...(m.effort_levels?.length && { effortLevels: m.effort_levels }),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
     ...(m.status === 'signed_out' && { note: 'Sign in to Claude Code first' }),
@@ -211,7 +218,7 @@ export function toSourceView(s: Source): SourceView {
     chunks: s.chunks,
     pages: s.pages,
     progress: p?.total ? Math.min(1, (p.done ?? 0) / p.total) : null,
-    error: s.error ? { title: s.error.title, hint: s.error.hint } : null,
+    error: s.error ? { title: s.error.title, hint: s.error.hint, code: s.error.code } : null,
     duplicateOf: s.duplicate_of
       ? { sourceId: s.duplicate_of.source_id, title: s.duplicate_of.title, kind: s.duplicate_of.kind }
       : null,
@@ -527,6 +534,7 @@ export function toThreadView(p: ThreadPath): ThreadView {
     messages: toMessageViews(p.messages),
     activeRun: p.active_run ? { id: p.active_run.id, messageId: p.active_run.message_id } : null,
     claudeCode: p.thread.settings.claude_code ?? null,
+    effort: p.thread.settings.effort ?? null,
     headId: p.head_id,
     total: p.total ?? p.messages.length,
     cursor: p.messages[0]?.id ?? null,

@@ -81,6 +81,26 @@ Hover an answer (or select it and use its key) to:
 The arrows above a message move between its versions.`,
       },
       {
+        id: 'composer',
+        title: 'Commands, files and the queue',
+        summary: 'What / does, how to attach a file to one message, and writing ahead.',
+        keywords:
+          'composer slash command compact branch factcheck memory export instructions find init effort attach file pdf csv queue steer',
+        body: `Type **/** at the start of the composer to see the commands, each with what it does. Type a command in full and its argument shows in grey after it. A command that doesn't exist is explained and not sent; start a message with **//** to send a slash.
+
+- **/memory** opens the memory inbox. **/memory** *something* sends it as a request to remember, which is saved with an Undo
+- **/compact** summarises the older messages. The next answer starts a fresh prompt cache, so it reads the thread once at full price
+- **/branch** *name* branches from the last message
+- **/factcheck** checks the last answer; add **web** to search the web if your notebook allows it
+- **/export** saves the thread as markdown. **/instructions** edits its instructions. **/find** searches every thread
+- **/init** drafts an AGENTS.md for the repository linked to this thread. Nothing is written until you choose **Write AGENTS.md**
+- **/effort** *low*, *medium*, *high* or *auto* sets how hard a reasoning model thinks, the same as the **Effort** chip beside the model chip. Changing it keeps the cache
+
+**Files.** Attach a PDF, text, code or CSV file with the paperclip or by dropping it. It goes with that one message only and shows as a chip with its page count. In a notebook you are asked whether it is for this message or a source; turn on **Keep in notebook** on its chip to add it as a source as well. Claude Code reads files from its folder, so name the path in your message.
+
+**Writing ahead.** Press **Enter** while an answer is written and your message waits above the composer ("Sends when this turn ends"). **Esc** takes it back, **Ctrl Enter** stops the answer and sends it now. One message can wait. If the answer fails, or you move to another branch, it stays and says why.`,
+      },
+      {
         id: 'branches',
         title: 'Branches and the tree',
         summary: 'Try another direction without losing the one you were on.',
@@ -147,16 +167,14 @@ Open a model's **⋯** menu in Admin → Models and choose **Providers, routing 
         title: 'The test models',
         summary: 'Try everything before you add a key. They do not use AI.',
         keywords: 'test offline fake say fail tool slow directive echo try-out tryout',
-        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Test model** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands:
+        body: `Until you add a model, threads are answered by the built-in **Offline test model**, marked **Test model** in the model switcher. It doesn't use AI and needs nothing installed, but it can stream, call tools and fail on request, so you can see how NVX Ancile behaves. Type **/** in the composer to see its commands (**/say** *text* answers with exactly that text and **/slow** *text* writes one word every 150 ms, but they are listed in the developer build only):
 
-- **/say** *text*: answer with exactly that text
-- **/slow** *text*: write one word every 150 ms
 - **/fail 500**, **/fail refusal**, **/fail auth**: fail on purpose, and watch NVX Ancile switch to the backup model (Offline echo) and say so
 - **/tool fs_write** *{"path":"note.md","content":"hi"}*: call a tool, which asks for your approval first
 
 Offline echo, the backup, only repeats what you wrote.
 
-Once a real model is ready, the test models leave the model switcher and the flow pickers. To keep them, turn on **Settings → Advanced → Keep test models (no AI) in pickers**.`,
+Once a real model is ready, the test models leave the model switcher and the flow pickers, and they come back only if no real model can answer. There is no setting for this. A flow that was saved with a test model keeps working and is marked in the flow editor, with a **Choose a model** fix.`,
       },
       {
         id: 'api-keys',
@@ -678,7 +696,7 @@ If a model fails, NVX Ancile has usually already tried the next one: the answer 
         keywords: 'source failed scanned pdf ocr fetch failed embedding',
         body: `A source that fails says why on its row, with **Retry**:
 
-- **Looks scanned**: the PDF is images of pages with no text. Turn on OCR in Settings, then retry.
+- **Looks scanned**: the PDF is images of pages with no text. Choose **Read with OCR** on its row, or turn on **Settings → Sources → Read scanned PDFs with OCR** so every scan is read when you add it. OCR runs on this computer, needs RapidOCR or Tesseract installed, reads only the pages that have no text, and keeps citations on the right page. A long scan shows its progress page by page, and carries on from the last page read if NVX Ancile restarts. Handwriting is read poorly.
 - **Could not be fetched**: the link did not load, or points somewhere NVX Ancile will not go (private addresses are refused on purpose). Check the link, or paste the text instead.
 - **Indexing unavailable**: the local embedding model could not run. Text search still works; retry later.`,
       },

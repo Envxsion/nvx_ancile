@@ -786,3 +786,24 @@
     order: 3;
   }
 }
+
+/* MD2: Add more models */
+.dialog__sub {
+  margin: 16px 0 4px;
+  font-size: var(--t-body);
+  color: var(--fg-2);
+}
+.more-models {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.more-models__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}

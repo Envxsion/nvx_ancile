@@ -101,6 +101,9 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
     });
     return;
   }
+  // LM1: an Ollama model starts loading as soon as it is picked, so the first message does not wait.
+  // Fetched on the first pick, so it is not part of the first download.
+  void import('../models/warming').then((m) => m.warmOnPick(model));
   // Your default changes only from outside a thread (or in demo mode, where
   // a thread has nowhere to keep its own choice).
   helpDone('switch-model');

@@ -30,9 +30,16 @@ Every picker lists only models that can answer now: the model picker (`m`) and t
 - a model served by a GPU node the Controller knows (`node/<model>`);
 - Claude Code, when it is installed and usable on this computer.
 
-The [test models](#test-models) follow **Keep test models (no AI) in pickers**, as before.
+The [test models](#test-models) leave the pickers once a real model can answer, and come back only if none can. Picking an Ollama model starts loading it (see [Loaded now](#loaded-now)).
 
-A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Settings → Models** lists only what is real: Claude Code's models, the ones Ollama has, your GPU nodes', each provider's models once its key is saved (**Off** if you switch one off), and any you added. A provider's models appear when you add its key in **Settings → API keys**. Admin → Routing keeps such a model in a chain, marked, and routing skips it.
+A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Admin → Models** lists only what is real (MD2):
+
+- a provider appears once its key is saved, and then starts with **three current models of different tiers**: a fast one, a balanced one and the best one (Haiku, Sonnet and Opus for Anthropic; ranked by price for a provider whose models are not in lines). They come from the provider's live model list when the daily check has read it, and from the list that ships with NVX Ancile (dated by `prices_as_of` in `config/models.yaml`) when it has not or the call failed; a model the provider retired, or that is only a preview, steps aside;
+- **Add more models** shows the rest of what the provider offers, one **Show** at a time (`POST /models/shown`); a model you showed stays, and one you hide goes back;
+- Claude Code's models show only while Claude Code is signed in; node models only when a node serves them; Ollama's only once pulled; any you added always show;
+- a key you remove later hides the provider again, and a flow that used one of its models shows a warning on that step.
+
+`GET /models` marks each model `listed` and, when it is not, `unlisted_reason` (`no_key`, `not_pulled`, `no_node`, `signed_out`, `more`, `retired`). Admin → Routing keeps such a model in a chain, marked, and routing skips it.
 
 When Claude Code cannot answer (not installed, or its install could not be verified), the picker shows no Claude Code model. A separate **Set up Claude Code** row says why and opens Settings → Claude Code. It is an action, not a model, so it can never be chosen to answer a message.
 
@@ -66,7 +73,11 @@ NVX Ancile asks Ollama (`OLLAMA_BASE_URL`, else `http://localhost:11434`) for it
 
 Before you connect a model, the switcher offers two built-in **test** models: **Offline test model** and **Offline echo** (the backup it falls back to). They don't use AI: they stream, call tools, ask for permission and fail on request, so you can see how NVX Ancile behaves with nothing installed. They are on when `ANCILE_OFFLINE_MODELS=1`, which `pnpm start` and the desktop app set.
 
-Once any real model is ready, the model switcher and the flow pickers stop listing them, and routing no longer falls back to them: a real model that fails says so, instead of being answered by a model that does not use AI. Turn on **Settings → Advanced → Keep test models (no AI) in pickers** to keep them. Admin → Models always lists them.
+Once any real model is ready, the model switcher and the flow pickers stop listing them, and routing no longer falls back to them: a real model that fails says so, instead of being answered by a model that does not use AI. They come back if no real model can answer, and setup then points you to adding one. There is no setting for this (TO2). Admin → Models always lists them, and a model asked for by name still answers, so `/say`, `/slow` and `/fail` keep working. A dev build started with `VITE_ANCILE_TEST_MODELS=1` keeps them in the pickers next to a real model. A flow saved with a test model keeps working and its step says so, with a **Choose a model** fix.
+
+## Loaded now
+
+Admin → Models opens with a **Loaded now** strip when Ollama has models in memory (LM1): each model, how much memory it uses, when Ollama will unload it, with **Unload** and **Keep loaded** (`keep_alive` 0 and -1 through Ollama's own API). Only models NVX Ancile lists can be changed; anything else Ollama has loaded is shown and left alone. Picking an Ollama model in the switcher asks Ollama to load it (`POST /local-models/warm`), with a small dot until it is in memory; a newer pick cancels an older load, nothing loads early while the computer runs on its battery, and a note says when two models will not fit together. An Ollama older than 0.1.33 cannot list what is loaded and the strip says so; Ollama on another computer works the same, without memory figures. Pro will add per-notebook keep-alive and context-length presets with a memory forecast (TODO(phase-0.1.1)).
 
 ## Editing and removing a model
 

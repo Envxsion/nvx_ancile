@@ -18,6 +18,10 @@
  *           |  (claudecode/live.ts) and shows Claude Code's state,
  *           |  pickers and notices around the composer; a message
  *           |  sent while a turn runs waits as the one queued.
+ *           |  A model thread queues the same way (thread/queue.ts):
+ *           |  Enter while an answer streams, the message waits above
+ *           |  the composer and goes when the turn ends; Esc takes it
+ *           |  back, Ctrl+Enter stops the answer and sends it now.
  * ------------------------------------------------------------------
  */
 
@@ -30,6 +34,7 @@ import { LimitNotice, limitOf, NearLimitLine } from '../claudecode/LimitNotice';
 import {
   interruptClaudeCode,
   refreshLive,
+  removeQueued,
   sendClaudeCode,
   useClaudeCodeCommands,
   useClaudeCodeLive,
@@ -51,7 +56,7 @@ import {
   readingAnchor,
   scrollTopFor,
 } from '../lib/threadPages';
-import { sendMessage } from '../lib/turns';
+import { sendMessage, stopMessage } from '../lib/turns';
 import type { MessageView } from '../lib/types';
 import { PlanNotice } from '../models/PlanNotice';
 import { SwitchCostNotice } from '../models/SwitchCostNotice';
@@ -62,16 +67,23 @@ import { useUi } from '../state/ui';
 import { BranchLayer } from '../tree/BranchLayer';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
-import { lazyHost } from '../ui/lazyHost';
+import { lazyHost, preloadOnIdle } from '../ui/lazyHost';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { nextAnnouncement } from './announce';
 import { BusyNotice } from './BusyNotice';
-import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
+import {
+  type ClaudeCodeComposer,
+  Composer,
+  type ComposerQueue,
+  loadEffortChip,
+  type SendExtras,
+} from './Composer';
 import { ComposerHints } from './ComposerHints';
 import { headOf, overlay, withHead } from './liveOverlay';
 import { MessageList } from './MessageList';
 import { ModelGoneNotice } from './ModelGoneNotice';
 import { NewTextPill } from './NewTextPill';
+import { dequeue, enqueue, hold, queueStep, useQueue } from './queue';
 import { stayAtBottomOnShrink } from './stayAtBottom';
 
 // Claude Code's status line, notices and pickers belong to threads from Claude Code only: they load
@@ -80,6 +92,11 @@ export const loadCcBar = () => import('../claudecode/LiveBar');
 const CcLiveLine = lazyHost(loadCcBar, 'CcLiveLine');
 const CcNotices = lazyHost(loadCcBar, 'CcNotices');
 const CcPickers = lazyHost(loadCcBar, 'CcPickers');
+// The queued message's line draws only while one waits.
+const ModelQueue = lazyHost(() => import('./ModelQueue'), 'ModelQueue');
+
+// The effort chip is for reasoning models only; fetch it once the page is idle so it does not pop in late.
+preloadOnIdle(loadEffortChip);
 
 const anchorKey = (threadId: string) => `nvx.ancile.scroll:${threadId}`;
 /** Load the page before when the view is this close to the top of what is loaded (pixels). */
@@ -366,6 +383,77 @@ export function ThreadView({ threadId }: { threadId: string }) {
     });
   }, [ccWorking, ccState.queued]);
 
+  // CH7: the message that waits behind a running answer in a model thread.
+  const queued = useQueue((s) => s.byThread[threadId]);
+
+  // Delivered the way a plain send is: as a reply to the message on screen.
+  const deliver = (text: string, extras: SendExtras) =>
+    sendMessage({
+      threadId,
+      parentId: last?.id ?? null,
+      text,
+      model: extras.model ?? null,
+      defaultModel: model?.id ?? null,
+      mentions: extras.mentions,
+      flowId: extras.flowId ?? null,
+      ...(extras.images?.length && { images: extras.images }),
+      ...(extras.attachments?.length && { attachments: extras.attachments }),
+    });
+  const deliverRef = useRef(deliver);
+  deliverRef.current = deliver;
+
+  // The turn ended: send the queued message, unless the answer failed or you moved to another
+  // branch, when it stays where it is and says why.
+  useEffect(() => {
+    if (cc) return;
+    const step = queueStep(queued, { busy, lastId: last?.id ?? null, lastStatus: last?.status });
+    if (step === 'hold-error') hold(threadId, 'error');
+    if (step === 'hold-branch') hold(threadId, 'branch');
+    if (step !== 'send') return;
+    const q = dequeue(threadId);
+    if (!q) return;
+    void deliverRef.current(q.text, q.extras).then((ok) => {
+      if (!ok && enqueue(threadId, { text: q.text, extras: q.extras, after: q.after }))
+        hold(threadId, 'failed');
+    });
+  }, [queued, busy, last?.id, last?.status, cc, threadId]);
+
+  // Back out of the queue: its words return to the composer, joined to whatever is written there.
+  const unqueue = useCallback(() => {
+    const q = dequeue(threadId);
+    if (q)
+      window.dispatchEvent(new CustomEvent('ancile:composer-insert', { detail: { threadId, text: q.text } }));
+  }, [threadId]);
+
+  const sendQueuedNow = () => {
+    if (queued?.state === 'held') {
+      const q = dequeue(threadId);
+      if (q)
+        void deliver(q.text, q.extras).then((ok) => {
+          if (!ok && enqueue(threadId, { text: q.text, extras: q.extras, after: q.after }))
+            hold(threadId, 'failed');
+        });
+    } else if (last) void stopMessage(last.id, threadId);
+  };
+
+  const queueApi: ComposerQueue = useMemo(() => {
+    if (cc) {
+      const waiting = ccState.queued ?? null;
+      const inCore = ccLive.data?.queue?.at(-1) ?? null;
+      return {
+        queued: !!waiting || !!inCore,
+        remove: () => {
+          const text = waiting?.text ?? inCore?.text ?? '';
+          if (waiting) patchCc(threadId, { queued: null });
+          else if (inCore) void removeQueued(threadId, inCore.id);
+          if (text)
+            window.dispatchEvent(new CustomEvent('ancile:composer-insert', { detail: { threadId, text } }));
+        },
+      };
+    }
+    return { queued: !!queued, remove: unqueue };
+  }, [cc, ccState.queued, ccLive.data?.queue, queued, threadId, unqueue]);
+
   const claudeCode: ClaudeCodeComposer | undefined = useMemo(
     () =>
       cc
@@ -456,12 +544,29 @@ export function ThreadView({ threadId }: { threadId: string }) {
       return ok;
     }
     if (busy) {
-      notify({
-        level: 'info',
-        title: 'This thread is still answering',
-        body: 'Wait for it, or press Stop first.',
-      });
-      return false;
+      // CH7: write ahead. The message waits above the composer and goes when this turn ends; with
+      // "stop and send now" the running answer is stopped and the same queue sends it.
+      if (
+        !enqueue(threadId, {
+          text,
+          extras: { ...extras, now: undefined } as SendExtras,
+          after: last?.id ?? null,
+        })
+      ) {
+        notify({
+          level: 'info',
+          title: 'A message is already queued',
+          body: 'It sends when this turn ends. Press Esc in the composer to take it back.',
+        });
+        return false;
+      }
+      if (extras?.now && last) void stopMessage(last.id, threadId);
+      setAnnounce(
+        extras?.now
+          ? 'Stopping the answer. Your message sends next.'
+          : 'Message queued. It sends when this turn ends.',
+      );
+      return true;
     }
     const ok = await sendMessage({
       threadId,
@@ -472,6 +577,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
       mentions: extras?.mentions,
       flowId: extras?.flowId ?? null,
       ...(extras?.images?.length && { images: extras.images }),
+      ...(extras?.attachments?.length && { attachments: extras.attachments }),
     });
     if (ok) setAnnounce('Message sent.');
     return ok;
@@ -612,6 +718,8 @@ export function ThreadView({ threadId }: { threadId: string }) {
           )}
           {cc ? (
             <CcLiveLine threadId={threadId} binding={cc} live={ccLive.data} last={lastTurn(messages)} />
+          ) : cc === null && !demo && queued ? (
+            <ModelQueue threadId={threadId} busy={busy} onSendNow={sendQueuedNow} onRemove={unqueue} />
           ) : null}
           <Composer
             threadId={threadId}
@@ -621,6 +729,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
             notebookId={thread.data?.notebookId ?? null}
             claudeCode={claudeCode}
             replaceText={replace}
+            queue={queueApi}
           />
         </div>
         {demo ? null : <BranchLayer threadId={threadId} />}

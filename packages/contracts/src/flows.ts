@@ -405,13 +405,46 @@ export const ValidateFlowResponse = z.object({
 
 /* ---- Runtime record (provenance.flow) ------------------------------------------ */
 
+/**
+ * FL1: a router that learns from your choices took part. `taken: true` means it chose the route
+ * itself, without a model call; `taken: false` means it only suggested (suggest-only mode) and the
+ * router's model decided as usual. Shown as "Learned router chose X, 82%" in the Teamwork fold and
+ * in the receipt's "why this model" line.
+ */
+export const LearnedHint = z.object({
+  label: z.string(),
+  confidence: z.number().min(0).max(1),
+  taken: z.boolean(),
+});
+export type LearnedHint = z.infer<typeof LearnedHint>;
+
 export const FlowDecision = z.object({
   node_id: z.string(),
   chose: z.array(z.string()),
   reason: z.string(),
   confidence: z.number().min(0).max(1).nullable(),
+  learned: LearnedHint.optional(),
 });
 export type FlowDecision = z.infer<typeof FlowDecision>;
+
+/**
+ * FL1: GET /messages/:id/shadow. A shadow flow answered the same question off the record (Pro:
+ * Flow lab). The answer never replaces the live one; this is what the "Shadow answer" link opens.
+ * A shadow that failed says so, and the live answer is untouched. 404 when none ran. In the free
+ * build the route answers 402 pro.feature_required (PRO_SEAM_ROUTES), and the Cockpit never asks.
+ */
+export const ShadowOutcome = z.object({
+  status: z.enum(['answered', 'failed']),
+  result_id: z.string(),
+  flow_id: z.string(),
+  flow_name: z.string().nullable(),
+  /** The shadow flow's answer; null when it failed. */
+  answer: z.string().nullable(),
+  /** Why it failed, in a sentence; null when it answered. */
+  error: z.string().nullable(),
+  at: z.string(),
+});
+export type ShadowOutcome = z.infer<typeof ShadowOutcome>;
 
 export const FlowStepRecord = z.object({
   node_id: z.string(),

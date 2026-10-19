@@ -10,17 +10,21 @@
  *  How      |  GET /local-models · POST /local-models/:id/download
  *           |  {anyway?} · GET /local-models/downloads/:id · POST
  *           |  /local-models/downloads/:id/cancel. Starting again after
- *           |  a cancel or a failure resumes.
+ *           |  a cancel or a failure resumes. LM1: GET
+ *           |  /local-models/loaded · POST /local-models/loaded/unload
+ *           |  {name} · POST /local-models/loaded/keep {name, keep} ·
+ *           |  POST /local-models/warm {model}.
  * ------------------------------------------------------------------
  */
 
-import { LocalDownloadRequest } from '@nvx/contracts';
+import { KeepLoadedRequest, LocalDownloadRequest, UnloadRequest, WarmRequest } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { body } from '../http/body';
+import type { LoadedModels } from './loaded';
 import type { LocalModels } from './service';
 
-export function localModelRoutes(deps: { models: LocalModels }) {
+export function localModelRoutes(deps: { models: LocalModels; loaded?: LoadedModels }) {
   const r = new Hono<AppEnv>();
   const { models } = deps;
 
@@ -34,6 +38,20 @@ export function localModelRoutes(deps: { models: LocalModels }) {
   });
   r.get('/local-models/downloads/:id', (c) => c.json(models.job(c.req.param('id'))));
   r.post('/local-models/downloads/:id/cancel', (c) => c.json(models.cancel(c.req.param('id'))));
+
+  // LM1: what Ollama has in memory, and what you can do about it.
+  const { loaded } = deps;
+  if (loaded) {
+    r.get('/local-models/loaded', async (c) => c.json(await loaded.view()));
+    r.post('/local-models/loaded/unload', async (c) =>
+      c.json(await loaded.unload((await body(c, UnloadRequest)).name)),
+    );
+    r.post('/local-models/loaded/keep', async (c) => {
+      const req = await body(c, KeepLoadedRequest);
+      return c.json(await loaded.keep(req.name, req.keep));
+    });
+    r.post('/local-models/warm', async (c) => c.json(await loaded.warm((await body(c, WarmRequest)).model)));
+  }
 
   return r;
 }

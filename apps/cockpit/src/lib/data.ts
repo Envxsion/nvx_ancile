@@ -27,12 +27,12 @@ import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react';
 import { ccSummary, ccThread } from '../fixtures/claudeCode';
 import * as demo from '../fixtures/demo';
-import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { ApiCallError, api, OfflineError } from './api';
 import { useConnection } from './connection';
 import {
   hideTryout,
+  keepTestModelsInDev,
   toModelView,
   toNotebookView,
   toPendingApproval,
@@ -202,10 +202,13 @@ export const canAnswer = (m: ModelView | undefined): boolean =>
  * What every picker offers: only models that can answer now. A model that
  * needs its key, is switched off or is not in Ollama is never offered; Admin →
  * Models lists it with what it needs. The test models (no AI) leave once a
- * real model is ready, unless "Keep test models (no AI) in pickers" is on.
+ * real model is ready (TO2: no setting; a dev build can keep them).
  */
-export function pickable(models: ModelView[], keepTryout: boolean): ModelView[] {
-  return hideTryout(models.filter(canAnswer), keepTryout);
+export function pickable(models: ModelView[], keepTryout: boolean = keepTestModelsInDev()): ModelView[] {
+  return hideTryout(
+    models.filter((m) => canAnswer(m) && !m.unlisted),
+    keepTryout,
+  );
 }
 
 /**
@@ -214,9 +217,8 @@ export function pickable(models: ModelView[], keepTryout: boolean): ModelView[] 
  * Looking a model up by id (modelById) always sees every model.
  */
 export function useModels(opts: { all?: boolean } = {}) {
-  const keepTryout = usePrefs((s) => s.prefs.advanced.tryoutModels);
   const all = opts.all === true;
-  const select = useCallback((ms: ModelView[]) => (all ? ms : pickable(ms, keepTryout)), [all, keepTryout]);
+  const select = useCallback((ms: ModelView[]) => (all ? ms : pickable(ms)), [all]);
   return useQuery({
     queryKey: keys.models,
     staleTime: 60_000,

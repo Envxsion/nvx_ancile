@@ -41,6 +41,7 @@ type Segment =
   | { kind: 'reasoning'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: ToolResult | undefined }
   | { kind: 'seam'; key: string; from: string; to: string }
+  | { kind: 'file'; key: string; name: string; pages: number | undefined; truncated: boolean }
   | {
       kind: 'image';
       key: string;
@@ -66,6 +67,8 @@ function segments(parts: Part[]): Segment[] {
     else if (p.type === 'tool_call')
       out.push({ kind: 'tool', key: p.call_id, call: p, result: results.get(p.call_id) });
     else if (p.type === 'seam') out.push({ kind: 'seam', key: `s${i}`, from: p.from_model, to: p.to_model });
+    else if (p.type === 'file' && p.text !== undefined)
+      out.push({ kind: 'file', key: `f${i}`, name: p.name, pages: p.pages, truncated: !!p.truncated });
     else if (p.type === 'image')
       out.push({
         kind: 'image',
@@ -205,6 +208,19 @@ export function Parts({
           <figure key={s.key} className="msg-image">
             <ThreadImage src={s.src} alt={s.alt} width={s.width} height={s.height} />
           </figure>
+        );
+      case 'file':
+        return (
+          <p key={s.key} className="msg-file">
+            <Icon name="attach" size={12} />
+            <span className="msg-file__name">{s.name}</span>
+            {s.pages ? (
+              <span className="mute" data-num>
+                {s.pages} {s.pages === 1 ? 'page' : 'pages'}
+              </span>
+            ) : null}
+            {s.truncated ? <span className="mute">start only</span> : null}
+          </p>
         );
       case 'seam':
         return (

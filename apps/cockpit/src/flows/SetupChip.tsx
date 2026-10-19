@@ -27,6 +27,7 @@ import { fetchMcpServers, MCP_SERVERS_KEY, putServer, serverPath, TOOLS_KEY } fr
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 import type { SetupContext, SetupNeed } from './setup';
+import { useEditor } from './store';
 
 /** The chip on a card: the first need in words, and how many more. */
 export function SetupChip({ needs }: { needs: SetupNeed[] }) {
@@ -139,6 +140,21 @@ function Fix({ need, onDone, onLeave }: { need: SetupNeed; onDone: () => void; o
         type="button"
         className="btn btn--sm"
         onClick={go(() => void navigate({ to: '/settings/$group', params: { group: 'claude-code' } }))}
+      >
+        {need.action}
+      </button>
+    );
+  if (fix.kind === 'choose-model')
+    return (
+      <button
+        type="button"
+        className="btn btn--sm"
+        onClick={go(() => {
+          // Opens the step's own panel, where the model picker is.
+          const st = useEditor.getState();
+          st.select([need.node_id]);
+          st.setPanel('node');
+        })}
       >
         {need.action}
       </button>

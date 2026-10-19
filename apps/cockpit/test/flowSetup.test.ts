@@ -101,3 +101,19 @@ describe('setup needs', () => {
     expect(by.get('m1')).toHaveLength(1);
   });
 });
+
+describe('TO2: a flow saved with a test model', () => {
+  const tryout = model({ id: 'offline/test', name: 'Offline test model', offline: true, chat: true });
+  const real = model({ id: 'anthropic/claude-x', chat: true });
+  it('is marked with a Choose a model fix once a real model is ready', () => {
+    const [need] = setupNeeds(modelNode('offline/test'), ctx([tryout, real]));
+    expect(need).toMatchObject({
+      code: 'test_model',
+      action: 'Choose a model',
+      fix: { kind: 'choose-model' },
+    });
+  });
+  it('is left alone when no real model can answer yet', () => {
+    expect(setupNeeds(modelNode('offline/test'), ctx([tryout]))).toEqual([]);
+  });
+});

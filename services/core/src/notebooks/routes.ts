@@ -29,6 +29,8 @@ import {
   MessageToNoteRequest,
   type Notebook,
   type NotebookLanguages,
+  OcrSettings,
+  type OcrView,
   PatchNotebookRequest,
   PatchNotebookSourceRequest,
   PatchNoteRequest,
@@ -416,6 +418,12 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
 
   r.post('/sources/:id/retry', async (c) =>
     c.json(await kn.post(`/sources/${enc(c.req.param('id'))}/retry`)),
+  );
+  // SR1: read a scanned PDF with OCR, whatever the setting says; and the setting itself (Settings → Sources).
+  r.post('/sources/:id/ocr', async (c) => c.json(await kn.post(`/sources/${enc(c.req.param('id'))}/ocr`)));
+  r.get('/knowledge/ocr', async (c) => c.json(await kn.get<OcrView>('/maintenance/ocr')));
+  r.put('/knowledge/ocr', async (c) =>
+    c.json(await kn.put<OcrView>('/maintenance/ocr', await body(c, OcrSettings))),
   );
   r.post('/sources/:id/refetch', async (c) =>
     c.json(await kn.post(`/sources/${enc(c.req.param('id'))}/refetch`)),

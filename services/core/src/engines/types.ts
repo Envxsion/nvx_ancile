@@ -23,6 +23,7 @@ import type {
   ClaudeCodeQueuedResult,
   EngineCapabilities,
   EngineKind,
+  FilePart,
   ImagePart,
   ResumeCommand,
   SendTurnResult,
@@ -42,6 +43,8 @@ export interface EngineTurn {
   sourceIds?: string[];
   /** Images attached to this turn (core.images ids), already checked against the model. */
   images?: ImagePart[];
+  /** Files attached to this turn only (CH6): their text rides on the user message. */
+  files?: FilePart[];
   asBranch?: boolean;
   taskClass?: string;
   /** Wait instead of failing or branching while the session is busy (CC6). */

@@ -86,6 +86,8 @@ export const SendTurnRequest = z
     source_ids: z.array(z.string()).max(50).optional(),
     /** Images attached to this turn (POST /threads/:id/images); the model must see images (docs/images.md). */
     image_ids: z.array(z.string().max(60)).max(8).optional(),
+    /** Files attached to this turn only (POST /threads/:id/attachments, CH6). Not for Claude Code threads: they read a path. */
+    attachment_ids: z.array(z.string().max(60)).max(5).optional(),
     /** Claude Code only: fork the session even from its latest message. */
     as_branch: z.boolean().optional(),
     /** Gateway only. */

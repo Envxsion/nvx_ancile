@@ -58,6 +58,8 @@ export const SETTING = {
   preset: 'permissions.preset',
   /** { [modelId]: boolean } overrides on top of config/models.yaml */
   modelEnabled: 'models.enabled',
+  /** { [modelId]: boolean }: models of a keyed provider you chose to show or hide beyond its starter three (MD2). */
+  modelShown: 'models.shown',
   /** { [modelId]: hue } chip colours chosen for config models (added models keep theirs inline). */
   modelHue: 'models.hue',
   /**

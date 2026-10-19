@@ -992,3 +992,20 @@
 [cmdk-item][data-unavailable] {
   opacity: 0.55;
 }
+
+/* KP1: a setting's state beside its row, and a danger action in the panel. Calm ink: not live state. */
+.palette__state {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--void-rgb) / 0.35);
+  color: var(--fg-2);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+}
+.palette [cmdk-item][data-danger] .palette__label {
+  color: var(--fg);
+}
+.palette [cmdk-item][data-danger] .icon {
+  color: var(--fail);
+}

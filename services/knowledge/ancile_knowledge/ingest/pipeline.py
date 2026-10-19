@@ -48,6 +48,7 @@ from ..obs import get_logger
 from ..settings import get_settings
 from ..sources import dedupe, language, repo, tags
 from . import embed as embed_mod
+from . import ocr as ocr_mod
 from .chunk import ChunkConfig, chunk_markdown
 from .enrich import (
     SUMMARY_MODEL,
@@ -110,7 +111,10 @@ def next_stage(current: Stage) -> Stage:
 
 # Suggestions shown when a stage fails, keyed by error code (DESIGN.md §7.6).
 FAILURE_HINTS: dict[str, str] = {
-    "extract.scanned_pdf": "This PDF looks scanned. Enable OCR in Settings → Sources, then retry.",
+    "extract.scanned_pdf": (
+        "This PDF looks scanned. Turn on OCR in Settings → Sources, or choose Read with OCR on this source."
+    ),
+    "extract.ocr_unavailable": "Install RapidOCR or Tesseract on this computer, then retry.",
     "extract.engine_missing": "Install the missing extractor, or use the Docker image, then retry.",
     "extract.fetch_failed": "The page could not be fetched. Check the URL, or paste the text instead.",
     "embed.unavailable": "The embedding model is unavailable. Retry, or change the embedder in Settings.",
@@ -333,11 +337,19 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
     def on_progress(done: int | None, total: int | None, message: str) -> None:
         report("extracting", message, done, total)
 
+    # SR1: OCR when the setting is on or this source asked for it; only pages with no text are read.
+    plan = None
+    if row["kind"] == "file":
+        ocr_settings = ocr_mod.load()
+        if ocr_settings.enabled or row.get("ocr"):
+            plan = ocr_mod.OcrPlan(ocr_settings.language, repo.source_dir(row["id"]) / "ocr")
+
     doc = await extract(
         _extract_input(row),
         allow_private=settings.allow_private_urls,
         max_fetch_bytes=settings.max_fetch_mb * 1024 * 1024,
         on_progress=on_progress,
+        ocr=plan,
     )
     report.checkpoint()
     is_url = row["kind"] == "url"
@@ -367,7 +379,8 @@ async def stage_extracting(row: dict[str, Any], report: Reporter) -> None:
         raise AncileError(
             "extract.empty",
             "No text was found in this source",
-            "Check the source has readable text. For images or scans, enable OCR in Settings → Sources.",
+            "Check the source has readable text. For scans, turn on OCR in Settings → Sources, "
+            "or choose Read with OCR on this source.",
             status=422,
             error_class="permanent",
         )

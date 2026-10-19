@@ -24,7 +24,8 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { totalmem as osTotalmem } from 'node:os';
+import { join, resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { AncileError, CLAUDE_CODE_PROVIDER, isClaudeCodeModel, type SearchResponse } from '@nvx/contracts';
 import { CircuitBreaker } from '@nvx/resilience';
@@ -33,6 +34,8 @@ import { activityRoutes } from './activity/routes';
 import { createApp } from './app';
 import { artifactRoutes } from './artifacts/routes';
 import { PgArtifactStore } from './artifacts/store';
+import { attachmentRoutes } from './attachments/routes';
+import { AttachmentService } from './attachments/service';
 import {
   AutomationRunner,
   builtinOptions,
@@ -46,6 +49,9 @@ import {
 import { automationRoutes } from './automations/routes';
 import { BuiltinSettings, KnowledgeSync } from './automations/settings';
 import { appVersion, chosenTier, RELEASE_BUILD, telemetryEndpoint, trustedKeys } from './build';
+import { chatImportRoutes } from './chatimport/routes';
+import { ChatImportService } from './chatimport/service';
+import { PgChatImportStore } from './chatimport/store';
 import { createClaudeCode } from './claudecode';
 import { ClaudeCodeLive, nativeProbe } from './claudecode/live';
 import { ClaudeCodeMcpList } from './claudecode/mcp-list';
@@ -131,6 +137,7 @@ import { linkRoutes } from './links/routes';
 import { LinkService, type LinkServiceDeps } from './links/service';
 import { PgLinkStore } from './links/store';
 import { threadSummary } from './links/summary';
+import { LoadedModels } from './localmodels/loaded';
 import { OllamaClient } from './localmodels/ollama';
 import { localModelRoutes } from './localmodels/routes';
 import { LocalModels } from './localmodels/service';
@@ -703,6 +710,20 @@ async function main() {
     registry,
     kn,
   });
+  // SU1: chats brought in from ChatGPT, Claude or Open WebUI; unfinished imports carry on after a restart.
+  const chatImports = new ChatImportService({
+    store: new PgChatImportStore(sql),
+    threads,
+    workspaceId: owner.workspaceId,
+    dir: join(dataDir, 'imports'),
+  });
+  void chatImports.resume().catch((err: unknown) => log.warn({ err }, 'chat imports did not resume'));
+  // LM1: which Ollama models are in memory, with Unload, Keep loaded and warm-on-pick.
+  const loadedModels = new LoadedModels({
+    ollama: new OllamaClient({ baseUrl: env.OLLAMA_BASE_URL ?? 'http://localhost:11434' }),
+    registry,
+    probe: { totalmem: () => osTotalmem() },
+  });
   // Export and import (docs/memory.md): imports only ever propose.
   const memoryTransfer = new MemoryTransfer({
     service: memory,
@@ -1034,8 +1055,10 @@ async function main() {
       configured: !!factcheckWeb,
     });
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
+  const attachments = new AttachmentService({ knowledge: kn });
   const engines: Engines = new Engines({
     images,
+    attachments,
     registry,
     gateway: new GatewayEngine({
       repo: threads,
@@ -1760,7 +1783,14 @@ async function main() {
         check: new ReviewerCheck({ reviewers: () => coreReviewers({ secrets, gateway, registry }) }),
       }),
       memoryRoutes({ service: memory, threads, registry, transfer: memoryTransfer }),
-      localModelRoutes({ models: localModels }),
+      localModelRoutes({ models: localModels, loaded: loadedModels }),
+      chatImportRoutes({
+        imports: chatImports,
+        notebookExists: async (id) => {
+          const n = await notebooks.get(id);
+          return !!n && n.workspace_id === owner.workspaceId && !n.archived_at;
+        },
+      }),
       trustRoutes({
         workspaceId: owner.workspaceId,
         repo: threads,
@@ -1974,6 +2004,7 @@ async function main() {
       artifactRoutes({ store: new PgArtifactStore(sql), threads, workspaceId: owner.workspaceId }),
       interpreterRoutes({ runtime: pyodide, service: interpreter, figures: interpreterFigures }),
       imageRoutes({ images, threads, workspaceId: owner.workspaceId }),
+      attachmentRoutes({ attachments, threads, workspaceId: owner.workspaceId }),
     ],
     ...(env.NODE_ENV === 'production' && existsSync(cockpitDist) && { cockpitDist }),
   });
@@ -2070,6 +2101,8 @@ async function main() {
     turnQueue.stop();
     claudeLive.stop();
     localModels.stop();
+    loadedModels.stop();
+    chatImports.stop();
     claudeCode.stop();
     await mcp.stop();
     server.close();

@@ -74,3 +74,95 @@ describe('listed models', () => {
     expect(w.listed()).toEqual(['controller/qwen3-72b']);
   });
 });
+
+/** MD2: a provider starts with three current models of different tiers; "Add more models" shows the rest. */
+describe('starter models (MD2)', () => {
+  const cloud = [
+    model({ id: 'anthropic/claude-opus-5-5', provider: 'anthropic', provider_model: 'claude-opus-5-5' }),
+    model({ id: 'anthropic/claude-sonnet-5-5', provider: 'anthropic', provider_model: 'claude-sonnet-5-5' }),
+    model({ id: 'anthropic/claude-haiku-4-5', provider: 'anthropic', provider_model: 'claude-haiku-4-5' }),
+    model({ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic', provider_model: 'claude-sonnet-4-5' }),
+    model({ id: 'anthropic/claude-opus-4-1', provider: 'anthropic', provider_model: 'claude-opus-4-1' }),
+  ];
+  const price = (i: number) => ({ input_per_mtok: i, output_per_mtok: i * 4 });
+  const unlined = [1, 2, 3, 4, 5].map((i) =>
+    model({
+      id: `qwen/q${i}`,
+      provider: 'qwen',
+      provider_model: `q${i}`,
+      family: 'qwen',
+      price: price(i),
+      secret: 'QWEN_API_KEY',
+    }),
+  );
+
+  async function setup(keys: string[], models: ModelConfig[]) {
+    const secrets = new MemorySecretStore(new SecretBox(Buffer.alloc(32, 7).toString('base64')));
+    for (const k of keys) await secrets.set(k, 'test-value');
+    const registry = new ModelRegistry({
+      models,
+      taskClasses: { 'chat.default': [models[0]?.id ?? ''] },
+      secrets,
+      settings: new MemorySettings(),
+      offline: false,
+    });
+    await registry.refresh();
+    const info = () => new Map(registry.info().map((m) => [m.id, m]));
+    return { registry, info };
+  }
+
+  it('lists one current model of each tier, and says the others are "more"', async () => {
+    const w = await setup(['ANTHROPIC_API_KEY'], cloud);
+    const info = w.info();
+    const listed = [...info.values()].filter((m) => m.listed && !m.alias_of).map((m) => m.id);
+    expect(listed.length).toBe(3);
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        'anthropic/claude-opus-5-5',
+        'anthropic/claude-sonnet-5-5',
+        'anthropic/claude-haiku-4-5',
+      ]),
+    );
+    expect(info.get('anthropic/claude-sonnet-4-5')?.unlisted_reason).toBe('more');
+  });
+
+  it('with no key, nothing of the provider is listed and the reason is the key', async () => {
+    const w = await setup([], cloud);
+    expect(w.info().get('anthropic/claude-opus-5-5')).toMatchObject({
+      listed: false,
+      unlisted_reason: 'no_key',
+    });
+  });
+
+  it('ranks a provider without lines by price: dearest best, middle balanced, cheapest fast', async () => {
+    const w = await setup(['QWEN_API_KEY'], unlined);
+    const listed = [...w.info().values()].filter((m) => m.listed && !m.alias_of).map((m) => m.id);
+    expect(listed.sort()).toEqual(['qwen/q1', 'qwen/q3', 'qwen/q5']);
+  });
+
+  it('"Add more models" shows one more, and hiding takes a starter away', async () => {
+    const w = await setup(['ANTHROPIC_API_KEY'], cloud);
+    await w.registry.setShown('anthropic/claude-sonnet-4-5', true);
+    await w.registry.setShown('anthropic/claude-haiku-4-5', false);
+    const info = w.info();
+    expect(info.get('anthropic/claude-sonnet-4-5')?.listed).toBe(true);
+    expect(info.get('anthropic/claude-haiku-4-5')).toMatchObject({ listed: false, unlisted_reason: 'more' });
+  });
+
+  it('removing the key hides the provider again', async () => {
+    const w = await setup(['ANTHROPIC_API_KEY'], cloud);
+    await w.registry.setShown('anthropic/claude-sonnet-4-5', true);
+    // A new registry over an empty store stands for the key being removed.
+    const gone = await setup([], cloud);
+    expect([...gone.info().values()].some((m) => m.listed)).toBe(false);
+    expect(w.info().get('anthropic/claude-sonnet-4-5')?.listed).toBe(true);
+  });
+
+  it('shows Claude Code models only while it is signed in', async () => {
+    const cc = [model({ id: 'claude_code/sonnet', provider: 'claude_code', family: 'claude' })];
+    const w = await setup([], cc);
+    expect(w.info().get('claude_code/sonnet')?.unlisted_reason).toBe('signed_out');
+    w.registry.setClaudeAuth({ signed_in: true } as never);
+    expect(w.info().get('claude_code/sonnet')?.listed).toBe(true);
+  });
+});

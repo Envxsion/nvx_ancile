@@ -15,8 +15,12 @@ import { LinksDialog } from '../notebooks/LinksDialog';
 import { MergeDialog } from '../notebooks/MergeDialog';
 import { PackPicker } from '../pro/PackPicker';
 import { ScopeEditor } from '../scopes/ScopeEditor';
+import { lazyHost } from '../ui/lazyHost';
 import { InstructionsEditor } from './InstructionsEditor';
 import { useEditors } from './store';
+
+// /init is rare: its dialog loads when it is asked for, not with the shell.
+const InitDialog = lazyHost(() => import('../lab/InitDialog'), 'InitDialog');
 
 export function EditorsHost() {
   const open = useEditors((s) => s.open);
@@ -46,5 +50,7 @@ export function EditorsHost() {
     );
   if (open.kind === 'merge')
     return <MergeDialog open onOpenChange={(o) => !o && close()} into={open.into} from={open.from} />;
+  if (open.kind === 'init-agents')
+    return <InitDialog key={open.repoId} repoId={open.repoId} repoName={open.repoName} onClose={close} />;
   return <NewClaudeCodeThread notebookId={open.notebookId} cwd={open.cwd} onClose={close} />;
 }

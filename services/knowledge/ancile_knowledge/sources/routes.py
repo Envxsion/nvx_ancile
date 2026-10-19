@@ -381,6 +381,41 @@ def retry_source(source_id: str, workspace_id: str | None = None) -> dict[str, A
     return out
 
 
+@router.post("/sources/{source_id}/ocr")
+def read_with_ocr(source_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    """
+    "Read with OCR" on a source that failed because it has no text layer (ROADMAP SR1): this one
+    source is read again with OCR, whatever the setting says. Pages with text are not OCR'd.
+    """
+    with sessions().begin() as db:
+        row = repo.get_source_row(db, source_id, workspace_id)
+        if row["kind"] != "file" or not (
+            (row["mime"] or "").startswith("application/pdf") or (row["uri"] or "").lower().endswith(".pdf")
+        ):
+            raise _conflict(
+                "source.ocr_unsupported",
+                "Only PDF files can be read with OCR",
+                "For a page of text, paste it; for an image, put it in a PDF first.",
+            )
+        if row["status"] in repo.ACTIVE:
+            raise _conflict(
+                "source.busy",
+                "This source is still being read",
+                "Wait until it is ready or has failed, then read it with OCR.",
+            )
+        db.execute(
+            text(
+                f"UPDATE {S}.sources SET status = 'queued', pending_version = NULL, error = NULL, "
+                f"attempts = 0, ocr = true, lease_owner = NULL, lease_until = NULL, updated_at = now(), "
+                f"progress = CAST(:p AS jsonb) WHERE id = :id"
+            ),
+            {"id": source_id, "p": json.dumps({"stage": "queued", "message": "Waiting to read with OCR"})},
+        )
+        out = repo.serialize(repo.get_source_row(db, source_id))
+    jobs.wake_worker()
+    return out
+
+
 @router.post("/sources/{source_id}/refetch")
 def refetch_source(source_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     with sessions().begin() as db:

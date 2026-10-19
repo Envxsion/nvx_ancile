@@ -15,6 +15,12 @@
  *           |  Mentions are chips, not text: a source narrows the
  *           |  search to it, a notebook grounds a loose thread, a
  *           |  model answers this one message.
+ *           |  Commands (thread/slash.ts) each do their work, shown
+ *           |  with their argument as ghost text; one that does not
+ *           |  exist is explained, never sent. A file is attached to
+ *           |  one message (CH6) or, in a notebook, you are asked
+ *           |  whether to add it as a source. While an answer streams
+ *           |  Enter queues the next message (CH7).
  *  Note     |  Which key sends is a setting (Settings → Composer).
  *           |  Esc leaves the composer for navigate mode, `i` returns.
  *           |  In a Claude Code thread the "/" menu is Claude Code's
@@ -25,6 +31,8 @@
  */
 
 import {
+  ATTACHMENT_LIMITS,
+  type AttachmentRecord,
   type ClaudeCodeCommand,
   IMAGE_LIMITS,
   IMAGE_MIMES,
@@ -62,39 +70,31 @@ import { notify } from '../state/notify';
 import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
+import { lazyHost } from '../ui/lazyHost';
 import { BarLabel, HueChip, Kbd, Tip } from '../ui/primitives';
+import type { DropAsk, PendingFile } from './AttachPanel';
 import { shortModelName, useComposerBar } from './composerBar';
 import { FlowChip } from './FlowChip';
 import { useFlowList, useResolvedFlow } from './flowActions';
 import { ModelChoiceDialog, useModelChoice } from './ModelChoice';
 import { htmlToMarkdown } from './pasteMarkdown';
+import type { Slash } from './slash';
 
-interface Slash {
-  cmd: string;
-  hint: string;
-  /** Runs here instead of being sent. */
-  run?: 'models' | 'sources' | 'shortcuts' | 'beam';
-}
+// The command table (names, descriptions, how typed text is read) loads the first time a line starts
+// with a slash, so an idle composer does not carry it.
+const loadSlash = () => import('./slash');
+type SlashModule = Awaited<ReturnType<typeof loadSlash>>;
 
-// Only commands that work today. TODO(phase-4): /memory, /compact, /branch, /factcheck.
-const SLASH: Slash[] = [
-  { cmd: '/model', hint: 'Choose the model for this thread', run: 'models' },
-  { cmd: '/sources', hint: "Open this notebook's sources", run: 'sources' },
-  { cmd: '/keys', hint: 'Show keyboard shortcuts', run: 'shortcuts' },
-  { cmd: '/beam', hint: 'Ask several models at once, then fuse their answers', run: 'beam' },
-  { cmd: '/image', hint: 'Make an image from a description' },
-];
+// The effort chip belongs to reasoning models only: its code loads when one is the model.
+export const loadEffortChip = () => import('./EffortChip');
 
-/** What the offline test model obeys; listed only while it is the model. */
-const TEST_DIRECTIVES: Slash[] = [
-  { cmd: '/say', hint: 'Answer with exactly the text that follows' },
-  { cmd: '/slow', hint: 'Write one word every 150 ms, so you can watch it stream' },
-  { cmd: '/fail 500', hint: 'Fail on purpose and watch NVX Ancile switch to the backup model' },
-  { cmd: '/fail refusal', hint: 'Decline on purpose; NVX Ancile asks the backup model instead' },
-  { cmd: '/fail auth', hint: 'Fail as if the API key were wrong' },
-  { cmd: '/tool fs_write', hint: 'Write a file, e.g. {"path":"note.md","content":"hi"}. Asks first' },
-  { cmd: '/tool fs_list', hint: 'List the workspace, e.g. {"path":"/workspace"}' },
-];
+// Reading a file for a message is rare: its client loads the first time a file is involved.
+const loadAttachLib = () => import('./attach');
+// Files are rare: the question and the chips load the first time one is dropped or chosen.
+const loadAttach = () => import('./AttachPanel');
+const AskDrop = lazyHost(loadAttach, 'AskDrop');
+const FileChips = lazyHost(loadAttach, 'FileChips');
+const EffortChip = lazyHost(loadEffortChip, 'EffortChip');
 
 export interface Mention {
   kind: 'source' | 'model' | 'notebook' | 'flow' | 'repo';
@@ -132,6 +132,18 @@ export interface SendExtras {
   flowId: string | null;
   /** Images attached to this message (docs/images.md). */
   images?: ImageRecord[];
+  /** Files attached to this message only (CH6); their text is on Core. */
+  attachments?: AttachmentRecord[];
+  /** Stop the answer that is streaming and send this now (CH7). */
+  now?: boolean;
+}
+
+/** CH7: what the composer needs to know about the message waiting behind a running answer. */
+export interface ComposerQueue {
+  /** A message is already waiting (Free keeps one). */
+  queued: boolean;
+  /** Take it out of the queue; its words come back to the composer. */
+  remove: () => void;
 }
 
 const MENTION_ICON: Record<Mention['kind'], IconName> = {
@@ -170,6 +182,7 @@ function ComposerImpl({
   placeholder,
   claudeCode,
   replaceText,
+  queue,
 }: {
   threadId: string;
   parentId: string | null;
@@ -186,6 +199,8 @@ function ComposerImpl({
   claudeCode?: ClaudeCodeComposer;
   /** Put this text in the composer whenever `n` changes ("" clears it). */
   replaceText?: { text: string; n: number };
+  /** Sending while an answer streams queues the message (CH7); Esc takes it back out. */
+  queue?: ComposerQueue;
 }) {
   const key = draftKey(threadId, parentId);
   const prefs = usePref('composer');
@@ -203,6 +218,10 @@ function ComposerImpl({
   const [focused, setFocused] = useState(false);
   const [sending, setSending] = useState(false);
   const [images, setImages] = useState<PendingImage[]>([]);
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [ask, setAsk] = useState<DropAsk | null>(null);
+  const running = useRef(false);
+  const sentOk = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const isDemo = useUi((s) => s.demo);
@@ -264,10 +283,24 @@ function ComposerImpl({
     [notebookId],
   );
 
-  const commands = useMemo(() => {
-    const base = SLASH.filter((s) => s.run !== 'sources' || notebookId);
-    return model?.id === 'offline/test' ? [...base, ...TEST_DIRECTIVES] : base;
-  }, [model?.id, notebookId]);
+  const effortLevels = model?.effortLevels;
+  const offline = model?.id === 'offline/test';
+  const [slash, setSlash] = useState<SlashModule | null>(null);
+  const wantsSlash = text.startsWith('/') && !claudeCode;
+  useEffect(() => {
+    if (wantsSlash && !slash) void loadSlash().then(setSlash);
+  }, [wantsSlash, slash]);
+  const commands = useMemo(
+    () =>
+      slash?.slashFor({
+        notebook: !!notebookId,
+        thread: realThread,
+        offline,
+        dev: import.meta.env.DEV,
+        effort: !!effortLevels?.length,
+      }) ?? [],
+    [slash, notebookId, realThread, offline, effortLevels],
+  );
 
   const mentions: Mention[] = useMemo(() => {
     const src = isDemo
@@ -478,13 +511,10 @@ function ComposerImpl({
     }
     if (menu.kind === 'slash') {
       const item = menu.items[i];
-      if (item?.run) {
-        setText('');
-        if (item.run === 'models') openPalette('models');
-        else if (item.run === 'sources') openDrawer('sources');
-        else if (item.run === 'beam')
-          openBeam({ threadId: realThread ? threadId : null, notebookId, parentId, text: '' });
-        else setShortcuts(true);
+      // A command with nothing more to type runs at once; one that takes words completes, and a
+      // second Enter runs it as it stands.
+      if (item && item.id !== 'text' && (item.runOnPick || !item.arg)) {
+        void runCommand(item, '');
         return;
       }
       if (item) setText(`${item.cmd} `);
@@ -514,6 +544,33 @@ function ComposerImpl({
 
   const uploading = uploads.some((u) => u.state === 'waiting' || u.state === 'sending');
 
+  // A "/" command (CH5): what it does is loaded the first time one runs, so an idle composer
+  // carries none of it. The line clears only when the command did its work.
+  const runCommand = async (s: Slash, arg: string) => {
+    if (running.current) return;
+    running.current = true;
+    try {
+      const { runSlash } = await import('./slashActions');
+      const done = await runSlash(s.id, {
+        threadId,
+        realThread,
+        notebookId,
+        parentId,
+        arg,
+        send: async (t) => {
+          sentOk.current = false;
+          await send(t, { plain: true });
+          return sentOk.current;
+        },
+        efforts: effortLevels ?? [],
+      });
+      if (done) clearDraft();
+      ref.current?.focus();
+    } finally {
+      running.current = false;
+    }
+  };
+
   const clearDraft = () => {
     setText('');
     setPicked([]);
@@ -537,11 +594,24 @@ function ComposerImpl({
     });
   };
 
-  const send = async (override?: string) => {
+  const send = async (override?: string, how: { now?: boolean; plain?: boolean } = {}) => {
     let value = (override ?? text).trim();
     if (!value || sending || claudeCode?.readOnly) return;
     if (images.some((i) => i.state === 'sending')) {
       notify({ level: 'info', title: 'An image is still being attached', body: 'Send again in a moment.' });
+      return;
+    }
+    if (files.some((f) => f.state === 'sending')) {
+      notify({ level: 'info', title: 'A file is still being read', body: 'Send again in a moment.' });
+      return;
+    }
+    // Busy and nothing can queue (a message already waits): say so rather than lose the text.
+    if (busy && !how.now && queue?.queued) {
+      notify({
+        level: 'info',
+        title: 'A message is already queued',
+        body: 'It sends when this turn ends. Press Esc to take it back, or Stop to send it now.',
+      });
       return;
     }
     // "/image <description>": the model makes it with image_generate (docs/images.md).
@@ -569,6 +639,27 @@ function ComposerImpl({
       }
       value = `Make an image: ${prompt}`;
     }
+    // A "/" command is run, never sent; one that does not exist is explained; "//" sends a slash (CH5).
+    if (!claudeCode && !how.plain && value.startsWith('/')) {
+      const { readTyped, slashFor, unknownWords } = slash ?? (await loadSlash());
+      const list = slashFor({
+        notebook: !!notebookId,
+        thread: realThread,
+        offline,
+        dev: import.meta.env.DEV,
+        effort: !!effortLevels?.length,
+      });
+      const typed = readTyped(value, list, { offline });
+      if (typed.kind === 'command') {
+        await runCommand(typed.slash, typed.arg);
+        return;
+      }
+      if (typed.kind === 'unknown') {
+        notify({ level: 'info', ...unknownWords(typed.name, list) });
+        return;
+      }
+      if (typed.kind === 'escaped') value = typed.text;
+    }
     // A command NVX Ancile does itself is never sent to Claude Code.
     if (claudeCode && value.startsWith('/')) {
       const typed = parseTyped(value, claudeCode.commands);
@@ -584,7 +675,11 @@ function ComposerImpl({
         return;
       }
     }
+    // Ctrl+Enter while Claude Code works: stop it, and the message goes in after (CC6's queue).
+    if (how.now && claudeCode?.working) claudeCode.onStop();
     setSending(true);
+    const ready = files.flatMap((f) => (f.state === 'ready' && f.record ? [f.record] : []));
+    const keep = files.filter((f) => f.keep && f.state === 'ready').map((f) => f.file);
     const sendExtras: SendExtras = {
       mentions: picked
         .filter(
@@ -597,11 +692,17 @@ function ComposerImpl({
       ...(images.length && {
         images: images.flatMap((i) => (i.state === 'ready' && i.record ? [i.record] : [])),
       }),
+      ...(ready.length && { attachments: ready }),
+      ...(how.now && { now: true }),
     };
     const ok = await Promise.resolve(onSend(value, sendExtras)).finally(() => setSending(false));
     if (ok === false) return;
+    sentOk.current = true;
     clearDraft();
     clearImages();
+    setFiles([]);
+    // "Keep in notebook" is a source you asked for, added once the message is on its way.
+    if (keep.length && notebookId) addUploads(notebookId, keep);
   };
 
   // Something outside the composer put text back (a queued message) or sent it.
@@ -666,13 +767,29 @@ function ComposerImpl({
         return;
       }
     }
+    // CH7: Esc takes the queued message back out (and stays in the composer).
+    if (e.key === 'Escape' && queue?.queued && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      e.stopPropagation();
+      queue.remove();
+      return;
+    }
     // Backspace at the very start takes the last chip back.
     if (e.key === 'Backspace' && picked.length && e.currentTarget.selectionEnd === 0) {
       setPicked((p) => p.slice(0, -1));
       return;
     }
-    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
     const mod = e.metaKey || e.ctrlKey;
+    const working = busy || !!claudeCode?.working;
+    // CH7: while an answer streams, Ctrl+Enter (Ctrl+Shift+Enter when Ctrl+Enter is your send key)
+    // stops it and sends this now. Enter queues.
+    if (working && mod && (sendOnEnter ? !e.shiftKey : e.shiftKey)) {
+      e.preventDefault();
+      void send(undefined, { now: true });
+      return;
+    }
+    if (e.shiftKey) return;
     if (sendOnEnter || mod) {
       e.preventDefault();
       void send();
@@ -714,19 +831,84 @@ function ComposerImpl({
     }
   };
 
-  const addFiles = (files: FileList | File[]) => {
-    const list = Array.from(files);
+  /** Read these files for the next message only (CH6). */
+  const attachFiles = (list: File[]) => {
+    const room = Math.max(0, ATTACHMENT_LIMITS.perTurn - files.length);
+    if (list.length > room)
+      notify({
+        level: 'info',
+        title: `Up to ${ATTACHMENT_LIMITS.perTurn} files go with one message`,
+        body: 'Send this one, then attach the rest to the next message.',
+      });
+    for (const file of list.slice(0, room)) {
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setFiles((l) => [...l, { key, file, state: 'sending', keep: false }]);
+      void loadAttachLib()
+        .then(({ attachFile }) => attachFile(threadId, file))
+        .then(
+          (record) => setFiles((l) => l.map((f) => (f.key === key ? { ...f, state: 'ready', record } : f))),
+          (e: Error & { hint?: string }) => {
+            setFiles((l) => l.filter((f) => f.key !== key));
+            notify({ level: 'error', title: e.message, body: e.hint ?? 'Try another file.' });
+          },
+        );
+    }
+  };
+
+  const haveSource = (name: string) =>
+    !!sources?.some((s) => s.title.trim().toLowerCase() === name.trim().toLowerCase());
+
+  /** Add these to the notebook's sources: only ever on the person's say-so. */
+  const addAsSources = (list: File[]) => {
+    if (!notebookId) return;
+    const fresh = list.filter((f) => !haveSource(f.name));
+    const dup = list.filter((f) => haveSource(f.name));
+    if (dup.length)
+      notify({
+        level: 'info',
+        title:
+          dup.length === 1 ? `${dup[0]?.name} is already a source here` : 'Some are already sources here',
+        body: 'It was not added again.',
+      });
+    if (fresh.length) addUploads(notebookId, fresh);
+  };
+
+  const addFiles = async (incoming: FileList | File[]) => {
+    const list = Array.from(incoming);
     if (list.length === 0) return;
     const pics = synced ? list.filter(isAttachableImage) : [];
     const rest = list.filter((f) => !pics.includes(f));
     if (pics.length) addImages(pics);
-    if (rest.length && notebookId) addUploads(notebookId, rest);
+    if (rest.length === 0) return;
+    const { isAttachableFile } = await loadAttachLib();
+    const attachable = synced && !claudeCode ? rest.filter(isAttachableFile) : [];
+    if (notebookId) {
+      // A notebook: never a silent permanent source. Ask what the file is for.
+      setAsk({ files: rest, attachable, have: rest.filter((f) => haveSource(f.name)).map((f) => f.name) });
+      return;
+    }
+    if (claudeCode) {
+      notify({
+        level: 'info',
+        title: 'Claude Code reads files from its folder',
+        body: 'Put the file in the session folder and name its path in your message.',
+      });
+      return;
+    }
+    if (attachable.length) attachFiles(attachable);
+    const left = rest.length - attachable.length;
+    if (left > 0)
+      notify({
+        level: 'info',
+        title: left === 1 ? 'That file cannot go with a message' : `${left} files cannot go with a message`,
+        body: 'A message takes PDF, text, code and CSV files, and images. Add other files to a notebook as sources.',
+      });
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     if (e.clipboardData.files.length > 0 && (notebookId || synced)) {
       e.preventDefault();
-      addFiles(e.clipboardData.files);
+      void addFiles(e.clipboardData.files);
       return;
     }
     // Formatting comes in as markdown, unless "Paste as plain text" is on.
@@ -743,13 +925,19 @@ function ComposerImpl({
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    addFiles(e.dataTransfer.files);
+    void addFiles(e.dataTransfer.files);
   };
 
-  const canSend = !!text.trim() && !sending && !busy && !claudeCode?.readOnly;
+  // While an answer streams a model thread queues one message (CH7); with one already waiting, Send waits.
+  const canQueue = busy && !!queue && !queue.queued;
+  const canSend = !!text.trim() && !sending && (!busy || canQueue) && !claudeCode?.readOnly;
+  const ghost = !claudeCode && prefs.menus && slash ? slash.ghostFor(text, commands) : null;
+  const hasEffort = synced && !claudeCode && !!effortLevels?.length;
   const modelPick = picked.find((p) => p.kind === 'model');
   // Chips fit the width: whole labels, short ones, then icons with a tooltip.
-  const chips = claudeCode ? (claudeCode.chips ?? 3) : 1 + (synced ? 1 : 0) + (scope ? 1 : 0);
+  const chips = claudeCode
+    ? (claudeCode.chips ?? 3)
+    : 1 + (synced ? 1 : 0) + (scope ? 1 : 0) + (hasEffort ? 1 : 0);
   const bar = useComposerBar(root, chips);
   const sendKeys = sendOnEnter ? 'enter' : isMac ? 'meta+enter' : 'ctrl+enter';
   const modelName = modelPick?.label ?? model?.name ?? null;
@@ -857,6 +1045,11 @@ function ComposerImpl({
                     <span className="composer__cmd" data-num>
                       {s.cmd}
                     </span>
+                    {s.arg ? (
+                      <span className="composer__arghint mute" data-num>
+                        {s.arg}
+                      </span>
+                    ) : null}
                     <span className="mute composer__opt-hint">{s.hint}</span>
                   </MenuOption>
                 ))
@@ -905,7 +1098,31 @@ function ComposerImpl({
         </ul>
       ) : null}
 
-      {picked.length > 0 || uploads.length > 0 ? (
+      {ask ? (
+        <AskDrop
+          ask={ask}
+          synced={synced}
+          claudeCode={!!claudeCode}
+          onAttach={() => {
+            attachFiles(ask.attachable);
+            const others = ask.files.filter((f) => !ask.attachable.includes(f));
+            if (others.length) addAsSources(others);
+            setAsk(null);
+            ref.current?.focus();
+          }}
+          onSource={() => {
+            addAsSources(ask.files);
+            setAsk(null);
+            ref.current?.focus();
+          }}
+          onCancel={() => {
+            setAsk(null);
+            ref.current?.focus();
+          }}
+        />
+      ) : null}
+
+      {picked.length > 0 || uploads.length > 0 || files.length > 0 ? (
         <ul className="composer__chips" aria-label="Attached to this message">
           {picked.map((p) => (
             <li
@@ -934,6 +1151,28 @@ function ComposerImpl({
               </button>
             </li>
           ))}
+          {files.length > 0 ? (
+            <FileChips
+              files={files}
+              inNotebook={!!notebookId}
+              onKeep={(f) => {
+                if (!f.keep && haveSource(f.file.name)) {
+                  notify({
+                    level: 'info',
+                    title: `${f.file.name} is already a source here`,
+                    body: 'It stays attached to this message only.',
+                  });
+                  return;
+                }
+                setFiles((l) => l.map((x) => (x.key === f.key ? { ...x, keep: !x.keep } : x)));
+              }}
+              onRemove={(f) => {
+                const id = f.record?.id;
+                if (id) void loadAttachLib().then((m) => m.discardAttachment(threadId, id));
+                setFiles((l) => l.filter((x) => x.key !== f.key));
+              }}
+            />
+          ) : null}
           {uploads.map((u) => (
             <li
               key={u.id}
@@ -974,51 +1213,76 @@ function ComposerImpl({
       <label className="sr-only" htmlFor="composer-input">
         Message
       </label>
-      <textarea
-        id="composer-input"
-        ref={ref}
-        className="composer__input"
-        rows={1}
-        value={text}
-        readOnly={!!claudeCode?.readOnly}
-        aria-readonly={claudeCode?.readOnly ? true : undefined}
-        spellCheck={prefs.spellcheck}
-        placeholder={
-          claudeCode?.readOnly ??
-          placeholder ??
-          (claudeCode
-            ? notebookId
-              ? 'Message Claude Code. / for its commands, @ to focus on a source'
-              : 'Message Claude Code. / for its commands'
-            : notebookId
-              ? 'Ask this notebook. / for commands, @ to focus on a source'
-              : 'Ask anything. / for commands, @ to bring in a notebook')
-        }
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        aria-autocomplete="list"
-        aria-controls={menuOpen ? 'composer-menu' : undefined}
-        aria-activedescendant={menuOpen ? `composer-opt-${menuIndex}` : undefined}
-      />
+      <div className="composer__field">
+        {ghost ? (
+          <div className="composer__ghost" aria-hidden="true">
+            <span className="composer__ghost-typed">{text}</span>
+            {ghost}
+          </div>
+        ) : null}
+        <textarea
+          id="composer-input"
+          ref={ref}
+          className="composer__input"
+          rows={1}
+          value={text}
+          readOnly={!!claudeCode?.readOnly}
+          aria-readonly={claudeCode?.readOnly ? true : undefined}
+          spellCheck={prefs.spellcheck}
+          placeholder={
+            claudeCode?.readOnly ??
+            placeholder ??
+            (claudeCode
+              ? notebookId
+                ? 'Message Claude Code. / for its commands, @ to focus on a source'
+                : 'Message Claude Code. / for its commands'
+              : notebookId
+                ? 'Ask this notebook. / for commands, @ to focus on a source'
+                : 'Ask anything. / for commands, @ to bring in a notebook')
+          }
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          aria-autocomplete="list"
+          aria-controls={menuOpen ? 'composer-menu' : undefined}
+          aria-activedescendant={menuOpen ? `composer-opt-${menuIndex}` : undefined}
+          aria-describedby={ghost ? 'composer-ghost-hint' : undefined}
+        />
+        {ghost ? (
+          <span id="composer-ghost-hint" className="sr-only">
+            Then type: {ghost.trim()}
+          </span>
+        ) : null}
+      </div>
 
       <div className="composer__bar">
         {scope}
         <Tip
-          label={notebookId ? 'Add files to this notebook' : 'Files go into a notebook. Choose one first.'}
+          label={
+            synced
+              ? notebookId
+                ? 'Attach files, or add them to this notebook'
+                : 'Attach PDF, text, code or CSV files to this message'
+              : notebookId
+                ? 'Add files to this notebook'
+                : 'Files go with a message once a thread exists. Choose a notebook to add them as sources.'
+          }
         >
-          <label className="icon-btn icon-btn--sm composer__attach" data-disabled={!notebookId || undefined}>
+          <label
+            className="icon-btn icon-btn--sm composer__attach"
+            data-disabled={(!notebookId && !synced) || undefined}
+          >
             <Icon name="attach" size={14} />
-            <span className="sr-only">Add files to this notebook</span>
+            <span className="sr-only">{synced ? 'Attach files' : 'Add files to this notebook'}</span>
             <input
               type="file"
               multiple
               className="sr-only"
-              disabled={!notebookId}
+              disabled={!notebookId && !synced}
               onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
+                if (e.target.files) void addFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -1095,6 +1359,7 @@ function ComposerImpl({
             </Tip>
             {synced ? <ModelChoiceDialog /> : null}
             {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
+            {hasEffort && effortLevels ? <EffortChip threadId={threadId} levels={effortLevels} /> : null}
           </>
         )}
         <span className="composer__hint mute" aria-live="polite" data-room={bar.hint || undefined}>
@@ -1130,7 +1395,11 @@ function ComposerImpl({
           <Tip
             label={
               busy
-                ? 'Wait for the answer to finish'
+                ? queue
+                  ? queue.queued
+                    ? 'One message is queued. Esc takes it back'
+                    : `Queue for after this answer. ${isMac ? 'Cmd' : 'Ctrl'}+${sendOnEnter ? '' : 'Shift+'}Enter stops it and sends now`
+                  : 'Wait for the answer to finish'
                 : claudeCode?.working
                   ? 'Queue for after this turn'
                   : sendOnEnter && !bar.hint
@@ -1149,7 +1418,11 @@ function ComposerImpl({
                 disabled={!canSend}
                 aria-label={
                   busy
-                    ? 'Wait for the answer to finish'
+                    ? queue
+                      ? queue.queued
+                        ? 'A message is already queued'
+                        : 'Queue for after this answer'
+                      : 'Wait for the answer to finish'
                     : claudeCode?.working
                       ? 'Queue for after this turn'
                       : 'Send'
@@ -1163,12 +1436,20 @@ function ComposerImpl({
       </div>
 
       {dragging ? (
-        <div className="composer__drop" data-blocked={!notebookId || undefined} aria-hidden="true">
-          <Icon name={notebookId ? 'upload' : 'notebook'} size={20} />
+        <div
+          className="composer__drop"
+          data-blocked={(!notebookId && !synced) || undefined}
+          aria-hidden="true"
+        >
+          <Icon name={notebookId || synced ? 'upload' : 'notebook'} size={20} />
           <span>
-            {notebookId
-              ? "Drop to add to this notebook's sources"
-              : 'Files go into a notebook. Choose one first.'}
+            {synced
+              ? notebookId
+                ? 'Drop to attach to this message, or add as a source'
+                : 'Drop to attach to this message'
+              : notebookId
+                ? "Drop to add to this notebook's sources"
+                : 'Files go into a notebook. Choose one first.'}
           </span>
         </div>
       ) : null}

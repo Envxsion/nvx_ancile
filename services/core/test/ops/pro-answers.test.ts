@@ -128,6 +128,38 @@ describe('where Pro may take part in answering', () => {
       reason: 'Like requests you sent to general before.',
     });
     expect(flow.path).toContain('general');
+    // FL1: the record says a router that learns decided, and how sure it was.
+    expect(flow.decisions[0]?.learned).toEqual({ label: 'general', confidence: 0.93, taken: true });
+  });
+
+  it('FL1: a suggest-only hint does not decide; the router model does, and the suggestion is kept beside it', async () => {
+    h = await harness();
+    await routerFlow();
+    h.flows.deps.routeHint = async () => ({
+      label: 'general',
+      confidence: 0.82,
+      reason: 'Learned from your choices.',
+      suggest_only: true,
+    });
+    const t = await h.newThread();
+    const sent = await h.send(t, 'Write a Python function that reverses a list.');
+    await h.settle(sent.run_id);
+    const path = (await h.call<ThreadPath>('GET', `/threads/${t}/path`)).body;
+    const flow = ((path.messages.at(-1) as Message).provenance as { flow: FlowProvenance }).flow;
+    // The router's own model chose 'code'; the learned router would have said 'general'.
+    expect(flow.decisions[0]?.chose).toEqual(['code']);
+    expect(flow.decisions[0]?.learned).toEqual({ label: 'general', confidence: 0.82, taken: false });
+  });
+
+  it('FL1: a decision made by the router model carries no learned mark', async () => {
+    h = await harness();
+    await routerFlow();
+    const t = await h.newThread();
+    const sent = await h.send(t, 'Write a Python function that reverses a list.');
+    await h.settle(sent.run_id);
+    const path = (await h.call<ThreadPath>('GET', `/threads/${t}/path`)).body;
+    const flow = ((path.messages.at(-1) as Message).provenance as { flow: FlowProvenance }).flow;
+    expect(flow.decisions[0]?.learned).toBeUndefined();
   });
 
   it('a hint for a route the router does not have is ignored', async () => {
