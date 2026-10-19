@@ -20,12 +20,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type ClaimVerdict,
-  type FactcheckClaim,
-  isClaudeCodeModel,
-  type SelectionCheck,
-} from '@nvx/contracts';
+import type { ClaimVerdict, FactcheckClaim, SelectionCheck } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useParams } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import * as demo from '../fixtures/demo';

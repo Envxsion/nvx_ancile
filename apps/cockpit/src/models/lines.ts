@@ -16,7 +16,7 @@
  * ------------------------------------------------------------------
  */
 
-import { isLineAlias } from '@nvx/contracts';
+import { isLineAlias } from '@nvx/contracts/modelwatch';
 import { queryClient } from '../lib/query';
 import type { ModelView } from '../lib/types';
 

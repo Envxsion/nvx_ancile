@@ -169,7 +169,7 @@
 }
 .rail__section {
   padding: 14px 8px 6px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--mute-2);
 }
@@ -218,7 +218,7 @@
   top: 8px;
   bottom: 8px;
   width: 2px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--signal);
 }
 .rail__item--notebook {
@@ -239,7 +239,7 @@
   align-items: center;
   gap: 3px;
   color: var(--mute-2);
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .rail__foot {
   padding-top: 6px;
@@ -264,7 +264,7 @@
 [data-theme='light'] .shell__main {
   box-shadow:
     inset 0 0 0 1px var(--hair),
-    0 1px 2px rgb(16 24 32 / 0.05);
+    0 1px 2px rgb(var(--c-black) / 0.05);
 }
 
 /* --- Drawer ------------------------------------------------------------- */
@@ -334,7 +334,7 @@
   right: 8px;
   bottom: -1px;
   height: 2px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--signal);
   box-shadow: 0 0 12px rgb(var(--signal-rgb) / calc(0.6 * var(--glow)));
 }
@@ -380,7 +380,7 @@
   width: 36px;
   height: 3px;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
 }
 .progress-dash::after {
@@ -389,7 +389,7 @@
   inset: 0;
   width: 68%;
   background: var(--signal);
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
 }
 
 /* Tree */
@@ -448,7 +448,7 @@
   background: var(--mute-3);
 }
 .tree__glyph[data-role='user'] {
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
 }
 .tree__text {
   flex: 1;
@@ -457,7 +457,7 @@
   gap: 1px;
 }
 .tree__branch {
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 600;
   /* the ramp as text: 4.5:1 in both themes (--ramp-ink, tokens.css) */
   color: color-mix(in oklab, var(--hue) var(--ramp-ink), var(--fg));
@@ -472,13 +472,13 @@
   padding: 1px 6px;
   border-radius: var(--r-pill);
   background: var(--chalk-2);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
 }
 .tree__model {
   flex: none;
   width: 6px;
   height: 6px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--hue);
 }
 
@@ -511,7 +511,7 @@
   justify-content: space-between;
 }
 .claim-card__conf {
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .claim-card__claim {
@@ -532,7 +532,7 @@
   border-left-color: var(--fail);
 }
 .claim-card__stance {
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 600;
   color: var(--mute);
 }
@@ -560,7 +560,7 @@
   gap: 2px;
   padding: 0 8px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
 }
 .statusbar__spacer {
@@ -593,14 +593,14 @@
   position: relative;
   width: 54px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
 }
 .meter__fill {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--fg-3);
   transition: width var(--d-view) var(--ease);
 }

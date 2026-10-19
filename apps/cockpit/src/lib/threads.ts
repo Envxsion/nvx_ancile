@@ -20,13 +20,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type BulkSkip,
-  type ThreadBulkRequest,
-  type ThreadBulkResult,
-  type ThreadState,
-  TRASH_DAYS,
-} from '@nvx/contracts';
+import type { BulkSkip, ThreadBulkRequest, ThreadBulkResult, ThreadState } from '@nvx/contracts';
+import { TRASH_DAYS } from '@nvx/contracts/bulk';
 import type { InfiniteData } from '@tanstack/react-query';
 import { notify } from '../state/notify';
 import { ApiCallError, api } from './api';

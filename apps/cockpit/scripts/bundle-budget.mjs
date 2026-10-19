@@ -15,17 +15,28 @@
  *           |  runs after `vite build` (package.json "build").
  *  Note     |  Budgets are ratchets: lower them when a split lands,
  *           |  never raise one without saying why in the change.
- *           |  Measured 19 Oct 2026 after P1: 1,268 KB raw and 407 KB
- *           |  gzip (was 2,494 KB and 776 KB), budget +3%. The 900 KB
- *           |  goal is out of reach for now, and what remains is
- *           |  measured: React DOM 211 KB, zod 94 KB, the router and
- *           |  query 90 KB, Motion's core 77 KB, Radix and floating-ui
- *           |  about 100 KB (642 KB of packages in all); Core's
- *           |  contracts 85 KB; the sample-workspace fixtures 34 KB;
- *           |  the rest is the thread, composer, rail and shell that
- *           |  an idle thread needs. Next candidates: ToolSteps (25 KB,
- *           |  needs a sized placeholder per step) and loading the
- *           |  fixtures only in demo mode.
+ *           |  Measured 19 Oct 2026 after P1 (round two): 1,210 KB raw
+ *           |  and 394 KB gzip (was 2,494 KB and 776 KB at the start,
+ *           |  1,316 KB and 423 KB before this round), budget +3%.
+ *           |  This round: the sample workspace (fixtures/demo.ts, 34 KB)
+ *           |  loads only in demo mode (lib/demoData.ts); the tool step
+ *           |  cards (ToolStepCards.tsx and what only they use: diff view,
+ *           |  terminal, search hits, Python and image bodies) load on
+ *           |  demand behind a closed row of the same height
+ *           |  (ToolStepLazy.tsx); the error boundary's full card is its
+ *           |  own chunk; and the Cockpit imports the contracts by module
+ *           |  (@nvx/contracts/engines, not the barrel), so only the
+ *           |  schema files it really uses are in. The 900 KB goal is
+ *           |  still out of reach, and what remains is measured: React
+ *           |  DOM 211 KB, zod 94 KB (the run and global event schemas
+ *           |  validate every live event, so zod is needed at start),
+ *           |  the router and query 90 KB, Motion's core 77 KB, Radix
+ *           |  and floating-ui about 100 KB; the contracts the events
+ *           |  need (flows, events, config, messages) about 25 KB; the
+ *           |  rest is the thread, composer, rail and shell that an idle
+ *           |  thread needs. Next candidates: the Composer's slash and
+ *           |  mention pickers, the Rail's selection bar, and splitting
+ *           |  events.ts so the shell validates only the global events.
  * ------------------------------------------------------------------
  */
 
@@ -35,7 +46,7 @@ import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 /** The limits, in bytes. */
-export const BUDGET = { raw: 1_306_000, gzip: 419_000 };
+export const BUDGET = { raw: 1_246_000, gzip: 406_000 };
 
 const STATIC_IMPORT = /(?:^|[;}\s,])(?:import|export)\s*(?:[^'"()]*?from\s*)?["']\.\/([^"']+\.js)["']/g;
 

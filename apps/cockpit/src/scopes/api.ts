@@ -21,21 +21,21 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  BUILTIN_TOOL_PRESETS,
-  type EffectiveScope,
-  type PatchNotebookScopeRequest,
-  type PatchThreadScopeRequest,
-  type ScopeEngine,
-  type ScopeField,
-  type ScopeLevel,
-  type ScopeValues,
-  type SharedBeforeLocal,
-  type SharedDestination,
-  type StoredScope,
-  type ToolPreset,
-  type ToolPresetList,
+import type {
+  EffectiveScope,
+  PatchNotebookScopeRequest,
+  PatchThreadScopeRequest,
+  ScopeEngine,
+  ScopeField,
+  ScopeLevel,
+  ScopeValues,
+  SharedBeforeLocal,
+  SharedDestination,
+  StoredScope,
+  ToolPreset,
+  ToolPresetList,
 } from '@nvx/contracts';
+import { BUILTIN_TOOL_PRESETS } from '@nvx/contracts/scopes';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { queryClient } from '../lib/query';

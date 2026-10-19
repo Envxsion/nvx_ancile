@@ -17,7 +17,7 @@
  * ------------------------------------------------------------------
  */
 
-import { claudeCodeLean } from '@nvx/contracts';
+import { claudeCodeLean } from '@nvx/contracts/claudecode';
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
 import { ApiCallError, api } from '../lib/api';

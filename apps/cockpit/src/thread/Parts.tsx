@@ -24,6 +24,7 @@ import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
 import { markClaims } from './Claims';
+import { ToolStep } from './ToolStepLazy';
 import {
   GROUP_AFTER,
   Prose,
@@ -31,7 +32,6 @@ import {
   type ToolCall,
   ToolGroup,
   type ToolResult,
-  ToolStep,
 } from './ToolSteps';
 
 export { RESULT_LINES, ResultText, SubagentConversation } from './ToolSteps';

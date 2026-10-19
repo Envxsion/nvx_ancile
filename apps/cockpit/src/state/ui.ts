@@ -17,7 +17,7 @@
 import { getThemeChoice, type MarkState, setTheme, type ThemeChoice } from '@nvx/aperture';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import * as demo from '../fixtures/demo';
+import { live as demoLive } from '../fixtures/demoLive';
 import type { LiveState } from '../lib/types';
 import { usePrefs } from './prefs';
 
@@ -219,7 +219,7 @@ export const useUi = create<UiState>()(
       popLayer: () => set((s) => ({ layers: Math.max(0, s.layers - 1) })),
       setDemo: (value) =>
         set((s) =>
-          s.demo === value ? s : { demo: value, mark: value && demo.live.approvals > 0 ? 'ask' : s.mark },
+          s.demo === value ? s : { demo: value, mark: value && demoLive.approvals > 0 ? 'ask' : s.mark },
         ),
       setMark: (mark) => set({ mark }),
       // The toggle always changes what you see (see nextTheme).

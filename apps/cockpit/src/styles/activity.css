@@ -142,7 +142,7 @@ button.act__row:focus-visible {
 }
 .act__when {
   color: var(--mute);
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -188,14 +188,14 @@ button.act__row:focus-visible {
   display: block;
   height: 3px;
   margin-top: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
 }
 .act__fill {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--fg-3);
   transition: width var(--d-view) var(--ease);
 }

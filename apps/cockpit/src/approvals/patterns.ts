@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import { isWebPattern, matchResource } from '@nvx/contracts';
+import { isWebPattern, matchResource } from '@nvx/contracts/grant-patterns';
 import type { PendingApproval } from '../lib/types';
 
 const scheme = (s: string) => {

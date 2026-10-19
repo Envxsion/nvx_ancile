@@ -15,12 +15,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type OrProviderObject,
-  OrQuantization,
-  type RoutingScope,
-  type RoutingSettings,
-} from '@nvx/contracts';
+import type { OrProviderObject, RoutingScope, RoutingSettings } from '@nvx/contracts';
+import { OrQuantization } from '@nvx/contracts/openrouter';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
 import { queryClient } from '../lib/query';

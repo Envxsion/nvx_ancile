@@ -24,18 +24,18 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  CLAUDE_CODE_MODEL_PREFIX,
-  type ClaudeCodeCommand,
-  type ClaudeCodeCommandList,
-  type ClaudeCodeLiveState,
-  type Part,
-  type ResumeCommand,
-  type SendClaudeCodeResult,
-  type SendTurnOutcome,
-  type SendTurnRequest,
-  type SendTurnResult,
+import type {
+  ClaudeCodeCommand,
+  ClaudeCodeCommandList,
+  ClaudeCodeLiveState,
+  Part,
+  ResumeCommand,
+  SendClaudeCodeResult,
+  SendTurnOutcome,
+  SendTurnRequest,
+  SendTurnResult,
 } from '@nvx/contracts';
+import { CLAUDE_CODE_MODEL_PREFIX } from '@nvx/contracts/engines';
 import { useQuery } from '@tanstack/react-query';
 import { showContextNotice } from '../engines/notice';
 import { ApiCallError, api } from '../lib/api';

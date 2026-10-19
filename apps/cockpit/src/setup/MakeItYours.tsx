@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import { ACCENTS } from '@nvx/contracts';
+import { ACCENTS } from '@nvx/contracts/prefs';
 import { useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useRef, useState } from 'react';
 import { createNotebook } from '../lib/notebooks';

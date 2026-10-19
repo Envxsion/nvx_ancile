@@ -323,12 +323,16 @@
 
   /* The app scale. Dense like an instrument, generous where you read. */
   --t-micro: 10.5px;
+  /* 11px: no step between micro and small fits the 100+ captions and meta lines that sit there. */
+  --t-caption: 11px;
   --t-small: 12px;
   --t-ui: 13px;
   --t-body: 14.5px;
   --t-read: 15.5px; /* assistant prose */
   --t-h3: 17px;
   --t-h2: 22px;
+  /* 26px: the one big figure on a cost band; h2 would shrink it, h1 would shout. */
+  --t-stat: 26px;
   --t-h1: 30px;
   --lh-ui: 1.4;
   --lh-read: 1.65;
@@ -339,6 +343,8 @@
   /* Radii carry hierarchy: controls are tight, surfaces are soft, pills
      are for state. One radius on everything is the SaaS-card tell. */
   --r-k: 1; /* corner style: rounded 1, sharp 0.5 (Settings → Appearance) */
+  /* 2px: hairline bars, scrollbar thumbs and tick marks; 2xs would round them into pills. */
+  --r-3xs: calc(2px * var(--r-k));
   --r-2xs: calc(3px * var(--r-k));
   --r-xs: calc(5px * var(--r-k));
   --r-sm: calc(7px * var(--r-k));
@@ -347,6 +353,11 @@
   --r-xl: calc(18px * var(--r-k));
   --r-2xl: calc(24px * var(--r-k));
   --r-pill: 999px;
+  /* Channels for fixed highlights and shadows on raised buttons: they do not follow the theme. */
+  --c-black: 0 0 0;
+  --c-white: 255 255 255;
+  --sheen-hi: #ffffff;
+  --sheen-lo: #e8e9ed;
 
   /* Density (Settings → Layout): rows and gaps scale together */
   --dens: 1;

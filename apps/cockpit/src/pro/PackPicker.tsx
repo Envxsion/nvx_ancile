@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------
  */
 
-import { pro as proContract } from '@nvx/contracts';
+import * as proContract from '@nvx/contracts/pro';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from '@tanstack/react-router';
 import { useLayer } from '../keys/dispatch';

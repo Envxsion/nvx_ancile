@@ -21,17 +21,16 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  CreateMcpServerRequest,
-  type GlobalEvent,
-  type McpPreset,
-  type McpServerView,
-  type McpToolApproval,
-  type McpToolDiff,
-  type McpToolView,
-  type Tier,
-  UpdateMcpServerRequest,
+import type {
+  GlobalEvent,
+  McpPreset,
+  McpServerView,
+  McpToolApproval,
+  McpToolDiff,
+  McpToolView,
+  Tier,
 } from '@nvx/contracts';
+import { CreateMcpServerRequest, UpdateMcpServerRequest } from '@nvx/contracts/mcp';
 import type { QueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 

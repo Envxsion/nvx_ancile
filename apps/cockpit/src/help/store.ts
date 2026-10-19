@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import { HelpProgress } from '@nvx/contracts';
+import { HelpProgress } from '@nvx/contracts/prefs';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { api } from '../lib/api';

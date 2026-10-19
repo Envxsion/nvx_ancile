@@ -17,7 +17,8 @@
  * ------------------------------------------------------------------
  */
 
-import { type Part, RunEvent, type RunStatus } from '@nvx/contracts';
+import type { Part, RunStatus } from '@nvx/contracts';
+import { RunEvent } from '@nvx/contracts/events';
 import { create } from 'zustand';
 import { noteAutoEvent } from '../auto/store';
 import { noteRunWarning } from '../claudecode/store';

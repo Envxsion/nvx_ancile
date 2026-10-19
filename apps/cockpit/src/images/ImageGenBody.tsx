@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import { ImageGenerateResult } from '@nvx/contracts';
+import { ImageGenerateResult } from '@nvx/contracts/images';
 import type { ToolCall, ToolResult } from '../thread/ToolSteps';
 import { ImageFrame } from './ThreadImage';
 

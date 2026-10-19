@@ -23,7 +23,7 @@
 }
 .composer__menu-head {
   padding: 6px 10px 4px;
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 /* Menus are off: one line saying why / and @ do nothing, with the way back. */
 .composer__menu-off {

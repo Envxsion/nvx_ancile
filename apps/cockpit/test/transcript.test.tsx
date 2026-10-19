@@ -27,7 +27,12 @@ import { Retrieval } from '../src/receipt/Sections';
 import { budgetWords, ComposerHints } from '../src/thread/ComposerHints';
 import { Message as MessageRow } from '../src/thread/Message';
 import { Parts } from '../src/thread/Parts';
-import { displayPath, stripGutter, ToolCwd } from '../src/thread/ToolSteps';
+import { stripGutter } from '../src/thread/ToolStepCards';
+import { loadToolStepCards } from '../src/thread/ToolStepLazy';
+import { displayPath, ToolCwd } from '../src/thread/ToolSteps';
+
+// The step cards load on demand in the app; here they are in before the first render.
+await loadToolStepCards();
 
 const mocked = api as unknown as Record<'get' | 'post' | 'put' | 'patch' | 'del', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) =>

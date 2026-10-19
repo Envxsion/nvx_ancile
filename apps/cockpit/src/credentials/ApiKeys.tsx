@@ -17,19 +17,14 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type CredentialId,
-  type CredentialList,
-  type CredentialStatus,
-  isPersonalAnthropicKey,
-  type ProviderInfo,
-} from '@nvx/contracts';
+import type { CredentialId, CredentialList, CredentialStatus, ProviderInfo } from '@nvx/contracts';
+import { isPersonalAnthropicKey } from '@nvx/contracts/credentials';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
-import * as demo from '../fixtures/demo';
 import { ApiCallError, api } from '../lib/api';
 import { keys as dataKeys, orDemo } from '../lib/data';
+import { loadDemo, useDemoData } from '../lib/demoData';
 import { queryClient } from '../lib/query';
 import { Block, matches, SearchContext } from '../routes/settings/rows';
 import { notify } from '../state/notify';
@@ -208,7 +203,7 @@ export function useCredentials() {
     queryFn: () =>
       orDemo<CredentialStatus[]>(
         () => api.get<CredentialList>('/credentials').then((r) => r.items),
-        demo.credentials,
+        () => loadDemo().then((m) => m.credentials),
       ),
     staleTime: 30_000,
   });
@@ -738,6 +733,7 @@ export function ApiKeysGroup() {
   const list = useCredentials();
   const providers = useProviders();
   const isDemo = useUi((s) => s.demo);
+  const demo = useDemoData(isDemo);
   const [moved, setMoved] = useState<Moved | null>(null);
   const taken = useCallback(() => setMoved(null), []);
   const byId = new Map((list.data ?? []).map((s) => [s.id, s]));
@@ -794,7 +790,7 @@ export function ApiKeysGroup() {
           <Block key={g.title} title={g.title} lede={g.lede}>
             {rows.map((m) => {
               const modelRow = FIRST_PROVIDERS.includes(m.id) || more.some((x) => x.id === m.id);
-              const demoProblem = isDemo ? demo.providerProblems[m.id] : undefined;
+              const demoProblem = demo ? demo.providerProblems[m.id] : undefined;
               return (
                 <CredentialRow
                   key={m.id}

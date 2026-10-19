@@ -21,18 +21,14 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  ClaudeCodeSetupReport,
-  claudeCodeSetupLine,
-  type Explain,
-  isLineAlias,
-  type Recovered,
-} from '@nvx/contracts';
+import type { Explain, Recovered } from '@nvx/contracts';
+import { ClaudeCodeSetupReport, claudeCodeSetupLine } from '@nvx/contracts/claudecode';
+import { isLineAlias } from '@nvx/contracts/modelwatch';
 import { AnimatePresence, m as motion } from 'motion/react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
-import { demoExplain } from '../fixtures/demo';
 import { ShadowAnswerLink } from '../flows/ShadowAnswer';
 import { useThread } from '../lib/data';
+import { useDemoData } from '../lib/demoData';
 import { startFactcheck, useExplain } from '../lib/factcheck';
 import { modelById, modelName, percent } from '../lib/format';
 import { shortResource } from '../lib/mappers';
@@ -536,7 +532,8 @@ function WorthKnowing({ m, x }: { m: MessageView; x: Explain | undefined }) {
 function Body({ m, threadId }: { m: MessageView; threadId: string }) {
   const demo = useUi((s) => s.demo);
   const q = useExplain(demo ? null : m.id);
-  const x = demo ? demoExplain(m) : q.data;
+  const sample = useDemoData(demo);
+  const x = demo ? sample?.demoExplain(m) : q.data;
   const facts = receiptFacts(m);
   return (
     <>

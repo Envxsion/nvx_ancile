@@ -20,7 +20,7 @@
  * ------------------------------------------------------------------
  */
 
-import { isClaudeCodeModel } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useState } from 'react';
 import { startClaudeCodeSignIn, useClaudeCodeStatus } from '../../claudecode/api';

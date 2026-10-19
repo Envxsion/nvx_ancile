@@ -20,7 +20,6 @@ import type { CredentialStatus, Explain, ModelWatchReport, ProviderInfo, Watched
 import { COCKPIT_VERSION } from '../lib/build';
 import type {
   EvidenceView,
-  LiveState,
   ModelView,
   NotebookView,
   PendingApproval,
@@ -855,13 +854,7 @@ export const health: ServiceHealth[] = [
   },
 ];
 
-export const live: LiveState = {
-  modelId: 'anthropic/claude-sonnet-5-5',
-  context: { ratio: 0.62, used: 248_000, window: 400_000 },
-  node: { name: 'depot-gpu', state: 'running', rate: 0.44 },
-  approvals: 1,
-  health: 'degraded',
-};
+export { live } from './demoLive';
 
 export const grants = [
   {

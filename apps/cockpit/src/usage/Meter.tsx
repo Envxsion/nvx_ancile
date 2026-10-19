@@ -35,6 +35,14 @@ export function Meter({
   label: string;
 }) {
   const p = percent === null ? 0 : Math.max(0, Math.min(100, percent));
+  // A meter with no value is not a meter: say it is not reported, and leave the empty track decorative.
+  if (percent === null)
+    return (
+      <span className="u-meter" data-size={size} data-tone={tone ?? toneOf(percent)}>
+        <span className="sr-only">{label}: not reported</span>
+        <span className="u-meter__fill" aria-hidden="true" style={{ transform: 'scaleX(0)' }} />
+      </span>
+    );
   return (
     <span
       className="u-meter"
@@ -44,7 +52,7 @@ export function Meter({
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={percent === null ? undefined : Math.round(p)}
+      aria-valuenow={Math.round(p)}
     >
       <span className="u-meter__fill" style={{ transform: `scaleX(${p / 100})` }} />
       {mark ? <span className="u-meter__mark" style={{ left: `${Math.min(100, mark)}%` }} /> : null}

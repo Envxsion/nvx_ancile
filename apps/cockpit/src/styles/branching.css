@@ -143,7 +143,7 @@
   border-radius: var(--r-pill);
   background: var(--lift-3);
   box-shadow: var(--elev-1);
-  font-size: 10px;
+  font-size: var(--t-micro);
   color: var(--fg-3);
 }
 .tnode[data-status='error'] .tnode__glyph {
@@ -204,7 +204,7 @@
   background:
     linear-gradient(var(--lift-3), var(--lift-3)) padding-box,
     var(--gilt-hair) border-box;
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   font-weight: 550;
   line-height: 16px;
   color: var(--fg-2);
@@ -229,13 +229,13 @@
   padding: 0 6px;
   border-radius: var(--r-pill);
   background: var(--chalk);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   color: var(--mute);
 }
 .tnode__model {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--hue);
 }
 .tnode__here {
@@ -246,7 +246,7 @@
   border-radius: var(--r-pill);
   background: rgb(var(--signal-rgb));
   color: var(--on-signal);
-  font-size: 10px;
+  font-size: var(--t-micro);
   font-weight: 600;
   line-height: 16px;
   box-shadow: var(--elev-1);
@@ -418,7 +418,7 @@
   height: 18px;
   border-radius: var(--r-xs);
   background: var(--chalk-2);
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 650;
   color: var(--fg-2);
 }
@@ -467,7 +467,7 @@
   box-shadow: var(--elev-1);
 }
 .cmp__who {
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .cmp__text {
@@ -548,7 +548,7 @@
 }
 .merge__who {
   color: var(--mute);
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .merge__line {
   min-width: 0;
@@ -603,14 +603,14 @@
   flex: none;
   width: 44px;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
 }
 .hint-line__meter > span {
   position: absolute;
   inset: 0;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--fg-3);
   transform-origin: left center;
   transition: transform var(--d-view) var(--ease);
@@ -676,7 +676,7 @@
   gap: 4px;
   padding: 0 7px;
   border-radius: var(--r-pill);
-  font-size: 11px;
+  font-size: var(--t-caption);
   line-height: 18px;
   color: var(--mute);
   box-shadow: inset 0 0 0 1px var(--hair-2);
@@ -698,7 +698,7 @@ button.status-seg[aria-disabled='true'] {
   padding: 1px 6px;
   border-radius: var(--r-xs);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--t-micro);
   opacity: 0.45;
 }
 .btree .react-flow__attribution a {

@@ -1,16 +1,16 @@
 /** Small formatters. Data renders in Martian Mono via [data-num]. */
 
-import { models as demoModels } from '../fixtures/demo';
+import { loadedDemo } from './demoData';
 import { queryClient } from './query';
 import type { Hue, ModelView } from './types';
 
 export const hueVar = (hue: Hue) => `var(--s-${hue})`;
 
-/** Core's model list when it has answered, the demo list otherwise. */
+/** Core's model list when it has answered, the demo list (once loaded, in demo mode) otherwise. */
 export function modelById(id: string | null | undefined): ModelView | undefined {
   if (!id) return undefined;
   const live = queryClient.getQueryData<ModelView[]>(['models']);
-  return live?.find((m) => m.id === id) ?? demoModels.find((m) => m.id === id);
+  return live?.find((m) => m.id === id) ?? loadedDemo()?.models.find((m) => m.id === id);
 }
 
 export function modelName(id: string | null | undefined): string {

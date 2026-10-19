@@ -19,7 +19,7 @@
 
 import { useNavigate } from '@tanstack/react-router';
 import { useClaudeCodeLive } from '../claudecode/live';
-import { live as demoLive } from '../fixtures/demo';
+import { live as demoLive } from '../fixtures/demoLive';
 import { compactNow, useContextBudget } from '../lib/branching';
 import { useThread } from '../lib/data';
 import { compact } from '../lib/format';

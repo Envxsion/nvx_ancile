@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import { isClaudeCodeModel } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useRouterState } from '@tanstack/react-router';
 import { withdrawForModelChange } from '../claudecode/live';
 import { patchCc } from '../claudecode/store';

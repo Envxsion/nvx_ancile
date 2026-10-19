@@ -24,7 +24,7 @@
  * ------------------------------------------------------------------
  */
 
-import { stepTitle } from '@nvx/contracts';
+import { stepTitle } from '@nvx/contracts/steps';
 import { useMemo } from 'react';
 import { type LiveTurn, useRuns } from '../lib/run';
 import { searchedLabel } from '../receipt/figures';

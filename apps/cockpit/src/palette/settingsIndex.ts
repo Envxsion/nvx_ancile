@@ -21,7 +21,8 @@
  * ------------------------------------------------------------------
  */
 
-import { ACCENTS, type Preferences, type PrefGroup } from '@nvx/contracts';
+import type { Preferences, PrefGroup } from '@nvx/contracts';
+import { ACCENTS } from '@nvx/contracts/prefs';
 
 export interface Choice {
   value: string;

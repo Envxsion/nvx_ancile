@@ -19,7 +19,9 @@
  * ------------------------------------------------------------------
  */
 
-import { type AttachmentRecord, attachableKind, CLIENT_ID_HEADER } from '@nvx/contracts';
+import type { AttachmentRecord } from '@nvx/contracts';
+import { attachableKind } from '@nvx/contracts/attachments';
+import { CLIENT_ID_HEADER } from '@nvx/contracts/engines';
 import { API_BASE, WINDOW_ID } from '../lib/api';
 
 /** Can the composer attach this file to a message (not an image: images have their own path)? */

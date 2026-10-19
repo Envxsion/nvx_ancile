@@ -176,7 +176,7 @@
 .svc__state {
   padding: 2px 9px;
   border-radius: var(--r-pill);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--tone);
   background: rgb(var(--tone-rgb) / 0.1);
 }
@@ -190,7 +190,7 @@
   gap: 1px;
 }
 .svc__k {
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .svc__v {
@@ -345,7 +345,7 @@
   background: rgb(var(--void-rgb) / 0.55);
   box-shadow: inset 0 0 0 1px var(--hair);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 .logline + .logline,
 .logblock + .logblock > .logline:first-child {
@@ -404,8 +404,8 @@ button.logline__row:hover {
 .logline__level {
   justify-self: start;
   padding: 0 6px;
-  border-radius: 4px;
-  font-size: 10.5px;
+  border-radius: var(--r-xs);
+  font-size: var(--t-micro);
   text-transform: lowercase;
   color: var(--fg-3);
   background: var(--chalk);
@@ -437,7 +437,7 @@ button.logline__row:hover {
   padding: 0 5px;
   border-radius: var(--r-pill);
   box-shadow: inset 0 0 0 1px var(--hair-2);
-  font-size: 10px;
+  font-size: var(--t-micro);
 }
 .logline__detail {
   display: grid;
@@ -454,7 +454,7 @@ button.logline__row:hover {
   background: var(--lift);
   box-shadow: inset 0 0 0 1px var(--hair);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -544,13 +544,13 @@ button.logline__row:hover {
 }
 .trace-item__meta {
   grid-column: 2;
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .trace-item__dur {
   grid-row: 1 / span 2;
   grid-column: 3;
   align-self: center;
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--fg-3);
 }
 .traces__main {
@@ -595,7 +595,7 @@ button.logline__row:hover {
   left: 38%;
   right: 16px;
   height: 14px;
-  font-size: 10px;
+  font-size: var(--t-micro);
   color: var(--mute);
 }
 .waterfall__ruler span {
@@ -618,7 +618,7 @@ button.logline__row:hover {
   height: 26px;
   padding-right: 16px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--t-small);
   animation: rise var(--d-short) var(--ease-out) both;
   transition: background var(--d-instant) var(--ease);
 }
@@ -668,7 +668,7 @@ button.logline__row:hover {
   top: 7px;
   bottom: 7px;
   min-width: 3px;
-  border-radius: 3px;
+  border-radius: var(--r-2xs);
   background: linear-gradient(180deg, color-mix(in srgb, var(--tone) 88%, var(--fg)), var(--tone));
   box-shadow: 0 2px 8px -3px var(--tone);
   transform-origin: left;
@@ -684,7 +684,7 @@ button.logline__row:hover {
   position: absolute;
   left: calc(100% + 6px);
   top: -2px;
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   color: var(--mute);
   white-space: nowrap;
 }
@@ -711,7 +711,7 @@ button.logline__row:hover {
 .trace__logs .logline__row--static {
   grid-template-columns: 92px 52px 82px 100px minmax(0, 1fr);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 /* --- Replay ----------------------------------------------------------------- */
@@ -750,7 +750,7 @@ button.logline__row:hover {
   min-width: 140px;
 }
 .replay__keys {
-  font-size: 11px;
+  font-size: var(--t-caption);
   white-space: nowrap;
 }
 .replay__strip {
@@ -766,7 +766,7 @@ button.logline__row:hover {
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   color: var(--fg-3);
   background: var(--chalk);
   transition:
@@ -808,14 +808,14 @@ button.logline__row:hover {
 .replay__step > header .mute {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .replay__kind {
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: rgb(var(--signal-rgb) / 0.12);
   color: var(--signal-ink);
 }
@@ -1001,7 +1001,7 @@ button.logline__row:hover {
   text-overflow: ellipsis;
 }
 .diag-check__ms {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 
 /* --- Automations ------------------------------------------------------------ */
@@ -1042,7 +1042,7 @@ button.logline__row:hover {
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--r-md);
   background: var(--chalk);
   color: var(--fg-3);
 }
@@ -1065,7 +1065,7 @@ button.logline__row:hover {
   margin: 0;
 }
 .auto__facts dt {
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .auto__facts dd {
@@ -1182,7 +1182,7 @@ button.logline__row:hover {
   border: 0;
   background: none;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .auto-opts {
   gap: 12px;
@@ -1249,14 +1249,14 @@ button.logline__row:hover {
   display: grid;
 }
 .app-card__head .mute {
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .app-card__icon {
   display: grid;
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--r-md);
   background: rgb(var(--signal-rgb) / 0.1);
   color: var(--signal-ink);
 }
@@ -1293,7 +1293,7 @@ button.logline__row:hover {
   line-height: 1.45;
 }
 .tool-card__src {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 
 /* MCP servers NVX Ancile uses: one card per server, its tools open under it. */
@@ -1339,7 +1339,7 @@ button.logline__row:hover {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .mcp__where > span {
   flex: none;
@@ -1448,7 +1448,7 @@ button.logline__row:hover {
 }
 .mcp__since {
   margin-right: 4px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .mcp__disclose {
   display: inline-flex;
@@ -1526,7 +1526,7 @@ button.logline__row:hover {
   gap: 8px;
 }
 .mcp-tool__flag {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .mcp-tool__text p {
   margin: 0;
@@ -1714,7 +1714,7 @@ button.logline__row:hover {
 .token-box code {
   flex: 1;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 .connect-app__config {
   max-height: 200px;
@@ -1743,7 +1743,7 @@ button.logline__row:hover {
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   background: var(--chalk);
   color: var(--fg-3);
 }
@@ -1766,7 +1766,7 @@ button.logline__row:hover {
   font-size: var(--t-small);
 }
 .edition__checked {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .edition__title {
   display: flex;
@@ -1945,7 +1945,7 @@ button.logline__row:hover {
 }
 .diag-ring__num > .mute {
   font-weight: 500;
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .auto-events .row {
   grid-template-columns: auto minmax(0, 1fr) auto auto;

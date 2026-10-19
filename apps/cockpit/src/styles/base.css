@@ -120,7 +120,7 @@ strong {
   font-family: var(--font-display);
   font-variation-settings: 'wdth' 112;
   font-weight: 650;
-  font-size: 15px;
+  font-size: var(--t-body);
   letter-spacing: -0.02em;
   color: var(--fg);
   white-space: nowrap;
@@ -164,29 +164,30 @@ strong {
 
 /* The primary action: lit from above, with a glow that grows under the hand */
 .btn--primary {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0) 55%), var(--signal);
+  background: linear-gradient(180deg, rgb(var(--c-white) / 0.18), rgb(var(--c-white) / 0) 55%), var(--signal);
   color: var(--on-signal);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.35),
-    inset 0 -1px 0 rgb(0 0 0 / 0.12),
+    inset 0 1px 0 rgb(var(--c-white) / 0.35),
+    inset 0 -1px 0 rgb(var(--c-black) / 0.12),
     0 0 0 1px rgb(var(--signal-rgb) / 0.55),
-    0 1px 2px rgb(0 0 0 / 0.25),
+    0 1px 2px rgb(var(--c-black) / 0.25),
     0 10px 26px -14px rgb(var(--signal-rgb) / calc(0.9 * var(--glow)));
 }
 .btn--primary:hover:not(:disabled) {
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.4),
-    inset 0 -1px 0 rgb(0 0 0 / 0.12),
+    inset 0 1px 0 rgb(var(--c-white) / 0.4),
+    inset 0 -1px 0 rgb(var(--c-black) / 0.12),
     0 0 0 1px rgb(var(--signal-rgb) / 0.7),
-    0 2px 4px rgb(0 0 0 / 0.25),
+    0 2px 4px rgb(var(--c-black) / 0.25),
     0 14px 34px -12px rgb(var(--signal-rgb) / calc(1 * var(--glow)));
 }
 .btn--primary:active:not(:disabled) {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 55%), var(--signal-mid);
+  background:
+    linear-gradient(180deg, rgb(var(--c-white) / 0.1), rgb(var(--c-white) / 0) 55%), var(--signal-mid);
 }
 .btn--primary .kbd-group kbd {
-  background: rgb(0 0 0 / 0.14);
-  border-color: rgb(0 0 0 / 0.18);
+  background: rgb(var(--c-black) / 0.14);
+  border-color: rgb(var(--c-black) / 0.18);
   color: inherit;
   box-shadow: none;
 }
@@ -246,7 +247,7 @@ strong {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.22) 50%, transparent 70%);
+  background: linear-gradient(100deg, transparent 30%, rgb(var(--c-white) / 0.22) 50%, transparent 70%);
   background-size: 250% 100%;
   animation: busy-sweep 1.4s var(--ease-inout) infinite;
 }
@@ -307,7 +308,7 @@ strong {
   border-radius: var(--r-pill);
   background: var(--signal);
   color: var(--on-signal);
-  font-size: 9px;
+  font-size: var(--t-micro);
   line-height: 15px;
   font-weight: 600;
   box-shadow: 0 0 0 2px var(--chrome);
@@ -375,7 +376,7 @@ textarea.input {
 }
 .input:hover {
   box-shadow:
-    inset 0 1px 2px rgb(0 0 0 / 0.3),
+    inset 0 1px 2px rgb(var(--c-black) / 0.3),
     inset 0 0 0 1px var(--edge-2);
 }
 .input:focus {
@@ -467,7 +468,7 @@ select.input {
   border-radius: var(--r-pill);
   background: var(--chalk-2);
   box-shadow:
-    inset 0 1px 2px rgb(0 0 0 / 0.35),
+    inset 0 1px 2px rgb(var(--c-black) / 0.35),
     inset 0 0 0 1px var(--hair-2);
   transition:
     background-color var(--d-short) var(--ease-out),
@@ -481,10 +482,10 @@ select.input {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #e9eaee);
+  background: linear-gradient(180deg, var(--sheen-hi), var(--sheen-lo));
   box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 2px 6px -1px rgb(0 0 0 / 0.3);
+    0 1px 2px rgb(var(--c-black) / 0.35),
+    0 2px 6px -1px rgb(var(--c-black) / 0.3);
   transition:
     translate var(--d-medium) var(--ease-spring),
     width var(--d-micro) var(--ease-out);
@@ -495,7 +496,7 @@ select.input {
 .switch[aria-checked='true'] {
   background: var(--signal);
   box-shadow:
-    inset 0 1px 2px rgb(0 0 0 / 0.2),
+    inset 0 1px 2px rgb(var(--c-black) / 0.2),
     0 0 0 1px rgb(var(--signal-rgb) / 0.5);
 }
 .switch[aria-checked='true']::after {
@@ -553,7 +554,7 @@ select.input {
   height: 4px;
   border-radius: var(--r-pill);
   background: linear-gradient(90deg, var(--signal) var(--fill), var(--chalk-2) var(--fill));
-  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.3);
+  box-shadow: inset 0 1px 1px rgb(var(--c-black) / 0.3);
 }
 .range::-moz-range-track {
   height: 4px;
@@ -566,10 +567,10 @@ select.input {
   height: 16px;
   margin-top: -6px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #e6e7eb);
+  background: linear-gradient(180deg, var(--sheen-hi), var(--sheen-lo));
   box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 3px 8px -2px rgb(0 0 0 / 0.35);
+    0 1px 2px rgb(var(--c-black) / 0.35),
+    0 3px 8px -2px rgb(var(--c-black) / 0.35);
   transition: transform var(--d-short) var(--ease-spring);
 }
 .range::-moz-range-thumb {
@@ -577,8 +578,8 @@ select.input {
   height: 16px;
   border: 0;
   border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #e6e7eb);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  background: linear-gradient(180deg, var(--sheen-hi), var(--sheen-lo));
+  box-shadow: 0 1px 2px rgb(var(--c-black) / 0.35);
 }
 .range:active::-webkit-slider-thumb {
   transform: scale(1.15);
@@ -589,7 +590,7 @@ select.input {
 .range:focus-visible::-webkit-slider-thumb {
   box-shadow:
     var(--focus-ring),
-    0 1px 2px rgb(0 0 0 / 0.35);
+    0 1px 2px rgb(var(--c-black) / 0.35);
 }
 
 /* --- Keys: small keycaps, lit and seated ------------------------------- */
@@ -617,7 +618,7 @@ kbd {
   /* --fg-3, not --mute: at 9.5px the hint must hold 4.5:1 even on the
      palette's selected row, where --mute measured 4.14:1. */
   color: var(--fg-3);
-  font-size: 9.5px;
+  font-size: var(--t-micro);
   font-weight: 500;
   line-height: 1;
   transition:
@@ -708,7 +709,7 @@ kbd[data-flash] {
 .hue-chip__swatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--hue);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue) 18%, transparent);
 }
@@ -723,7 +724,7 @@ kbd[data-flash] {
   background: var(--wash-2);
   box-shadow: inset 0 0 0 1px var(--hair-2);
   color: var(--fg-3);
-  font-size: 11px;
+  font-size: var(--t-caption);
   white-space: nowrap;
 }
 
@@ -734,7 +735,7 @@ kbd[data-flash] {
   height: 22px;
   padding: 0 9px;
   border-radius: var(--r-pill);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--warn);
   background: rgb(var(--warn-rgb) / 0.1);
@@ -760,7 +761,7 @@ kbd[data-flash] {
   padding: 0 8px 0 6px;
   border-radius: var(--r-pill);
   color: var(--gilt);
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 600;
   background: var(--gilt-wash);
 }
@@ -940,7 +941,7 @@ kbd[data-flash] {
 .error-state__trace {
   margin-left: auto;
   color: var(--mute-2);
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 
 /* A refresh failed; the last answer stays on screen under this line. */
@@ -983,7 +984,7 @@ kbd[data-flash] {
   border-radius: 50%;
   color: var(--mute);
   box-shadow: inset 0 0 0 1px var(--hair-2);
-  font-size: 10px;
+  font-size: var(--t-micro);
   font-weight: 700;
   vertical-align: middle;
   transition:

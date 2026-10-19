@@ -29,12 +29,12 @@
 /* A source reads inside the panel: headings stay a step above the text. */
 .viewer__md :is(h1, h2) {
   margin: 18px 0 8px;
-  font-size: 17px;
+  font-size: var(--t-h3);
   line-height: 1.35;
 }
 .viewer__md :is(h3, h4, h5, h6) {
   margin: 16px 0 6px;
-  font-size: 15px;
+  font-size: var(--t-body);
 }
 .viewer__md > :first-child {
   margin-top: 0;
@@ -110,7 +110,7 @@
   align-items: center;
   gap: 6px;
   margin: 8px 10px 0;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
 }
 .pdf__cite-line[data-state='missing'] {
@@ -137,14 +137,14 @@
 }
 .pdf__loading-note {
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 
 /* A page is paper, lifted off the panel; the drawn canvas brings its own white. */
 .pdf__page {
   position: relative;
   flex: none;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--lift-3);
   box-shadow: var(--elev-2);
   overflow: hidden;
@@ -165,13 +165,13 @@
   display: grid;
   place-items: center;
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
 }
 
 .pdf__mark {
   color: transparent;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   padding: 1px 0;
 }
 .pdf__mark--cite {
@@ -202,7 +202,7 @@
   color: var(--fg);
 }
 .pdf__problem-detail {
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .pdf__problem-hint {
   color: var(--fg-2);

@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import { BranchColor } from '@nvx/contracts';
+import { BranchColor } from '@nvx/contracts/branching';
 import * as Dialog from '@radix-ui/react-dialog';
 import { type CSSProperties, useEffect, useState } from 'react';
 import { useLayer } from '../keys/dispatch';

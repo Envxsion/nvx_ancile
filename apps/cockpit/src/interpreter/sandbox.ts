@@ -23,7 +23,7 @@
  * ------------------------------------------------------------------
  */
 
-import { INTERPRETER_LIMITS, InterpreterOutcome } from '@nvx/contracts';
+import { INTERPRETER_LIMITS, InterpreterOutcome } from '@nvx/contracts/interpreter';
 import { FRAME_HOST_URL, feedFrame } from '../lib/frameHost';
 import { pythonWorker } from './worker';
 

@@ -19,7 +19,7 @@
  * ------------------------------------------------------------------
  */
 
-import { stepTitle } from '@nvx/contracts';
+import { stepTitle } from '@nvx/contracts/steps';
 import { memo } from 'react';
 import type { LiveTurn } from '../lib/run';
 import { Icon } from '../ui/Icon';

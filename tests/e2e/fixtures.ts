@@ -42,6 +42,8 @@ export async function expectAccessible(page: Page, exclude: string[] = []) {
 }
 
 export async function openPalette(page: Page) {
+  // The shortcut is bound by the shell once it has mounted; on a cold dev server that is after `load`.
+  await expect(page.getByRole('button', { name: /search or run a command/i })).toBeVisible();
   await page.keyboard.press(`${mod}+k`);
   const palette = page.getByRole('dialog', { name: /command/i });
   await expect(palette).toBeVisible();

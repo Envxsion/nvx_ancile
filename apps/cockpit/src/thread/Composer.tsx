@@ -30,15 +30,9 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  ATTACHMENT_LIMITS,
-  type AttachmentRecord,
-  type ClaudeCodeCommand,
-  IMAGE_LIMITS,
-  IMAGE_MIMES,
-  type ImageProviders,
-  type ImageRecord,
-} from '@nvx/contracts';
+import type { AttachmentRecord, ClaudeCodeCommand, ImageProviders, ImageRecord } from '@nvx/contracts';
+import { ATTACHMENT_LIMITS } from '@nvx/contracts/attachments';
+import { IMAGE_LIMITS, IMAGE_MIMES } from '@nvx/contracts/images';
 import {
   type ClipboardEvent,
   type CSSProperties,
@@ -53,11 +47,11 @@ import {
   useState,
 } from 'react';
 import { type AncileExtra, ccMenu, parseTyped } from '../claudecode/live';
-import * as demo from '../fixtures/demo';
 import { attachImage, imageKeys } from '../images/api';
 import { useBinding } from '../keys/dispatch';
 import { api } from '../lib/api';
 import { useModels, useNotebooks, useSources } from '../lib/data';
+import { useDemoData } from '../lib/demoData';
 import { hueVar } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
@@ -225,6 +219,7 @@ function ComposerImpl({
   const ref = useRef<HTMLTextAreaElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const isDemo = useUi((s) => s.demo);
+  const demoData = useDemoData(isDemo);
   const openPalette = useUi((s) => s.openPalette);
   const openDrawer = useUi((s) => s.openDrawer);
   const setShortcuts = useUi((s) => s.setShortcuts);
@@ -304,7 +299,7 @@ function ComposerImpl({
 
   const mentions: Mention[] = useMemo(() => {
     const src = isDemo
-      ? demo.sources.map((s) => ({ kind: 'source' as const, id: s.id, label: s.title }))
+      ? (demoData?.sources ?? []).map((s) => ({ kind: 'source' as const, id: s.id, label: s.title }))
       : notebookId
         ? (sources ?? [])
             .filter((s) => s.contextLevel !== 'off')
@@ -327,7 +322,7 @@ function ComposerImpl({
     const fl = (flows ?? []).map((f) => ({ kind: 'flow' as const, id: f.id, label: f.name }));
     const rp = (repos ?? []).map((r) => ({ kind: 'repo' as const, id: r.id, label: r.name }));
     return [...src, ...nbs, ...fl, ...rp, ...mdl];
-  }, [isDemo, notebookId, sources, notebooks, models, model?.id, flows, repos, claudeCode]);
+  }, [isDemo, demoData, notebookId, sources, notebooks, models, model?.id, flows, repos, claudeCode]);
 
   // The latest values for the flush on unmount, without re-subscribing.
   const latest = useRef({ text, key, synced, threadId, parentId, sent: '' });

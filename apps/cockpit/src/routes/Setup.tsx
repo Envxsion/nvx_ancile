@@ -22,13 +22,8 @@
  */
 
 import { AncileMark } from '@nvx/aperture';
-import {
-  isPersonalAnthropicKey,
-  type ProviderId,
-  type ProviderInfo,
-  type ProviderRegion,
-  type SetupStatus,
-} from '@nvx/contracts';
+import type { ProviderId, ProviderInfo, ProviderRegion, SetupStatus } from '@nvx/contracts';
+import { isPersonalAnthropicKey } from '@nvx/contracts/credentials';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useRef, useState } from 'react';

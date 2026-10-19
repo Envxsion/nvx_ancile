@@ -41,7 +41,7 @@ const SearchFilters = lazyHost(() => import('./SearchFilters'), 'SearchFilters')
 
 import { helpDone, useHelp } from '../help/store';
 import { TOURS, tourEvent } from '../help/tours';
-import { useBinding, useLayer } from '../keys/dispatch';
+import { useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { api } from '../lib/api';
 import { compactNow } from '../lib/branching';
@@ -243,9 +243,7 @@ export function Palette() {
   const repoCommands = useRepoCommands();
   useLayer(open);
 
-  useBinding('palette.open', () => (open ? close() : openPalette()));
-  useBinding('model.switch', () => openPalette('models'));
-  useBinding('search.focus', () => openPalette('all'));
+  // The shortcuts that open it live in the shell (AppShell.tsx), so they work before this chunk has loaded.
 
   useEffect(() => {
     if (!open) return;

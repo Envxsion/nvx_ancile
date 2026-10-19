@@ -28,6 +28,7 @@ import { isDesktop } from '../lib/runtime';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useModelChangeToasts } from '../models/watch';
 import { Toaster } from '../notify/Toaster';
+import { usePaletteShortcuts } from '../palette/shortcuts';
 import { BeamHost } from '../pro/beam';
 import { EditionSync } from '../pro/edition';
 import { SignInGate, useSignInGate } from '../pro/gate';
@@ -179,6 +180,7 @@ export function AppShell() {
   useEffect(() => installKeys(), []);
   useEffect(() => watchSystemTheme(), []);
 
+  usePaletteShortcuts();
   useBinding('shortcuts.show', () => useUi.getState().setShortcuts(true));
   // The desktop app has no browser around it: Ctrl+Q asks the shell to quit (after it checks for live runs).
   useBinding('app.quit', () => void command('quit').catch(() => undefined), isDesktop());

@@ -15,7 +15,8 @@
  * ------------------------------------------------------------------
  */
 
-import { isClaudeCodeModel, type ModelBilling } from '@nvx/contracts';
+import type { ModelBilling } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { usd } from '../lib/format';
 import { PROVIDER_NAME } from '../lib/mappers';
 import type { ModelView } from '../lib/types';

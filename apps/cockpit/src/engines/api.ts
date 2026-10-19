@@ -22,13 +22,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  CLAUDE_CODE_MODEL_PREFIX,
-  type EngineInfo,
-  isClaudeCodeModel,
-  type SendTurnRequest,
-  type SendTurnResult,
-} from '@nvx/contracts';
+import type { EngineInfo, SendTurnRequest, SendTurnResult } from '@nvx/contracts';
+import { CLAUDE_CODE_MODEL_PREFIX, isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { modelOptions, useClaudeCodeCommands, useClaudeCodeLive } from '../claudecode/live';

@@ -12,7 +12,8 @@
  * ------------------------------------------------------------------
  */
 
-import { FileContent, type FileWriteRequest, FileWriteResult } from '@nvx/contracts';
+import type { FileWriteRequest } from '@nvx/contracts';
+import { FileContent, FileWriteResult } from '@nvx/contracts/files';
 import { useQuery } from '@tanstack/react-query';
 import { ApiCallError, api } from '../lib/api';
 

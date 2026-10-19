@@ -18,7 +18,8 @@
  * ------------------------------------------------------------------
  */
 
-import { type CloseBehaviour, type DesktopCommandKind, type DesktopState, license } from '@nvx/contracts';
+import type { CloseBehaviour, DesktopCommandKind, DesktopState } from '@nvx/contracts';
+import * as license from '@nvx/contracts/license';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { queryClient } from '../lib/query';

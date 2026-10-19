@@ -14,7 +14,7 @@
  * ------------------------------------------------------------------
  */
 
-import { GlobalEvent } from '@nvx/contracts';
+import { GlobalEvent } from '@nvx/contracts/events';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { onActivityChanged } from '../activity/api';

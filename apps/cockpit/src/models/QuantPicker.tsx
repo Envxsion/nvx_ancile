@@ -14,7 +14,8 @@
  */
 
 import '../styles/openrouter.css';
-import { type LocalModelView, memoryEstimateGb, OLLAMA_QUANT_BITS, type OllamaQuant } from '@nvx/contracts';
+import type { LocalModelView, OllamaQuant } from '@nvx/contracts';
+import { memoryEstimateGb, OLLAMA_QUANT_BITS } from '@nvx/contracts/openrouter';
 
 const WORDS: Record<OllamaQuant, string> = {
   q4_K_M: 'Smallest and quickest. A little less precise; fine for most everyday use.',

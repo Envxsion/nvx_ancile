@@ -18,7 +18,8 @@
  * ------------------------------------------------------------------
  */
 
-import { type LogLevel, type LogLine, LogLine as LogLineSchema, type LogPage } from '@nvx/contracts';
+import type { LogLevel, LogLine, LogPage } from '@nvx/contracts';
+import { LogLine as LogLineSchema } from '@nvx/contracts/ops';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';

@@ -40,7 +40,7 @@ import { queryClient } from '../src/lib/query';
 import { fold, type LiveTurn } from '../src/lib/run';
 import type { PendingApproval } from '../src/lib/types';
 import { useUi } from '../src/state/ui';
-import { ToolStep } from '../src/thread/ToolSteps';
+import { ToolStep } from '../src/thread/ToolStepCards';
 
 const mocked = api as unknown as Record<'get' | 'post', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) => render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);

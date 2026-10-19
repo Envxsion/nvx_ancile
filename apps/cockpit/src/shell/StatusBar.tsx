@@ -20,7 +20,7 @@ import { ActivitySegment, ImportSegment } from '../activity/ActivityPanel';
 import { safeMode, userCssOn } from '../app/userCss';
 import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
 import { UpdatePill, WarmingSegment } from '../desktop/Pills';
-import { live as demoLive } from '../fixtures/demo';
+import { live as demoLive } from '../fixtures/demoLive';
 import { tourEvent } from '../help/tours';
 import { useConnection } from '../lib/connection';
 import { useApprovals, useSystemHealth } from '../lib/data';

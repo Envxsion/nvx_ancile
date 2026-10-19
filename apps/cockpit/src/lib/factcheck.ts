@@ -22,16 +22,16 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type CitationStatus,
-  type ClaimVerdict,
-  type Explain,
-  type Factcheck,
-  RunEvent,
-  type SelectionCheck,
-  type StartFactcheckResponse,
-  type StartSelectionCheckResponse,
+import type {
+  CitationStatus,
+  ClaimVerdict,
+  Explain,
+  Factcheck,
+  SelectionCheck,
+  StartFactcheckResponse,
+  StartSelectionCheckResponse,
 } from '@nvx/contracts';
+import { RunEvent } from '@nvx/contracts/events';
 import { useQuery } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { notify } from '../state/notify';

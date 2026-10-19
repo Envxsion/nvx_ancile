@@ -16,7 +16,8 @@
  * ------------------------------------------------------------------
  */
 
-import { ApiError, CLIENT_ID_HEADER } from '@nvx/contracts';
+import { CLIENT_ID_HEADER } from '@nvx/contracts/engines';
+import { ApiError } from '@nvx/contracts/errors';
 import type { z } from 'zod';
 import { useSignInGate } from '../pro/signin-state';
 import { useConnection } from './connection';

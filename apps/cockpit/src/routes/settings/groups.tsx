@@ -11,7 +11,8 @@
  * ------------------------------------------------------------------
  */
 
-import { ACCENTS, type Preferences } from '@nvx/contracts';
+import type { Preferences } from '@nvx/contracts';
+import { ACCENTS } from '@nvx/contracts/prefs';
 import { Link } from '@tanstack/react-router';
 import { type CSSProperties, useContext, useState } from 'react';
 import { askWebPermission } from '../../desktop/webNotify';

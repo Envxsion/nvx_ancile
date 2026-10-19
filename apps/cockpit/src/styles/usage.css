@@ -9,7 +9,7 @@
   flex: none;
   width: 54px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
   vertical-align: middle;
@@ -17,7 +17,7 @@
 .u-meter[data-size='large'] {
   width: 100%;
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--r-2xs);
 }
 .u-meter__fill {
   position: absolute;
@@ -225,7 +225,7 @@
 }
 .u-totals dd:nth-of-type(1) {
   color: var(--fg);
-  font-size: 22px;
+  font-size: var(--t-h2);
   letter-spacing: -0.01em;
 }
 .u-totals dd.u-quiet {
@@ -310,7 +310,7 @@
 .u-break__swatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--s-chalk);
 }
 .u-break__label {
@@ -322,7 +322,7 @@
 .u-break__bar {
   position: relative;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
 }

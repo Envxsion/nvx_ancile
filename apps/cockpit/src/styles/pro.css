@@ -171,12 +171,12 @@
 .eil-art__big {
   fill: var(--gilt-hi);
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: var(--t-stat);
   font-weight: 600;
 }
 .eil-art__small {
   fill: var(--mute);
-  font-size: 9px;
+  font-size: var(--t-micro);
 }
 .eil__suggestion {
   position: relative;

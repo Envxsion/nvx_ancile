@@ -21,7 +21,7 @@
  * ------------------------------------------------------------------
  */
 
-import { pro as proContract } from '@nvx/contracts';
+import * as proContract from '@nvx/contracts/pro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { type ComponentType, Suspense, useEffect, useState } from 'react';

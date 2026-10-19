@@ -15,7 +15,7 @@
  */
 
 import type { FlowEdge, RunEvent } from '@nvx/contracts';
-import { RunEvent as RunEventSchema } from '@nvx/contracts';
+import { RunEvent as RunEventSchema } from '@nvx/contracts/events';
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/api';
 import { useThreads } from '../lib/data';

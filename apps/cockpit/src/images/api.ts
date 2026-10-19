@@ -13,12 +13,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  CLIENT_ID_HEADER,
-  type ImageProviders,
-  type ImageRecord,
-  type RemoteImageHosts,
-} from '@nvx/contracts';
+import type { ImageProviders, ImageRecord, RemoteImageHosts } from '@nvx/contracts';
+import { CLIENT_ID_HEADER } from '@nvx/contracts/engines';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE, api, WINDOW_ID } from '../lib/api';
 import { queryClient } from '../lib/query';

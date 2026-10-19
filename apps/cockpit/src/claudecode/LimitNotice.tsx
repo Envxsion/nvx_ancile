@@ -20,7 +20,8 @@
  * ------------------------------------------------------------------
  */
 
-import { CONTINUE_AFTER_LIMIT, isClaudeCodeModel, type PlanWindow } from '@nvx/contracts';
+import type { PlanWindow } from '@nvx/contracts';
+import { CONTINUE_AFTER_LIMIT, isClaudeCodeModel } from '@nvx/contracts/engines';
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
 import { useModels } from '../lib/data';

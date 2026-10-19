@@ -22,13 +22,8 @@
  */
 
 import { applyLook, getThemeChoice, type Look } from '@nvx/aperture';
-import {
-  DEFAULT_PREFERENCES,
-  keepDevicePrefs,
-  Preferences,
-  type PrefGroup,
-  withoutDevicePrefs,
-} from '@nvx/contracts';
+import type { PrefGroup } from '@nvx/contracts';
+import { DEFAULT_PREFERENCES, keepDevicePrefs, Preferences, withoutDevicePrefs } from '@nvx/contracts/prefs';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { API_BASE, api } from '../lib/api';

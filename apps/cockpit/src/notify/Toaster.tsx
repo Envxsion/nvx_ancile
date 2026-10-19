@@ -60,7 +60,7 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
   }, [paused, dismiss, t.id]);
 
   return (
-    <motion.li
+    <motion.div
       layout
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -117,7 +117,7 @@ function Toast({ t, exitX }: { t: Notice; exitX: number }) {
           <Icon name="close" size={10} />
         </button>
       </div>
-    </motion.li>
+    </motion.div>
   );
 }
 
@@ -138,12 +138,12 @@ export function Toaster() {
     undoable.length > 0,
   );
   return (
-    <ol className="toaster" data-position={position} aria-label="Notifications">
+    <div className="toaster" data-position={position} role="region" aria-label="Notifications">
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
           <Toast key={t.id} t={t} exitX={position === 'bottom-centre' ? 0 : 24} />
         ))}
       </AnimatePresence>
-    </ol>
+    </div>
   );
 }

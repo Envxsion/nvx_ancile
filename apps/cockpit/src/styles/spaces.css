@@ -52,7 +52,7 @@
   border-radius: var(--r-pill);
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--fg-2);
   background: color-mix(in srgb, var(--hue) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 30%, transparent);
@@ -94,7 +94,7 @@
   width: 14px;
   height: 14px;
   margin-top: 14px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   background: var(--hue);
   box-shadow:
     var(--hi),
@@ -152,7 +152,7 @@
   gap: 1px;
 }
 .nbk__stats dt {
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .nbk__stats dd {
@@ -280,7 +280,7 @@
   line-height: 1.45;
 }
 .note-card__meta {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 
 .nbk__drop {

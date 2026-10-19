@@ -23,16 +23,16 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  type AnswerRoute,
-  type ExplainTool,
-  isClaudeCodeModel,
-  type ModelBilling,
-  type Part,
-  type Recovered,
-  type Usage,
-  type UsageCall,
+import type {
+  AnswerRoute,
+  ExplainTool,
+  ModelBilling,
+  Part,
+  Recovered,
+  Usage,
+  UsageCall,
 } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 
 /* ---- who pays ---------------------------------------------------------------- */
 

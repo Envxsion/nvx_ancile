@@ -42,7 +42,7 @@
 }
 .chatimp__bar {
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--hair);
   overflow: hidden;
 }

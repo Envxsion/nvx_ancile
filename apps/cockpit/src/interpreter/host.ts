@@ -16,7 +16,8 @@
  * ------------------------------------------------------------------
  */
 
-import { type InterpreterRequest, PYODIDE_VERSION } from '@nvx/contracts';
+import type { InterpreterRequest } from '@nvx/contracts';
+import { PYODIDE_VERSION } from '@nvx/contracts/interpreter';
 import { create } from 'zustand';
 import { API_BASE, api } from '../lib/api';
 import type { PythonSandbox, RunOutcome, Stage } from './sandbox';

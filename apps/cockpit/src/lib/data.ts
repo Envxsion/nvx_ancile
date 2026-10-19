@@ -25,11 +25,10 @@ import type {
 } from '@nvx/contracts';
 import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
-import { ccSummary, ccThread } from '../fixtures/claudeCode';
-import * as demo from '../fixtures/demo';
 import { useUi } from '../state/ui';
 import { ApiCallError, api, OfflineError } from './api';
 import { useConnection } from './connection';
+import { loadClaudeCodeDemo, loadDemo } from './demoData';
 import {
   hideTryout,
   keepTestModelsInDev,
@@ -58,7 +57,11 @@ import type {
  * later phase) is simply empty: sample notebooks in a real session would
  * pass fiction off as yours. Every other error is real.
  */
-export async function orDemo<T>(call: () => Promise<T>, fixture: T, notBuilt?: T): Promise<T> {
+export async function orDemo<T>(
+  call: () => Promise<T>,
+  fixture: T | (() => Promise<T>),
+  notBuilt?: T,
+): Promise<T> {
   try {
     const value = await call();
     useUi.getState().setDemo(false);
@@ -66,13 +69,13 @@ export async function orDemo<T>(call: () => Promise<T>, fixture: T, notBuilt?: T
   } catch (error) {
     if (error instanceof OfflineError && !useConnection.getState().everOnline) {
       useUi.getState().setDemo(true);
-      return fixture;
+      return typeof fixture === 'function' ? (fixture as () => Promise<T>)() : fixture;
     }
     if (
       error instanceof ApiCallError &&
       (error.body.error.code === 'not_implemented' || error.status === 501)
     )
-      return notBuilt ?? fixture;
+      return notBuilt ?? (typeof fixture === 'function' ? (fixture as () => Promise<T>)() : fixture);
     throw error;
   }
 }
@@ -113,7 +116,10 @@ export function useThreads() {
               `/threads?limit=100${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
             )
             .then((r) => ({ items: r.items.map(toThreadSummary), next: r.next_cursor ?? null })),
-        { items: [...demo.threads, ccSummary], next: null },
+        async () => {
+          const [demo, { ccSummary }] = await Promise.all([loadDemo(), loadClaudeCodeDemo()]);
+          return { items: [...demo.threads, ccSummary], next: null };
+        },
       ),
     getNextPageParam: (last) => last.next,
   });
@@ -151,7 +157,7 @@ export function useNotebooks() {
     queryFn: () =>
       orDemo<NotebookView[]>(
         () => api.get<{ items: Notebook[] }>('/notebooks').then((r) => r.items.map(toNotebookView)),
-        demo.notebooks,
+        () => loadDemo().then((m) => m.notebooks),
         [],
       ),
   });
@@ -179,11 +185,15 @@ export const threadQuery = (id: string) =>
     queryKey: keys.thread(id),
     queryFn: () =>
       // The last page only; earlier pages load as you scroll up (lib/threadPages.ts).
-      orDemo<ThreadView>(() => fetchThreadTail(id), demoThread(id)),
+      orDemo<ThreadView>(
+        () => fetchThreadTail(id),
+        () => demoThread(id),
+      ),
   });
 
 /** The one fully written demo thread, or an empty one with the right title. */
-function demoThread(id: string): ThreadView {
+async function demoThread(id: string): Promise<ThreadView> {
+  const [demo, { ccThread }] = await Promise.all([loadDemo(), loadClaudeCodeDemo()]);
   if (id === demo.thread.id) return demo.thread;
   if (id === ccThread.id) return ccThread;
   const summary = demo.threads.find((t) => t.id === id);
@@ -233,7 +243,7 @@ export function useModels(opts: { all?: boolean } = {}) {
                 .filter((m) => !m.capabilities.includes('embeddings') && !m.capabilities.includes('rerank'))
                 .map(toModelView),
             ),
-        demo.models,
+        () => loadDemo().then((m) => m.models),
       ),
   });
 }
@@ -245,7 +255,7 @@ export function useApprovals() {
     queryFn: () =>
       orDemo<PendingApproval[]>(
         () => api.get<{ items: Approval[] }>('/approvals').then((r) => r.items.map(toPendingApproval)),
-        [demo.approval],
+        () => loadDemo().then((m) => [m.approval]),
       ),
   });
 }
@@ -327,7 +337,7 @@ export const sourcesQuery = (notebookId: string) =>
           api
             .get<{ items: Source[] }>(`/notebooks/${notebookId}/sources`)
             .then((r) => r.items.map(toSourceView)),
-        notebookId === demo.notebooks[0]?.id ? demo.sources : [],
+        () => loadDemo().then((m) => (notebookId === m.notebooks[0]?.id ? m.sources : [])),
         [],
       ),
   });

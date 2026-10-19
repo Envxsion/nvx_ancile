@@ -22,9 +22,9 @@
 import type { ModelChange, ModelLine, ModelWatchReport, WatchedModel } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { demoWatch } from '../fixtures/demo';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
+import { useDemoData } from '../lib/demoData';
 import { queryClient } from '../lib/query';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
@@ -40,6 +40,7 @@ export function refreshModels(): void {
 
 export function useModelWatch() {
   const demo = useUi((s) => s.demo);
+  const sample = useDemoData(demo);
   const q = useQuery({
     queryKey: watchKey,
     staleTime: 30_000,
@@ -47,7 +48,7 @@ export function useModelWatch() {
     enabled: !demo,
     queryFn: () => api.get<ModelWatchReport>('/models/watch'),
   });
-  return demo ? { ...q, data: demoWatch, isPending: false, isError: false, error: null } : q;
+  return demo ? { ...q, data: sample?.demoWatch, isPending: !sample, isError: false, error: null } : q;
 }
 
 const failed = (error: unknown) =>

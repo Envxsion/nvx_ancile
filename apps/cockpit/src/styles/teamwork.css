@@ -79,7 +79,7 @@
 }
 .teamwork__meta {
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   white-space: nowrap;
 }
 .teamwork__chev {
@@ -105,7 +105,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 6px 12px 10px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 
 /* ---- Timeline ---------------------------------------------------------- */
@@ -141,7 +141,7 @@
   opacity: 0.62;
 }
 .tw-step__handoff {
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   line-height: 1;
 }
 .tw-step__handoff:empty {
@@ -199,20 +199,20 @@
   flex: none;
   padding: 0 7px;
   border-radius: var(--r-pill);
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--fg-2);
   background: color-mix(in srgb, var(--hue) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 30%, transparent);
 }
 .tw-step__meta {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--t-caption);
   white-space: nowrap;
 }
 .tw-tag {
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   color: var(--fg-3);
   box-shadow: inset 0 0 0 1px var(--hair-2);
 }
@@ -236,7 +236,7 @@
   gap: 4px;
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--fg);
   background: var(--chalk);
 }
@@ -255,7 +255,7 @@
 }
 .tw-decision__reason {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--t-small);
   line-height: 1.45;
   color: var(--fg-2);
 }
@@ -268,7 +268,7 @@
   padding: 1px 6px;
   margin-left: -6px;
   border-radius: var(--r-sm);
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--fg-3);
   transition:
     color var(--d-micro) var(--ease),
@@ -284,7 +284,7 @@
   border-left: 2px solid var(--hair-2);
   max-height: 180px;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--t-small);
   font-style: italic;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -297,7 +297,7 @@
   overflow: auto;
   border-radius: var(--r-sm);
   background: rgb(var(--void-rgb) / 0.55);
-  font-size: 12.5px;
+  font-size: var(--t-small);
   line-height: 1.5;
   white-space: pre-wrap;
   color: var(--fg-2);
@@ -316,7 +316,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--t-small);
   color: var(--fail);
 }
 
@@ -325,7 +325,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--t-small);
   color: var(--fg-2);
 }
 
@@ -343,7 +343,7 @@
 }
 .tw-graph figcaption {
   padding: 2px 4px 0;
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   text-align: center;
 }
 .tw-graph__edge {
@@ -452,7 +452,7 @@
   gap: 4px;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--fg-3);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.3);
 }
@@ -497,7 +497,7 @@
   gap: 2px;
   padding: 0 4px;
   border-radius: var(--r-pill);
-  font-size: 9.5px;
+  font-size: var(--t-micro);
   color: var(--gilt);
   box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.35);
 }
@@ -508,10 +508,10 @@
   align-items: center;
   gap: 4px 8px;
   margin: -2px 0 0;
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .tw-step__handoff {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 
 /* FL1: a router that learns, and a shadow flow's answer. Calm ink: neither is live state. */

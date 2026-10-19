@@ -27,17 +27,21 @@ import { queryClient } from '../src/lib/query';
 import { between, fold, type LiveTurn, type StepClock, useRuns } from '../src/lib/run';
 import { LiveFooter, livePhase } from '../src/thread/LiveFooter';
 import { Parts } from '../src/thread/Parts';
+import { ToolStep } from '../src/thread/ToolStepCards';
+import { loadToolStepCards } from '../src/thread/ToolStepLazy';
 import {
   familyOf,
   oneLine,
   resultLine,
   type ToolCall,
   type ToolResult,
-  ToolStep,
   took,
   valueLine,
 } from '../src/thread/ToolSteps';
 import { nowWords, workingNow } from '../src/thread/WorkingNow';
+
+// The step cards load on demand in the app; here they are in before the first render.
+await loadToolStepCards();
 
 const call = (id: string, tool: string, args: unknown): ToolCall => ({
   type: 'tool_call',

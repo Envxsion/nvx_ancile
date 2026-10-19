@@ -13,16 +13,18 @@
  *           |  loop). A chunk that failed to load offers "Try again",
  *           |  and lazyHost re-requests it. The shell scope offers
  *           |  Reload and "Start in safe mode" (?safe=1).
+ *           |  The full card (icon, Copy debug info, Report) is its own
+ *           |  chunk, ErrorFallback.tsx, fetched when something breaks;
+ *           |  a plain card of the same shape stands in until it arrives.
  *  Note     |  The catch is logged to the console with the version.
  *           |  TODO(phase-5): send it to Core's log with the trace id
  *           |  once Core takes client errors.
  * ------------------------------------------------------------------
  */
 
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, type ComponentType, type ErrorInfo, type ReactNode } from 'react';
 import { COCKPIT_VERSION } from '../lib/build';
-import { notify } from '../state/notify';
-import { Icon } from './Icon';
+import type { FallbackProps } from './ErrorFallback';
 
 export type BoundaryScope = 'shell' | 'route' | 'panel' | 'message' | 'artifact' | 'node' | 'lazy';
 
@@ -55,10 +57,12 @@ interface Props {
 interface State {
   error: Error | null;
   failures: number;
+  /** The full card, once its chunk has arrived. */
+  Full: ComponentType<FallbackProps> | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null, failures: 0 };
+  state: State = { error: null, failures: 0, Full: null };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
@@ -73,34 +77,9 @@ export class ErrorBoundary extends Component<Props, State> {
       error.message,
       info.componentStack?.slice(0, 400),
     );
+    if (!this.state.Full)
+      import('./ErrorFallback').then((m) => this.setState({ Full: m.ErrorFallback })).catch(() => {});
   }
-
-  private copy = (report = false) => {
-    const e = this.state.error;
-    const text = [
-      `NVX Ancile ${COCKPIT_VERSION}`,
-      `Scope: ${this.props.scope}${this.props.label ? ` (${this.props.label})` : ''}`,
-      `Error: ${e?.name}: ${e?.message}`,
-      `Page: ${location.pathname}`,
-    ].join('\n');
-    const out = report
-      ? `For NVX Ancile support. Nothing has been sent.
-
-${text}`
-      : text;
-    void navigator.clipboard
-      ?.writeText(out)
-      .then(() =>
-        notify({
-          level: 'success',
-          title: report ? 'Report copied' : 'Debug info copied',
-          ...(report && { body: 'Nothing was sent. Paste it where you report problems.' }),
-        }),
-      )
-      .catch(() =>
-        notify({ level: 'error', title: 'Could not copy', body: 'Select the text and copy it yourself.' }),
-      );
-  };
 
   private retry = () => {
     this.props.onRetry?.();
@@ -108,7 +87,7 @@ ${text}`
   };
 
   render() {
-    const { error, failures } = this.state;
+    const { error, failures, Full } = this.state;
     const { scope, label, quiet, children } = this.props;
     if (!error) return children;
     // Failed again after a reload: the boundary above takes it, so a broken child can never loop.
@@ -116,39 +95,39 @@ ${text}`
 
     const chunk = isChunkError(error);
     const name = label ?? NAMES[scope];
+    const title = chunk ? `${name} did not load` : `${name} stopped working`;
     const hint = chunk
       ? 'The file could not be fetched. Check your connection, then try again.'
       : scope === 'shell'
         ? 'Reload to carry on. If it keeps happening, start in safe mode.'
         : 'The rest of NVX Ancile still works. Custom CSS or a plugin can cause this: try safe mode.';
+    if (Full)
+      return (
+        <Full
+          scope={scope}
+          label={label}
+          quiet={quiet}
+          error={error}
+          title={title}
+          hint={hint}
+          chunk={chunk}
+          onRetry={this.retry}
+        />
+      );
+    // Stands in until the full card arrives (or if it cannot): same shape, the one button that matters.
     return (
       <div className="error-state" role="alert" data-compact={quiet || undefined} data-boundary={scope}>
-        <span className="error-state__icon" aria-hidden="true">
-          <Icon name="alert" size={18} />
-        </span>
+        <span className="error-state__icon" aria-hidden="true" />
         <div className="error-state__text">
-          <p className="error-state__title">{chunk ? `${name} did not load` : `${name} stopped working`}</p>
+          <p className="error-state__title">{title}</p>
           <p className="error-state__hint">{hint}</p>
           <div className="error-state__actions">
-            {scope === 'shell' ? (
-              <>
-                <button type="button" className="btn btn--primary btn--sm" onClick={() => location.reload()}>
-                  Reload
-                </button>
-                <a className="btn btn--ghost btn--sm" href="/?safe=1">
-                  Start in safe mode
-                </a>
-              </>
-            ) : (
-              <button type="button" className="btn btn--primary btn--sm" onClick={this.retry}>
-                {chunk ? 'Try again' : 'Reload this panel'}
-              </button>
-            )}
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => this.copy()}>
-              Copy debug info
-            </button>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => this.copy(true)}>
-              Report
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={scope === 'shell' ? () => location.reload() : this.retry}
+            >
+              {scope === 'shell' ? 'Reload' : chunk ? 'Try again' : 'Reload this panel'}
             </button>
           </div>
         </div>

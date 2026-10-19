@@ -21,9 +21,9 @@
 
 import type { ProviderInfo, ProviderInfoList, ProviderRegion } from '@nvx/contracts';
 import { useQuery } from '@tanstack/react-query';
-import * as demo from '../fixtures/demo';
 import { api } from '../lib/api';
 import { orDemo } from '../lib/data';
+import { loadDemo } from '../lib/demoData';
 
 export function useProviders() {
   return useQuery({
@@ -33,7 +33,7 @@ export function useProviders() {
     queryFn: () =>
       orDemo<ProviderInfo[]>(
         () => api.get<ProviderInfoList>('/providers').then((r) => r.items),
-        demo.providers,
+        () => loadDemo().then((m) => m.providers),
       ),
   });
 }

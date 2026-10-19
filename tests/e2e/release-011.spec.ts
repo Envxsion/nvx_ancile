@@ -365,9 +365,7 @@ test.describe('0.1.1 journeys', () => {
       await page.goto(route);
       await expect(page.getByRole('main')).toBeVisible();
       await page.waitForLoadState('networkidle').catch(() => {});
-      // Two real bugs, reported in QA1 and excluded so they do not hide others: the toast list holds
-      // role=status items (list), and a usage meter with no reading has no aria-valuenow (aria-required-attr).
-      await expectAccessible(page, ['.toaster', '[role="meter"]']);
+      await expectAccessible(page);
     });
 });
 

@@ -21,7 +21,8 @@
  * ------------------------------------------------------------------
  */
 
-import { ARTIFACT_CHANNEL, ArtifactFrameMessage, type ArtifactType } from '@nvx/contracts';
+import type { ArtifactType } from '@nvx/contracts';
+import { ARTIFACT_CHANNEL, ArtifactFrameMessage } from '@nvx/contracts/artifacts';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FRAME_HOST_URL, feedFrame } from '../lib/frameHost';
 import { buildArtifactDocument, type FrameTheme, newNonce, type Runtime } from './document';

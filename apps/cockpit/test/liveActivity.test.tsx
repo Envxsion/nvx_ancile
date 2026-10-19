@@ -17,7 +17,11 @@ import { fold, type LiveTurn } from '../src/lib/run';
 import { livePhase, liveTokens, shortCount } from '../src/thread/LiveFooter';
 import { costText } from '../src/thread/Message';
 import { Parts } from '../src/thread/Parts';
+import { loadToolStepCards } from '../src/thread/ToolStepLazy';
 import { elapsed, ToolCwd } from '../src/thread/ToolSteps';
+
+// The step cards load on demand in the app; here they are in before the first render.
+await loadToolStepCards();
 
 const call = (id: string, tool: string, args: unknown): Part => ({
   type: 'tool_call',

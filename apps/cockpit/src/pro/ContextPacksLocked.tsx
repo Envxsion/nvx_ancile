@@ -16,7 +16,7 @@
  * ------------------------------------------------------------------
  */
 
-import { pro as proContract } from '@nvx/contracts';
+import * as proContract from '@nvx/contracts/pro';
 import { Link } from '@tanstack/react-router';
 import { Icon, type IconName } from '../ui/Icon';
 import '../styles/pro.css';

@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import { FRAME_HOST_CHANNEL, FRAME_HOST_PATH } from '@nvx/contracts';
+import { FRAME_HOST_CHANNEL, FRAME_HOST_PATH } from '@nvx/contracts/csp';
 
 export const FRAME_HOST_URL = FRAME_HOST_PATH;
 

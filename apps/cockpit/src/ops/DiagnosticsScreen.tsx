@@ -13,7 +13,8 @@
  * ------------------------------------------------------------------
  */
 
-import { DiagnosticCheck, type DiagnosticRun } from '@nvx/contracts';
+import type { DiagnosticRun } from '@nvx/contracts';
+import { DiagnosticCheck } from '@nvx/contracts/ops';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';

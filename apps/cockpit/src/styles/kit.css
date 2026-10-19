@@ -166,7 +166,7 @@ html[data-resizing] .shell {
   gap: 4px;
   padding: 2px 4px;
   border-radius: var(--r-xs);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--mute-2);
 }
@@ -214,7 +214,7 @@ html[data-resizing] .shell {
   top: 8px;
   bottom: 8px;
   width: 2px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--signal);
   box-shadow: 0 0 10px rgb(var(--signal-rgb) / calc(0.7 * var(--glow)));
 }
@@ -243,17 +243,17 @@ html[data-resizing] .shell {
   flex: none;
   width: 9px;
   height: 9px;
-  border-radius: 3px;
+  border-radius: var(--r-2xs);
   background: var(--hue);
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--hue) 16%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.3);
+    inset 0 1px 0 rgb(var(--c-white) / 0.3);
 }
 .rail__draft {
   flex: none;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-size: 10px;
+  font-size: var(--t-micro);
   font-weight: 600;
   color: var(--fg-3);
   box-shadow: inset 0 0 0 1px var(--hair-2);
@@ -328,7 +328,7 @@ html[data-resizing] .shell {
   bottom: 10%;
   left: 2px;
   width: 2px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: rgb(var(--signal-rgb) / 0);
   transition: background-color var(--d-short) var(--ease-out);
 }
@@ -378,7 +378,7 @@ html[data-resizing] .shell {
 .new-nb__hue {
   width: 16px;
   height: 16px;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   background: var(--hue);
   transition: transform var(--d-short) var(--ease-spring);
 }
@@ -418,7 +418,7 @@ html[data-resizing] .shell {
 }
 .checklist__count {
   color: var(--mute);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
 }
 .checklist__caret {
   transition: rotate var(--d-short) var(--ease-out);
@@ -579,7 +579,7 @@ li[data-done] .checklist__step {
   right: 8px;
   bottom: -1px;
   height: 2px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--signal);
   box-shadow: 0 0 12px rgb(var(--signal-rgb) / calc(0.6 * var(--glow)));
 }
@@ -705,7 +705,7 @@ li[data-done] .checklist__step {
 }
 .menu__label {
   padding: 6px 8px 4px;
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 600;
   color: var(--mute-2);
 }
@@ -721,7 +721,7 @@ li[data-done] .checklist__step {
 .segmented[data-size='sm'] .segmented__opt {
   height: 22px;
   padding: 0 8px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .range-field {
   display: inline-flex;
@@ -741,7 +741,7 @@ li[data-done] .checklist__step {
   height: 24px;
   padding: 0 9px;
   border-radius: var(--r-pill);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--fg-3);
   box-shadow: inset 0 0 0 1px var(--hair-2);
   transition:
@@ -866,7 +866,7 @@ li[data-done] .checklist__step {
 }
 .help__foot {
   padding: 10px 16px 14px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   box-shadow: 0 -1px 0 var(--hair);
 }
 .help__contents {
@@ -884,7 +884,7 @@ li[data-done] .checklist__step {
 }
 .help__numeral {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   color: var(--gilt);
   letter-spacing: 0.04em;
 }
@@ -1000,7 +1000,7 @@ li[data-done] .checklist__step {
   animation: rise var(--d-short) var(--ease-out);
 }
 .help__crumb {
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute-2);
 }
 .help__title {
@@ -1075,7 +1075,7 @@ li[data-done] .checklist__step {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
 }
 .tour__dots {
@@ -1413,7 +1413,7 @@ li[data-done] .checklist__step {
   gap: 6px;
   padding: 8px 8px 6px;
   border-radius: var(--r-md);
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--fg-3);
   transition:
     background-color var(--d-micro) var(--ease-out),
@@ -1429,9 +1429,9 @@ li[data-done] .checklist__step {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, rgb(255 255 255 / 0.45), transparent 42%), var(--swatch);
+  background: radial-gradient(circle at 32% 28%, rgb(var(--c-white) / 0.45), transparent 42%), var(--swatch);
   box-shadow:
-    inset 0 -2px 6px rgb(0 0 0 / 0.25),
+    inset 0 -2px 6px rgb(var(--c-black) / 0.25),
     0 4px 12px -4px var(--swatch);
   transition: transform var(--d-short) var(--ease-spring);
 }
@@ -1446,7 +1446,7 @@ li[data-done] .checklist__step {
   box-shadow:
     0 0 0 2px var(--lift-2),
     0 0 0 3.5px var(--gilt),
-    inset 0 -2px 6px rgb(0 0 0 / 0.25);
+    inset 0 -2px 6px rgb(var(--c-black) / 0.25);
 }
 .snippets {
   display: grid;
@@ -1486,7 +1486,7 @@ li[data-done] .checklist__step {
 }
 .css-editor__text {
   min-height: 160px;
-  font-size: 12.5px;
+  font-size: var(--t-small);
   line-height: 1.6;
 }
 .css-editor__bar {
@@ -1715,7 +1715,7 @@ li[data-done] .checklist__step {
   display: flex;
   gap: 5px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
   white-space: nowrap;
   overflow: hidden;
@@ -1739,7 +1739,7 @@ li[data-done] .checklist__step {
   grid-column: 1 / -1;
   height: 3px;
   margin: 2px 8px 6px;
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--chalk-2);
   overflow: hidden;
 }
@@ -1747,7 +1747,7 @@ li[data-done] .checklist__step {
   display: block;
   height: 100%;
   width: calc(var(--p, 0) * 100%);
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
   background: var(--signal);
   box-shadow: 0 0 8px rgb(var(--signal-rgb) / 0.6);
   transition: width var(--d-view) var(--ease-out);
@@ -1818,7 +1818,7 @@ li[data-done] .checklist__step {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
 }
 
@@ -2062,7 +2062,7 @@ li[data-done] .checklist__step {
   white-space: nowrap;
 }
 .viewer__sub {
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .viewer__tools {
   display: flex;
@@ -2105,7 +2105,7 @@ li[data-done] .checklist__step {
   flex: 1;
   min-height: 0;
   padding: 16px 18px 40px;
-  font-size: 14px;
+  font-size: var(--t-body);
   line-height: 1.7;
   color: var(--fg-2);
 }
@@ -2123,15 +2123,15 @@ li[data-done] .checklist__step {
   line-height: 1.35;
 }
 .viewer__block--h1 {
-  font-size: 17px;
+  font-size: var(--t-h3);
 }
 .viewer__block--h2 {
-  font-size: 15.5px;
+  font-size: var(--t-read);
 }
 .viewer__block--code {
   padding: 10px 12px;
   border-radius: var(--r-md);
-  font-size: 12.5px;
+  font-size: var(--t-small);
   line-height: 1.6;
   background: var(--void-deep);
   box-shadow: var(--vault);
@@ -2142,7 +2142,7 @@ li[data-done] .checklist__step {
   align-items: center;
   gap: 10px;
   margin: 22px 0 14px;
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   color: var(--mute-2);
 }
 .viewer__page::before,
@@ -2156,7 +2156,7 @@ li[data-done] .checklist__step {
   color: var(--fg);
   background: rgb(var(--signal-rgb) / 0.16);
   box-shadow: 0 0 0 2px rgb(var(--signal-rgb) / 0.16);
-  border-radius: 3px;
+  border-radius: var(--r-2xs);
 }
 .viewer__cite--land {
   animation: cite-land 1.6s var(--ease-out) 1;
@@ -2170,7 +2170,7 @@ li[data-done] .checklist__step {
 .viewer__find {
   background: rgb(var(--warn-rgb) / 0.22);
   color: var(--fg);
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
 }
 .viewer__find[data-current='true'] {
   background: rgb(var(--warn-rgb) / 0.55);
@@ -2205,12 +2205,12 @@ li[data-done] .checklist__step {
   padding: 1px;
   background: var(--gilt-hair);
   -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
+    linear-gradient(black 0 0) content-box,
+    linear-gradient(black 0 0);
   -webkit-mask-composite: xor;
   mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
+    linear-gradient(black 0 0) content-box exclude,
+    linear-gradient(black 0 0);
   pointer-events: none;
 }
 .note-row__main {
@@ -2236,7 +2236,7 @@ li[data-done] .checklist__step {
   overflow: hidden;
 }
 .note-row__meta {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .note-row__more {
   margin: 8px 6px 0 0;
@@ -2265,13 +2265,13 @@ li[data-done] .checklist__step {
   outline: none;
 }
 .note-editor__state {
-  font-size: 11px;
+  font-size: var(--t-caption);
 }
 .note-editor__from {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--t-small);
 }
 .note-editor__body {
   flex: 1;
@@ -2284,7 +2284,7 @@ li[data-done] .checklist__step {
   box-shadow: var(--vault);
   color: var(--fg);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--t-body);
   line-height: 1.65;
   outline: none;
 }
@@ -2316,7 +2316,7 @@ li[data-done] .checklist__step {
   flex: 1;
 }
 .palette__snippet {
-  font-size: 11.5px;
+  font-size: var(--t-small);
   color: var(--mute);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2325,7 +2325,7 @@ li[data-done] .checklist__step {
 .palette__snippet mark {
   color: var(--fg);
   background: rgb(var(--signal-rgb) / 0.2);
-  border-radius: 2px;
+  border-radius: var(--r-3xs);
 }
 .palette__busy {
   width: 14px;
@@ -2356,11 +2356,11 @@ li[data-done] .checklist__step {
   display: inline;
   margin: 0 1px;
   padding: 2px 5px;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   white-space: nowrap;
   vertical-align: 0.12em;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--t-micro);
   font-weight: 600;
   line-height: 1;
   color: var(--fg-3);
@@ -2404,7 +2404,7 @@ li[data-done] .checklist__step {
 }
 .cite-chip[data-style='superscript'] {
   padding: 1px 3px;
-  font-size: 9px;
+  font-size: var(--t-micro);
   vertical-align: super;
 }
 .cite-chip[data-style='hover'] {
@@ -2446,8 +2446,8 @@ li[data-done] .checklist__step {
   place-items: center;
   min-width: 18px;
   height: 18px;
-  border-radius: 5px;
-  font-size: 10.5px;
+  border-radius: var(--r-xs);
+  font-size: var(--t-micro);
   color: var(--on-signal);
   background: var(--signal);
 }
@@ -2466,7 +2466,7 @@ li[data-done] .checklist__step {
   /* Quoted source text: a kept thing, so a gilt rule, not signal violet. */
   border-left: 2px solid rgb(var(--gilt-rgb) / 0.45);
   color: var(--fg-2);
-  font-size: 13px;
+  font-size: var(--t-ui);
   line-height: 1.55;
   white-space: pre-wrap;
   max-height: 180px;
@@ -2477,8 +2477,8 @@ li[data-done] .checklist__step {
   align-items: center;
   gap: 5px;
   padding: 2px 7px;
-  border-radius: 10px;
-  font-size: 11.5px;
+  border-radius: var(--r-md);
+  font-size: var(--t-small);
   font-weight: 600;
   color: var(--fg-3);
   background: var(--chalk-2);
@@ -2504,7 +2504,7 @@ li[data-done] .checklist__step {
   max-width: 100%;
   margin: 0 0 10px;
   padding: 3px 6px 3px 8px;
-  border-radius: 13px;
+  border-radius: var(--r-lg);
   text-align: left;
   font-size: var(--t-small);
   color: var(--fg-3);
@@ -2533,7 +2533,7 @@ button.grounding:hover {
 .grounding__why {
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  font-size: 11px;
+  font-size: var(--t-caption);
   color: var(--mute);
   box-shadow: inset 0 0 0 1px var(--hair-2);
 }
@@ -2576,7 +2576,7 @@ button.grounding:hover {
   border-radius: var(--r-pill);
   background: var(--wash-2);
   color: var(--mute);
-  font-size: 11px;
+  font-size: var(--t-caption);
   font-weight: 560;
   font-variant-numeric: tabular-nums;
 }

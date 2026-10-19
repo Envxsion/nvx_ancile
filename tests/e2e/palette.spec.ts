@@ -18,9 +18,11 @@ test.describe('command palette', () => {
     await page.goto('/');
     const before = await resolvedTheme(page);
     const palette = await openPalette(page);
-    await page.keyboard.type('thme');
-    const option = palette.getByRole('option', { name: /theme/i }).first();
+    // Fuzzy: "swtch thme" still finds "Switch theme" (a bare "thme" also ranks "Match system theme", a no-op on a system-themed run).
+    await page.keyboard.type('swtch thme');
+    const option = palette.getByRole('option', { name: /switch theme/i }).first();
     await expect(option).toBeVisible();
+    await expect(option).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Enter');
     // Either the theme flips directly or a submenu offers the choices.
     const sub = palette.getByRole('option', { name: before === 'dark' ? /light/i : /dark/i });
@@ -45,6 +47,7 @@ test.describe('command palette', () => {
 
   test('? shows the shortcut sheet', async ({ page }) => {
     await page.goto('/');
+    await expect(page.getByRole('button', { name: /search or run a command/i })).toBeVisible();
     // Clear focus rather than clicking: a click in the middle of the page can
     // land in the composer, where "?" is text, as it should be.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

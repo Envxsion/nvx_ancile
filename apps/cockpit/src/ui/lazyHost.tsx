@@ -18,11 +18,11 @@
 import { type ComponentType, lazy, type ReactNode, Suspense, useState } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 
-export function lazyHost<M, K extends keyof M>(
+export function lazyHost<M, K extends keyof M, P = never>(
   load: () => Promise<M>,
   name: K,
-  /** What stands in while the chunk loads: give it the size of the real thing so nothing jumps. */
-  fallback: ReactNode = null,
+  /** What stands in while the chunk loads: give it the size of the real thing so nothing jumps (a function gets the props). */
+  fallback: ReactNode | ((props: P) => ReactNode) = null,
 ): M[K] extends ComponentType<infer P> ? ComponentType<P> : never {
   const make = () => lazy(async () => ({ default: (await load())[name] as ComponentType<object> }));
   let Inner = make();
@@ -39,7 +39,7 @@ export function lazyHost<M, K extends keyof M>(
           setAttempt((n) => n + 1);
         }}
       >
-        <Suspense fallback={fallback}>
+        <Suspense fallback={typeof fallback === 'function' ? fallback(props as P) : fallback}>
           <Inner {...props} />
         </Suspense>
       </ErrorBoundary>

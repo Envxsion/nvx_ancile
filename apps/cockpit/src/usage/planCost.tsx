@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------
  */
 
-import { isClaudeCodeModel } from '@nvx/contracts';
+import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useClaudeCodeStatus } from '../claudecode/api';
 import { usd } from '../lib/format';
 import { useUi } from '../state/ui';

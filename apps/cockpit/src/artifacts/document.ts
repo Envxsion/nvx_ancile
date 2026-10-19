@@ -23,7 +23,8 @@
  * ------------------------------------------------------------------
  */
 
-import { ARTIFACT_CHANNEL, type ArtifactType } from '@nvx/contracts';
+import type { ArtifactType } from '@nvx/contracts';
+import { ARTIFACT_CHANNEL } from '@nvx/contracts/artifacts';
 
 /** The policy for one artifact. `scripts`: whether its own inline scripts may run. */
 export function artifactCsp(type: ArtifactType, allowNetwork: boolean): string {

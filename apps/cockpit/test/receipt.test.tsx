@@ -17,6 +17,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 });
 
 import { api } from '../src/lib/api';
+import { loadDemo } from '../src/lib/demoData';
 import { toMessageView } from '../src/lib/mappers';
 import { queryClient } from '../src/lib/query';
 import type { MessageView } from '../src/lib/types';
@@ -36,6 +37,9 @@ import { Receipt } from '../src/receipt/Receipt';
 import { ReceiptStrip } from '../src/receipt/ReceiptStrip';
 import { TABS } from '../src/shell/Drawer';
 import { useUi } from '../src/state/ui';
+
+// The sample model list is a fallback for names; it loads on demand in the app.
+await loadDemo();
 
 const mocked = api as unknown as Record<'get' | 'post' | 'put' | 'patch' | 'del', ReturnType<typeof vi.fn>>;
 

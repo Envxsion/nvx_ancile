@@ -14,7 +14,8 @@
  * ------------------------------------------------------------------
  */
 
-import { type Part, PythonRunResult } from '@nvx/contracts';
+import type { Part } from '@nvx/contracts';
+import { PythonRunResult } from '@nvx/contracts/interpreter';
 import { useEffect, useState } from 'react';
 import { ImageFrame } from '../images/ThreadImage';
 import { API_BASE } from '../lib/api';

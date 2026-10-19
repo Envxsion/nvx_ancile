@@ -12,13 +12,8 @@
  * ------------------------------------------------------------------
  */
 
-import {
-  DEFAULT_PREFERENCES,
-  keepDevicePrefs,
-  Preferences,
-  type PrefGroup,
-  withoutDevicePrefs,
-} from '@nvx/contracts';
+import type { PrefGroup } from '@nvx/contracts';
+import { DEFAULT_PREFERENCES, keepDevicePrefs, Preferences, withoutDevicePrefs } from '@nvx/contracts/prefs';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { CheckReviewers } from '../../auto/CheckReviewers';

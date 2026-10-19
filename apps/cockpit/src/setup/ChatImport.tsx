@@ -19,7 +19,8 @@
  * ------------------------------------------------------------------
  */
 
-import { CHAT_ORIGIN_LABEL, type ChatImport } from '@nvx/contracts';
+import type { ChatImport } from '@nvx/contracts';
+import { CHAT_ORIGIN_LABEL } from '@nvx/contracts/chatimport';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, api, newTraceparent } from '../lib/api';
