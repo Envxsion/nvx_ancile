@@ -13,12 +13,8 @@
  *           |  the dialog says what packs are, that context links and
  *           |  merge are free, and where to read more. Public: the
  *           |  free build shows the same dialog.
- *  Note     |  TODO(phase-0.1.1): Pro supplies parts.PackMenu in
- *           |  pro/cockpit/index.tsx: the attach/detach list (a pack
- *           |  that would break a scope says so and stays off), "Make a
- *           |  pack from this thread", and a pack deleted while
- *           |  attached dropping off the list. Nothing here reads or
- *           |  writes a pack.
+ *  Note     |  Pro supplies parts.PackMenu (pro/cockpit/ai/packMenu.tsx).
+ *           |  Nothing here reads or writes a pack.
  * ------------------------------------------------------------------
  */
 

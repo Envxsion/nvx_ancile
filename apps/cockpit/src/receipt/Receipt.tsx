@@ -60,6 +60,7 @@ import {
   turnSummary,
   whyThisModel,
 } from './figures';
+import { ReceiptPro } from './ReceiptPro';
 import { receiptId, stripId } from './ReceiptStrip';
 import { LinksUsed, MemoryFiles, Retrieval } from './Sections';
 import { Timeline } from './Timeline';
@@ -568,6 +569,7 @@ function Body({ m, threadId }: { m: MessageView; threadId: string }) {
           ) : null}
         </>
       )}
+      {facts ? <ReceiptPro m={m} threadId={threadId} /> : null}
       {x ? (
         <footer className="rc__foot">
           <a className="btn btn--ghost btn--sm" href={x.trace_url} title={`Trace ${x.trace_id}`}>

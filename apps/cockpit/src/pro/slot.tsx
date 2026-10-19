@@ -159,6 +159,30 @@ export interface PackMenuProps {
   onClose: () => void;
 }
 
+/** One answer's receipt as plain figures (WY1). Pro compares and exports these; it reads nothing else. */
+export interface ReceiptRow {
+  id: string;
+  threadId: string;
+  at: string;
+  model: string;
+  /** Plan or Key badge, when the answer has one. */
+  badge: string | null;
+  /** How it was paid for: null when unknown. */
+  pay: 'key' | 'plan' | 'free' | null;
+  costUsd: number | null;
+  /** Null: not recorded or not reported (never a made-up 0). */
+  tokens: { fresh: number | null; cached: number | null; written: number | null; output: number };
+  cacheSavedUsd: number | null;
+  ms: number | null;
+  calls: number | null;
+}
+
+/** What the receipt hands Pro's tools: this answer, and the other answers in its thread. */
+export interface ReceiptToolsProps {
+  row: ReceiptRow;
+  others: ReceiptRow[];
+}
+
 /** pro/cockpit/index.tsx's export. */
 export interface ProUi {
   /** One screen per surface id (PRO_SURFACES[].id). */
@@ -169,6 +193,8 @@ export interface ProUi {
     FlowLinkDialog?: ComponentType<FlowLinkDialogProps>;
     /** Attach or detach packs, and make a pack from this thread (ROADMAP CP1). */
     PackMenu?: ComponentType<PackMenuProps>;
+    /** Compare this receipt with another and export receipts (ROADMAP WY1). */
+    ReceiptTools?: ComponentType<ReceiptToolsProps>;
   };
 }
 type CreateProUi = (kit: ProKit) => ProUi;
