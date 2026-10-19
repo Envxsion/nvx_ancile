@@ -24,6 +24,7 @@ import { Ticker } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { CopyButton, duration, LoadFailed, reportFailure } from './common';
+import { TidyStorage } from './TidyStorage';
 
 const GROUPS: { id: DiagnosticCheck['group']; title: string; icon: IconName }[] = [
   { id: 'data', title: 'Your data', icon: 'grid' },
@@ -228,6 +229,8 @@ export function DiagnosticsScreen() {
       ) : (
         <EmptyState icon="factcheck" title="No self-check yet" body="Run one to see how everything stands." />
       )}
+
+      <TidyStorage />
 
       {(recent.data?.length ?? 0) > 1 ? (
         <section className="diag-history">

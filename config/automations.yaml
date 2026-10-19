@@ -28,6 +28,9 @@ jobs:
   memory_backup:         # push the memory repo; off until it has a remote
     enabled: true
     cron: "0 * * * *"
+  tidy_storage:          # backup first, then dedupe chunks and old versions by content hash, then vacuum; only when idle
+    enabled: false
+    cron: "30 3 * * 0"
   duplicate_sources:     # exact hash and near-duplicate detection, on ingest
     enabled: true
     config: { near_duplicate_percent: 90 }

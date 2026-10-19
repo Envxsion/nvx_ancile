@@ -2,14 +2,18 @@
 //  Title    |  Tray
 //  ID       |  desktop
 // ------------------------------------------------------------------
-//  Purpose  |  NVX Ancile in the tray: whether it is ready, a way back
-//           |  to the window, the logs folder, and Quit (which stops
+//  Purpose  |  NVX Ancile in the tray: whether it is ready (or, in
+//           |  Pro with the window hidden, "Running in the background"),
+//           |  a way back to the window, the logs folder, and Quit
+//           |  (which first looks for runs and approvals, then stops
 //           |  every service cleanly). With updates on: the update on
 //           |  offer (Pro arriving, Pro ended, or a newer version) and
 //           |  "Check for updates".
 // ------------------------------------------------------------------
 
 use crate::supervisor::Status;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
@@ -50,7 +54,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                     open_folder(&sup.layout().logs);
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => crate::shell::request_quit(app),
             #[cfg(feature = "updater")]
             "update" => crate::updates::install(app.clone()),
             #[cfg(feature = "updater")]
@@ -73,18 +77,39 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 
 struct StatusItem(MenuItem<tauri::Wry>);
 
-/// Mirror the supervisor's status in the tray tooltip and first menu line.
-pub fn refresh(app: &AppHandle, status: &Status) {
-    let text = if status.ready {
-        "Ready".to_string()
+/// Pro: the window is hidden and scheduled work carries on.
+static BACKGROUND: AtomicBool = AtomicBool::new(false);
+static HEADLINE: Mutex<String> = Mutex::new(String::new());
+
+/// What the first line says: the background mode wins over "Ready".
+pub fn line(headline: &str, background: bool) -> String {
+    if background && (headline == "Ready" || headline.starts_with("Ready. Warming")) {
+        "Running in the background".to_string()
     } else {
-        status.message.clone()
-    };
+        headline.to_string()
+    }
+}
+
+fn render(app: &AppHandle) {
+    let text = line(&HEADLINE.lock().unwrap(), BACKGROUND.load(Ordering::SeqCst));
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(format!("NVX Ancile: {text}")));
     }
     if let Some(item) = app.try_state::<StatusItem>() {
         let _ = item.0.set_text(text);
+    }
+}
+
+/// Mirror the supervisor's status in the tray tooltip and first menu line.
+pub fn refresh(app: &AppHandle, status: &Status) {
+    *HEADLINE.lock().unwrap() = status.message.clone();
+    render(app);
+}
+
+/// Core says Pro keeps scheduled work going, and the window is hidden.
+pub fn set_background(app: &AppHandle, on: bool) {
+    if BACKGROUND.swap(on, Ordering::SeqCst) != on {
+        render(app);
     }
 }
 
@@ -97,4 +122,33 @@ fn open_folder(path: &std::path::Path) {
         "xdg-open"
     };
     let _ = std::process::Command::new(program).arg(path).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line;
+
+    #[test]
+    fn the_background_line_replaces_ready_but_never_a_problem() {
+        assert_eq!(line("Ready", true), "Running in the background");
+        assert_eq!(
+            line("Ready. Warming up: sources and search", true),
+            "Running in the background"
+        );
+        assert_eq!(line("Ready", false), "Ready");
+        assert_eq!(
+            line("Ready, but sources and search did not start", false),
+            "Ready, but sources and search did not start"
+        );
+        assert_eq!(
+            line("Ready, but sources and search did not start", true),
+            "Ready, but sources and search did not start",
+            "a problem is never hidden behind the background line"
+        );
+        assert_eq!(
+            line("A service keeps stopping", true),
+            "A service keeps stopping"
+        );
+        assert_eq!(line("Starting", true), "Starting");
+    }
 }

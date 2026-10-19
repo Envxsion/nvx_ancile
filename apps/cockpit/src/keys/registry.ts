@@ -41,6 +41,14 @@ export const BINDINGS: readonly BindingDef[] = [
   { id: 'search.focus', keys: '/', label: 'Search', group: 'Everywhere', scope: 'global' },
   { id: 'shortcuts.show', keys: '?', label: 'Show shortcuts', group: 'Everywhere', scope: 'global' },
   {
+    id: 'app.quit',
+    keys: 'mod+q',
+    label: 'Quit NVX Ancile (desktop app)',
+    group: 'Everywhere',
+    scope: 'global',
+    inInputs: true,
+  },
+  {
     id: 'layer.close',
     keys: 'escape',
     label: 'Close, or leave the composer',

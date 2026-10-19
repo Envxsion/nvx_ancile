@@ -163,6 +163,12 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `memory.revert_conflict` | 409 | "That change cannot be undone automatically." / Later edits touched the same lines; change the file by hand. |
 | `memory.proposal_not_found` | 404 | "That memory suggestion does not exist." / Reload the inbox. |
 | `memory.proposal_decided` | 409 | "That memory suggestion was already dealt with." / Reload the inbox to see where it stands. |
+| `memory.scope_fixed` | 400 | "That kind of note stays in its own file" / Lessons and model quirks are kept by topic. Choose a file instead, or approve it as it is. |
+| `memory.scope_unavailable` | 409 | "This was not learned in a notebook" (or "The thread this came from is gone") / Keep it for you or everywhere instead, or choose a file. |
+| `memory.notebook_gone` | 409 | "That notebook no longer exists" / Keep it for you or everywhere instead, or choose a file. Nothing is written. |
+| `memory.file_unknown` | 400 | "<path> is not a memory file" / Choose USER.md, AGENTS.md, a notebook file under PROJECTS, or a topic under FAILURES. |
+| `memory.thread_not_found` | 404 | "That thread does not exist" / It may have been deleted. Open another thread and try again. (Hindsight pass.) |
+| `memory.hindsight_unavailable` | 503 | "The review could not be done" / No model answered, or its answer could not be read. Check that a utility or default model is set up, then try again. Nothing was saved. |
 | `memory.repo_corrupt` | 500 | "The memory repository failed its integrity check." / See docs/runbooks/restore-backup.md. |
 | `memory.invalid_entry` | 422 | "Some lines couldn't be read as memory entries." / Names the lines; keep one idea per bullet. |
 | `memory.export_bundle_whole` | 422 | "A git bundle always holds all of memory." / A bundle carries every file and its history, private notebooks included. Choose a zip or Markdown to leave some out. |
@@ -284,6 +290,14 @@ Validation issues (shown in the editor, not as HTTP errors): `flow.no_input`, `f
 
 Node actions never fail with an HTTP error once accepted: they answer 202, and a failure lands on the operation as `{code, provider_message, suggestion}` (codes: `capacity_unavailable`, `billing`, `volume_busy`, `auth`, `not_found`, `invalid_state`, `rate_limited`, `provider_unavailable`, `unreachable`, `manual_node`, `node_terminated`, `operation_in_progress`, `node_error`). The Cockpit shows the provider's message under the failed link of the confirmation chain, with the suggestion.
 
+### Maintenance
+
+| Code | HTTP | Title / hint |
+|---|---|---|
+| `maintenance.busy` | 409 | "Storage can't be tidied while something is running" / A run is in progress; wait for it to finish, or stop it, then try again. Also "NVX Ancile was used a moment ago" (the Tidy storage automation waits for 10 quiet minutes, then tries again at its next time), "A run started while the backup was being taken" (nothing was changed; the backup is kept) and, from the knowledge service, sources still being read or the embedding model being changed. Nothing is changed in any case. |
+
+Tidy storage also ends with `system.disk_full` (checked before the backup) or `system.backup_failed` (nothing is removed without a backup), documented below.
+
 ### System
 
 | Code | HTTP | Title / hint |
@@ -298,6 +312,8 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `system.restore_failed` | 500 | "The backup could not be restored." / Names the safety backup of the data as it was before the restore, and docs/runbooks/restore-backup.md. |
 | `system.backup_not_found` | 404 | "There is no backup by that name." / Pick one from the list of backups. |
 | `system.restart_needed` | 503 | "The backup was restored." / NVX Ancile is starting again (desktop), or restart it with `pnpm start`. Every route answers this until Core restarts. |
+| `desktop.critical_in_app` | 403 | "A critical request can only be answered in NVX Ancile." / Open the request in the app to read what it will do, then decide there. A notification button (Pro) never answers a critical request, and Core refuses one even if Pro were asked. |
+| `desktop.already_answered` | 409 | "That request was already answered." / Nothing more to do. A button on a notification (Pro) found the request answered elsewhere. |
 | `internal.bug` | 500 | "Something went wrong inside Ancile." / Copy debug info and report it; the trace has the details. |
 | `health.cannot_restart` | 422 | "<Service> can't be restarted from here." / Start NVX Ancile with `pnpm start` (or set ANCILE_RESTART_ADAPTER), or follow the service's fix. |
 
@@ -329,7 +345,7 @@ Node actions never fail with an HTTP error once accepted: they answer 202, and a
 | `license.released` | 410 | "This computer was released from the licence." / Turn Pro on again with your key to take a seat here. The key is forgotten on this computer. |
 | `license.bad_token` | 401 | "nvx.sh did not accept this licence." / Enter your key again in Admin → Licence. The token is cleared; the key, if held, is kept. |
 | `license.rate_limited` | 429 | "Too many tries just now." / Wait a minute, then try again. |
-| `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). |
+| `pro.feature_required` | 402 | "<Feature> is part of NVX Ancile Pro." / Turn on Pro in Admin → Licence. Everything else keeps working on the free edition. `error.context.feature` names it. Also returned when the free edition already has one GPU node and another is added (GPU fleet). The desktop extras (feature `desktop`) answer it too: choosing the Beta update channel, going back to the previous version, and Approve or Deny on a notification. |
 | `pro.core_too_old` | 501 | "This part of Pro needs a newer NVX Ancile." / Update NVX Ancile, then try again. Pro is newer than the Core it runs in. |
 | `pro.seat_required` | 403 | "<Feature> needs a Pro seat." / Pro is on in this workspace, but your account has no Pro seat. Ask the workspace's owner for one in Admin → Team. A team member the owner has not given a seat is a free member; the licence's `member_seats` sets how many there are (the owner alone without it). `error.context.feature` names it. Also returned for a second GPU node. |
 | `pro.bad_request` | 400 | "“<field>” is required" (or must be text, a number, one of…) / Check the request and send it again. `error.context.field` names it. Pro's own checks use it too, with their own words (an email, an address). |

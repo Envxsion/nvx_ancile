@@ -28,6 +28,7 @@ import { type ComponentType, Suspense, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { queryClient } from '../lib/query';
 import { attachRun, useLiveTurn } from '../lib/run';
+import { createThread, sendMessage } from '../lib/turns';
 import { notify } from '../state/notify';
 import { Parts } from '../thread/Parts';
 import { Check, Segmented, Switch } from '../ui/controls';
@@ -97,6 +98,19 @@ export const proKit = {
   Link,
   /** Follow answers as they are written (the same live store the thread uses). */
   runs: { attach: attachRun, useLive: useLiveTurn },
+  /**
+   * Send one message through a flow in a new thread, the way the composer does.
+   * Resolves with the thread's id, or null when nothing was sent. Pro calls it
+   * only from a button the person pressed (a link never runs a flow).
+   */
+  flows: {
+    async run(flowId: string, text: string): Promise<string | null> {
+      const threadId = await createThread(null, null);
+      if (!threadId) return null;
+      const ok = await sendMessage({ threadId, parentId: null, text, flowId });
+      return ok ? threadId : null;
+    },
+  },
   /** LoadFailed and StaleNotice: a failed read in its own words with Try again (ui/LoadFailed.tsx). */
   ui: {
     Icon,
@@ -129,12 +143,23 @@ export interface BeamDialogProps {
   onClose: () => void;
 }
 
+/** What the flow link dialog is opened with (ancile://flow/<id>/run, Pro). */
+export interface FlowLinkDialogProps {
+  flowId: string;
+  onClose: () => void;
+  /** The flow was run (a button was pressed) and this thread holds the answer. */
+  onStarted: (threadId: string) => void;
+}
+
 /** pro/cockpit/index.tsx's export. */
 export interface ProUi {
   /** One screen per surface id (PRO_SURFACES[].id). */
   screens: Record<string, ComponentType>;
   /** Pieces that live inside public screens (the Beam dialog opened from the composer). */
-  parts?: { BeamDialog?: ComponentType<BeamDialogProps> };
+  parts?: {
+    BeamDialog?: ComponentType<BeamDialogProps>;
+    FlowLinkDialog?: ComponentType<FlowLinkDialogProps>;
+  };
 }
 type CreateProUi = (kit: ProKit) => ProUi;
 

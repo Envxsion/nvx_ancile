@@ -19,6 +19,7 @@ import type { ControllerClient } from '../compute/controller';
 import type { EventBus } from '../events/bus';
 import type {
   ProAnswers,
+  ProApprovals,
   ProController,
   ProDb,
   ProNotice,
@@ -78,6 +79,7 @@ export function proServices(deps: {
   sync?: ProSyncSource;
   answers?: ProAnswers;
   packs?: ProPackHost;
+  approvals?: ProApprovals;
 }): ProServices {
   return {
     db: proDb(deps.sql),
@@ -89,6 +91,7 @@ export function proServices(deps: {
     ...(deps.sync && { sync: deps.sync }),
     ...(deps.answers && { answers: deps.answers }),
     ...(deps.packs && { packs: deps.packs }),
+    ...(deps.approvals && { approvals: deps.approvals }),
     now: () => new Date(),
   };
 }

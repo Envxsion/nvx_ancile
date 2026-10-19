@@ -19,6 +19,7 @@
 
 import type { NotificationItem } from '@nvx/contracts';
 import { create } from 'zustand';
+import { webNotifyNotice } from '../desktop/webNotify';
 import { api } from '../lib/api';
 import { usePrefs } from './prefs';
 
@@ -53,10 +54,15 @@ interface NotifyState {
 
 export const MAX_TOASTS = 3;
 
-/** Where a notice goes under the current settings. */
+/**
+ * Where a notice goes under the current settings. "Desktop" pops up here like
+ * a toast; reaching you outside the window is the desktop shell's job (or the
+ * browser's, desktop/webNotify.ts).
+ */
 export function routeOf(n: Pick<Notice, 'category' | 'undo'>): 'toast' | 'centre' | 'off' {
   if (n.undo || !n.category) return 'toast';
-  return usePrefs.getState().prefs.notifications.categories[n.category] ?? 'toast';
+  const where = usePrefs.getState().prefs.notifications.categories[n.category] ?? 'toast';
+  return where === 'desktop' ? 'toast' : where;
 }
 
 export const useNotify = create<NotifyState>((set) => ({
@@ -66,6 +72,7 @@ export const useNotify = create<NotifyState>((set) => ({
     const notice: Notice = { ...n, id: n.id ?? crypto.randomUUID(), at: Date.now(), read: false };
     const route = routeOf(notice);
     if (route === 'off') return notice.id;
+    webNotifyNotice({ id: notice.id, title: notice.title, category: notice.category });
     const max = usePrefs.getState().prefs.notifications.maxStacked ?? MAX_TOASTS;
     set((s) => ({
       toasts:

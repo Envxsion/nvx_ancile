@@ -45,6 +45,7 @@ import { LiveFooter } from './LiveFooter';
 import { MemoryTray } from './MemoryTray';
 import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
+import { SavedNote } from './SavedNote';
 import { Teamwork } from './Teamwork';
 import { useLiveTeam } from './teamworkState';
 import { displayUserParts } from './userText';
@@ -550,6 +551,8 @@ export const Message = memo(function Message({
           <Stamp iso={m.createdAt} />
         </footer>
       ) : null}
+
+      {m.role === 'user' && !editing ? <SavedNote messageId={m.id} /> : null}
 
       {m.role === 'assistant' && (team || flow) ? (
         <MemoryTray

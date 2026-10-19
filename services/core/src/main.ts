@@ -65,6 +65,7 @@ import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './cond
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
 import { credentialRoutes, ENV_FOR_SECRET, GIT_REMOTE, MEMORY_REMOTE_SECRET } from './credentials/routes';
+import { takeBackup } from './db/backup';
 import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
 import { type Prepared, prepareDatabase } from './db/prepare';
@@ -194,8 +195,10 @@ import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
+import { DesktopHost, desktopInternalRoutes, desktopRoutes } from './system/desktop';
 import { sourceDiskGuard } from './system/disk';
 import { startupInternalRoutes, startupRoutes, stoppedApp } from './system/startup';
+import { type TidyDeps, tidyRoutes, tidyStorage } from './system/tidy';
 import { UpdateOfferBox, updateInternalRoutes, updateRoutes } from './system/updates';
 import { WakeWatch } from './system/wake';
 import { flowShape, observeApi, observeRunEvents, serverEnv, usageOf } from './telemetry/collect';
@@ -1225,6 +1228,35 @@ async function main() {
   const notebookInWorkspace = async (id: string) =>
     (await notebooks.get(id))?.workspace_id === owner.workspaceId;
   const flowExists = async (id: string) => !!(await flowStore.get(id));
+  let desktopHost: DesktopHost | null = null;
+  // Tidy storage (MT1): Admin's button and the built-in automation share these.
+  const tidyDeps: TidyDeps = {
+    sql,
+    dataDir,
+    kn,
+    // Queued or running. A run that waits for an approval or a GPU reads and writes nothing meanwhile.
+    activeRuns: async () =>
+      Number(
+        (
+          await sql<{ n: string }[]>`
+            select count(*) as n from core.runs where status in ('queued', 'running')`
+        )[0]?.n ?? 0,
+      ),
+    lastRunActivity: async () => {
+      const [r] = await sql<{ t: Date | null }[]>`select max(updated_at) as t from core.runs`;
+      return r?.t ? new Date(r.t) : null;
+    },
+    backup: () =>
+      takeBackup({
+        url: env.DATABASE_URL,
+        sql,
+        dataDir,
+        reason: 'before-tidy',
+        appVersion: VERSION,
+        coreSchema: schemaNow().current,
+        knowledgeRevision: null,
+      }),
+  };
   const automations = new AutomationRunner(
     config.automations?.jobs ?? {},
     scheduledJobs({
@@ -1235,10 +1267,13 @@ async function main() {
       // Read when the backup runs: the env or config value, else the one saved in Settings → API keys.
       memoryRemote: async () => memoryRemote ?? (await secrets.get(MEMORY_REMOTE_SECRET)),
       retention,
+      tidy: (o) => tidyStorage(tidyDeps, o),
     }),
     automationStore,
     undefined,
     {
+      // The window is hidden to the tray and Pro's background mode is off: your own schedules wait (DK1).
+      hold: () => desktopHost?.holdsSchedules() ?? false,
       setup: jobSetup({ memoryRemote: () => memoryRemote ?? savedRemote }),
       options: builtinOptions(retention),
       // "Learn from corrections" is memory capture's own mode (Admin → Memory).
@@ -1329,11 +1364,34 @@ async function main() {
   // Pro's features read the licence each time they run, so a lapse locks them at once.
   const hasProFeature = (f: Parameters<typeof hasFeature>[1]) => hasFeature(licence.status(), f);
   const proFeatures = pro.build === 'pro' ? pro : null;
+  // Pro's notification buttons answer through Core's own approval route, bound once it exists.
+  let decideApprovalOnce:
+    | ((id: string, decision: 'approve' | 'deny', reason?: string) => Promise<string>)
+    | null = null;
   if (proFeatures?.start)
     await proFeatures
       .start(
         proServices({
           sql,
+          approvals: {
+            get: async (id) => {
+              const a = await permissions.getApproval(id);
+              return a
+                ? {
+                    id: a.id,
+                    status: a.status,
+                    tier: a.tier,
+                    tool: a.tool,
+                    resource: a.resource,
+                    thread_id: a.thread_id,
+                  }
+                : null;
+            },
+            decideOnce: async (id, decision, reason) => {
+              if (!decideApprovalOnce) throw new Error('approvals are not ready yet');
+              return { status: await decideApprovalOnce(id, decision, reason) };
+            },
+          },
           controller: compute,
           events,
           hasFeature: hasProFeature,
@@ -1443,6 +1501,22 @@ async function main() {
       ownWriteAt: (id) => claudeLive.ownWriteAt(id),
     },
   });
+  // What the desktop shell needs of Core: notifications, commands, counts (docs/desktop.md).
+  const stateStore = new PgStateStore(sql, owner.userId);
+  const desktop = new DesktopHost({
+    settings,
+    bus: events,
+    approvals: permissions,
+    runningRuns: async () =>
+      (await activity.list()).items.filter(
+        (i) => i.kind === 'run' && (i.state === 'running' || i.state === 'waiting'),
+      ).length,
+    threads,
+    scopes,
+    prefs: () => stateStore.getUi('prefs'),
+    pro: () => (hasProFeature('desktop') ? (proFeatures?.desktop ?? null) : null),
+  });
+  desktopHost = desktop;
   const app = createApp({
     version: VERSION,
     serviceToken: env.ANCILE_SERVICE_TOKEN,
@@ -1473,7 +1547,9 @@ async function main() {
     internalRoutes: [
       logIngestRoutes({ pipeline: obs }),
       // The desktop host asks here before checking nvx.sh for updates.
-      updateInternalRoutes({ settings, offer: updateOffer }),
+      updateInternalRoutes({ settings, offer: updateOffer, canBeta: () => hasProFeature('desktop') }),
+      // …and every few seconds for notifications, commands and what is running (docs/desktop.md).
+      desktopInternalRoutes(desktop),
       // …and for a backup before it installs an older build.
       startupInternalRoutes(startupDeps),
     ],
@@ -1487,9 +1563,12 @@ async function main() {
     routes: [
       // Before the general /models/:id routes, which would take PUT /models/lines/... (MD4, MD5).
       modelWatchRoutes(modelWatch),
-      updateRoutes({ settings, offer: updateOffer }),
+      updateRoutes({ settings, offer: updateOffer, canBeta: () => hasProFeature('desktop') }),
+      desktopRoutes(desktop),
       // Start-up status and database backups (docs/desktop.md, Updates and your data).
       startupRoutes(startupDeps),
+      // Tidy storage: dedupe chunks and old versions, vacuum, with a backup first (MT1).
+      tidyRoutes(tidyDeps),
       // Phase 5: operations
       logRoutes({ pipeline: obs }),
       traceRoutes({
@@ -1624,6 +1703,9 @@ async function main() {
         integrity,
       }),
       permissionRoutes({
+        onReady: (api) => {
+          decideApprovalOnce = api.decideOnce;
+        },
         store: permissions,
         preset: {
           get: async () => {
@@ -1683,7 +1765,7 @@ async function main() {
         tester: liveTester((m, keys) => languageModelFor(m, keys, endpoints)),
         onPreset: applyPreset,
       }),
-      stateRoutes(new PgStateStore(sql, owner.userId)),
+      stateRoutes(stateStore),
       notificationRoutes(notifications),
       computeRoutes({ client: compute, secrets, hasFeature: hasProFeature, sync: syncProvider }),
       credentialRoutes({
@@ -1804,6 +1886,7 @@ async function main() {
   // shortly after start and only when Claude Code is installed here.
   claudeCode.service.startAuto();
   activity.start();
+  desktop.start();
   // ---- Engines (docs/engines.md): the front door, and Claude Code as a model ----
   routingClient.register(
     CLAUDE_CODE_PROVIDER,
@@ -1881,6 +1964,7 @@ async function main() {
     await labMcp?.close();
     repos.stop();
     activity.stop();
+    desktop.stop();
     turnQueue.stop();
     claudeLive.stop();
     localModels.stop();

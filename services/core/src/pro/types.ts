@@ -333,8 +333,53 @@ export interface ProHooks {
   ): Promise<import('../flows/execute').RouteHint | null>;
 }
 
+/**
+ * Approvals, lent to Pro's desktop extras. The answer goes through Core's
+ * own route (the gate, the decision log, the run resuming), never around it.
+ */
+export interface ProApprovals {
+  /** One approval as it stands now, or null when it is gone. */
+  get(id: string): Promise<{
+    id: string;
+    status: 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
+    tier: 'gated' | 'critical';
+    tool: string;
+    resource: string;
+    thread_id: string | null;
+  } | null>;
+  /** Approve or deny one request "just this once": no grant is left behind. */
+  decideOnce(id: string, decision: 'approve' | 'deny', reason?: string): Promise<{ status: string }>;
+}
+
+/**
+ * The desktop app's Pro extras (feature `desktop`). Core asks Pro at the
+ * moment of use, and every answer is checked against the licence first, so a
+ * lapse takes them away at once. The desktop shell never sees any of this
+ * code: it polls Core, and Core asks Pro.
+ */
+export interface ProDesktop {
+  /**
+   * The buttons a native notification for this approval may carry. Empty for
+   * a critical request, which is only ever answered in the app.
+   */
+  notificationActions(a: {
+    id: string;
+    tier: 'gated' | 'critical';
+  }): Promise<{ id: 'approve' | 'deny'; label: string }[]>;
+  /**
+   * A button on a notification was pressed. Refuses a critical request or one
+   * that is no longer waiting; otherwise answers it once, on the exact thing
+   * asked about (the narrowest pattern there is).
+   */
+  decideFromNotification(approvalId: string, action: 'approve' | 'deny'): Promise<{ status: string }>;
+  /** Scheduled automations and compute idle-stop timers keep going with the window hidden. */
+  keepsJobsInBackground(): boolean;
+}
+
 /** What Core lends Pro beyond the licence (Phase 6 Pro features). */
 export interface ProServices {
+  /** Approvals, for the notification buttons. */
+  approvals?: ProApprovals;
   /** Threads, turns, models and flows for Beam, Insights and the Flow lab. */
   answers?: ProAnswers;
   db: ProDb;
@@ -417,6 +462,8 @@ export interface ProModule {
   identity?: IdentityProvider;
   /** Where Pro takes part in answering (shadow flows, a router that learns). */
   hooks?: ProHooks;
+  /** The desktop app's extras: notification buttons and background jobs. */
+  desktop?: ProDesktop;
 }
 
 export type CreatePro = (host: ProHost) => ProModule | Promise<ProModule>;

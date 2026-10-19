@@ -1072,3 +1072,167 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Why it was learned, and where to keep it (M1, M3) --------------------- */
+
+.mem-evidence {
+  display: grid;
+  gap: 6px;
+}
+.mem-evidence__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-small);
+}
+.mem-evidence__conf {
+  color: var(--fg-3);
+}
+.mem-card__watch {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
+  color: var(--fg-2);
+  background: rgb(var(--fg-rgb) / 0.03);
+  box-shadow: inset 2px 0 0 rgb(var(--warn-rgb) / 0.5);
+}
+.mem-inbox__watch {
+  display: grid;
+  gap: 8px;
+}
+.mem-inbox__watch-note {
+  margin: -4px 0 0;
+  font-size: var(--t-small);
+}
+
+.mem-keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.mem-keep__legend {
+  float: left;
+  margin: 0 8px 0 0;
+  padding: 0;
+  font-size: var(--t-small);
+  color: var(--mute);
+}
+.mem-keep__scopes {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--void-rgb) / 0.45);
+  box-shadow: var(--vault);
+}
+[data-theme='light'] .mem-keep__scopes {
+  background: var(--chalk);
+}
+.mem-keep__scope {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: calc(var(--r-sm) - 2px);
+  font-size: var(--t-small);
+  color: var(--mute);
+  white-space: nowrap;
+  transition:
+    color var(--d-micro) var(--ease-out),
+    background var(--d-micro) var(--ease-out);
+}
+.mem-keep__scope:hover:not(:disabled) {
+  color: var(--fg);
+}
+.mem-keep__scope[data-on] {
+  color: var(--fg);
+  background: var(--sheen), var(--lift-3);
+  box-shadow: var(--elev-1);
+}
+.mem-keep__scope:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mem-keep__scope:focus-visible,
+.mem-keep__select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.mem-keep__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--t-small);
+}
+.mem-keep__select {
+  height: 26px;
+  max-width: 220px;
+  padding: 0 8px;
+  font-size: var(--t-small);
+}
+.mem-keep__note {
+  font-size: var(--t-small);
+}
+.mem-tray__why {
+  display: grid;
+  flex-basis: 100%;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+/* ---- Saved to memory, under your message (M2) ------------------------------ */
+
+.msg__saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.msg__saved .icon {
+  color: var(--gilt);
+}
+.msg__saved-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Tidy storage (MT1) ----------------------------------------------------- */
+
+.tidy {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+}
+.tidy__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tidy__title {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 620;
+}
+.tidy__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tidy__result {
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--fg-2);
+}

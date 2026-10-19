@@ -14,7 +14,14 @@
 import { z } from 'zod';
 import { ApiError } from './errors';
 
-export const BackupReason = z.enum(['before-migration', 'before-downgrade', 'before-restore', 'manual']);
+export const BackupReason = z.enum([
+  'before-migration',
+  'before-downgrade',
+  'before-restore',
+  /** MT1: taken just before Tidy storage changes anything. */
+  'before-tidy',
+  'manual',
+]);
 export type BackupReason = z.infer<typeof BackupReason>;
 
 /** One database backup in <data>/backups. `name` is its id. */
@@ -81,3 +88,23 @@ export const ProDataExport = z.object({
   tables: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
 });
 export type ProDataExport = z.infer<typeof ProDataExport>;
+
+/** POST /api/v1/system/tidy (ROADMAP MT1): what Tidy storage did, or with dry_run what it would do. */
+export const TidyRequest = z.object({ dry_run: z.boolean().default(false) }).strict();
+export type TidyRequest = z.infer<typeof TidyRequest>;
+
+export const TidyReport = z.object({
+  dry_run: z.boolean(),
+  /** The backup taken first (absent on a dry run). */
+  backup: z.string().nullable(),
+  chunks_removed: z.number().int().nonnegative(),
+  parents_removed: z.number().int().nonnegative(),
+  /** Old version bodies that were the same bytes as another and now share one file. */
+  bodies_linked: z.number().int().nonnegative(),
+  /** Space the shared files give back, in bytes. */
+  bytes_freed: z.number().int().nonnegative(),
+  vacuumed: z.boolean(),
+  /** One plain sentence for the Admin page and the Automations page. */
+  summary: z.string(),
+});
+export type TidyReport = z.infer<typeof TidyReport>;

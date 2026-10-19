@@ -14,6 +14,7 @@
 import { ACCENTS, type Preferences } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { type CSSProperties, useContext, useState } from 'react';
+import { askWebPermission } from '../../desktop/webNotify';
 import { usePrefs } from '../../state/prefs';
 import { CodeBlock } from '../../thread/Code';
 import { Range, Segmented, Switch } from '../../ui/controls';
@@ -739,7 +740,7 @@ export function NotificationsGroup() {
       </Block>
       <Block
         title="By kind"
-        lede="Everything always lands in the notification centre (G I); this decides what also pops up."
+        lede="Everything always lands in the notification centre (G I); this decides what also pops up. Desktop also notifies you when NVX Ancile is not the window in front."
       >
         {CATS.map((c) => (
           <Row
@@ -754,8 +755,13 @@ export function NotificationsGroup() {
               label={c.label}
               size="sm"
               value={n.categories[c.k]}
-              onChange={(v) => set({ categories: { ...n.categories, [c.k]: v } })}
+              onChange={(v) => {
+                set({ categories: { ...n.categories, [c.k]: v } });
+                // A browser asks before it will notify; the desktop app does not need to.
+                if (v === 'desktop') void askWebPermission();
+              }}
               options={[
+                { value: 'desktop', label: 'Desktop' },
                 { value: 'toast', label: 'Pop up' },
                 { value: 'centre', label: 'Centre only' },
                 { value: 'off', label: 'Off' },

@@ -62,6 +62,14 @@ const offerOf = (
   kind,
   older,
   found_at: '2026-10-11T09:00:00Z',
+  notes: null,
+  size_bytes: null,
+  state: 'available',
+  progress: null,
+  when: 'none',
+  scheduled_for: null,
+  error: null,
+  previous_version: null,
 });
 
 beforeEach(() => {
@@ -97,7 +105,9 @@ describe('licence screen', () => {
   it('says Pro is ready when the tray offers it, and toasts once', async () => {
     serve(details({ key_held: true }), offerOf('pro', '0.4.2'));
     wrap(<LicenceScreen />);
-    expect(await screen.findByText(/Pro is ready\. Install it from the tray menu/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Pro is ready: restart to install NVX Ancile Pro 0\.4\.2/),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Pro is on its way/)).toBeNull();
     await waitFor(() =>
       expect(useNotify.getState().toasts.filter((t) => t.title === 'Pro is ready')).toHaveLength(1),
@@ -150,7 +160,7 @@ describe('licence screen', () => {
     wrap(<LicenceScreen />);
     expect(
       await screen.findByText(
-        /NVX Ancile 0\.3\.9 on offer is older than this version\. Installing it from the tray backs up your data first/,
+        /NVX Ancile 0\.3\.9 on offer is older than this version\. Installing it backs up your data first/,
       ),
     ).toBeInTheDocument();
   });

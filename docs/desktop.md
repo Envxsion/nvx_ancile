@@ -12,7 +12,7 @@ Download the installer for your system from the [releases](https://github.com/En
 | macOS 13 and later | `NVX Ancile_<version>_aarch64.dmg` | Drag it to Applications. |
 | Linux | `.AppImage` or `.deb` | The AppImage runs anywhere: make it executable and open it. |
 
-The first start takes about half a minute while the database is created. After that, NVX Ancile is ready in a few seconds. The first time you add a source, the search models (about 130 MB) are downloaded once.
+The first start takes about half a minute while the database is created. After that, NVX Ancile is ready in a few seconds. The window opens as soon as Core is ready; sources and search, the GPU nodes and the lab start beside it, and the status bar says "Warming up: sources and search" until they are up. If one fails, the app stays open with that service marked and the log to read. The first time you add a source, the search models (about 130 MB) are downloaded once.
 
 ## Where your things are
 
@@ -24,7 +24,25 @@ The first start takes about half a minute while the database is created. After t
 
 The secrets are made the first time NVX Ancile starts and never written to a file. If you delete them, your data is still there, but the database will not open with a new password and any provider keys you saved must be entered again. Keep them, or back up the data folder together with them.
 
-The tray icon shows whether NVX Ancile is ready, opens the logs folder, and quits. Closing the window quits too: every service stops, the database last and cleanly.
+The tray icon shows whether NVX Ancile is ready, opens the logs folder, and quits.
+
+## Closing, quitting and where the window opens
+
+**Closing the window.** The first time, NVX Ancile asks once: *Keep running in the tray* or *Quit*. It remembers, and Settings, Desktop changes it. Keeping it in the tray means runs, Claude Code threads and checks carry on while the window is closed. On macOS the close button hides the window and Cmd+Q quits; with no tray (some Linux desktops) the close button quits.
+
+**Quitting** (the tray, Ctrl+Q, Cmd+Q, or the close button once Quit is chosen) first looks for runs working and approvals waiting. If there are any it asks: "2 runs in progress. Stop and quit, or wait until they are done?" with *Stop and quit* and *Wait*. A computer shutting down or logging out is never held up: there is no question and the window is not hidden. If Core is still starting there is nothing to lose, so it quits at once. Quitting to install an update does its own check first.
+
+**Where the window opens.** Its size, place, monitor and whether it was maximised or full screen are kept in `window-state.json` in the data folder (so they belong to this computer), and restored before the window is shown. A monitor that is gone puts it in the middle of the main one, a smaller resolution pulls it back on screen, another scale keeps the same apparent size, a size below the minimum is raised to it, and a damaged file means the default size in the middle. The rules are in `src-tauri/src/window_state.rs`.
+
+**Pro.** Your own scheduled automations keep running with the window hidden, and the tray says "Running in the background". In the free edition they wait while the window is hidden and run when it is back (backups and clean-up never wait). GPU idle-stop timers are never held back, in either edition: holding one would spend money.
+
+## Notifications
+
+With NVX Ancile not in front, a waiting approval or an answer that took 30 seconds or more sends a system notification, flashes the taskbar button (a badge on the macOS dock) and puts the count in the window title: "(2) NVX Ancile". Clicking the notification opens that approval or thread. It is set per kind under Settings, Notifications: **Desktop** also notifies you outside the window (approvals and runs start on Desktop); Pop up, Centre only and Off work as before. A thread in a private notebook gives a notification with no words from it. The shell polls Core for them (the Cockpit has no native access), shows each once, and turns a burst into one notification. Focus Assist (Windows) and Focus (macOS) hold them back as the system decides. In a browser tab the same setting uses web notifications, after the browser asks permission; they say only that something is waiting.
+
+On Windows a notification click is heard. On macOS and Linux it is not, so coming back to the window within half a minute opens the same place.
+
+**Pro.** An ordinary request's notification carries *Approve* and *Deny* (Windows). They answer once, on the exact request, and leave no remembered permission. A critical request has no buttons and is refused if asked, and the free edition shows none.
 
 ## Updates and your data
 
@@ -41,7 +59,17 @@ The tray icon shows whether NVX Ancile is ready, opens the logs folder, and quit
 
 The last one happens when an older version starts on data a newer one updated: an update was rolled back, or an older installer was run. NVX Ancile never runs a migration backwards. It knows which schema it expects (the newest migration it carries, Knowledge's newest revision, and the Controller's migrations) and refuses one it has never heard of. Restoring replaces your data with the backup, after taking a safety backup of what is there now; then every service starts again. Disk space is checked the same way before a source is added.
 
-**Installing an older version.** When nvx.sh offers a build older than the one installed (a release was pulled), the tray says so first ("NVX Ancile x.y.z is older than this version: read before installing"). The second click backs up your data, then installs; if the backup fails, nothing is installed. That older version then offers the backup from before your last update.
+**Installing an older version.** When nvx.sh offers a build older than the one installed (a release was pulled), Settings, Desktop warns first, and installing backs up your data, then installs; if the backup fails, nothing is installed. That older version then offers the backup from before your last update.
+
+**The update card.** Settings, Desktop shows the update on offer with its notes, size and progress, and a quiet pill in the status bar. Nothing downloads until you choose, so a metered connection is always asked first:
+
+- **Restart now** downloads, then waits for runs and approvals to end (or asks whether to stop them), installs and restarts.
+- **When I quit** downloads now and installs as the app exits.
+- **Tonight** downloads now and installs at the next 03:00 on this computer, once nothing is running.
+
+A download that breaks is tried again a few times from the start (the updater cannot resume), then reported with *Try again*. A signature that does not verify is refused by the updater and reported the same way. After an update, a "What changed" sheet opens once with the notes. The tray's update line does the same as *Restart now*.
+
+**Pro.** The *Beta* channel, and *Go back to the previous version*: it asks nvx.sh for the version the update replaced (`&pin=<version>`), backs the data up first (the same path as an older build) and installs it. Pro arriving after a key is turned on says "Pro is ready: restart" on the Licence screen.
 
 **Restoring by hand:** see [the restore runbook](runbooks/restore-backup.md).
 
@@ -51,9 +79,23 @@ The last one happens when an older version starts on data a newer one updated: a
 
 **Sleep.** When the computer wakes, Core notices the gap in its heartbeat: runs it was working on keep their place (their leases are renewed before anything else looks at them), runs left by a worker that is gone resume, the Claude bridge is checked and reconnected if it stopped answering, and the services are checked at once.
 
-## Licence links
+## Links
 
-An `ancile://activate?key=NVX-XXXX-XXXX-XXXX` link (from your NVX purchase email) opens Admin → Licence with the key filled in. It never activates by itself: you press the button.
+A thread's **Copy link** gives `ancile://thread/<id>`, which opens in the app whatever port it has. These links work (from `src-tauri/src/deeplink.rs`):
+
+| Link | Opens |
+|---|---|
+| `ancile://thread/<id>`, `ancile://notebook/<id>` | that thread or notebook |
+| `ancile://new?text=…&notebook=<id>` | a new thread with the text in the box, **not sent** |
+| `ancile://approval/<id>` | that request's dialog, **not answered** |
+| `ancile://settings[/<group>]`, `ancile://help[/<topic>]` | Settings, or the help centre |
+| `ancile://activate?key=NVX-XXXX-XXXX-XXXX` | Admin, Licence, with the key filled in; you press the button |
+| `ancile://flow/<id>` | the flow in the editor |
+| `ancile://flow/<id>/run` (Pro) | a "Run this flow?" confirm |
+
+A link only opens a place. It never sends a message, answers an approval, runs a flow or spends: each of those stays a click in the Cockpit. An id that is not a plain identifier, or text over 4,000 characters, is refused before it reaches a path, and an id that is not here (deleted, another workspace, another team member's) gets a plain "not here" with a way on. A link given to a second launch of the app is read too, and a link that arrives before Core is ready waits for it.
+
+**Pro.** `ancile://flow/<id>/run` is for scripts, Raycast or a Stream Deck. The first one asks "Allow links from this app?"; after that each link shows the flow and a *Run flow* button with a box for the message. Nothing runs until the button is pressed.
 
 ## Links
 
@@ -175,12 +217,12 @@ Once its services are up, then every 6 hours, and whenever "Check for updates" i
 
 Pro arrives and leaves only by update; there is no separate Pro download to install over the free edition.
 
-- **Pro arrives.** The free edition takes a key in Admin → Licence: it claims a seat with nvx.sh and keeps the token (nothing is unlocked in the free build). The next check is answered with the Pro build of the same version or newer (`"edition": "pro"`); the tray line reads "Pro is ready. Install", and one click installs it and restarts.
+- **Pro arrives.** The free edition takes a key in Admin → Licence: it claims a seat with nvx.sh and keeps the token (nothing is unlocked in the free build). The next check is answered with the Pro build of the same version or newer (`"edition": "pro"`); the tray line reads "Pro is ready. Install", Settings, Desktop offers it, and it installs when you choose.
 - **Pro lapses.** For under 90 days after a licence ends or is paused, or when the seat moved, nvx.sh answers 204: Pro stays installed, and its features stop when the held token expires. Admin → Licence offers renewal ("Pro licence lapsed: renew to keep updates").
 - **Pro leaves.** After 90 days, on revocation, or with an unreadable token, nvx.sh answers with the newest free build and `"downgrade": true`. The tray line reads "Pro ended: switching to the free edition (your data stays)" and one click installs it. Nothing is lost: Pro's tables stay on disk (migrations only add), readable and exportable from Admin → Licence (Export Pro data), Pro's screens give way to their upsell cards, and turning Pro on again brings everything back as it was.
 - **A 503, or no answer:** the app tries again at the next check.
 
-Any 200 from nvx.sh is an offer (204 means nothing to install), so the other edition of the same version, or an older build after a release was pulled, is offered too; an older one is warned about and backed up first (see Updates and your data). What the tray is offering is reported to Core (`POST /internal/v1/desktop/update-offer` with `older` for a rollback, service token; `DELETE` when there is nothing), and Admin → Licence reads it from `GET /api/v1/system/update-offer` to say Pro is ready, or that Pro ended. Nothing installs on its own: every install is a click in the tray menu. A plain update reads "Install NVX Ancile x.y.z and restart".
+Any 200 from nvx.sh is an offer (204 means nothing to install), so the other edition of the same version, or an older build after a release was pulled, is offered too; an older one is warned about and backed up first (see Updates and your data). What the tray is offering is reported to Core (`POST /internal/v1/desktop/update-offer` with `older` for a rollback, service token; `DELETE` when there is nothing), and Admin → Licence reads it from `GET /api/v1/system/update-offer` to say Pro is ready, or that Pro ended. Nothing installs on its own: every install is a choice in Settings, Desktop or a click in the tray menu. A plain update reads "Install NVX Ancile x.y.z and restart".
 
 To reinstall Pro on a new computer, the Pro installer is at https://ancile.nvx.sh/pro/download (linked at the foot of Admin → Licence).
 

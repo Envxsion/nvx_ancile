@@ -38,10 +38,24 @@ ureq = { version = "2", default-features = false }
 # Opens web and mail links from the Cockpit in the system browser, called
 # from Rust only (links.rs): the Cockpit gets none of its commands.
 tauri-plugin-opener = "2"
+# Native dialogs for the first-close question and the quit check, called from
+# Rust only: the Cockpit gets none of their commands.
+tauri-plugin-dialog = "2"
+# Tonight's update time in the local zone (the offset only; no calendar maths).
+time = { version = "0.3", features = ["local-offset"] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Native notifications (desktop.rs). Windows has its own with buttons that
+# can be clicked, below.
+tauri-plugin-notification = "2"
 
 [target.'cfg(windows)'.dependencies]
 # A job object that kills every sidecar (and its children) with the app.
 win32job = "2"
+# Native toasts whose click and buttons reach us (notify.rs), and "is the
+# computer shutting down" so closing the window never blocks a shutdown.
+tauri-winrt-notification = "0.7"
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [features]
 # Release builds turn this on; the update key comes from CI, never the repo.

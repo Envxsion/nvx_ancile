@@ -88,6 +88,14 @@ export interface PermissionRouteDeps {
   scopeRefs(
     approval: ApprovalRecord,
   ): Promise<{ threadId: string | null; notebookId: string | null; workspaceId: string }>;
+  /**
+   * Handed the one way to answer an approval "just this once" from outside a
+   * request (Pro's notification buttons). It runs the same checks and the
+   * same resolution as the route: the gate, the decision log, the run resuming.
+   */
+  onReady?: (api: {
+    decideOnce(id: string, decision: 'approve' | 'deny', reason?: string): Promise<string>;
+  }) => void;
 }
 
 const approvalOut = (a: ApprovalRecord, editable = false): Approval => ({
@@ -368,6 +376,14 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
       if (won) await announce(p, status, reason);
     }
   };
+
+  deps.onReady?.({
+    async decideOnce(id, decision, reason) {
+      const a = await store.getApproval(id);
+      if (!a) throw notFound('That approval');
+      return (await answer(a, { decision, scope: 'once', ...(reason !== undefined && { reason }) })).status;
+    },
+  });
 
   /**
    * Auto mode groups its asks: answer several at once, each "just this once".

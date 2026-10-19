@@ -21,6 +21,7 @@ import { onActivityChanged } from '../activity/api';
 import { artifactKeys } from '../artifacts/store';
 import { onReviewerStatus } from '../auto/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
+import { webNotifyEvent } from '../desktop/webNotify';
 import { onInterpreterRequested } from '../interpreter/host';
 import { onMemoryProposal } from '../memory/api';
 import { refreshModels } from '../models/watch';
@@ -45,6 +46,7 @@ export function useGlobalEvents(): void {
       url: '/api/v1/events',
       schema: GlobalEvent,
       onEvent: (e) => {
+        webNotifyEvent(e);
         switch (e.type) {
           case 'approval.requested':
             decisionChime();

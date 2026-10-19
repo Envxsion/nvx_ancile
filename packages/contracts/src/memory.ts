@@ -128,7 +128,17 @@ export const ProposalKind = z.enum([
   'imported',
 ]);
 export const ProposalOp = z.enum(['add', 'update', 'supersede']);
-export const ProposalStatus = z.enum(['proposed', 'applied', 'rejected', 'auto_applied', 'undone']);
+export const ProposalStatus = z.enum([
+  'proposed',
+  'applied',
+  'rejected',
+  'auto_applied',
+  'undone',
+  /** M8: seen once, written down with its uncertainty, waiting for a second sighting. */
+  'watching',
+  /** M8: a watch item that was not seen again within its time. */
+  'expired',
+]);
 export const ProposalProvenance = z.enum([
   'user_message',
   'run_outcome',
@@ -166,11 +176,33 @@ export const MemoryProposal = z.object({
   decided_at: z.string().nullable(),
   /** The import it came from (kind imported); absent otherwise. */
   import_id: z.string().nullable().optional(),
+  /** M8: times the same lesson has been seen. A lesson needs two (or verified evidence) before it is a rule. */
+  sightings: z.number().int().optional(),
+  /** M8: a watch item lapses on this date if it is not seen again. */
+  expires_at: z.string().nullable().optional(),
+  /** M8: what is not yet known about a watch item, in words. */
+  uncertainty: z.string().nullable().optional(),
+  /** M3: where it was learned, resolved when the list is read. */
+  source: z
+    .object({
+      thread_id: z.string(),
+      thread_title: z.string().nullable(),
+      /** The thread has been deleted, so there is nothing to open. */
+      thread_deleted: z.boolean(),
+      message_id: z.string().nullable(),
+      /** The notebook the thread is in; title is null when that notebook has been deleted. */
+      notebook: z.object({ id: z.string(), title: z.string().nullable() }).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 export type MemoryProposal = z.infer<typeof MemoryProposal>;
 
 export const MemoryProposalList = z.object({ items: z.array(MemoryProposal), pending: z.number().int() });
 export type MemoryProposalList = z.infer<typeof MemoryProposalList>;
+
+export const ProposalScope = z.enum(['user', 'notebook', 'everywhere']);
+export type ProposalScope = z.infer<typeof ProposalScope>;
 
 export const ProposalDecisionRequest = z
   .object({
@@ -178,6 +210,13 @@ export const ProposalDecisionRequest = z
     decision: z.enum(['approve', 'reject', 'undo']),
     /** Approve with the text edited first. */
     text: z.string().min(1).max(2_000).optional(),
+    /**
+     * M1: where to keep it when approving. user is USER.md, notebook is the notebook
+     * the thread belongs to, everywhere is AGENTS.md. Absent: where it was proposed.
+     */
+    scope: ProposalScope.optional(),
+    /** M1: or a specific memory file. Wins over scope. */
+    path: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type ProposalDecisionRequest = z.infer<typeof ProposalDecisionRequest>;
@@ -349,3 +388,17 @@ export const MemoryImportDecisionResult = z.object({
   rejected: z.number().int().nonnegative(),
 });
 export type MemoryImportDecisionResult = z.infer<typeof MemoryImportDecisionResult>;
+
+/** M9: the result of a hindsight pass. It only proposes; nothing here has been written to memory. */
+export const HindsightResponse = z.object({
+  /** True when the review found nothing worth keeping. A valid answer. */
+  nothing_worth_keeping: z.boolean(),
+  /** What the review makes of the session, in a sentence or two. */
+  note: z.string(),
+  proposals: z.array(MemoryProposal),
+  /** Turns (user questions and answers) looked at. */
+  turns_reviewed: z.number().int(),
+  /** The session was long, so it was summarised first. */
+  summarised: z.boolean(),
+});
+export type HindsightResponse = z.infer<typeof HindsightResponse>;

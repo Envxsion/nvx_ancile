@@ -14,7 +14,7 @@
  *           |  the key too, then says Pro is on its way; the update
  *           |  the desktop app offers (GET /system/update-offer) says
  *           |  when Pro is ready, or that Pro ended and the free
- *           |  edition is coming. Installing is the tray menu's click.
+ *           |  edition is coming. Installing is a choice in Settings → Desktop.
  * ------------------------------------------------------------------
  */
 
@@ -72,13 +72,13 @@ function toastOnce(offer: Offer): void {
           id: `update-offer-${mark}`,
           level: 'success',
           title: 'Pro is ready',
-          body: `Install NVX Ancile Pro ${offer.version} from the tray menu.`,
+          body: `Restart to install NVX Ancile Pro ${offer.version}. Choose when in Settings, Desktop.`,
         }
       : {
           id: `update-offer-${mark}`,
           level: 'info',
           title: 'Pro ended',
-          body: 'Switching to the free edition: choose it in the tray menu. Your data stays.',
+          body: 'Switching to the free edition: choose when in Settings, Desktop. Your data stays.',
         },
   );
 }
@@ -121,7 +121,7 @@ export function LicenceScreen() {
           ? {
               level: 'success',
               title: 'Pro is on its way',
-              body: 'It arrives as an update: choose Check for updates in the NVX Ancile tray menu, then Install.',
+              body: 'It arrives as an update: choose Check for updates in Settings, Desktop (or the tray menu), then pick when to install.',
             }
           : { level: 'success', title: 'Pro is on', body: 'Thank you. Everything it adds is ready now.' },
       );
@@ -207,20 +207,20 @@ export function LicenceScreen() {
           ) : null}
           {offer?.kind === 'downgrade' ? (
             <p className="edition__lapse" data-lapse="downgrade" role="status">
-              Pro ended 90 days ago; switching to the free edition. Your data stays. Choose it in the NVX
-              Ancile tray menu.
+              Pro ended 90 days ago; switching to the free edition. Your data stays. Choose when in Settings,
+              Desktop, or the NVX Ancile tray menu.
             </p>
           ) : null}
           {offer?.kind === 'pro' ? (
             <p className="edition__lapse" data-lapse="ready" role="status">
-              Pro is ready. Install it from the tray menu (NVX Ancile Pro {offer.version}).
+              Pro is ready: restart to install NVX Ancile Pro {offer.version}. Choose when in Settings,
+              Desktop, or the tray menu.
             </p>
           ) : null}
           {offer?.older ? (
             <p className="edition__lapse" data-lapse="older" role="status">
-              NVX Ancile {offer.version} on offer is older than this version. Installing it from the tray
-              backs up your data first; the older version then offers to restore the backup from before your
-              last update.
+              NVX Ancile {offer.version} on offer is older than this version. Installing it backs up your data
+              first; the older version then offers to restore the backup from before your last update.
             </p>
           ) : null}
           {pro && d.seat === false ? (
@@ -231,8 +231,8 @@ export function LicenceScreen() {
           ) : null}
           {onItsWay ? (
             <p className="edition__lapse" data-lapse="on-its-way" role="status">
-              Pro is on its way. It arrives as an update: choose Check for updates in the NVX Ancile tray
-              menu, then Install.
+              Pro is on its way. It arrives as an update: choose Check for updates in Settings, Desktop (or
+              the NVX Ancile tray menu), then pick when to install.
             </p>
           ) : null}
           {d.checked_at ? <p className="mute edition__checked">Checked {relative(d.checked_at)}</p> : null}

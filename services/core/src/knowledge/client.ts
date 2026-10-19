@@ -22,7 +22,8 @@ import { currentContext, formatTraceparent, newSpanId, newTraceId } from '../con
 
 export interface KnowledgeClient {
   get<T>(path: string): Promise<T>;
-  post<T>(path: string, body?: unknown): Promise<T>;
+  /** `timeoutMs` for the few writes that legitimately take longer than a minute (Tidy storage). */
+  post<T>(path: string, body?: unknown, opts?: { timeoutMs?: number }): Promise<T>;
   put<T>(path: string, body?: unknown): Promise<T>;
   patch<T>(path: string, body?: unknown): Promise<T>;
   del(path: string): Promise<void>;
@@ -78,7 +79,7 @@ export function knowledgeClient(opts: {
     return h;
   };
 
-  const once = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  const once = async <T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> => {
     const h = headers();
     if (body !== undefined) h.set('content-type', 'application/json');
     let res: Response;
@@ -87,7 +88,7 @@ export function knowledgeClient(opts: {
         method,
         headers: h,
         ...(body !== undefined && { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(method === 'GET' ? 15_000 : 60_000),
+        signal: AbortSignal.timeout(timeoutMs ?? (method === 'GET' ? 15_000 : 60_000)),
       });
     } catch (cause) {
       throw unavailable(cause);
@@ -104,7 +105,8 @@ export function knowledgeClient(opts: {
         baseMs: 150,
         shouldRetry: (err) => err instanceof AncileError && err.retryable,
       }),
-    post: <T>(path: string, body?: unknown) => once<T>('POST', path, body),
+    post: <T>(path: string, body?: unknown, o?: { timeoutMs?: number }) =>
+      once<T>('POST', path, body, o?.timeoutMs),
     put: <T>(path: string, body?: unknown) => once<T>('PUT', path, body),
     patch: <T>(path: string, body?: unknown) => once<T>('PATCH', path, body),
     del: (path: string) => once<void>('DELETE', path),

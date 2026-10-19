@@ -12,13 +12,18 @@
  *           |  a run id falls back to timing: the answer whose flow was
  *           |  running when it arrived (or a few seconds after). Kept
  *           |  ones are committed to the git memory by Core; dismissed
- *           |  ones are rejected there.
+ *           |  ones are rejected there. Each says why (how sure, the
+ *           |  words, a link to the turn) and where to keep it (You,
+ *           |  This notebook, Everywhere, or a file), as in the inbox.
  * ------------------------------------------------------------------
  */
 
 import { useState } from 'react';
 import { create } from 'zustand';
 import { ApiCallError, api } from '../lib/api';
+import { type Keep, useProposals } from '../memory/api';
+import { Evidence } from '../memory/Evidence';
+import { KeepIn } from '../memory/KeepIn';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 
@@ -57,6 +62,9 @@ export function MemoryTray({
 }) {
   const all = useMemoryTray((s) => s.items);
   const [busy, setBusy] = useState<string | null>(null);
+  const [keeps, setKeeps] = useState<Record<string, Keep>>({});
+  // The full suggestions, for the evidence and the places to keep them.
+  const full = useProposals().data?.items;
   const mine = all.filter((p) =>
     p.runId ? p.runId === runId : p.at >= startedAt && (endedAt === null || p.at <= endedAt + AFTER_MS),
   );
@@ -65,7 +73,12 @@ export function MemoryTray({
   const decide = async (p: TrayProposal, decision: 'approve' | 'reject') => {
     setBusy(p.id);
     try {
-      await api.post(`/memory/proposals/${p.id}`, { decision });
+      const keep = keeps[p.id] ?? {};
+      await api.post(`/memory/proposals/${p.id}`, {
+        decision,
+        ...(decision === 'approve' &&
+          (keep.path ? { path: keep.path } : keep.scope ? { scope: keep.scope } : {})),
+      });
       useMemoryTray.getState().remove(p.id);
       if (decision === 'approve') notify({ level: 'success', title: 'Remembered', body: p.text });
     } catch (e) {
@@ -85,30 +98,43 @@ export function MemoryTray({
         <Icon name="memory" size={13} />
         The team suggested {mine.length === 1 ? 'something' : `${mine.length} things`} to remember
       </p>
-      {mine.map((p) => (
-        <div key={p.id} className="mem-tray__item">
-          <span className="mem-tray__text">{p.text}</span>
-          <span className="mute" data-num>
-            {p.target}
-          </span>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={busy === p.id}
-            onClick={() => void decide(p, 'reject')}
-          >
-            Dismiss
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
-            disabled={busy === p.id}
-            onClick={() => void decide(p, 'approve')}
-          >
-            Keep
-          </button>
-        </div>
-      ))}
+      {mine.map((p) => {
+        const detail = full?.find((x) => x.id === p.id);
+        return (
+          <div key={p.id} className="mem-tray__item">
+            <span className="mem-tray__text">{p.text}</span>
+            <span className="mute" data-num>
+              {p.target}
+            </span>
+            {detail ? (
+              <div className="mem-tray__why">
+                <Evidence p={detail} />
+                <KeepIn
+                  p={detail}
+                  value={keeps[p.id] ?? {}}
+                  onChange={(k) => setKeeps((s) => ({ ...s, [p.id]: k }))}
+                />
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={busy === p.id}
+              onClick={() => void decide(p, 'reject')}
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={busy === p.id}
+              onClick={() => void decide(p, 'approve')}
+            >
+              Keep
+            </button>
+          </div>
+        );
+      })}
     </aside>
   );
 }

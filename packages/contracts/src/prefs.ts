@@ -106,7 +106,13 @@ export const KeyboardPrefs = z.object({
   browserSafe: z.enum(['auto', 'on', 'off']).default('auto'),
 });
 
-export const NotifyCategory = z.enum(['toast', 'centre', 'off']);
+/**
+ * toast: pops up in the app. centre: only the notification centre. off: nothing.
+ * desktop: pops up in the app, and also reaches you outside it (a native
+ * notification in the desktop app, a browser notification in a tab) while
+ * NVX Ancile is not the window in front.
+ */
+export const NotifyCategory = z.enum(['desktop', 'toast', 'centre', 'off']);
 
 export const NotificationPrefs = z.object({
   position: z.enum(['bottom-right', 'top-right', 'bottom-centre']).default('bottom-right'),
@@ -115,13 +121,13 @@ export const NotificationPrefs = z.object({
   sound: z.boolean().default(false),
   categories: z
     .object({
-      approvals: NotifyCategory.default('toast'),
-      runs: NotifyCategory.default('toast'),
+      approvals: NotifyCategory.default('desktop'),
+      runs: NotifyCategory.default('desktop'),
       sources: NotifyCategory.default('toast'),
       health: NotifyCategory.default('toast'),
       memory: NotifyCategory.default('centre'),
     })
-    .default({ approvals: 'toast', runs: 'toast', sources: 'toast', health: 'toast', memory: 'centre' }),
+    .default({ approvals: 'desktop', runs: 'desktop', sources: 'toast', health: 'toast', memory: 'centre' }),
 });
 
 export const AccessibilityPrefs = z.object({

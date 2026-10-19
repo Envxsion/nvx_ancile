@@ -38,13 +38,23 @@ Before writing, Ancile compares the new entry with the closest existing ones. It
 - Less confident ones wait in **Memory → Inbox** for you.
 - Anything prompted by content from a tool, web page or source is *always* a proposal. A document can't write itself into your memory.
 
+**Your own explicit request is yours (GR3).** Say "remember that I use metric units", "never add a summary", or "from now on answer in French" and it is saved at once, in any capture mode except Off (with capture Off it waits in the inbox, so it is never lost). A note under your message says **Saved to memory** with **Undo**. The detector (`services/core/src/memory/explicit.ts`) reads only your own words: quoted lines, pasted blocks and code are ignored, and it turns away questions ("do you remember that?"), "never mind", negations ("don't remember that"), "if I say remember" and sarcasm. A request has to open a sentence, so "he said never do that" is not one. "Remember..." and "from now on..." are kept under *Preferences*, "never..." under *Restrictions* in `USER.md`, or in the notebook's file when you say "in this notebook". The rule is enforced in code, not in a prompt: `applyPolicy` honours the explicit flag only for content whose provenance is `user_message`. Text from a source, a tool or another model can only propose.
+
+**Lessons need two sightings (proved or suggested).** A lesson learned from a run (a failure then a fix, a project finding, a model quirk) is not a rule the first time. Seen once it waits in the inbox under **Watching**, with its uncertainty written in ("Seen once. The cause is not clear, so it may be a coincidence."). Seen again, it becomes an ordinary suggestion (or is kept, if the type auto-applies), with both cases as evidence. It also skips the wait when its evidence is checked: the same fix worked at least twice in the turn and the cause is stated. A watch item that is never seen again lapses after 90 days (`WATCH_DAYS`). You can trust one early (**Trust it now**) or turn it down. What you state yourself, a correction or an explicit request, never waits.
+
+**Where it is kept.** Approving a suggestion in the inbox or under an answer lets you choose **You** (`USER.md`), **This notebook** (the notebook the thread was in) or **Everywhere** (`AGENTS.md`), or any memory file. **This notebook** is off, with the reason, when the thread was not in a notebook, the notebook was deleted, or the thread is gone. Lessons and model quirks are kept by topic, so they offer only a file.
+
+**Why it was learned.** Each suggestion shows how sure NVX Ancile is, the words it learned from, and **Open this turn**. If the thread has been deleted it says "Learned from a thread that was deleted" and keeps the quote.
+
+**Hindsight pass.** In a thread's menu (Claude Code threads too), **Hindsight pass** reviews the session for root causes and separates process lessons (how to work) from environment facts (what is true of this machine or project). It only proposes: each suggestion is filed in the inbox and cites the turn it came from, and a suggestion that cites no real turn is dropped, so the model cannot invent a lesson. "Nothing worth keeping" is a valid answer. A long session is condensed first (each turn trimmed, then quiet turns left out) to 6,000 tokens. The model call is a `utility` call through the gateway, so it is costed like the others.
+
 ## How it's used
 
 Before every model call, Ancile builds a memory block:
 
 1. `AGENTS.md` and `USER.md`, always.
 2. The notebook's project file, when you're in a notebook.
-3. The five failure lessons most relevant to what you just asked.
+3. The failure lessons most relevant to what you just asked, up to five. **Abstain gate:** a lesson is included only if it clears the relevance bar, `RELEVANCE_BAR` in `services/core/src/memory/gates.ts` (default **0.2**, compared with the word-overlap score of the lesson and your question, 0 to 1). Before, the bar was 0.08, which let a single shared word through; on a four-word question and a twelve-word lesson one shared word scores about 0.14 (dropped) and two score about 0.29 (kept). If nothing clears it, no lessons are added and the budget is not filled with weak matches. Pinned notes (`AGENTS.md`, `USER.md`, the notebook file, the model's quirks) do not depend on the question and are unaffected. Tune the bar on an eval set before changing it.
 4. The quirks file for the model that's actually answering, chosen after any fallback.
 
 Memory gets at most 8% of the model's context window, capped at 4,000 tokens (configurable per notebook). When it doesn't all fit, whole entries are dropped by priority, then confidence, then age, never mid-sentence. The block tells the model these are notes, not orders, and that your current request wins.

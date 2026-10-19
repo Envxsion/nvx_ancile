@@ -7,22 +7,26 @@
  *  Purpose  |  What NVX Ancile would like to remember but was not sure
  *           |  enough to keep on its own, and anything that came from
  *           |  tool or source content (which is never kept without
- *           |  you). Approve, reword, or turn it down.
+ *           |  you). Approve, reword, or turn it down. Each card says
+ *           |  why: how sure, the words it learned from, and a link to
+ *           |  the turn (M3); and where to keep it (M1).
  *  How      |  One card per proposal. With a card focused: A keeps it,
- *           |  E rewords it, R turns it down, J and K move. Below the
- *           |  waiting ones, what was kept on its own lately, each with
- *           |  Undo.
+ *           |  E rewords it, R turns it down, J and K move. A lesson
+ *           |  seen only once waits under "Watching" with its
+ *           |  uncertainty written in (M8). Below the waiting ones,
+ *           |  what was kept on its own lately, each with Undo.
  * ------------------------------------------------------------------
  */
 
 import type { MemoryProposal } from '@nvx/contracts';
-import { Link } from '@tanstack/react-router';
 import { type KeyboardEvent, useRef, useState } from 'react';
 import { relative } from '../lib/format';
 import { Icon } from '../ui/Icon';
 import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
-import { useDecide, useMemoryUi, useProposals } from './api';
+import { type Keep, useDecide, useMemoryUi, useProposals } from './api';
+import { Evidence } from './Evidence';
+import { KeepIn } from './KeepIn';
 
 const KIND: Record<MemoryProposal['kind'], string> = {
   preference: 'A preference',
@@ -42,19 +46,28 @@ const OP: Record<MemoryProposal['op'], string> = {
 const where = (path: string) =>
   path === 'USER.md' ? 'About you' : path === 'AGENTS.md' ? 'House rules' : path.replace(/\.md$/, '');
 
+/** "Lapses 14 Jan 2027" for a watch item. */
+export const lapses = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+
 function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void }) {
   const decide = useDecide();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(p.text);
   const [leaving, setLeaving] = useState<'kept' | 'dropped' | null>(null);
-  const thread = p.evidence.find((e) => e.thread_id)?.thread_id;
-  const quote = p.evidence.find((e) => e.quote)?.quote;
+  const [keep, setKeep] = useState<Keep>({});
+  const watching = p.status === 'watching';
   const untrusted = p.provenance === 'tool_output' || p.provenance === 'source_content';
 
   const act = (decision: 'approve' | 'reject') => {
     setLeaving(decision === 'approve' ? 'kept' : 'dropped');
     decide.mutate(
-      { id: p.id, decision, ...(decision === 'approve' && text.trim() !== p.text && { text: text.trim() }) },
+      {
+        id: p.id,
+        decision,
+        ...(decision === 'approve' && text.trim() !== p.text && { text: text.trim() }),
+        ...(decision === 'approve' && keep),
+      },
       { onError: () => setLeaving(null) },
     );
   };
@@ -83,7 +96,7 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
     >
       <header className="mem-card__head">
         <span className="mem-card__kind">
-          {OP[p.op]} · {KIND[p.kind].toLowerCase()}
+          {watching ? 'Watching' : OP[p.op]} · {KIND[p.kind].toLowerCase()}
         </span>
         <span className="mem-card__where">
           <Icon name="memory" size={12} />
@@ -127,9 +140,6 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
       ) : null}
 
       <div className="mem-card__why">
-        <span className="mem-conf" title={`Confidence ${Math.round(p.confidence * 100)}%`}>
-          <span className="mem-conf__fill" style={{ width: `${Math.round(p.confidence * 100)}%` }} />
-        </span>
         <span className="mute">{p.rationale}</span>
         {untrusted ? (
           <span className="mem-card__flag">
@@ -139,16 +149,19 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
         ) : null}
       </div>
 
-      {quote ? <blockquote className="mem-card__quote">{quote}</blockquote> : null}
+      {watching ? (
+        <p className="mem-card__watch">
+          {p.uncertainty ?? 'Seen once.'}
+          {p.expires_at ? <span className="mute"> Lapses {lapses(p.expires_at)}.</span> : null}
+        </p>
+      ) : null}
+
+      <Evidence p={p} />
+
+      <KeepIn p={p} value={keep} onChange={setKeep} />
 
       <footer className="mem-card__actions">
-        {thread ? (
-          <Link to="/t/$threadId" params={{ threadId: thread }} className="link-btn link-btn--quiet">
-            Open the thread
-          </Link>
-        ) : (
-          <span />
-        )}
+        <span />
         <span className="mem-card__buttons">
           <button type="button" className="btn btn--quiet btn--sm" onClick={() => act('reject')}>
             Not this <kbd>R</kbd>
@@ -165,7 +178,7 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
             data-busy={(decide.isPending && leaving === 'kept') || undefined}
             onClick={() => act('approve')}
           >
-            Remember <kbd>A</kbd>
+            {watching ? 'Trust it now' : 'Remember'} <kbd>A</kbd>
           </button>
         </span>
       </footer>
@@ -196,7 +209,9 @@ function Kept({ p }: { p: MemoryProposal }) {
           Undo
         </button>
       ) : (
-        <span className="mute">{p.status === 'undone' ? 'Undone' : 'Turned down'}</span>
+        <span className="mute">
+          {p.status === 'undone' ? 'Undone' : p.status === 'expired' ? 'Not seen again' : 'Turned down'}
+        </span>
       )}
     </li>
   );
@@ -211,7 +226,8 @@ export function Inbox() {
     return <LoadFailed error={proposals.error} what="The inbox" onRetry={() => proposals.refetch()} />;
   const items = proposals.data?.items ?? [];
   const waiting = items.filter((p) => p.status === 'proposed');
-  const done = items.filter((p) => p.status !== 'proposed').slice(0, 20);
+  const watching = items.filter((p) => p.status === 'watching');
+  const done = items.filter((p) => p.status !== 'proposed' && p.status !== 'watching').slice(0, 20);
 
   const move = (from: number) => (d: 1 | -1) => {
     const cards = list.current?.querySelectorAll<HTMLElement>('.mem-card');
@@ -233,6 +249,23 @@ export function Inbox() {
           body="When NVX Ancile is not sure something is worth keeping, it asks here first. Anything from a tool or a source always does."
         />
       )}
+      {watching.length ? (
+        <section className="mem-inbox__watch" aria-label="Watching">
+          <h3 className="mem-files__h">
+            <Icon name="evidence" size={12} />
+            Watching
+          </h3>
+          <p className="mute mem-inbox__watch-note">
+            Seen once, so not a rule yet. A second sighting makes it one; if it never comes back it lapses
+            after 90 days.
+          </p>
+          <ol className="mem-inbox__list">
+            {watching.map((p, i) => (
+              <Card key={p.id} p={p} onMove={move(waiting.length + i)} />
+            ))}
+          </ol>
+        </section>
+      ) : null}
       {done.length ? (
         <section className="mem-inbox__done">
           <h3 className="mem-files__h">

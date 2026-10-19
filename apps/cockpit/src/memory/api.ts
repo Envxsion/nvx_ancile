@@ -16,6 +16,7 @@
  */
 
 import type {
+  HindsightResponse,
   MemoryCommit,
   MemoryDiff,
   MemoryFileContent,
@@ -24,6 +25,7 @@ import type {
   MemoryProposal,
   MemoryProposalList,
   MemorySettings,
+  ProposalScope,
   PutMemoryFileResponse,
 } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -133,12 +135,20 @@ export function saveFile(path: string, content: string, base: string | null, mes
   });
 }
 
+/** Where to keep an approved suggestion (M1): for you, the notebook it came from, everywhere, or a file. */
+export interface Keep {
+  scope?: ProposalScope | undefined;
+  path?: string | undefined;
+}
+
 export function useDecide() {
   return useMutation({
-    mutationFn: (v: { id: string; decision: 'approve' | 'reject' | 'undo'; text?: string }) =>
+    mutationFn: (v: { id: string; decision: 'approve' | 'reject' | 'undo'; text?: string } & Keep) =>
       api.post<MemoryProposal>(`/memory/proposals/${v.id}`, {
         decision: v.decision,
         ...(v.text && { text: v.text }),
+        ...(v.decision === 'approve' && v.path && { path: v.path }),
+        ...(v.decision === 'approve' && !v.path && v.scope && { scope: v.scope }),
       }),
     onSuccess: () => void refreshMemory(),
     onError: (e) => failed(e, 'That'),
@@ -206,14 +216,95 @@ export function useSetCapture() {
   });
 }
 
+/* ---- Hindsight pass (M9) ---------------------------------------------------- */
+
+/**
+ * Review a thread for what it taught. It only proposes: the suggestions wait in the
+ * inbox, each saying which turn it came from. "Nothing worth keeping" is an answer.
+ */
+export async function runHindsight(threadId: string, go: (to: string) => void): Promise<void> {
+  notify({
+    id: `hindsight-${threadId}`,
+    level: 'info',
+    title: 'Looking back over this thread',
+    body: 'This takes a few seconds. Nothing is saved until you say yes.',
+  });
+  try {
+    const r = await api.post<HindsightResponse>(`/threads/${threadId}/hindsight`, {});
+    void refreshMemory();
+    if (r.nothing_worth_keeping) {
+      notify({
+        id: `hindsight-${threadId}`,
+        level: 'success',
+        title: 'Nothing worth keeping',
+        body: r.note,
+      });
+      return;
+    }
+    const n = r.proposals.length;
+    notify({
+      id: `hindsight-${threadId}`,
+      level: 'success',
+      title: n === 1 ? '1 thing to consider' : `${n} things to consider`,
+      body: `${r.note}${r.summarised ? ' The thread was long, so quiet turns were left out.' : ''}`,
+      action: {
+        label: 'Review',
+        run: () => {
+          useMemoryUi.getState().setTab('inbox');
+          go('/admin/memory');
+        },
+      },
+    });
+  } catch (err) {
+    failed(err, 'Looking back over the thread');
+  }
+}
+
+/** M3: open the thread at the turn a suggestion was learned from. */
+export function openTurn(
+  source: { thread_id: string; message_id: string | null },
+  go: (to: { threadId: string; hash?: string }) => void,
+): void {
+  // Opens the thread at that turn the way a search hit does (#message-id), without moving the
+  // thread's current branch; the thread opens either way, even if the turn is gone.
+  go({ threadId: source.thread_id, ...(source.message_id && { hash: source.message_id }) });
+}
+
+/** What was saved on its own from one of your messages (M2): the "Saved to memory" note under it. */
+export function useSavedFrom(messageId: string, enabled = true) {
+  return useQuery({
+    queryKey: memoryKeys.proposals,
+    queryFn: () => api.get<MemoryProposalList>('/memory/proposals'),
+    enabled,
+    staleTime: 30_000,
+    select: (d) =>
+      d.items.filter(
+        (p) =>
+          (p.status === 'auto_applied' || p.status === 'applied') &&
+          p.provenance === 'user_message' &&
+          p.evidence.some((e) => e.message_id === messageId),
+      ),
+  });
+}
+
 /* ---- From the event stream -------------------------------------------------- */
 
 /** memory.proposal on /events: refresh, then a quiet toast with Undo, or a nudge to the inbox. */
 export function onMemoryProposal(
-  e: { proposal_id: string; auto_applied: boolean; text?: string | undefined; target_path: string },
+  e: {
+    proposal_id: string;
+    auto_applied: boolean;
+    text?: string | undefined;
+    target_path: string;
+    explicit?: boolean | undefined;
+    watching?: boolean | undefined;
+  },
   go: (to: string) => void,
 ) {
   void refreshMemory();
+  // Seen once: it waits as a watch item in the inbox, without a nudge. Asked for by you: the
+  // thread says "Saved to memory" under your message, with Undo, so no second notice.
+  if (e.watching || (e.explicit && e.auto_applied)) return;
   const where = e.target_path === 'USER.md' ? 'about you' : e.target_path.replace(/\.md$/, '');
   if (e.auto_applied) {
     notify({

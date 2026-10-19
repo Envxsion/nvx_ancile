@@ -170,14 +170,25 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     const r = await h.send(thread, 'read my notes');
     await h.settle(r.run_id);
     await h.memory?.settled();
-    await h.memory?.afterTurn({
+    const turn = {
       threadId: thread,
       notebookId: null,
       userMessageId: r.user_message_id,
       assistantMessageId: r.assistant_message_id,
       runId: r.run_id,
       parts,
-    });
+    };
+    // M8: seen once, it waits as a watch item and is not yet a rule.
+    await h.memory?.afterTurn(turn);
+    const waiting = (await proposals()).find((p) => p.kind === 'failure_lesson');
+    expect(waiting).toMatchObject({ status: 'watching', sightings: 1 });
+    expect(waiting?.uncertainty).toMatch(/Seen once/);
+    expect(waiting?.expires_at).toBeTruthy();
+    expect(
+      (await h.call<MemoryFileList>('GET', '/memory/files')).body.items.map((f) => f.path),
+    ).not.toContain('FAILURES/files-read.md');
+    // Seen again, it becomes a rule.
+    await h.memory?.afterTurn(turn);
     const files = (await h.call<MemoryFileList>('GET', '/memory/files')).body.items.map((f) => f.path);
     const lesson = files.find((f) => f.startsWith('FAILURES/') && f !== 'FAILURES/README.md');
     expect(lesson).toBeDefined();

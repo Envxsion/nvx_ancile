@@ -367,6 +367,10 @@ export const GlobalEvent = z.discriminatedUnion('type', [
     /** The answer and run it was learned from, when there is one (flows' memory tray). */
     message_id: z.string().optional(),
     run_id: z.string().optional(),
+    /** M2: the person asked for this themselves ("remember that..."): saved at once, with Undo. */
+    explicit: z.boolean().optional(),
+    /** M8: seen once, kept as a watch item rather than proposed. */
+    watching: z.boolean().optional(),
   }),
   z.object({
     ...base,

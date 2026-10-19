@@ -20,11 +20,12 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { AutomationOption } from '@nvx/contracts';
+import { AncileError, type AutomationOption, type system } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import type { KnowledgeClient } from '../knowledge/client';
 import type { ObsStore } from '../obs/store';
 import { SETTING, type SettingsStore } from '../settings';
+import { IDLE_MINUTES } from '../system/tidy';
 import type { JobHandler, LinkedJob, SetupNeeded } from './runner';
 
 const run = promisify(execFile);
@@ -269,6 +270,8 @@ export function scheduledJobs(deps: {
   /** The backup remote: ANCILE_MEMORY_REMOTE, or the one saved in Settings → API keys. */
   memoryRemote?: string | undefined | (() => Promise<string | undefined>);
   retention: Retention;
+  /** Tidy storage (system/tidy.ts); absent, the job is skipped. */
+  tidy?: (opts: { idleMinutes: number }) => Promise<system.TidyReport>;
 }): Record<string, JobHandler> {
   return {
     cleanup: async (config) => {
@@ -315,6 +318,19 @@ export function scheduledJobs(deps: {
         throw new Error(gitProblem(err));
       }
       return { status: 'succeeded', detail: 'Memory pushed to its remote.' };
+    },
+
+    tidy_storage: async () => {
+      if (!deps.tidy) return { status: 'skipped', detail: 'Tidy storage is not available here.' };
+      try {
+        const r = await deps.tidy({ idleMinutes: IDLE_MINUTES });
+        return { status: 'succeeded', detail: r.summary };
+      } catch (err) {
+        // Busy is not a failure: it tries again at the next time.
+        if (err instanceof AncileError && err.code === 'maintenance.busy')
+          return { status: 'skipped', detail: `${err.title}. It will try again at the next time.` };
+        throw err;
+      }
     },
 
     stale_sources: async (config) => {

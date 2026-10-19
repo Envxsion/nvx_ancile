@@ -5,10 +5,16 @@
 //  Purpose  |  Start every service in order, know when each is ready,
 //           |  restart one that falls over, and stop them all when
 //           |  the app quits, saying at each step what is happening.
-//  How      |  Embedded Postgres first (pg0), then Knowledge (its
-//           |  migrations, then the server), the Controller and the
-//           |  lab when they are bundled, then Core, which serves the
-//           |  Cockpit. Ready means GET /ready answers 200. A service
+//  How      |  Embedded Postgres first (pg0), then Core's preflight
+//           |  (a backup before anything migrates). After that every
+//           |  service starts at once, each in a lane of its own:
+//           |  Knowledge (its migrations, then the server), the
+//           |  Controller and the lab when they are bundled, and Core,
+//           |  which serves the Cockpit. The window opens as soon as
+//           |  Core is ready (`core_ready`) and the status bar shows
+//           |  the rest warming up; a lane that fails leaves the app
+//           |  open with that service marked failed. Ready means GET
+//           |  /ready answers 200. A service
 //           |  that exits is restarted after 1, 2, 4 … 30 s; five
 //           |  exits in two minutes and it is left stopped, with the
 //           |  log to read. Each service writes to logs/<name>.log.
@@ -50,6 +56,81 @@ pub fn all_ready(services: &[ServiceStatus]) -> bool {
             .all(|s| matches!(s.state, State::Ready | State::Stopped))
 }
 
+/// Core is up and the database under it: the Cockpit can open.
+pub fn core_ready(services: &[ServiceStatus]) -> bool {
+    let state = |n: &str| services.iter().find(|s| s.name == n).map(|s| s.state);
+    state("core") == Some(State::Ready) && state("database") != Some(State::Failed)
+}
+
+/// What each service is called when it is still warming up.
+fn words(name: &str) -> &'static str {
+    match name {
+        "knowledge" => "sources and search",
+        "controller" => "GPU nodes",
+        "lab" => "the lab",
+        "database" => "the database",
+        _ => "a service",
+    }
+}
+
+/// Services still starting once Core is open (Core and the database are not in this list).
+pub fn warming(services: &[ServiceStatus]) -> Vec<String> {
+    if !core_ready(services) {
+        return Vec::new();
+    }
+    services
+        .iter()
+        .filter(|s| !matches!(s.name, "core" | "database"))
+        .filter(|s| {
+            matches!(
+                s.state,
+                State::Waiting | State::Starting | State::Restarting
+            )
+        })
+        .map(|s| words(s.name).to_string())
+        .collect()
+}
+
+/// The headline once Core is open: ready, still warming, or ready with something that did not start.
+pub fn summary(services: &[ServiceStatus]) -> String {
+    let failed: Vec<&str> = services
+        .iter()
+        .filter(|s| s.state == State::Failed)
+        .map(|s| words(s.name))
+        .collect();
+    if !failed.is_empty() {
+        return format!("Ready, but {} did not start", failed.join(" and "));
+    }
+    let warm = warming(services);
+    if warm.is_empty() {
+        "Ready".into()
+    } else {
+        format!("Ready. Warming up: {}", warm.join(", "))
+    }
+}
+
+/// Which services start in a lane of their own after the preflight, and what a lane
+/// does first. Core is the one the window waits for; the others never hold it up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lane {
+    pub service: &'static str,
+    /// Knowledge runs its migrations before its server starts.
+    pub migrate_first: bool,
+    /// A lane that fails leaves the app open (everything but Core).
+    pub optional: bool,
+}
+
+pub fn lanes(names: &[&'static str]) -> Vec<Lane> {
+    names
+        .iter()
+        .map(|n| Lane {
+            service: n,
+            migrate_first: *n == "knowledge",
+            optional: *n != "core",
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
@@ -72,7 +153,12 @@ pub struct Status {
     pub message: String,
     pub hint: Option<String>,
     pub services: Vec<ServiceStatus>,
+    /// Every service is up.
     pub ready: bool,
+    /// Core is up: the Cockpit can open, whatever else is still warming.
+    pub core_ready: bool,
+    /// Services still starting after Core opened, in words ("sources and search").
+    pub warming: Vec<String>,
 }
 
 struct Spec {
@@ -264,6 +350,8 @@ impl Supervisor {
                 hint: None,
                 services,
                 ready: false,
+                core_ready: false,
+                warming: Vec::new(),
             }),
             shutting: AtomicBool::new(false),
             generation: AtomicUsize::new(0),
@@ -280,6 +368,11 @@ impl Supervisor {
     #[allow(dead_code)] // used only with the updater feature
     pub fn service_token(&self) -> Option<&str> {
         self.env.get("ANCILE_SERVICE_TOKEN").map(String::as_str)
+    }
+
+    /// The app is quitting: no new work, no restarts.
+    pub fn is_shutting(&self) -> bool {
+        self.shutting.load(Ordering::SeqCst)
     }
 
     pub fn status(&self) -> Status {
@@ -307,6 +400,12 @@ impl Supervisor {
                 s.hint = h;
             }
             s.ready = all_ready(&s.services);
+            s.core_ready = core_ready(&s.services);
+            s.warming = warming(&s.services);
+            // Core is open and the headline was not set on purpose: say what is left.
+            if s.core_ready && message.is_none() && name.is_some() {
+                s.message = summary(&s.services);
+            }
             s.clone()
         };
         log::info!("status: {} {:?}", snapshot.message, name.zip(state));
@@ -731,8 +830,22 @@ impl Supervisor {
         };
         self.start_database().map_err(|e| fail(self, e))?;
         self.start_services().map_err(|e| fail(self, e))?;
-        self.update(None, None, Some("Ready"), Some(None));
+        self.settle();
         Ok(())
+    }
+
+    /// Core is open: the headline says what is left to warm up or did not start, and a
+    /// hint set by a failed service stays.
+    fn settle(&self) {
+        let st = self.status();
+        let any_failed = st.services.iter().any(|s| s.state == State::Failed);
+        let message = summary(&st.services);
+        self.update(
+            None,
+            None,
+            Some(&message),
+            if any_failed { None } else { Some(None) },
+        );
     }
 
     /// Core's preflight: refuse a database a newer NVX Ancile wrote, check
@@ -776,40 +889,68 @@ impl Supervisor {
             return self.start_service(core);
         }
 
-        self.update(None, None, Some("Preparing sources and search"), None);
-        let migrate = self.run_once(
-            &self.python(),
-            &[
-                "-m".into(),
-                "alembic".into(),
-                "upgrade".into(),
-                "head".into(),
-            ],
-            &self.layout.sidecar("knowledge/app"),
-            "knowledge",
-            Duration::from_secs(180),
-        );
-        migrate.map_err(|e| format!("The sources database could not be prepared: {e}."))?;
+        // Every service starts at once, each in a lane of its own. The window
+        // waits for Core only; Knowledge, the Controller and the lab warm up
+        // beside it and the status bar says so (P6).
+        let specs = self.specs();
+        let names: Vec<&'static str> = specs.iter().map(|s| s.name).collect();
+        let plan = lanes(&names);
+        self.update(None, None, Some("Starting Core"), None);
+        let mut core = None;
+        for spec in specs {
+            let lane = plan
+                .iter()
+                .find(|l| l.service == spec.name)
+                .cloned()
+                .expect("every spec has a lane");
+            if !lane.optional {
+                core = Some(spec);
+                continue;
+            }
+            let me = Arc::clone(self);
+            thread::spawn(move || me.run_lane(spec, lane));
+        }
+        let core =
+            core.ok_or_else(|| "Core is missing from this copy of NVX Ancile.".to_string())?;
+        self.start_service(core)
+    }
 
-        for spec in self.specs() {
-            let name = spec.name;
-            let message = match name {
-                "knowledge" => "Starting sources and search",
-                "controller" => "Starting GPU nodes",
-                "lab" => "Starting the lab",
-                _ => "Starting Core",
-            };
-            self.update(None, None, Some(message), None);
-            if let Err(e) = self.start_service(spec) {
-                // The lab and the Controller are optional: carry on without them.
-                if matches!(name, "lab" | "controller") {
-                    log::warn!("{e}");
-                    continue;
-                }
-                return Err(e);
+    /// One service that does not hold the window up: its migrations (Knowledge), then
+    /// the service itself. A failure is told in words and leaves the rest running.
+    fn run_lane(self: &Arc<Self>, spec: Spec, lane: Lane) {
+        let name = spec.name;
+        let logs = self.layout.logs.display().to_string();
+        let failed = |me: &Arc<Self>, what: &str, e: &str| {
+            log::warn!("{name}: {e}");
+            me.update(
+                Some(name),
+                Some(State::Failed),
+                None,
+                Some(Some(format!("{what} Its log is in {logs}."))),
+            );
+        };
+        if lane.migrate_first {
+            self.update(Some(name), Some(State::Starting), None, None);
+            let migrate = self.run_once(
+                &self.python(),
+                &[
+                    "-m".into(),
+                    "alembic".into(),
+                    "upgrade".into(),
+                    "head".into(),
+                ],
+                &self.layout.sidecar("knowledge/app"),
+                "knowledge",
+                Duration::from_secs(180),
+            );
+            if let Err(e) = migrate {
+                failed(self, "The sources database could not be prepared.", &e);
+                return;
             }
         }
-        Ok(())
+        if let Err(e) = self.start_service(spec) {
+            failed(self, "This service did not start.", &e);
+        }
     }
 
     /// Core asked for every service to start again (RESTART_ALL_EXIT: after
@@ -840,7 +981,7 @@ impl Supervisor {
         let me = Arc::clone(self);
         thread::spawn(move || match me.start_services() {
             Ok(()) => {
-                me.update(None, None, Some("Ready"), Some(None));
+                me.settle();
                 crate::reload_main(&me.app);
             }
             Err(e) => me.update(
@@ -998,6 +1139,81 @@ mod ready_tests {
             svc("core", State::Ready),
         ]));
         assert!(!all_ready(&[svc("database", State::Stopped)]));
+    }
+
+    #[test]
+    fn the_window_opens_when_core_is_ready_whatever_else_is_warming() {
+        let mut v = vec![
+            svc("database", State::Ready),
+            svc("knowledge", State::Starting),
+            svc("controller", State::Waiting),
+            svc("core", State::Starting),
+        ];
+        assert!(!core_ready(&v), "Core still starting");
+        v[3].state = State::Ready;
+        assert!(core_ready(&v), "open now");
+        assert!(!all_ready(&v), "but not everything is up");
+        assert_eq!(warming(&v), vec!["sources and search", "GPU nodes"]);
+        assert_eq!(
+            summary(&v),
+            "Ready. Warming up: sources and search, GPU nodes"
+        );
+        v[1].state = State::Ready;
+        v[2].state = State::Ready;
+        assert!(warming(&v).is_empty());
+        assert_eq!(summary(&v), "Ready");
+    }
+
+    #[test]
+    fn nothing_is_warming_before_core_opens() {
+        let v = vec![
+            svc("database", State::Ready),
+            svc("knowledge", State::Starting),
+            svc("core", State::Starting),
+        ];
+        assert!(warming(&v).is_empty());
+        assert!(!core_ready(&[
+            svc("database", State::Failed),
+            svc("core", State::Ready)
+        ]));
+    }
+
+    #[test]
+    fn knowledge_failing_while_core_works_leaves_the_app_open_and_says_so() {
+        let v = vec![
+            svc("database", State::Ready),
+            svc("knowledge", State::Failed),
+            svc("core", State::Ready),
+        ];
+        assert!(core_ready(&v));
+        assert!(!all_ready(&v));
+        assert_eq!(summary(&v), "Ready, but sources and search did not start");
+        assert!(warming(&v).is_empty(), "a failed service is not warming");
+    }
+
+    #[test]
+    fn every_service_has_a_lane_and_only_core_holds_the_window() {
+        let l = lanes(&["knowledge", "controller", "lab", "core"]);
+        assert_eq!(l.len(), 4);
+        assert!(l
+            .iter()
+            .find(|x| x.service == "core")
+            .is_some_and(|c| !c.optional && !c.migrate_first));
+        assert!(l.iter().filter(|x| x.service != "core").all(|x| x.optional));
+        // Only Knowledge has migrations to run first, and they run in its own lane,
+        // beside Core, not in front of it.
+        assert_eq!(
+            l.iter()
+                .filter(|x| x.migrate_first)
+                .map(|x| x.service)
+                .collect::<Vec<_>>(),
+            vec!["knowledge"]
+        );
+        assert_eq!(
+            lanes(&["core"]).len(),
+            1,
+            "without the optional services Core is alone"
+        );
     }
 
     #[test]

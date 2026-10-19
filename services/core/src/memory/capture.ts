@@ -40,6 +40,14 @@ export interface CaptureCandidate {
   confidence: number;
   evidence: { threadId?: string; messageId?: string; runId?: string; quote?: string }[];
   provenance: Provenance;
+  /**
+   * M2: the person said "remember that..." or "never..." in their own words. Only
+   * the explicit detector sets it, and only applyPolicy honours it, and only with
+   * provenance user_message (GR3).
+   */
+  explicit?: boolean;
+  /** M8: the fix worked and the cause is known, so one sighting is enough. */
+  verified?: boolean;
 }
 
 export interface ReconcileDecision {
@@ -60,7 +68,12 @@ export function applyPolicy(
   autoApplyThreshold: number | null,
   mode: 'propose_all' | 'auto_confident' | 'off',
 ): 'skip' | 'propose' | 'auto_apply' {
-  if (mode === 'off' || d.op === 'noop') return 'skip';
+  if (d.op === 'noop') return 'skip';
+  // GR3: the person's own explicit request is theirs to make, so it is saved (with a
+  // note and Undo) in any mode. With learning off it waits in the inbox instead of
+  // vanishing. Nothing else gets this: not a tool, a source or another model's words.
+  if (c.explicit && c.provenance === 'user_message') return mode === 'off' ? 'propose' : 'auto_apply';
+  if (mode === 'off') return 'skip';
   if (c.provenance === 'tool_output' || c.provenance === 'source_content') return 'propose';
   if (mode === 'propose_all' || autoApplyThreshold === null) return 'propose';
   return c.confidence >= autoApplyThreshold ? 'auto_apply' : 'propose';

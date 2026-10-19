@@ -35,6 +35,7 @@ import {
 } from 'react';
 import { syncThread } from '../claudecode/api';
 import { groupTogether, useNotebookLinks } from '../claudecode/SameRepo';
+import { threadLink } from '../desktop/api';
 import { openEditor } from '../editors/store';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
@@ -43,6 +44,7 @@ import { hueVar, relative } from '../lib/format';
 import { deleteThread, moveThread, renameThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue, NotebookView, ThreadSummary } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { runHindsight } from '../memory/api';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, isIconName } from '../ui/Icon';
@@ -175,7 +177,8 @@ const ThreadRow = memo(function ThreadRow({
     {
       label: 'Copy link',
       icon: 'link',
-      onSelect: () => void navigator.clipboard?.writeText(`${location.origin}/t/${t.id}`),
+      // ancile://thread/<id> in the desktop app (it opens in the app, whatever port Core has).
+      onSelect: () => void navigator.clipboard?.writeText(threadLink(t.id)),
     },
     { kind: 'separator' },
     {
@@ -209,6 +212,11 @@ const ThreadRow = memo(function ThreadRow({
           },
         ]
       : []),
+    {
+      label: 'Hindsight pass',
+      icon: 'evidence',
+      onSelect: () => void runHindsight(t.id, (to) => void navigate({ to })),
+    },
     { kind: 'separator' },
     { label: 'Archive', icon: 'archive', onSelect: () => void setArchived(t.id, true, t.title) },
     {

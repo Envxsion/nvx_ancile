@@ -5,6 +5,7 @@
  * the Cockpit can say Pro is ready, or that Pro ended.
  */
 import { describe, expect, it } from 'vitest';
+import { errorHandler } from '../../src/obs/errors';
 import { MemorySettings } from '../../src/settings';
 import { UpdateOfferBox, updateInternalRoutes, updateRoutes } from '../../src/system/updates';
 
@@ -12,14 +13,20 @@ describe('desktop updates', () => {
   it('keeps the channel, stable by default, and refuses anything else', async () => {
     const settings = new MemorySettings();
     const app = updateRoutes({ settings, offer: new UpdateOfferBox(() => false) });
-    expect(await (await app.request('/system/updates')).json()).toEqual({ channel: 'stable' });
+    expect(await (await app.request('/system/updates')).json()).toEqual({
+      channel: 'stable',
+      beta_available: true,
+    });
     const put = await app.request('/system/updates', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ channel: 'beta' }),
     });
     expect(put.status).toBe(200);
-    expect(await (await app.request('/system/updates')).json()).toEqual({ channel: 'beta' });
+    expect(await (await app.request('/system/updates')).json()).toEqual({
+      channel: 'beta',
+      beta_available: true,
+    });
     const bad = await app.request('/system/updates', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -91,7 +98,21 @@ describe('desktop updates', () => {
       (await internal.request('/desktop/update-offer', post({ version: '0.4.0', edition: 'pro' }))).status,
     ).toBe(200);
     expect(await read()).toEqual({
-      offer: { version: '0.4.0', edition: 'pro', kind: 'pro', older: false, found_at: at.toISOString() },
+      offer: {
+        version: '0.4.0',
+        edition: 'pro',
+        kind: 'pro',
+        older: false,
+        found_at: at.toISOString(),
+        notes: null,
+        size_bytes: null,
+        state: 'available',
+        progress: null,
+        when: 'none',
+        scheduled_for: null,
+        error: null,
+        previous_version: null,
+      },
     });
     // The same edition: a plain update.
     await internal.request(
@@ -135,5 +156,75 @@ describe('desktop updates', () => {
     );
     expect(extra.status).toBeGreaterThanOrEqual(400);
     expect(offer.get()).toEqual({ offer: null });
+  });
+  it('keeps Beta for Pro: a free install stays on stable, and a Pro one that lapsed goes back to it', async () => {
+    const settings = new MemorySettings();
+    let pro = false;
+    const deps = { settings, offer: new UpdateOfferBox(() => false), canBeta: () => pro };
+    const app = updateRoutes(deps);
+    app.onError(errorHandler);
+    const put = (channel: string) =>
+      app.request('/system/updates', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ channel }),
+      });
+    const refused = await put('beta');
+    expect(refused.status).toBe(402);
+    const err = (await refused.json()) as { error: { code: string; context: { feature: string } } };
+    expect(err.error).toMatchObject({ code: 'pro.feature_required', context: { feature: 'desktop' } });
+    expect((await put('stable')).status).toBe(200);
+    pro = true;
+    expect((await put('beta')).status).toBe(200);
+    const internal = updateInternalRoutes(deps);
+    expect(((await (await internal.request('/desktop/updates')).json()) as { channel: string }).channel).toBe(
+      'beta',
+    );
+    // Pro ended while Beta was chosen: the next check asks for stable.
+    pro = false;
+    expect(((await (await internal.request('/desktop/updates')).json()) as { channel: string }).channel).toBe(
+      'stable',
+    );
+    expect(await (await app.request('/system/updates')).json()).toEqual({
+      channel: 'stable',
+      beta_available: false,
+    });
+  });
+
+  it('carries the notes, size, progress and what the person chose for the update', () => {
+    const box = new UpdateOfferBox(
+      () => false,
+      () => new Date('2026-10-19T09:00:00Z'),
+    );
+    box.set({
+      version: '0.1.1',
+      edition: 'free',
+      downgrade: false,
+      older: false,
+      notes: 'Fixes.',
+      size_bytes: 1234,
+      state: 'downloading',
+      progress: 0.5,
+      when: 'tonight',
+      scheduled_for: '2026-10-20T03:00:00Z',
+    });
+    expect(box.get().offer).toMatchObject({
+      notes: 'Fixes.',
+      size_bytes: 1234,
+      state: 'downloading',
+      progress: 0.5,
+      when: 'tonight',
+    });
+    const first = box.get().offer?.found_at;
+    box.set({
+      version: '0.1.1',
+      edition: 'free',
+      downgrade: false,
+      older: false,
+      state: 'ready',
+      progress: 1,
+    });
+    expect(box.get().offer?.found_at).toBe(first);
+    expect(box.get().offer?.state).toBe('ready');
   });
 });

@@ -46,7 +46,15 @@ export interface MemoryRouteDeps {
 }
 
 const SHA = /^[0-9a-f]{7,40}$/;
-const STATUSES = new Set(['proposed', 'applied', 'rejected', 'auto_applied', 'undone']);
+const STATUSES = new Set([
+  'proposed',
+  'applied',
+  'rejected',
+  'auto_applied',
+  'undone',
+  'watching',
+  'expired',
+]);
 
 /** The file path after a route prefix, decoded. */
 function tail(path: string, marker: string): string {
@@ -134,6 +142,12 @@ export function memoryRoutes(deps: MemoryRouteDeps) {
     const req = await body(c, ProposalDecisionRequest);
     return c.json(await service.decide(c.req.param('id'), req));
   });
+
+  /**
+   * M9: review a thread for what it taught. Proposes only; the suggestions wait in
+   * the inbox, each citing the turn it came from. Works for any thread, Claude Code ones too.
+   */
+  r.post('/threads/:id/hindsight', async (c) => c.json(await service.hindsight(c.req.param('id'))));
 
   /** Exactly what would be injected for this thread's next turn. */
   r.get('/memory/preview', async (c) => {

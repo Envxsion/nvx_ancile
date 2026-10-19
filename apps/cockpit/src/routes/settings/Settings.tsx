@@ -23,7 +23,9 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ClaudeCodeGroup } from '../../claudecode/ClaudeCodeGroup';
 import { ApiKeysGroup } from '../../credentials/ApiKeys';
+import { DesktopGroup } from '../../desktop/DesktopGroup';
 import { helpDone } from '../../help/store';
+import { isDesktop } from '../../lib/runtime';
 import { ProSurfaceView } from '../../pro/slot';
 import { notify } from '../../state/notify';
 import { usePrefs } from '../../state/prefs';
@@ -44,8 +46,8 @@ import {
 import { KeyboardGroup } from './Keyboard';
 import { SearchContext } from './rows';
 
-const GROUPS: {
-  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code' | 'usage';
+const ALL_GROUPS: {
+  id: PrefGroup | 'about' | 'privacy' | 'sync' | 'keys' | 'claude-code' | 'usage' | 'desktop';
   label: string;
   icon: IconName;
   body: () => ReactNode;
@@ -110,6 +112,13 @@ const GROUPS: {
     lede: 'Claude Code plan limits, and what NVX Ancile has used today, this week and this month.',
   },
   {
+    id: 'desktop',
+    label: 'Desktop',
+    icon: 'monitor',
+    body: DesktopGroup,
+    lede: 'What closing the window does, and updates.',
+  },
+  {
     id: 'privacy',
     label: 'Privacy',
     icon: 'shield',
@@ -131,6 +140,9 @@ const GROUPS: {
     lede: 'Effects, hints and your own CSS.',
   },
 ];
+
+/** Desktop settings exist only inside the desktop app. */
+const GROUPS = ALL_GROUPS.filter((g) => g.id !== 'desktop' || isDesktop());
 
 type Diff = { group: PrefGroup; key: string; from: unknown; to: unknown };
 
@@ -387,6 +399,7 @@ export function SettingsScreen() {
             current.id !== 'sync' &&
             current.id !== 'keys' &&
             current.id !== 'claude-code' &&
+            current.id !== 'desktop' &&
             current.id !== 'usage' ? (
               <button
                 type="button"

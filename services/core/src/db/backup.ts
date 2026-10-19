@@ -38,9 +38,16 @@ const log = logFor('backup');
 export const KEEP_BACKUPS = 5;
 /** Safety copies (before a restore, before installing an older build) kept. */
 export const KEEP_SAFETY = 2;
+/** Backups taken before Tidy storage that are kept. */
+export const KEEP_TIDY = 2;
 const DUMP_TIMEOUT_MS = 30 * 60_000;
 
-export type BackupReason = 'before-migration' | 'before-downgrade' | 'before-restore' | 'manual';
+export type BackupReason =
+  | 'before-migration'
+  | 'before-downgrade'
+  | 'before-restore'
+  | 'before-tidy'
+  | 'manual';
 
 export interface BackupInfo {
   /** The file name, which is also its id. */
@@ -219,7 +226,8 @@ export async function pruneBackups(
   const all = await listBackups(dataDir);
   const update = all.filter((b) => b.reason === 'before-migration');
   const safety = all.filter((b) => b.reason === 'before-restore' || b.reason === 'before-downgrade');
-  const drop = [...update.slice(keep), ...safety.slice(keepSafety)];
+  const tidy = all.filter((b) => b.reason === 'before-tidy');
+  const drop = [...update.slice(keep), ...safety.slice(keepSafety), ...tidy.slice(KEEP_TIDY)];
   for (const b of drop) {
     await rm(b.path, { force: true });
     await rm(`${b.path}.json`, { force: true });

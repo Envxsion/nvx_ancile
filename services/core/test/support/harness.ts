@@ -91,6 +91,10 @@ export interface HarnessOptions {
   memory?: boolean;
   /** Memory export and import: the notebooks there are, and those whose scope keeps memory out. */
   memoryNotebooks?: import('../../src/memory/transfer').TransferNotebook[];
+  /** Memory's clock, to age watch items (M8). */
+  memoryNow?: () => Date;
+  /** Look a notebook up by id; the default always finds one. null means it was deleted. */
+  memoryNotebook?: (id: string) => Promise<{ id: string; slug: string; title: string } | null>;
   memoryReadOnly?: string[];
   /** Model catalogues for Settings → Models (recorded fixtures). */
   catalogue?: import('../../src/gateway/catalogue').CatalogueSource;
@@ -202,7 +206,9 @@ export async function harness(opts: HarnessOptions = {}) {
       bus,
       utility: utilityFrom({ gateway, registry, promptsDir: join(dir, 'no-prompts') }),
       threads: repo,
-      notebook: async (id) => ({ id, slug: 'test-notebook', title: 'Test notebook' }),
+      notebook:
+        opts.memoryNotebook ?? (async (id) => ({ id, slug: 'test-notebook', title: 'Test notebook' })),
+      ...(opts.memoryNow && { now: opts.memoryNow }),
     });
     await memory.start();
     memoryTransfer = new MemoryTransfer({

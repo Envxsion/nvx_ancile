@@ -20,6 +20,7 @@
 
 import {
   AncileError,
+  type HindsightResponse,
   type MemoryCommit,
   type MemoryEntryView,
   type MemoryFileContent,
@@ -31,11 +32,13 @@ import {
   type MemoryProposalList,
   type Part,
   type ProposalDecisionRequest,
+  type ProposalScope,
   type PutMemoryFileResponse,
 } from '@nvx/contracts';
 import { MemoryConflict } from '@nvx/plugin-sdk';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
+import { pathFor } from '../conductor/context';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
 import { SETTING, type SettingsStore } from '../settings';
@@ -55,9 +58,23 @@ import {
   ownWords,
   PROMPTS,
   ReconcileOutput,
+  reconcileLocally,
   topicSlug,
 } from './capture';
+import { detectExplicit } from './explicit';
 import { addEntry, type EntryMeta, parseMemory, renderMemory, supersedeEntry, updateEntry } from './format';
+import {
+  clearsBar,
+  episodeVerified,
+  findWatch,
+  lapsed,
+  laterSuccesses,
+  needsSightings,
+  SIGHTINGS_NEEDED,
+  uncertaintyFor,
+  watchExpiry,
+} from './gates';
+import { checkReview, condense, HINDSIGHT_PROMPT, HindsightReview, turnsOf } from './hindsight';
 import { type IndexedEntry, indexFile, isGuideFile, type MemoryIndex, similarity } from './index';
 import { buildMemoryPack, type InjectFile, type MemoryPack, memoryBudget } from './inject';
 import type { Utility } from './llm';
@@ -125,6 +142,8 @@ export interface MemoryServiceDeps {
   utility?: Utility;
   threads?: Pick<ThreadRepo, 'messages' | 'getMessage' | 'getThread'>;
   notebook?: (id: string) => Promise<NotebookInfo | null>;
+  /** The clock, so watch items can be aged in tests. */
+  now?: () => Date;
 }
 
 /** What the conductor hands over after a turn. */
@@ -413,11 +432,141 @@ export class MemoryService {
 
   /* ---- Proposals ------------------------------------------------------------- */
 
-  async proposals(status?: MemoryProposal['status'][]): Promise<MemoryProposalList> {
+  private now(): Date {
+    return this.deps.now?.() ?? new Date();
+  }
+
+  /** M8: watch items that were not seen again in time lapse. Returns how many. */
+  async sweepWatches(): Promise<number> {
+    const now = this.now();
+    let n = 0;
+    for (const w of await this.deps.proposals.watching())
+      if (lapsed(w, now)) {
+        await this.deps.proposals.update(w.id, { status: 'expired', decided: true });
+        n++;
+      }
+    return n;
+  }
+
+  /** M3: where a proposal was learned, if the thread and notebook are still there. */
+  private async sourceOf(p: MemoryProposal): Promise<NonNullable<MemoryProposal['source']> | null> {
+    const ev = p.evidence.find((e) => e.thread_id);
+    if (!ev?.thread_id || !this.deps.threads) return null;
+    const thread = await this.deps.threads.getThread(ev.thread_id).catch(() => undefined);
+    const nb = thread?.notebook_id ? await this.deps.notebook?.(thread.notebook_id).catch(() => null) : null;
     return {
-      items: await this.deps.proposals.list({ ...(status && { status }), limit: 200 }),
-      pending: await this.deps.proposals.pending(),
+      thread_id: ev.thread_id,
+      thread_title: thread?.title ?? null,
+      thread_deleted: !thread,
+      message_id: ev.message_id ?? null,
+      notebook: thread?.notebook_id ? { id: thread.notebook_id, title: nb?.title ?? null } : null,
     };
+  }
+
+  async proposals(status?: MemoryProposal['status'][]): Promise<MemoryProposalList> {
+    await this.sweepWatches().catch((err) => log.warn({ err }, 'could not age the watch items'));
+    const items = await this.deps.proposals.list({ ...(status && { status }), limit: 200 });
+    const cache = new Map<string, Promise<NonNullable<MemoryProposal['source']> | null>>();
+    const withSource = await Promise.all(
+      items.map(async (p) => {
+        const tid = p.evidence.find((e) => e.thread_id)?.thread_id;
+        if (!tid) return p;
+        const src = cache.get(tid) ?? this.sourceOf(p);
+        cache.set(tid, src);
+        const source = await src;
+        return source
+          ? {
+              ...p,
+              source: { ...source, message_id: p.evidence.find((e) => e.thread_id)?.message_id ?? null },
+            }
+          : p;
+      }),
+    );
+    return { items: withSource, pending: await this.deps.proposals.pending() };
+  }
+
+  /**
+   * M1: where an approved suggestion goes when the person chose a scope or a file.
+   * Lessons keep their own file; everything else can be kept for you, for the
+   * notebook it was learned in, or everywhere.
+   */
+  private async retarget(
+    p: MemoryProposal,
+    req: { scope?: ProposalScope | undefined; path?: string | undefined },
+  ): Promise<{ proposal: MemoryProposal; notebook: NotebookInfo | null }> {
+    let notebook: NotebookInfo | null = null;
+    const fixed = p.kind === 'failure_lesson' || p.kind === 'model_quirk';
+    if (req.scope && fixed && !req.path)
+      throw new AncileError({
+        code: 'memory.scope_fixed',
+        title: 'That kind of note stays in its own file',
+        hint: 'Lessons and model quirks are kept by topic. Choose a file instead, or approve it as it is.',
+        status: 400,
+        errorClass: 'permanent',
+      });
+
+    // The notebook the thread belongs to, for "This notebook".
+    const needNotebook = req.scope === 'notebook' && !req.path;
+    if (needNotebook) {
+      const tid = p.evidence.find((e) => e.thread_id)?.thread_id;
+      const thread = tid ? await this.deps.threads?.getThread(tid).catch(() => undefined) : undefined;
+      if (!thread?.notebook_id)
+        throw new AncileError({
+          code: 'memory.scope_unavailable',
+          title: tid && !thread ? 'The thread this came from is gone' : 'This was not learned in a notebook',
+          hint: 'Keep it for you or everywhere instead, or choose a file.',
+          status: 409,
+          errorClass: 'permanent',
+        });
+      notebook = (await this.deps.notebook?.(thread.notebook_id).catch(() => null)) ?? null;
+      if (!notebook)
+        throw new AncileError({
+          code: 'memory.notebook_gone',
+          title: 'That notebook no longer exists',
+          hint: 'Keep it for you or everywhere instead, or choose a file.',
+          status: 409,
+          errorClass: 'permanent',
+        });
+    }
+
+    let path = p.target_path;
+    let section = p.section;
+    if (req.path) {
+      path = safeMemoryPath(req.path);
+      if (!path.endsWith('.md') || isGuideFile(path) || !this.typeOf(path))
+        throw new AncileError({
+          code: 'memory.file_unknown',
+          title: `${req.path} is not a memory file`,
+          hint: 'Choose USER.md, AGENTS.md, a notebook file under PROJECTS, or a topic under FAILURES.',
+          status: 400,
+          errorClass: 'permanent',
+        });
+      section = this.sectionFor(path, p);
+    } else if (req.scope === 'user') {
+      path = 'USER.md';
+      section = 'Preferences';
+    } else if (req.scope === 'everywhere') {
+      path = 'AGENTS.md';
+      section = 'Rules';
+    } else if (notebook) {
+      path = `PROJECTS/${notebook.slug}.md`;
+      section = 'Decisions';
+    }
+    if (path === p.target_path) return { proposal: p, notebook };
+    // A different file: whatever it would have updated is not there.
+    return {
+      proposal: { ...p, target_path: path, section, op: 'add', target_key: null, target_text: null },
+      notebook,
+    };
+  }
+
+  private sectionFor(path: string, p: MemoryProposal): string {
+    if (path === 'USER.md') return 'Preferences';
+    if (path === 'AGENTS.md') return 'Rules';
+    if (path.startsWith('PROJECTS/')) return 'Decisions';
+    if (path.startsWith('FAILURES/')) return 'Lessons';
+    if (path.startsWith('MODELS/')) return 'Quirks';
+    return p.section || 'Notes';
   }
 
   async decide(id: string, req: ProposalDecisionRequest): Promise<MemoryProposal> {
@@ -440,18 +589,26 @@ export class MemoryService {
         context: { status: p.status },
       });
 
+    // A watch item (M8) can be decided like any other: the person may trust it early or drop it.
+    const open = p.status === 'proposed' || p.status === 'watching';
     if (req.decision === 'reject') {
-      if (p.status !== 'proposed') throw wrong();
+      if (!open) throw wrong();
       return (await this.deps.proposals.update(id, { status: 'rejected', decided: true })) as MemoryProposal;
     }
     if (req.decision === 'approve') {
-      if (p.status !== 'proposed') throw wrong();
+      if (!open) throw wrong();
       const text = req.text ? cleanEntry(req.text) : p.text;
-      const sha = await this.applyProposal({ ...p, text }, false);
+      const moved = await this.retarget(p, req);
+      const sha = await this.applyProposal({ ...moved.proposal, text }, false, moved.notebook);
       return (await this.deps.proposals.update(id, {
         status: 'applied',
         commit_sha: sha,
         text,
+        target_path: moved.proposal.target_path,
+        section: moved.proposal.section,
+        op: moved.proposal.op,
+        target_key: moved.proposal.target_key,
+        target_text: moved.proposal.target_text,
         decided: true,
       })) as MemoryProposal;
     }
@@ -545,15 +702,22 @@ export class MemoryService {
   }
 
   /**
-   * Reconcile a candidate with what is already remembered, then propose it or
-   * apply it. Returns the proposal, or null when nothing needed doing.
+   * Reconcile a candidate with what is already remembered, then propose it, apply
+   * it, or (M8) keep it as a watch item. Returns the proposal, or null when
+   * nothing needed doing.
+   *
+   * GR3 lives in two places. Whether a candidate may be written without a yes is
+   * decided by applyPolicy (capture.ts): only the person's own words qualify.
+   * Whether a run-learned lesson is a rule yet is decided here, by sightings.
    */
   async consider(
     c: CaptureCandidate,
     opts: { notebook?: NotebookInfo | null } = {},
   ): Promise<MemoryProposal | null> {
     const mode = await this.captureMode();
-    if (mode === 'off') return null;
+    const explicit = !!c.explicit && c.provenance === 'user_message';
+    if (mode === 'off' && !explicit) return null;
+    await this.sweepWatches().catch(() => undefined);
     const spec = this.typeOf(c.targetPath)?.spec;
     const neighbours = this.deps.index
       .search(c.text, { path: c.targetPath, limit: 5, min: 0.1 })
@@ -572,25 +736,68 @@ export class MemoryService {
     if (verdict === 'skip' || d.op === 'noop') return null;
 
     const target = d.targetKey ? this.deps.index.find(c.targetPath, d.targetKey) : undefined;
-    let p = await this.deps.proposals.create({
-      kind: c.kind,
-      target_path: c.targetPath,
+    const evidence = c.evidence.map((e) => ({
+      ...(e.threadId && { thread_id: e.threadId }),
+      ...(e.messageId && { message_id: e.messageId }),
+      ...(e.runId && { run_id: e.runId }),
+      ...(e.quote && { quote: e.quote.slice(0, 300) }),
+    }));
+    const fields = {
       op: d.op,
-      section: c.section,
       text: asEntry(cleanEntry(d.text)),
       target_key: target?.key ?? null,
       target_text: target?.text ?? null,
       rationale: d.rationale,
-      confidence: c.confidence,
-      provenance: c.provenance,
-      evidence: c.evidence.map((e) => ({
-        ...(e.threadId && { thread_id: e.threadId }),
-        ...(e.messageId && { message_id: e.messageId }),
-        ...(e.runId && { run_id: e.runId }),
-        ...(e.quote && { quote: e.quote.slice(0, 300) }),
-      })),
-      status: 'proposed',
-    });
+    };
+
+    // M8, proved or suggested: a lesson from a run needs a second sighting or checked evidence.
+    let seen: MemoryProposal | undefined;
+    if (needsSightings(c)) {
+      seen = findWatch(await this.deps.proposals.watching(), c.targetPath, fields.text);
+      const sightings = (seen?.sightings ?? 0) + 1;
+      if (sightings < SIGHTINGS_NEEDED) {
+        const w = await this.deps.proposals.create({
+          kind: c.kind,
+          target_path: c.targetPath,
+          section: c.section,
+          ...fields,
+          confidence: c.confidence,
+          provenance: c.provenance,
+          evidence,
+          status: 'watching',
+          sightings,
+          expires_at: watchExpiry(this.now()),
+          uncertainty: uncertaintyFor({ kind: c.kind, text: fields.text }),
+        });
+        await this.announce(w, c, false, true);
+        return w;
+      }
+    }
+
+    let p: MemoryProposal;
+    if (seen) {
+      // The second sighting: the watch item becomes an ordinary proposal, with both cases as evidence.
+      p =
+        (await this.deps.proposals.update(seen.id, {
+          status: 'proposed',
+          ...fields,
+          evidence: [...seen.evidence, ...evidence].slice(-6),
+          sightings: (seen.sightings ?? 1) + 1,
+          expires_at: null,
+          uncertainty: null,
+        })) ?? seen;
+    } else {
+      p = await this.deps.proposals.create({
+        kind: c.kind,
+        target_path: c.targetPath,
+        section: c.section,
+        ...fields,
+        confidence: c.confidence,
+        provenance: c.provenance,
+        evidence,
+        status: 'proposed',
+      });
+    }
     if (verdict === 'auto_apply') {
       const sha = await this.applyProposal(p, true, opts.notebook);
       p =
@@ -600,6 +807,11 @@ export class MemoryService {
           decided: true,
         })) ?? p;
     }
+    await this.announce(p, c, explicit, false);
+    return p;
+  }
+
+  private async announce(p: MemoryProposal, c: CaptureCandidate, explicit: boolean, watching: boolean) {
     await this.deps.bus
       ?.publish({
         type: 'memory.proposal',
@@ -608,6 +820,8 @@ export class MemoryService {
         auto_applied: p.status === 'auto_applied',
         text: p.text,
         kind: p.kind,
+        ...(explicit && { explicit: true }),
+        ...(watching && { watching: true }),
         // The answer and run it came from, so the tray under that answer shows it.
         ...(c.evidence.find((e) => e.messageId)?.messageId && {
           message_id: c.evidence.find((e) => e.messageId)?.messageId,
@@ -615,7 +829,6 @@ export class MemoryService {
         ...(c.evidence.find((e) => e.runId)?.runId && { run_id: c.evidence.find((e) => e.runId)?.runId }),
       })
       .catch(() => undefined);
-    return p;
   }
 
   /* ---- Injection ------------------------------------------------------------- */
@@ -643,7 +856,8 @@ export class MemoryService {
           .paths()
           .filter((p) => re.test(p) && !isGuideFile(p))
           .flatMap((p) => live(p).map((e) => ({ e, s: similarity(req.query, e.text) })))
-          .filter((x) => x.s > 0.08)
+          // M8 abstain gate: a weak word-overlap match is worse than none.
+          .filter((x) => clearsBar(x.s))
           .sort((a, b) => b.s - a.s)
           .slice(0, spec.top_k ?? 5);
         const byPath = new Map<string, typeof scored>();
@@ -690,6 +904,129 @@ export class MemoryService {
     };
   }
 
+  /* ---- Hindsight pass (M9) --------------------------------------------------- */
+
+  /**
+   * Review a session for what it taught. Proposes only: each item is filed in
+   * the inbox, citing the turn it came from, and nothing is written to memory
+   * until the person approves it. The model call is a utility call through the
+   * gateway, so it is costed like the others.
+   */
+  async hindsight(threadId: string): Promise<HindsightResponse> {
+    const threads = this.deps.threads;
+    const thread = await threads?.getThread(threadId).catch(() => undefined);
+    if (!threads || !thread)
+      throw new AncileError({
+        code: 'memory.thread_not_found',
+        title: 'That thread does not exist',
+        hint: 'It may have been deleted. Open another thread and try again.',
+        status: 404,
+        errorClass: 'permanent',
+      });
+    const all = await threads.messages(threadId);
+    const head = thread.active_head_id ?? all.at(-1)?.id;
+    const turns = turnsOf(head ? pathFor(all, head) : []);
+    if (turns.length === 0)
+      return {
+        nothing_worth_keeping: true,
+        note: 'There is nothing in this thread to look back on yet.',
+        proposals: [],
+        turns_reviewed: 0,
+        summarised: false,
+      };
+
+    const shown = condense(turns);
+    const review = await this.deps.utility?.json(HINDSIGHT_PROMPT, { session: shown.text }, HindsightReview, {
+      maxOutputTokens: 1_500,
+    });
+    if (!review)
+      throw new AncileError({
+        code: 'memory.hindsight_unavailable',
+        title: 'The review could not be done',
+        hint: 'No model answered, or its answer could not be read. Check that a utility or default model is set up, then try again.',
+        status: 503,
+        errorClass: 'transient',
+      });
+
+    const { items, dropped } = checkReview(review, turns, shown.shown);
+    const nb = thread.notebook_id ? await this.deps.notebook?.(thread.notebook_id).catch(() => null) : null;
+    const made: MemoryProposal[] = [];
+    for (const it of items) {
+      const lesson = it.kind === 'process_lesson';
+      const targetPath = lesson
+        ? `FAILURES/${topicSlug(it.topic)}.md`
+        : nb
+          ? `PROJECTS/${nb.slug}.md`
+          : 'USER.md';
+      const section = lesson ? 'Lessons' : nb ? 'Findings' : 'Environment';
+      const text = asEntry(
+        cleanEntry(
+          lesson && it.root_cause && !/^unclear/i.test(it.root_cause)
+            ? `${it.text.replace(/\.$/, '')}. Cause: ${it.root_cause.replace(/\.$/, '')}`
+            : it.text,
+        ),
+      );
+      const neighbours = this.deps.index
+        .search(text, { path: targetPath, limit: 5, min: 0.1 })
+        .map((e) => ({ key: e.key, text: e.text }));
+      const d = reconcileLocally(text, neighbours);
+      if (d.op === 'noop') continue;
+      const target = d.targetKey ? this.deps.index.find(targetPath, d.targetKey) : undefined;
+      made.push(
+        await this.deps.proposals.create({
+          kind: lesson ? 'failure_lesson' : 'project_finding',
+          target_path: targetPath,
+          op: d.op,
+          section,
+          text: d.op === 'add' ? text : asEntry(cleanEntry(d.text)),
+          target_key: target?.key ?? null,
+          target_text: target?.text ?? null,
+          rationale: `Hindsight pass, turn ${it.turn}: ${lesson ? 'process lesson' : 'environment fact'}${
+            it.root_cause && !/^unclear/i.test(it.root_cause) ? `. ${it.root_cause.replace(/\.$/, '')}` : ''
+          }.`,
+          confidence: it.confidence,
+          provenance: 'run_outcome',
+          evidence: [{ thread_id: threadId, message_id: it.messageId, ...(it.quote && { quote: it.quote }) }],
+          status: 'proposed',
+        }),
+      );
+    }
+    for (const p of made)
+      await this.deps.bus
+        ?.publish({
+          type: 'memory.proposal',
+          proposal_id: p.id,
+          target_path: p.target_path,
+          auto_applied: false,
+          text: p.text,
+          kind: p.kind,
+        })
+        .catch(() => undefined);
+
+    const none = made.length === 0;
+    log.info(
+      {
+        thread_id: threadId,
+        turns: turns.length,
+        proposals: made.length,
+        dropped,
+        summarised: shown.summarised,
+      },
+      'hindsight pass done',
+    );
+    return {
+      nothing_worth_keeping: none,
+      note: none
+        ? dropped > 0
+          ? 'The review suggested things it could not tie to a turn of this session, so none were kept.'
+          : review.note || 'Nothing in this session is worth keeping.'
+        : review.note,
+      proposals: made,
+      turns_reviewed: turns.length,
+      summarised: shown.summarised,
+    };
+  }
+
   /* ---- Capture --------------------------------------------------------------- */
 
   /** After a turn is saved: learn from it, in the background. */
@@ -714,14 +1051,38 @@ export class MemoryService {
   }
 
   private async capture(turn: TurnRecord): Promise<void> {
-    if ((await this.captureMode()) === 'off') return;
+    const off = (await this.captureMode()) === 'off';
     const threads = this.deps.threads;
     const user = await threads?.getMessage(turn.userMessageId);
-    const userText = user ? textOf(user.parts) : '';
+    const userText = user && user.role === 'user' ? textOf(user.parts) : '';
     const nb = turn.notebookId ? await this.deps.notebook?.(turn.notebookId).catch(() => null) : null;
 
+    // 0. M2 / GR3: the person asked, in their own words, for something to be kept.
+    //    Only the user's message is ever read here, never a tool result or a source.
+    const ask = userText ? detectExplicit(userText) : null;
+    if (ask) {
+      const project = ask.scope === 'notebook' && nb;
+      await this.consider(
+        {
+          kind: 'preference',
+          targetPath: project ? `PROJECTS/${nb.slug}.md` : 'USER.md',
+          section: project ? 'Decisions' : ask.kind === 'restriction' ? 'Restrictions' : 'Preferences',
+          text: ask.statement,
+          confidence: 0.97,
+          evidence: [
+            { threadId: turn.threadId, messageId: turn.userMessageId, runId: turn.runId, quote: userText },
+          ],
+          provenance: 'user_message',
+          explicit: true,
+        },
+        { notebook: nb },
+      );
+      // They have said what they want kept; the correction detector has nothing to add.
+    }
+    if (off) return;
+
     // 1. A correction of the assistant, in the user's own words.
-    if (user && threads && this.deps.utility) {
+    if (!ask && user && threads && this.deps.utility) {
       const original = user.edit_of_id ? await threads.getMessage(user.edit_of_id) : undefined;
       let assistant: { parts: Part[]; role: string } | undefined;
       if (original) {
@@ -798,6 +1159,8 @@ export class MemoryService {
         confidence: lesson.confidence,
         evidence: [{ threadId: turn.threadId, messageId: turn.assistantMessageId, runId: turn.runId }],
         provenance: 'run_outcome',
+        // M8: one lucky retry is a suggestion; the same fix working twice, with a stated cause, is evidence.
+        verified: episodeVerified(e, laterSuccesses(turn.parts, e), lesson),
       });
     }
   }

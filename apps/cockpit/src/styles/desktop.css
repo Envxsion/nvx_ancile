@@ -1,0 +1,125 @@
+/* ------------------------------------------------------------------
+   Title    |  Desktop app
+   ID       |  cockpit
+   Purpose  |  The update card in Settings → Desktop, the status bar
+            |  pill, and the screens a link lands on. Tokens only.
+   ------------------------------------------------------------------ */
+
+.update-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 62ch;
+}
+.update-card__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.update-card__warn {
+  margin: 0;
+  color: var(--warn);
+}
+.update-card__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chalk-2);
+  overflow: hidden;
+}
+.update-card__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--fg-3);
+  transition: width var(--d-view) var(--ease);
+}
+.update-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.update-card__notes-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+}
+.update-card__fine {
+  margin: 0;
+  font-size: 12px;
+}
+
+.pro-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+  box-shadow: inset 0 0 0 1px var(--hair-2);
+}
+
+/* The status bar pill: quiet until something is moving. */
+.status-seg--update[data-state='downloading'] .update-pill__bar {
+  display: inline-block;
+}
+.update-pill__bar {
+  display: none;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--chalk-2);
+  overflow: hidden;
+}
+.update-pill__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--fg-3);
+}
+.status-seg--warming {
+  color: var(--mute);
+}
+
+/* What a link lands on, and the sheet that follows an update. */
+.link-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 60vh;
+  padding: 0 16px;
+  text-align: center;
+}
+.link-screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.what-changed {
+  max-width: 56ch;
+}
+.what-changed__notes {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+}
+
+/* The Pro flow-link confirm sits in the same centred column. */
+.flow-link {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(100%, 52ch);
+  text-align: start;
+}
+.flow-link__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.flow-link__field textarea {
+  width: 100%;
+  resize: vertical;
+}

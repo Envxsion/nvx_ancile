@@ -287,6 +287,18 @@ Contracts in `packages/contracts/src/system.ts`.
 - `POST /internal/v1/desktop/backup {reason: "before-downgrade"}` (service token): the desktop app before it installs an older build.
 - `GET /api/v1/system/pro-data` answers `ProDataSummary` (each table in the `pro` schema and its rows); `GET /api/v1/system/pro-data/export` answers `ProDataExport`, every row as JSON (bytes as base64), as a download. Both work in the free build and with a lapsed licence: Pro's data is never locked away or deleted.
 
+### The desktop app
+
+Contracts in `packages/contracts/src/desktop.ts` (and `license.ts` for the update offer). The Cockpit has no native access, so the desktop shell and the Cockpit meet in Core (`services/core/src/system/desktop.ts`).
+
+- `GET /api/v1/system/desktop` answers `DesktopState`: `close` (`ask`, `tray` or `quit`: what closing the window does), `hidden`, `warming` (services still starting after the window opened), `last_update` (from, to and notes of the last update, for the one-time "What changed" sheet) and `pro` (the desktop extras are on). `PUT` takes `{close}`.
+- `POST /api/v1/system/desktop/command {command}` (`quit`, `update.check`, `update.restart_now`, `update.on_quit`, `update.tonight`, `update.cancel`, `update.go_back`) queues a command for the shell; answers 202. `update.go_back` answers `402 pro.feature_required` (feature `desktop`) without Pro.
+- `GET /api/v1/system/updates` answers `{channel, beta_available}`; `PUT` takes `{channel}`. `beta` answers `402 pro.feature_required` without Pro, and a lapsed Pro install is given `stable`.
+- `GET /api/v1/system/update-offer` answers the update on offer with `notes`, `size_bytes`, `state` (`available`, `downloading`, `ready`, `waiting`, `installing`, `failed`), `progress`, `when` (`none`, `quit`, `tonight`), `scheduled_for`, `error` and `previous_version`.
+- `GET /internal/v1/desktop/poll?after=<seq>` (service token; `counts=1` for the numbers only) answers `DesktopPoll`: the notifications to show (an approval waiting, a run of 30 seconds or more, a notice in a category set to Desktop; a private notebook gives no body), the commands, the close choice, how many runs are working and approvals waiting, and `background` (Pro). `PUT /internal/v1/desktop/close`, `POST /internal/v1/desktop/window {visible, focused, warming}`, `POST /internal/v1/desktop/updated {from, to, notes}` and `POST /internal/v1/desktop/update-offer` are the shell's other calls.
+- `POST /internal/v1/desktop/approval-action {approval_id, action}` (service token, Pro): a button on a notification. Refused with `402 pro.feature_required` in the free build, `403 desktop.critical_in_app` for a critical request and `409 desktop.already_answered`; otherwise answered once, on the exact request, leaving no grant.
+- Pro: `GET /api/v1/pro/desktop/links` answers `{allowed}`; `POST` and `DELETE /api/v1/pro/desktop/links/allow` record and withdraw the yes to "Allow links from this app".
+
 ### Why did the AI say this?
 
 ```http

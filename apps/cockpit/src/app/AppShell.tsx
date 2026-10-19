@@ -23,6 +23,8 @@ import { ApprovalDialog } from '../approvals/ApprovalDialog';
 import { ArtifactPanel } from '../artifacts/ArtifactPanel';
 import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
 import { FileEditorHost } from '../code/FileEditorHost';
+import { command } from '../desktop/api';
+import { WhatChangedHost } from '../desktop/WhatChanged';
 import { EditorsHost } from '../editors/EditorsHost';
 import { HelpCentre } from '../help/HelpCentre';
 import { TourOverlay } from '../help/TourOverlay';
@@ -32,6 +34,7 @@ import { useConnection } from '../lib/connection';
 import { useApprovals, useNotebooks, useSetup, useThread, useThreads } from '../lib/data';
 import { useGlobalEvents } from '../lib/events';
 import { useRuns } from '../lib/run';
+import { isDesktop } from '../lib/runtime';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useModelChangeToasts } from '../models/watch';
 import { Center } from '../notify/Center';
@@ -172,6 +175,8 @@ export function AppShell() {
   useEffect(() => watchSystemTheme(), []);
 
   useBinding('shortcuts.show', () => useUi.getState().setShortcuts(true));
+  // The desktop app has no browser around it: Ctrl+Q asks the shell to quit (after it checks for live runs).
+  useBinding('app.quit', () => void command('quit').catch(() => undefined), isDesktop());
   useBinding('center.open', () => useUi.getState().setCenter(true));
   // On a phone the open rail is a sheet: Esc puts it away, like any other.
   useBinding('layer.close', () => useUi.getState().toggleRail(), narrow && railOpen);
@@ -239,6 +244,7 @@ export function AppShell() {
       <ShortcutsOverlay />
       {current ? <ApprovalDialog key={current.id} approval={current} /> : null}
       <Center />
+      <WhatChangedHost />
       <HelpCentre />
       <TourOverlay />
       <BeamHost />

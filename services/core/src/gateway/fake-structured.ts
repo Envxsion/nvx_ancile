@@ -101,7 +101,30 @@ function lesson(prompt: string): object {
   };
 }
 
+/** Offline hindsight: a tool that failed becomes one lesson citing its turn; a calm session keeps nothing. */
+function hindsight(prompt: string): object {
+  const m = /Turn (\d+)\n(?:(?!Turn \d+\n)[\s\S])*?Tools: [^\n]*?(\w[\w.:-]*) failed: ([^;\n]*)/.exec(prompt);
+  if (!m)
+    return { nothing_worth_keeping: true, note: 'Nothing went wrong that is worth keeping.', items: [] };
+  const [, turn, tool, error] = m;
+  return {
+    nothing_worth_keeping: false,
+    note: `${tool} failed once in this session.`,
+    items: [
+      {
+        kind: 'process_lesson',
+        topic: topicSlug(String(tool).replace(/^fs_/, 'files-')),
+        root_cause: 'Unclear',
+        text: `Check the arguments to ${tool} before calling it: it failed with "${String(error).slice(0, 80).trim()}".`,
+        turn: Number(turn),
+        confidence: 0.6,
+      },
+    ],
+  };
+}
+
 const ANSWERS: Record<string, (prompt: string) => object> = {
+  HindsightReview: hindsight,
   CorrectionDetection: correction,
   ReconcileDecision: reconcile,
   FailureLesson: lesson,

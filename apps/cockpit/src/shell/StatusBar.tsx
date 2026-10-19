@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { ActivitySegment, ImportSegment } from '../activity/ActivityPanel';
 import { safeMode, userCssOn } from '../app/userCss';
 import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
+import { UpdatePill, WarmingSegment } from '../desktop/Pills';
 import { live as demoLive } from '../fixtures/demo';
 import { tourEvent } from '../help/tours';
 import { useConnection } from '../lib/connection';
@@ -149,6 +150,10 @@ export function StatusBar() {
       <span className="statusbar__spacer" />
 
       {demo ? null : <ImportSegment />}
+
+      <WarmingSegment />
+
+      <UpdatePill />
 
       <ActivitySegment />
 

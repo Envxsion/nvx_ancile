@@ -46,6 +46,7 @@ describe('pro seam', () => {
       'flow_lab',
       'insights',
       'context_packs',
+      'desktop',
     ]);
     expect(d.features.every((f) => !f.unlocked)).toBe(true);
     // Anything but a claim key is refused before nvx.sh is asked.

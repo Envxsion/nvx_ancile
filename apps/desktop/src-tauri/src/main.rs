@@ -4,12 +4,16 @@
 // ------------------------------------------------------------------
 //  Purpose  |  The app people install: one window, every service run
 //           |  for them, no Node, Python or Docker to set up.
-//  How      |  On launch: the start-up screen, secrets from the OS
-//           |  keychain, then the supervisor starts the services and
-//           |  the window moves to the Cockpit that Core serves on
-//           |  127.0.0.1. One instance only; a second launch (or an
-//           |  ancile:// link) focuses the first. Quitting stops
-//           |  every service, Postgres last and cleanly.
+//  How      |  On launch: the window opens where it was left (hidden
+//           |  until placed), the start-up screen, secrets from the OS
+//           |  keychain, then the supervisor starts the services side
+//           |  by side and the window moves to the Cockpit that Core
+//           |  serves on 127.0.0.1 as soon as Core is ready. One
+//           |  instance only; a second launch (or an ancile:// link,
+//           |  deeplink.rs) focuses the first. Closing the window asks
+//           |  once whether to keep running in the tray or quit, then
+//           |  does that (shell.rs); quitting checks for live runs and
+//           |  stops every service, Postgres last and cleanly.
 //  Note     |  The Cockpit is a remote page to Tauri and gets no
 //           |  native APIs (capabilities/default.json covers only the
 //           |  start-up screen). It learns it runs on the desktop from
@@ -18,22 +22,36 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod closing;
+mod core_api;
+mod deeplink;
 mod layout;
 mod links;
+mod notify;
+// Update scheduling is used only by the updater.
+#[cfg_attr(not(feature = "updater"), allow(dead_code))]
+mod schedule;
 mod secrets;
+mod shell;
 mod supervisor;
 mod tray;
 #[cfg(feature = "updater")]
 mod updates;
+mod window_state;
 
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use supervisor::Supervisor;
 use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Where to send the window once Core is ready (a deep link may set it).
 struct Pending(Mutex<Option<String>>);
+
+/// The link just opened: the same one arriving twice (the second launch and the
+/// deep-link plugin both hear it) opens once.
+static LAST_ROUTE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 
 pub fn supervisor_of(app: &AppHandle) -> Option<Arc<Supervisor>> {
     app.try_state::<Arc<Supervisor>>().map(|s| Arc::clone(&s))
@@ -47,36 +65,21 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// `ancile://activate?key=NVX-XXXX-XXXX-XXXX` opens Admin → Licence with the
-/// key filled in. It never activates by itself: the person presses the button.
-fn route_for(url: &Url) -> Option<String> {
-    if url.scheme() != "ancile" {
-        return None;
-    }
-    let what = url
-        .host_str()
-        .unwrap_or_else(|| url.path().trim_matches('/'));
-    match what {
-        "activate" => {
-            let key = url
-                .query_pairs()
-                .find(|(k, _)| k == "key")
-                .map(|(_, v)| v.to_uppercase())?;
-            let valid = key.len() == 18
-                && key.starts_with("NVX-")
-                && key[4..]
-                    .split('-')
-                    .all(|p| p.len() == 4 && p.chars().all(|c| c.is_ascii_alphanumeric()));
-            valid.then(|| format!("/admin/license?key={key}"))
-        }
-        _ => Some("/".into()),
-    }
-}
-
+/// Open a place in the Cockpit: a link, or a click on a notification. It only
+/// opens a place; nothing is sent, approved or spent (deeplink.rs).
 pub(crate) fn open_route(app: &AppHandle, route: String) {
+    {
+        let mut last = LAST_ROUTE.lock().unwrap();
+        if let Some((r, at)) = last.as_ref() {
+            if *r == route && at.elapsed() < Duration::from_millis(1500) {
+                return;
+            }
+        }
+        *last = Some((route.clone(), Instant::now()));
+    }
     show_main(app);
     let ready = supervisor_of(app)
-        .map(|s| s.status().ready)
+        .map(|s| s.status().core_ready)
         .unwrap_or(false);
     if !ready {
         *app.state::<Pending>().0.lock().unwrap() = Some(route);
@@ -121,27 +124,29 @@ fn init_logging(dir: &std::path::Path) {
 fn main() {
     #[allow(unused_mut)] // reassigned only with the updater feature
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // A second launch: bring this one forward. Links arrive through
-            // the deep-link plugin's handler below.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A second launch: bring this one forward, and open the link it was
+            // given (the deep-link plugin hears it too; open_route opens it once).
             show_main(app);
+            for url in deeplink::links_in_args(&argv) {
+                if let Some(route) = deeplink::route_for(&url) {
+                    open_route(app, route);
+                }
+            }
         }))
-        .plugin(tauri_plugin_deep_link::init());
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(not(windows))]
+    {
+        builder = builder.plugin(tauri_plugin_notification::init());
+    }
     #[cfg(feature = "updater")]
     {
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
     let app = builder
-        .on_window_event(|window, event| {
-            // Closing the window quits NVX Ancile and stops its services, rather
-            // than leaving a workspace running out of sight in the tray.
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                if window.label() == "main" {
-                    window.app_handle().exit(0);
-                }
-            }
-        })
+        .on_window_event(shell::on_window_event)
         .setup(|app| {
             let handle = app.handle().clone();
             let mut resources = app.path().resource_dir()?;
@@ -152,6 +157,10 @@ fn main() {
             let os_data = app.path().data_dir()?;
             let layout = layout::Layout::new(&resources, &os_data)?;
             init_logging(&layout.logs);
+            let shell = shell::init(&handle, &layout.data);
+            // Where the window opens: where it was left, fitted to the screens connected now.
+            let (screens, primary) = shell::monitors(&handle);
+            let plan = window_state::plan(shell.saved().as_ref(), &screens, primary);
             log::info!(
                 "NVX Ancile {} starting; data in {}",
                 env!("CARGO_PKG_VERSION"),
@@ -162,46 +171,60 @@ fn main() {
             // system, and every other scheme does nothing (links.rs).
             let core_nav = layout.core_url();
             let core_new = core_nav.clone();
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("NVX Ancile")
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(900.0, 600.0)
-                .center()
-                .theme(Some(tauri::Theme::Dark))
-                .background_color(tauri::webview::Color(8, 9, 10, 255))
-                .on_navigation(move |url| match links::decide(url, &core_nav) {
-                    links::Action::Stay => true,
-                    links::Action::External => {
-                        open_external(url);
-                        false
-                    }
-                    links::Action::Refuse => {
-                        log::warn!("refused a link with the scheme {}", url.scheme());
-                        false
-                    }
-                })
-                .on_new_window(move |url, _features| match links::decide(&url, &core_new) {
-                    // A file Core serves (a source's original): its own window.
-                    links::Action::Stay => NewWindowResponse::Allow,
-                    links::Action::External => {
-                        open_external(&url);
-                        NewWindowResponse::Deny
-                    }
-                    links::Action::Refuse => {
-                        log::warn!("refused a link with the scheme {}", url.scheme());
-                        NewWindowResponse::Deny
-                    }
-                })
-                .initialization_script(format!(
-                    "window.__NVX_DESKTOP__ = Object.freeze({{ version: {:?} }});",
-                    env!("CARGO_PKG_VERSION")
-                ))
-                .build()?;
+            let mut window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("NVX Ancile")
+                    .inner_size(plan.width, plan.height)
+                    .min_inner_size(
+                        window_state::MIN_SIZE.0.min(plan.width),
+                        window_state::MIN_SIZE.1.min(plan.height),
+                    )
+                    // Placed first, shown after: nothing jumps.
+                    .visible(false)
+                    .theme(Some(tauri::Theme::Dark))
+                    .background_color(tauri::webview::Color(8, 9, 10, 255))
+                    .on_navigation(move |url| match links::decide(url, &core_nav) {
+                        links::Action::Stay => true,
+                        links::Action::External => {
+                            open_external(url);
+                            false
+                        }
+                        links::Action::Refuse => {
+                            log::warn!("refused a link with the scheme {}", url.scheme());
+                            false
+                        }
+                    })
+                    .on_new_window(move |url, _features| match links::decide(&url, &core_new) {
+                        // A file Core serves (a source's original): its own window.
+                        links::Action::Stay => NewWindowResponse::Allow,
+                        links::Action::External => {
+                            open_external(&url);
+                            NewWindowResponse::Deny
+                        }
+                        links::Action::Refuse => {
+                            log::warn!("refused a link with the scheme {}", url.scheme());
+                            NewWindowResponse::Deny
+                        }
+                    })
+                    .initialization_script(format!(
+                        "window.__NVX_DESKTOP__ = Object.freeze({{ version: {:?} }});",
+                        env!("CARGO_PKG_VERSION")
+                    ));
+            if matches!(plan.spot, window_state::Spot::Centre) {
+                window = window.center();
+            }
+            let window = window.build()?;
+            shell::apply_plan(&window, &plan);
+            let _ = window.show();
 
             app.manage(Pending(Mutex::new(None)));
             #[cfg(feature = "updater")]
             app.manage(updates::Waiting(Mutex::new(None)));
-            tray::install(&handle)?;
+            // No tray (some Linux desktops): closing the window quits instead of hiding it.
+            if let Err(e) = tray::install(&handle) {
+                log::warn!("no tray icon, so closing the window will quit: {e}");
+                shell.set_tray(false);
+            }
 
             #[cfg(any(windows, target_os = "linux"))]
             if cfg!(debug_assertions) {
@@ -211,13 +234,13 @@ fn main() {
             let links = handle.clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    if let Some(route) = route_for(&url) {
+                    if let Some(route) = deeplink::route_for(&url) {
                         open_route(&links, route);
                     }
                 }
             });
             if let Ok(Some(urls)) = app.deep_link().get_current() {
-                if let Some(route) = urls.iter().find_map(route_for) {
+                if let Some(route) = urls.iter().find_map(deeplink::route_for) {
                     *app.state::<Pending>().0.lock().unwrap() = Some(route);
                 }
             }
@@ -244,9 +267,15 @@ fn main() {
                         .take()
                         .unwrap_or_else(|| "/".into());
                     navigate(&handle, &route);
-                    // Services are up: look for an update now, then daily.
+                    // Core is up: poll it for notifications and commands (shell.rs).
+                    shell::start_polling(handle.clone());
+                    // Services are up: say what changed if this start follows an update,
+                    // then look for an update now, and every few hours.
                     #[cfg(feature = "updater")]
-                    updates::spawn(handle.clone());
+                    {
+                        updates::report_if_updated(&handle);
+                        updates::spawn(handle.clone());
+                    }
                 }
                 Err(e) => log::error!("start-up failed: {e}"),
             });
@@ -256,28 +285,14 @@ fn main() {
         .expect("NVX Ancile could not start its window");
 
     app.run(|app, event| {
-        if let RunEvent::Exit = event {
+        shell::on_run_event(app, &event);
+        if let tauri::RunEvent::Exit = event {
             if let Some(sup) = supervisor_of(app) {
                 sup.shutdown();
             }
+            // "When I quit": the update the person chose goes in as the app leaves.
+            #[cfg(feature = "updater")]
+            updates::install_on_quit(app);
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn activation_links_fill_the_key_and_nothing_else() {
-        let ok = Url::parse("ancile://activate?key=nvx-ab12-cd34-ef56").unwrap();
-        assert_eq!(
-            route_for(&ok).as_deref(),
-            Some("/admin/license?key=NVX-AB12-CD34-EF56")
-        );
-        let bad = Url::parse("ancile://activate?key=NVX-AB12-CD34-EF56%26x%3D1").unwrap();
-        assert_eq!(route_for(&bad), None);
-        let other = Url::parse("https://example.com/activate?key=NVX-AB12-CD34-EF56").unwrap();
-        assert_eq!(route_for(&other), None);
-    }
 }

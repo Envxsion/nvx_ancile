@@ -39,6 +39,7 @@ from .settings import get_settings
 from .sources.integrity import router as integrity_router
 from .sources.merge import router as merge_router
 from .sources.routes import router as sources_router
+from .sources.tidy import router as tidy_router
 
 
 def require_service_token(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -94,6 +95,7 @@ class EvidenceRequest(BaseModel):
 router.include_router(sources_router)
 router.include_router(integrity_router)
 router.include_router(merge_router)
+router.include_router(tidy_router)
 router.include_router(automations_router)
 
 

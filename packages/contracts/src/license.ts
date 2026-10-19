@@ -123,6 +123,22 @@ export const UpdateOfferReport = z
     downgrade: z.boolean().default(false),
     /** Older than the running build: installing it would leave a newer database behind. */
     older: z.boolean().default(false),
+    /** Release notes, plain text, when the release carries them. */
+    notes: z.string().max(8000).nullable().optional(),
+    /** Download size in bytes, when the server says. */
+    size_bytes: z.number().int().nonnegative().nullable().optional(),
+    /** Where it stands in the shell: found, downloading, downloaded, waiting for runs, installing, or failed. */
+    state: z.enum(['available', 'downloading', 'ready', 'waiting', 'installing', 'failed']).optional(),
+    /** Download progress, 0 to 1. */
+    progress: z.number().min(0).max(1).nullable().optional(),
+    /** When the person chose to install: at once, when they quit, or tonight. */
+    when: z.enum(['none', 'quit', 'tonight']).optional(),
+    /** Tonight's time, ISO. */
+    scheduled_for: z.string().nullable().optional(),
+    /** Why it failed, in words. */
+    error: z.string().max(400).nullable().optional(),
+    /** The version this one replaced, when there is one to go back to (Pro). */
+    previous_version: z.string().max(64).nullable().optional(),
   })
   .strict();
 export type UpdateOfferReport = z.infer<typeof UpdateOfferReport>;
@@ -137,6 +153,16 @@ export const UpdateOffer = z.object({
       /** An older build (a rollback): the tray warns before installing it. */
       older: z.boolean().default(false),
       found_at: z.string(),
+      notes: z.string().nullable().default(null),
+      size_bytes: z.number().int().nullable().default(null),
+      state: z
+        .enum(['available', 'downloading', 'ready', 'waiting', 'installing', 'failed'])
+        .default('available'),
+      progress: z.number().nullable().default(null),
+      when: z.enum(['none', 'quit', 'tonight']).default('none'),
+      scheduled_for: z.string().nullable().default(null),
+      error: z.string().nullable().default(null),
+      previous_version: z.string().nullable().default(null),
     })
     .nullable(),
 });

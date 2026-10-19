@@ -30,6 +30,7 @@ export interface Utility {
     prompt: { id: string; fallback: string; output: string },
     vars: Record<string, string | number | boolean | null | undefined>,
     schema: S,
+    opts?: { maxOutputTokens?: number },
   ): Promise<z.infer<S> | null>;
 }
 
@@ -67,7 +68,7 @@ export function utilityFrom(deps: {
   };
 
   return {
-    async json(prompt, vars, schema) {
+    async json(prompt, vars, schema, opts) {
       const models = chain();
       if (!models.length) return null;
       const template = await loadPrompt(deps.promptsDir, prompt.id, prompt.fallback);
@@ -79,7 +80,12 @@ export function utilityFrom(deps: {
       try {
         for await (const ev of deps.gateway.stream(
           models,
-          { system: SYSTEM, messages: [{ role: 'user', content }], temperature: 0, maxOutputTokens: 800 },
+          {
+            system: SYSTEM,
+            messages: [{ role: 'user', content }],
+            temperature: 0,
+            maxOutputTokens: opts?.maxOutputTokens ?? 800,
+          },
           signal,
         )) {
           if (ev.type === 'chunk' && ev.chunk.type === 'text') text += ev.chunk.delta;

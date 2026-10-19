@@ -20,7 +20,23 @@ export type NewProposal = Omit<MemoryProposal, 'id' | 'created_at' | 'decided_at
   commit_sha?: string | null;
 };
 
-export type ProposalPatch = Partial<Pick<MemoryProposal, 'status' | 'commit_sha' | 'text'>> & {
+export type ProposalPatch = Partial<
+  Pick<
+    MemoryProposal,
+    | 'status'
+    | 'commit_sha'
+    | 'text'
+    | 'evidence'
+    | 'sightings'
+    | 'expires_at'
+    | 'uncertainty'
+    | 'op'
+    | 'target_path'
+    | 'section'
+    | 'target_key'
+    | 'target_text'
+  >
+> & {
   decided?: boolean;
 };
 
@@ -38,6 +54,8 @@ export interface ProposalStore {
   get(id: string): Promise<MemoryProposal | undefined>;
   list(opts?: { status?: MemoryProposal['status'][]; limit?: number }): Promise<MemoryProposal[]>;
   pending(): Promise<number>;
+  /** Watch items (M8) still waiting for a second sighting, oldest first. */
+  watching(): Promise<MemoryProposal[]>;
   update(id: string, patch: ProposalPatch): Promise<MemoryProposal | undefined>;
   createImport(r: Omit<ImportRecord, 'id' | 'created_at'>): Promise<ImportRecord>;
   getImport(id: string): Promise<ImportRecord | undefined>;
@@ -91,7 +109,7 @@ export class MemoryProposalStore implements ProposalStore {
       id: newProposalId(),
       commit_sha: p.commit_sha ?? null,
       created_at: new Date().toISOString(),
-      decided_at: p.status === 'proposed' ? null : new Date().toISOString(),
+      decided_at: p.status === 'proposed' || p.status === 'watching' ? null : new Date().toISOString(),
     };
     this.rows.set(row.id, row);
     return structuredClone(row);
@@ -112,6 +130,13 @@ export class MemoryProposalStore implements ProposalStore {
 
   async pending() {
     return [...this.rows.values()].filter((r) => r.status === 'proposed' && !r.import_id).length;
+  }
+
+  async watching() {
+    return [...this.rows.values()]
+      .filter((r) => r.status === 'watching')
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+      .map((r) => structuredClone(r));
   }
 
   async update(id: string, patch: ProposalPatch) {
@@ -141,6 +166,9 @@ interface Row {
   created_at: Date;
   decided_at: Date | null;
   import_id?: string | null;
+  sightings?: number | null;
+  expires_at?: Date | null;
+  uncertainty?: string | null;
 }
 
 interface ImportRow {
@@ -161,6 +189,9 @@ const fromImportRow = (r: ImportRow): ImportRecord => ({
 
 const fromRow = (r: Row): MemoryProposal => ({
   ...(r.import_id && { import_id: r.import_id }),
+  ...(r.sightings != null && { sightings: Number(r.sightings) }),
+  ...(r.expires_at && { expires_at: new Date(r.expires_at).toISOString() }),
+  ...(r.uncertainty && { uncertainty: r.uncertainty }),
   id: r.id,
   kind: r.kind,
   target_path: r.target_path,
@@ -186,11 +217,13 @@ export class PgProposalStore implements ProposalStore {
     const rows = await this.sql<Row[]>`
       insert into core.memory_proposals
         (id, kind, target_path, op, patch, section, text, target_key, target_text, rationale,
-         evidence, confidence, provenance, status, commit_sha, decided_at, import_id)
+         evidence, confidence, provenance, status, commit_sha, decided_at, import_id,
+         sightings, expires_at, uncertainty)
       values (${newProposalId()}, ${p.kind}, ${p.target_path}, ${p.op}, ${p.text}, ${p.section}, ${p.text},
               ${p.target_key}, ${p.target_text}, ${p.rationale}, ${this.sql.json(p.evidence as never)},
               ${p.confidence}, ${p.provenance}, ${p.status}, ${p.commit_sha ?? null},
-              ${p.status === 'proposed' ? null : new Date()}, ${p.import_id ?? null})
+              ${p.status === 'proposed' || p.status === 'watching' ? null : new Date()}, ${p.import_id ?? null},
+              ${p.sightings ?? 1}, ${p.expires_at ?? null}, ${p.uncertainty ?? null})
       returning *`;
     return fromRow(rows[0] as Row);
   }
@@ -249,12 +282,27 @@ export class PgProposalStore implements ProposalStore {
     return rows[0]?.n ?? 0;
   }
 
+  async watching() {
+    const rows = await this.sql<Row[]>`
+      select * from core.memory_proposals where status = 'watching' order by created_at, id`;
+    return rows.map(fromRow);
+  }
+
   async update(id: string, patch: ProposalPatch) {
     const rows = await this.sql<Row[]>`
       update core.memory_proposals set
         status = coalesce(${patch.status ?? null}, status),
         commit_sha = coalesce(${patch.commit_sha ?? null}, commit_sha),
         text = coalesce(${patch.text ?? null}, text),
+        evidence = coalesce(${patch.evidence ? this.sql.json(patch.evidence as never) : null}, evidence),
+        sightings = coalesce(${patch.sightings ?? null}, sightings),
+        expires_at = case when ${patch.expires_at !== undefined} then ${patch.expires_at ?? null}::timestamptz else expires_at end,
+        uncertainty = case when ${patch.uncertainty !== undefined} then ${patch.uncertainty ?? null} else uncertainty end,
+        op = coalesce(${patch.op ?? null}, op),
+        target_path = coalesce(${patch.target_path ?? null}, target_path),
+        section = coalesce(${patch.section ?? null}, section),
+        target_key = case when ${patch.target_key !== undefined} then ${patch.target_key ?? null} else target_key end,
+        target_text = case when ${patch.target_text !== undefined} then ${patch.target_text ?? null} else target_text end,
         decided_at = case when ${patch.decided ?? false} then now() else decided_at end
       where id = ${id}
       returning *`;

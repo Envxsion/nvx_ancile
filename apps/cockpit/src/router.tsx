@@ -18,6 +18,7 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppShell } from './app/AppShell';
+import { OpenApprovalScreen, OpenFlowRunScreen, OpenHelpScreen, OpenNewScreen } from './desktop/OpenScreens';
 import { keyText } from './keys/registry';
 import { AdminLayout, AdminSectionScreen } from './routes/admin/Admin';
 import { HomeScreen } from './routes/Home';
@@ -60,6 +61,34 @@ const notebookRoute = createRoute({
   component: NotebookScreen,
 });
 const setupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/setup', component: SetupScreen });
+
+// Where an ancile:// link lands (desktop/OpenScreens.tsx). Each only opens a place.
+const openApprovalRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/open/approval/$approvalId',
+  component: OpenApprovalScreen,
+});
+const openNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/open/new',
+  component: OpenNewScreen,
+  validateSearch: (s: Record<string, unknown>): { text?: string; notebook?: string } => ({
+    ...(typeof s.text === 'string' && s.text ? { text: s.text.slice(0, 4000) } : {}),
+    ...(typeof s.notebook === 'string' && s.notebook ? { notebook: s.notebook } : {}),
+  }),
+});
+const openHelpRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/open/help',
+  component: OpenHelpScreen,
+  validateSearch: (s: Record<string, unknown>): { topic?: string } =>
+    typeof s.topic === 'string' && s.topic ? { topic: s.topic } : {},
+});
+const openFlowRunRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/open/flow/$flowId/run',
+  component: OpenFlowRunScreen,
+});
 
 // Flows (DESIGN.md §16): the editor and its canvas load on first visit.
 const flowsRoute = createRoute({
@@ -113,6 +142,10 @@ export const routeTree = rootRoute.addChildren([
   flowsRoute,
   flowRoute,
   setupRoute,
+  openApprovalRoute,
+  openNewRoute,
+  openHelpRoute,
+  openFlowRunRoute,
   settingsRoute,
   settingsGroupRoute,
   adminRoute.addChildren([adminIndexRoute, adminSectionRoute]),

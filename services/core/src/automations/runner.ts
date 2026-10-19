@@ -87,6 +87,13 @@ export interface RunnerExtras {
   linked?: Record<string, LinkedJob>;
   /** After a job's switch, schedule or settings changed here (BuiltinSettings.refresh). */
   onChange?: (id: string) => void | Promise<void>;
+  /**
+   * True while your own scheduled automations should wait (the desktop window
+   * is hidden to the tray and Pro's background mode is off). They stay due and
+   * run on the first tick after it turns false. Built-in housekeeping (backups,
+   * clean-up) never waits.
+   */
+  hold?: () => boolean;
 }
 
 export interface AutomationRow {
@@ -186,6 +193,11 @@ export const CATALOGUE: Record<string, { title: string; description: string }> =
   context_overflow_warn: {
     title: 'Watch the context window',
     description: 'Warns as a thread fills its context window and compacts it before it overflows.',
+  },
+  tidy_storage: {
+    title: 'Tidy storage',
+    description:
+      'When nothing has been running for a while, backs up the database, removes duplicate chunks and identical old versions of sources, and vacuums. Off until you switch it on.',
   },
   memory_capture: {
     title: 'Learn from corrections',
@@ -426,6 +438,7 @@ export class AutomationRunner {
       if (!this.visible(row)) continue;
       if (!row.enabled || !row.cron || !row.next_run_at || Date.parse(row.next_run_at) > now.getTime())
         continue;
+      if (row.origin === 'user' && this.extras.hold?.()) continue;
       if (this.setupFor(row)) continue;
       const next = this.nextFor(row.cron, now);
       if (!(await this.store.claim(row.id, row.next_run_at, next))) continue;
