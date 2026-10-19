@@ -180,16 +180,17 @@ export interface JevOptions {
   timeoutMs?: number;
   fetch?: typeof fetch;
   breaker?: CircuitBreaker;
-  /** Rates for the cost ceiling; the cautious assumption below when absent. */
+  /** Rates for the cost ceiling; Jev's listed price below when absent. */
   rates?: { input_per_mtok: number; output_per_mtok: number };
 }
 
 /**
- * Jev's price is not published in this repository, so the ceiling assumes a
- * cautious rate (dollars per million tokens). The cost the service reports on
- * each answer is what the running total uses, and it is held to the ceiling.
+ * Jev 1.13's listed price (TypeSafe, checked 19 Oct 2026): $0.042 per million
+ * input tokens; output is free (it answers with option probabilities, not
+ * text), and there is no provider-side prompt caching. The cost the service
+ * reports on each answer is what the running total uses, held to the ceiling.
  */
-export const JEV_ASSUMED_RATES = { input_per_mtok: 2, output_per_mtok: 10 } as const;
+export const JEV_LISTED_RATES = { input_per_mtok: 0.042, output_per_mtok: 0 } as const;
 
 /** The verified shapes (docs.typesafe.ai/api, openrouter.ai/docs/guides/community/jev). */
 interface JevResponse {
@@ -218,11 +219,11 @@ export class JevReviewer implements Reviewer {
 
   costProfile(): CostProfile {
     return {
-      rates: this.opts.rates ?? JEV_ASSUMED_RATES,
+      rates: this.opts.rates ?? JEV_LISTED_RATES,
       maxOutputTokens: 64,
       requestText: (input) =>
         JSON.stringify({ model: this.opts.models[0], state: reviewState(input), questions: QUESTIONS }),
-      basis: this.opts.rates ? 'listed' : 'assumed',
+      basis: 'listed',
     };
   }
 
