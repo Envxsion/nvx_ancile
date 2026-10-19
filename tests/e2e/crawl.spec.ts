@@ -146,17 +146,25 @@ test.describe('crawl', () => {
   // Pressing every switch changes preferences and memory settings, which
   // live on the server: put them back after each route so other specs (and
   // the next route) start from the same place.
-  let saved: { prefs: unknown; memory: unknown } | null = null;
+  let saved: { prefs: unknown; memory: unknown; automations: { id: string; enabled: boolean }[] } | null =
+    null;
   test.beforeEach(async ({ request }) => {
     const prefs = await request.get('/api/v1/ui-state/prefs').then((r) => r.json());
     const memory = await request.get('/api/v1/memory/settings').then((r) => (r.ok() ? r.json() : null));
-    saved = { prefs: (prefs as { value: unknown }).value, memory };
+    const auto = await request.get('/api/v1/automations').then((r) => (r.ok() ? r.json() : { items: [] }));
+    const automations = (auto as { items: { id: string; enabled: boolean }[] }).items.map((a) => ({
+      id: a.id,
+      enabled: a.enabled,
+    }));
+    saved = { prefs: (prefs as { value: unknown }).value, memory, automations };
   });
   test.afterEach(async ({ page, request }) => {
     await page.close();
     if (!saved) return;
     await request.put('/api/v1/ui-state/prefs', { data: { value: saved.prefs } });
     if (saved.memory) await request.put('/api/v1/memory/settings', { data: saved.memory });
+    for (const a of saved.automations)
+      await request.patch(`/api/v1/automations/${a.id}`, { data: { enabled: a.enabled } });
   });
 
   for (const pattern of ROUTES) {

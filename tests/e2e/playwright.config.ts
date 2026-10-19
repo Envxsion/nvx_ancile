@@ -20,6 +20,8 @@ import {
 // :7801) so your everyday stack on :7701 can keep running beside it.
 const baseURL =
   process.env.E2E_BASE_URL ?? (process.env.E2E_BACKEND ? 'http://localhost:7801' : 'http://localhost:7701');
+/** The Controller restart journey has its own project (see 'restart' below). */
+const RESTART = /restart\.spec\.ts$/;
 const external = Boolean(process.env.E2E_BASE_URL || process.env.E2E_BACKEND);
 
 export default defineConfig({
@@ -60,16 +62,17 @@ export default defineConfig({
     {
       name: 'chromium-dark',
       use: { ...devices['Desktop Chrome'], colorScheme: 'dark' },
-      testIgnore: process.env.E2E_CRAWL ? undefined : /crawl\.spec\.ts$/,
+      testIgnore: process.env.E2E_CRAWL ? RESTART : /(crawl|restart)\.spec\.ts$/,
     },
     {
       name: 'chromium-light',
       use: { ...devices['Desktop Chrome'], colorScheme: 'light' },
+      testIgnore: RESTART,
     },
     {
       name: 'tablet',
       use: { ...devices['iPad Pro 11'], colorScheme: 'dark' },
-      testIgnore: /crawl\.spec\.ts$/,
+      testIgnore: /(crawl|restart)\.spec\.ts$/,
     },
     // Phone width in Chromium: the crawl and the phone journeys.
     {
@@ -83,6 +86,14 @@ export default defineConfig({
       name: 'reduced-motion',
       use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
       testMatch: /shell\.spec\.ts$/,
+    },
+    // Restarting the Controller drops the sample nodes' state and sends "restarting" notices to every open
+    // browser, so it runs by itself, after all the others have finished (not beside compute or onboarding).
+    {
+      name: 'restart',
+      use: { ...devices['Desktop Chrome'], colorScheme: 'dark' },
+      testMatch: /restart\.spec\.ts$/,
+      dependencies: ['chromium-dark', 'chromium-light', 'tablet', 'phone', 'reduced-motion'],
     },
   ],
   webServer: external

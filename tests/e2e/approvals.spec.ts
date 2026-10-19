@@ -18,6 +18,10 @@ const folder = () => `e2e-${Date.now().toString(36)}-${Math.random().toString(36
 async function ask(page: Page, text: string, fresh = false) {
   if (fresh) {
     await page.goto('/');
+    // The composer knows which model it sends to once the app has hydrated: before that Enter does nothing.
+    await expect(page.getByRole('button', { name: /Offline test model/ }).first()).toBeVisible({
+      timeout: 15_000,
+    });
     await page.getByRole('textbox', { name: 'Message' }).fill(text);
     await page.getByRole('textbox', { name: 'Message' }).press('Enter');
     await page.waitForURL(/\/t\/thr_/);
@@ -92,7 +96,13 @@ test.describe('approvals', () => {
     await page.goto('/admin/grants');
     const row = page.getByRole('row', { name: new RegExp(`${dir}`) });
     await expect(row).toBeVisible();
-    await row.getByRole('button', { name: /revoke/i }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
+    await page.getByRole('menuitem', { name: 'Revoke' }).click();
+    await page
+      .getByRole('alertdialog')
+      .or(page.getByRole('dialog'))
+      .getByRole('button', { name: 'Revoke permission' })
+      .click();
     await expect(row).toHaveCount(0);
 
     await page.goto('/admin/decisions');

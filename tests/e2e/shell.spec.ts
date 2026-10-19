@@ -3,16 +3,23 @@
  * no flash, and the page is accessible in both themes.
  */
 import { expect, test } from '@playwright/test';
-import { expectAccessible, resolvedTheme, THEME_KEY } from './fixtures';
+import { expectAccessible, openPalette, resolvedTheme, THEME_KEY } from './fixtures';
 
 test.describe('shell', () => {
-  test('renders the frame: titlebar, rail, thread area, status bar', async ({ page }) => {
+  test('renders the frame: titlebar, rail, thread area; the status bar is off until asked for', async ({
+    page,
+  }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/NVX Ancile/);
     await expect(page.getByRole('banner')).toBeVisible();
     await expect(page.getByRole('banner').getByLabel('NVX Ancile')).toBeVisible();
     await expect(page.getByRole('navigation').first()).toBeVisible();
     await expect(page.getByRole('main')).toBeVisible();
+    // Quiet by default: the status bar is a setting, shown from the palette (QU1).
+    await expect(page.getByRole('contentinfo')).toHaveCount(0);
+    const palette = await openPalette(page);
+    await page.keyboard.type('Show status bar');
+    await palette.getByRole('option', { name: /Show status bar/ }).click();
     await expect(page.getByRole('contentinfo')).toBeVisible();
   });
 

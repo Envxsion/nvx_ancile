@@ -56,7 +56,10 @@ test.describe('branching', () => {
       '2 / 2',
       { timeout: 15_000 },
     );
-    await page.getByRole('tab', { name: /Branch tree|Tree/ }).click();
+    // At tablet width the context panel is a sheet that starts closed: Alt+3 opens it on the tree.
+    const treeTab = page.getByRole('tab', { name: /Branch tree|Tree/ });
+    if (!(await treeTab.isVisible())) await page.keyboard.press('Alt+3');
+    await treeTab.click();
     const tree = page.getByRole('tree', { name: 'Branches in this thread' });
     await expect(tree).toBeVisible();
     await expect(tree.getByRole('treeitem')).toHaveCount(3, { timeout: 10_000 });

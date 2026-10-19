@@ -19,14 +19,21 @@ test('first run: models, permissions, memory, shortcuts, then Home with the firs
   await page.getByRole('button', { name: 'Test OpenRouter key' }).click();
   await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
 
-  // The offline test model lets setup continue without a key.
-  await expect(page.getByText(/offline test model/i)).toBeVisible();
+  // The built-in test model lets setup continue without a key.
+  await expect(page.getByText(/built-in test model/i)).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
+  // Look: theme, accent and density have defaults, so this step just continues.
+  await expect(page.getByRole('heading', { name: 'Make it yours' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Safety: the permission preset and memory capture share one step.
   await page.getByRole('radio', { name: 'Balanced' }).click();
+  await page.getByRole('radio', { name: 'Ask me every time' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  await page.getByRole('radio', { name: 'Ask me every time' }).click();
+  // Notebook: optional, so it is skipped here.
+  await expect(page.getByRole('heading', { name: 'Your first notebook' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
   await expect(page.getByRole('heading', { name: 'Five keys worth knowing' })).toBeVisible();

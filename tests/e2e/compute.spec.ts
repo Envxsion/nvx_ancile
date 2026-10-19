@@ -43,10 +43,15 @@ async function ensureStopped(page: Page, name: string) {
 }
 
 test.describe('compute', () => {
-  // One sample node is woken and stopped by each test: never at the same time.
+  // One sample node is woken and stopped by each test: never at the same time (and, see below, one project).
   test.describe.configure({ mode: 'serial' });
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, info) => {
     test.skip(!BACKEND, 'needs Core and the Controller (E2E_BACKEND=1)');
+    // The two sample nodes are shared by every project, which run side by side: one project drives them.
+    test.skip(
+      info.project.name !== 'chromium-dark',
+      'the sample nodes are shared: driven from chromium-dark only',
+    );
     test.skip(!(await sampleMode(page)), 'needs the sample provider (no RUNPOD_API_KEY)');
     await page.addInitScript(() => sessionStorage.setItem('nvx.ancile.setup-offered', '1'));
   });

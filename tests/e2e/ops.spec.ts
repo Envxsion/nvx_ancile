@@ -1,6 +1,6 @@
 /**
- * Phase 5: Health, Logs and Traces. Every service is listed with its
- * state; Restart brings one back and says so; logs filter and export;
+ * Phase 5: Logs and Traces (Health and Restart live in restart.spec.ts). Every service is listed with its
+ * state; logs filter and export;
  * a trace opens on its waterfall. Runs on the test profile, whose
  * services the runner can restart.
  */
@@ -11,24 +11,6 @@ test.describe('operations', () => {
   test.beforeEach(({ page }) => {
     test.skip(!BACKEND, 'needs Core (E2E_BACKEND=1)');
     return page.addInitScript(() => sessionStorage.setItem('nvx.ancile.setup-offered', '1'));
-  });
-
-  test('Health lists every service, and Restart brings the Controller back', async ({ page }) => {
-    test.setTimeout(120_000);
-    await page.goto('/admin/health');
-    for (const name of ['Database', 'Knowledge', 'Controller'])
-      await expect(page.getByText(name, { exact: true })).toBeVisible();
-    const card = page
-      .getByRole('listitem')
-      .filter({ hasText: 'Controller' })
-      .filter({ hasText: 'GPU nodes' });
-    const restart = card.getByRole('button', { name: /^Restart/ });
-    test.skip(!(await restart.isVisible().catch(() => false)), 'the runner cannot restart services here');
-    await restart.click();
-    await expect(page.getByText(/Restarting Controller|Controller is back|restart/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(card).toContainText('Answering', { timeout: 60_000 });
   });
 
   test('Logs filter by level and text, follow live, and export', async ({ page, request }) => {

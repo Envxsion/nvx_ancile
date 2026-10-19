@@ -9,6 +9,10 @@ import { BACKEND } from './playwright.config';
 
 async function newThread(page: Page, text: string) {
   await page.goto('/');
+  // The composer knows which model it sends to once the app has hydrated: before that Enter does nothing.
+  await expect(page.getByRole('button', { name: /Offline test model/ }).first()).toBeVisible({
+    timeout: 15_000,
+  });
   const composer = page.getByRole('textbox', { name: 'Message' });
   await composer.fill(text);
   await composer.press('Enter');
@@ -29,7 +33,9 @@ test.describe('chat', () => {
     await newThread(page, 'Hello from the end-to-end suite');
     await expect(lastAnswer(page)).toContainText('offline test model', { timeout: 15_000 });
     await expect(lastAnswer(page)).toContainText('Hello from the end-to-end suite');
-    await expect(lastAnswer(page).locator('.msg__foot')).toContainText('tok');
+    // The footer is one quiet line: the model (named on the first answer) and what it cost.
+    await expect(lastAnswer(page).locator('.msg__foot')).toContainText('Offline test model');
+    await expect(lastAnswer(page).locator('.msg__foot')).toContainText('no cost');
     // The thread is titled from the first message.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hello from the end-to-end suite');
   });
@@ -39,7 +45,7 @@ test.describe('chat', () => {
     await expect(lastAnswer(page)).toContainText('offline test model', { timeout: 15_000 });
     await page.reload();
     await expect(lastAnswer(page)).toContainText('eight', { timeout: 30_000 });
-    await expect(lastAnswer(page).locator('.msg__foot')).toContainText('tok');
+    await expect(lastAnswer(page).locator('.msg__foot')).toContainText('no cost');
   });
 
   test('falls back when the first model fails, and says so', async ({ page }) => {
