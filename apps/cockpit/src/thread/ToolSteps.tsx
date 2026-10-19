@@ -51,7 +51,6 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { Streamdown } from 'streamdown';
 import { useBackgroundShell } from '../activity/api';
 import { AutoRanBadge } from '../auto/AutoCards';
 import { OpenInEditor } from '../code/OpenInEditor';
@@ -65,9 +64,9 @@ import { DiffView } from '../memory/DiffView';
 import { type DiffLine, diffStats, lineDiff } from '../memory/linediff';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
+import { Markdown } from '../ui/Markdown';
 import { MD_COMPONENTS } from './Citations';
 import { CodeBlock, CopyCode } from './Code';
-import { REMARK_PLUGINS } from './mdPlugins';
 import '../styles/tools.css';
 
 export type ToolCall = Extract<Part, { type: 'tool_call' }>;
@@ -602,15 +601,15 @@ export function ResultText({ text, variant }: { text: string; variant?: 'termina
 /** Markdown for tool output and subagent reports: same look as an answer. */
 export function Prose({ text, className }: { text: string; className?: string }) {
   return (
-    <Streamdown
+    <Markdown
       className={className ? `md ${className}` : 'md'}
       mode="static"
       controls={false}
       components={MD_COMPONENTS}
-      remarkPlugins={REMARK_PLUGINS}
+      plugins="remark"
     >
       {text}
-    </Streamdown>
+    </Markdown>
   );
 }
 

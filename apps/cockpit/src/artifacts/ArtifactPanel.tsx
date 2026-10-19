@@ -23,7 +23,6 @@ import { fade, spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import { relative } from '../lib/format';
 import { useReducedMotion } from '../lib/motion';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -31,9 +30,9 @@ import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { MD_COMPONENTS } from '../thread/Citations';
 import { CodeBlock } from '../thread/Code';
-import { REMARK_PLUGINS } from '../thread/mdPlugins';
 import { Icon } from '../ui/Icon';
 import { StaleNotice } from '../ui/LoadFailed';
+import { Markdown } from '../ui/Markdown';
 import { Tip } from '../ui/primitives';
 import { ArtifactFrame, type ArtifactOffer } from './ArtifactFrame';
 import { FRAMED, fileName, mimeOf, saveFile, TYPE_ICON, TYPE_LABEL } from './meta';
@@ -75,9 +74,9 @@ function Preview({
   if (!FRAMED.has(type))
     return type === 'markdown' ? (
       <div className="artifact-panel__doc">
-        <Streamdown className="md" controls={false} components={MD_COMPONENTS} remarkPlugins={REMARK_PLUGINS}>
+        <Markdown className="md" controls={false} components={MD_COMPONENTS} plugins="remark">
           {content}
-        </Streamdown>
+        </Markdown>
       </div>
     ) : null;
   return (

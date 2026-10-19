@@ -156,10 +156,10 @@ export function useNotebooks() {
   });
 }
 
-export function useNotes(notebookId: string | null | undefined) {
-  return useQuery({
-    queryKey: keys.notes(notebookId ?? 'none'),
-    enabled: Boolean(notebookId),
+/** Shared so a hover can prefetch exactly the query the notebook page asks (lib/prefetch.ts). */
+export const notesQuery = (notebookId: string) =>
+  queryOptions({
+    queryKey: keys.notes(notebookId),
     queryFn: () =>
       orDemo<Note[]>(
         () => api.get<{ items: Note[] }>(`/notebooks/${notebookId}/notes`).then((r) => r.items),
@@ -167,9 +167,12 @@ export function useNotes(notebookId: string | null | undefined) {
         [],
       ),
   });
+
+export function useNotes(notebookId: string | null | undefined) {
+  return useQuery({ ...notesQuery(notebookId ?? 'none'), enabled: Boolean(notebookId) });
 }
 
-/** Shared so hovering a thread in the rail can prefetch exactly this query. */
+/** Shared so a hover can prefetch exactly this query (lib/prefetch.ts). */
 export const threadQuery = (id: string) =>
   queryOptions({
     queryKey: keys.thread(id),
@@ -310,10 +313,9 @@ export function useSystemHealth() {
 }
 
 /** A notebook's sources. While any is still being read, poll gently as a backstop to progress events. */
-export function useSources(notebookId: string | null | undefined) {
-  return useQuery({
-    queryKey: keys.sources(notebookId ?? 'none'),
-    enabled: Boolean(notebookId),
+export const sourcesQuery = (notebookId: string) =>
+  queryOptions({
+    queryKey: keys.sources(notebookId),
     refetchInterval: (q) =>
       q.state.data?.some((s) => !['ready', 'failed', 'stale'].includes(s.status)) ? 4_000 : false,
     queryFn: () =>
@@ -326,6 +328,9 @@ export function useSources(notebookId: string | null | undefined) {
         [],
       ),
   });
+
+export function useSources(notebookId: string | null | undefined) {
+  return useQuery({ ...sourcesQuery(notebookId ?? 'none'), enabled: Boolean(notebookId) });
 }
 
 /** The extracted text of one source, for the viewer and citation jumps. */

@@ -16,10 +16,10 @@ import { spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import { useBinding, useLayer } from '../keys/dispatch';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { Markdown } from '../ui/Markdown';
 import { Kbd } from '../ui/primitives';
 import { LINK_COMPONENTS } from '../ui/SafeLink';
 import { ARTICLES, type Article, articleById, CHAPTERS, searchHelp } from './articles';
@@ -54,9 +54,9 @@ function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: strin
           <span className="mute">· {tour.steps.length} steps</span>
         </button>
       ) : null}
-      <Streamdown className="md help__body" controls={false} mode="static" components={LINK_COMPONENTS}>
+      <Markdown className="md help__body" controls={false} mode="static" components={LINK_COMPONENTS}>
         {article.body}
-      </Streamdown>
+      </Markdown>
       <nav className="help__pager" aria-label="More articles">
         {prev ? (
           <button type="button" className="help__page" onClick={() => onOpen(prev.id)}>

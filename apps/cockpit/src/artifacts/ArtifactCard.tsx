@@ -20,10 +20,10 @@
 import { fade } from '@nvx/aperture';
 import { type ParsedArtifact, splitArtifacts } from '@nvx/contracts';
 import { motion } from 'motion/react';
-import { type ComponentProps, useEffect, useMemo, useRef } from 'react';
-import { Streamdown } from 'streamdown';
+import { useEffect, useMemo, useRef } from 'react';
 import { useReducedMotion } from '../lib/motion';
 import { Icon } from '../ui/Icon';
+import { Markdown, type MarkdownProps } from '../ui/Markdown';
 import { lineCount, TYPE_ICON, TYPE_LABEL } from './meta';
 import { openArtifact, useArtifacts, useThreadArtifacts } from './store';
 
@@ -97,7 +97,7 @@ export function ArtifactCard({
   );
 }
 
-type StreamdownProps = ComponentProps<typeof Streamdown>;
+type StreamdownProps = MarkdownProps;
 
 /**
  * Streamdown for an answer's text, with each artifact as a card. Takes
@@ -116,21 +116,20 @@ export function ProseWithArtifacts({
   live: boolean;
 }) {
   const pieces = useMemo(() => splitArtifacts(children), [children]);
-  if (pieces.length === 1 && pieces[0]?.kind === 'text')
-    return <Streamdown {...props}>{children}</Streamdown>;
+  if (pieces.length === 1 && pieces[0]?.kind === 'text') return <Markdown {...props}>{children}</Markdown>;
   const lastText = pieces.findLastIndex((p) => p.kind === 'text');
   return (
     <>
       {pieces.map((p, i) =>
         p.kind === 'text' ? (
           p.text.trim() ? (
-            <Streamdown
+            <Markdown
               key={`after-${pieces[i - 1]?.kind === 'artifact' ? (pieces[i - 1] as { artifact: ParsedArtifact }).artifact.key : 'start'}`}
               {...props}
               {...(i !== lastText && { isAnimating: false, mode: 'static' })}
             >
               {p.text}
-            </Streamdown>
+            </Markdown>
           ) : null
         ) : (
           <ArtifactCard

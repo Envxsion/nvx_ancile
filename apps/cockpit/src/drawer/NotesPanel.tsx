@@ -13,13 +13,13 @@
 import type { Note } from '@nvx/contracts';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import { useNotes } from '../lib/data';
 import { relative } from '../lib/format';
 import { createNote, deleteNote, saveNote } from '../lib/notebooks';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { LoadFailed, StaleNotice } from '../ui/LoadFailed';
+import { Markdown } from '../ui/Markdown';
 import { DropMenu } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { LINK_COMPONENTS } from '../ui/SafeLink';
@@ -80,14 +80,14 @@ function NoteEditor({ note, notebookId, onClose }: { note: Note; notebookId: str
         </p>
       ) : null}
       {preview ? (
-        <Streamdown
+        <Markdown
           className="md note-editor__preview"
           controls={false}
           mode="static"
           components={LINK_COMPONENTS}
         >
           {body || '*Nothing written yet.*'}
-        </Streamdown>
+        </Markdown>
       ) : (
         <textarea
           className="note-editor__body"

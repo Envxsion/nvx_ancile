@@ -8,7 +8,8 @@
  *           |  regenerate and branch, where each one split off, and
  *           |  the path you are on drawn in signal.
  *  How      |  Core folds linear runs into one node (GET /tree); elk
- *           |  lays the nodes out top to bottom in creation order, and
+ *           |  (in a Web Worker, lib/elk.ts) lays the nodes out top to
+ *           |  bottom in creation order, and
  *           |  xyflow draws them. Nodes slide to their new place when
  *           |  the tree changes; the active path draws itself once.
  *           |  Keys are handled here, not by the global keymap, so
@@ -40,7 +41,6 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from '@xyflow/react';
-import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/base.css';
 import { motion } from 'motion/react';
 import { type CSSProperties, type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from 'react';
@@ -48,6 +48,7 @@ import { chordOf } from '../keys/dispatch';
 import { keysFor, normalise } from '../keys/registry';
 import { branchHere, jumpTo, useBranchTree } from '../lib/branching';
 import { keys } from '../lib/data';
+import { layoutGraph } from '../lib/elk';
 import { hueVar, modelById } from '../lib/format';
 import { queryClient } from '../lib/query';
 import type { ThreadView } from '../lib/types';
@@ -57,8 +58,6 @@ import type { MenuEntry } from '../ui/Menu';
 import { EmptyState, Skeleton } from '../ui/primitives';
 import { flattenTree, quickLayout } from './outline';
 import { askDelete, openCompare, useBranchLayer } from './store';
-
-const elk = new ELK();
 
 type Variant = 'panel' | 'full';
 const SIZE: Record<Variant, { w: number; h: number }> = {
@@ -165,7 +164,7 @@ async function layout(tree: Tree, variant: Variant): Promise<Map<string, { x: nu
       gapX: variant === 'full' ? 28 : 18,
       gapY: variant === 'full' ? 44 : 30,
     });
-  const graph = await elk.layout({
+  const graph = await layoutGraph({
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',

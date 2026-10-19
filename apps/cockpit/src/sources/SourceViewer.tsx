@@ -23,15 +23,14 @@
 
 import type { SourceContent } from '@nvx/contracts';
 import { lazy, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import { useSource, useSourceContent } from '../lib/data';
 import { scrollBehavior } from '../lib/motion';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { MD_COMPONENTS } from '../thread/Citations';
-import { REMARK_PLUGINS } from '../thread/mdPlugins';
 import { Segmented } from '../ui/controls';
 import { Icon } from '../ui/Icon';
+import { Markdown } from '../ui/Markdown';
 import { Skeleton } from '../ui/primitives';
 import { isMarkdown, isPdf } from './pdf';
 import { KIND_ICON } from './SourceCard';
@@ -419,15 +418,15 @@ export function SourceViewer({
                 No text was found in this source.{pdf ? ' Choose Original to see its pages.' : ''}
               </p>
             ) : view === 'rendered' ? (
-              <Streamdown
+              <Markdown
                 className="md viewer__md"
                 mode="static"
                 controls={false}
                 components={MD_COMPONENTS}
-                remarkPlugins={REMARK_PLUGINS}
+                plugins="remark"
               >
                 {content.data.markdown}
-              </Streamdown>
+              </Markdown>
             ) : (
               blocks.map((b, i) => {
                 const newPage = b.page != null && b.page !== blocks[i - 1]?.page;

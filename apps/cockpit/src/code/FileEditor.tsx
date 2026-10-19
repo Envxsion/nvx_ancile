@@ -23,14 +23,13 @@ import type { FileContent } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError, localError } from '../lib/api';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { REMARK_PLUGINS } from '../thread/mdPlugins';
 import { Segmented } from '../ui/controls';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
+import { Markdown } from '../ui/Markdown';
 import { Skeleton } from '../ui/primitives';
 import { fileKey, readFile, saveFile, useFile } from './api';
 import { type AgentEdit, editDiff } from './before';
@@ -355,15 +354,15 @@ function Body({
         ) : markdown && look === 'rendered' && !editing ? (
           savedContent.trim() ? (
             <div className="file-ed__md">
-              <Streamdown
+              <Markdown
                 className="md"
                 mode="static"
                 controls={false}
                 components={LINK_COMPONENTS}
-                remarkPlugins={REMARK_PLUGINS}
+                plugins="remark"
               >
                 {savedContent}
-              </Streamdown>
+              </Markdown>
             </div>
           ) : (
             <p className="file-ed__note">This file is empty.</p>

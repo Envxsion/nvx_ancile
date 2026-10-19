@@ -22,7 +22,7 @@ import type { ClaudeCodeStatus, ThreadSearchHit } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from '@tanstack/react-router';
 import { Command } from 'cmdk';
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { openActivity } from '../activity/api';
 import { syncThread, useClaudeCodeStatus } from '../claudecode/api';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
@@ -38,6 +38,7 @@ import { compactNow } from '../lib/branching';
 import { useNotebooks, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
+import { PRELOAD_DELAY_MS, paletteTarget, prefetchTarget } from '../lib/prefetch';
 import { deleteThread, exportThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue } from '../lib/types';
 import { useWarmMarks, WarmMark } from '../models/WarmMark';
@@ -233,6 +234,14 @@ export function Palette() {
   const prefs = usePrefs((s) => s.prefs);
   const setPref = usePrefs((s) => s.set);
   const [value, setValue] = useState('');
+  // The thread or notebook the highlighted item opens is fetched once the highlight rests on it.
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
+  const onHighlight = (item: string) => {
+    clearTimeout(highlightTimer.current);
+    const target = paletteTarget(item);
+    if (target) highlightTimer.current = setTimeout(() => prefetchTarget(target), PRELOAD_DELAY_MS);
+  };
   const repoCommands = useRepoCommands();
   useLayer(open);
 
@@ -591,7 +600,7 @@ export function Palette() {
           data-tour-target="palette-dialog"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
-          <Command label="Command palette" shouldFilter loop>
+          <Command label="Command palette" shouldFilter loop onValueChange={onHighlight}>
             <div className="palette__input">
               <Icon name="search" />
               {scope !== 'all' ? <span className="palette__scope">{SCOPE_LABEL[scope]}</span> : null}

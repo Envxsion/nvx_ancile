@@ -22,7 +22,8 @@
  */
 
 import { useRouterState } from '@tanstack/react-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { AutoSlot } from '../auto/AutoCards';
 import { LimitNotice, limitOf, NearLimitLine } from '../claudecode/LimitNotice';
 import { CcLiveLine, CcNotices, CcPickers, lastTurn, useCcActions } from '../claudecode/LiveBar';
@@ -42,7 +43,7 @@ import { useConnection } from '../lib/connection';
 import { keys, useThread, useThreads } from '../lib/data';
 import { useCurrentModel } from '../lib/models';
 import { queryClient } from '../lib/query';
-import { attachRun, detachThread, type LiveTurn, resumeThread, useRuns } from '../lib/run';
+import { attachRun, detachThread, resumeThread, useRuns } from '../lib/run';
 import {
   ensureLoaded,
   loadEarlier,
@@ -66,6 +67,7 @@ import { nextAnnouncement } from './announce';
 import { BusyNotice } from './BusyNotice';
 import { type ClaudeCodeComposer, Composer, type SendExtras } from './Composer';
 import { ComposerHints } from './ComposerHints';
+import { headOf, overlay, withHead } from './liveOverlay';
 import { MessageList } from './MessageList';
 import { ModelGoneNotice } from './ModelGoneNotice';
 import { stayAtBottomOnShrink } from './stayAtBottom';
@@ -90,23 +92,61 @@ function anchorIn(el: HTMLElement): ReadingAnchor | null {
 const rowOf = (el: HTMLElement, id: string) =>
   el.querySelector<HTMLElement>(`[data-mid="${typeof CSS !== 'undefined' ? CSS.escape(id) : id}"]`);
 
-function overlay(m: MessageView, live: LiveTurn | undefined): MessageView {
-  if (!live) return m;
-  const writing = !live.done;
-  return {
-    ...m,
-    parts: live.parts.length || writing ? live.parts : m.parts,
-    status: writing
-      ? 'streaming'
-      : live.error
-        ? 'error'
-        : live.status === 'cancelled'
-          ? 'stopped'
-          : (m.status ?? 'complete'),
-    modelId: live.modelId ?? m.modelId,
-    ...(live.fallback && { fallback: { from: live.fallback.from, reason: live.fallback.reason } }),
-    error: live.error,
-  };
+/**
+ * The parts of following and announcing a streaming answer that depend on its text, so they
+ * redraw with each token and the screen around them does not: this component renders nothing.
+ */
+function StreamEffects({
+  lastBase,
+  messageCount,
+  scroller,
+  following,
+  setAnnounce,
+}: {
+  lastBase: MessageView | undefined;
+  messageCount: number;
+  scroller: RefObject<HTMLElement | null>;
+  following: RefObject<boolean>;
+  setAnnounce: (words: string) => void;
+}) {
+  const live = useRuns((s) => (lastBase ? s.turns[lastBase.id] : undefined));
+  const last = useMemo(() => (lastBase ? overlay(lastBase, live) : undefined), [lastBase, live]);
+  const streamedLength = live?.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 1), 0) ?? 0;
+
+  // Follow a streaming answer while you are at the bottom.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as text arrives
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
+  }, [streamedLength, messageCount]);
+
+  // For screen readers: the answer as it arrives, by sentence or paragraph
+  // (Settings → Accessibility), and always a word when it finishes. Only an
+  // answer seen streaming here is read, never an old one on load.
+  const announceMode = usePrefs((s) => s.prefs.accessibility.announce);
+  const showWhole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
+  const spoken = useRef<{ id: string | null; upTo: number }>({ id: null, upTo: 0 });
+  const lastText =
+    last?.role === 'assistant'
+      ? (last.parts ?? []).reduce((t, p) => (p.type === 'text' ? t + p.text : t), '')
+      : '';
+  useEffect(() => {
+    if (last?.role !== 'assistant') return;
+    const writing = last.status === 'streaming' || last.status === 'pending';
+    if (writing && spoken.current.id !== last.id) spoken.current = { id: last.id, upTo: 0 };
+    if (spoken.current.id !== last.id) return;
+    if (writing && showWhole) return;
+    const r = nextAnnouncement(lastText, spoken.current.upTo, announceMode, !writing);
+    spoken.current.upTo = r.upTo;
+    if (writing) {
+      if (r.say) setAnnounce(r.say);
+      return;
+    }
+    spoken.current = { id: null, upTo: 0 };
+    const end = last.status === 'error' ? 'The answer could not be finished.' : 'Answer finished.';
+    setAnnounce(r.say ? `${r.say} ${end}` : end);
+  }, [last?.id, last?.status, last?.role, lastText, announceMode, showWhole, setAnnounce]);
+  return null;
 }
 
 export function ThreadView({ threadId }: { threadId: string }) {
@@ -117,7 +157,6 @@ export function ThreadView({ threadId }: { threadId: string }) {
   const listTitle = useThreads().data?.find((t) => t.id === threadId)?.title;
   const demo = useUi((s) => s.demo);
   const model = useCurrentModel(threadId);
-  const turns = useRuns((s) => s.turns);
   const [local, setLocal] = useState<MessageView[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [tldrOpen, setTldrOpen] = useState(true);
@@ -151,11 +190,16 @@ export function ThreadView({ threadId }: { threadId: string }) {
     return () => detachThread(threadId);
   }, [threadId]);
 
-  const messages = [...(thread.data?.messages ?? []), ...local].map((m) => overlay(m, turns[m.id]));
-  const last = messages[messages.length - 1];
-  const liveTurn = last ? turns[last.id] : undefined;
-  const streamedLength =
-    liveTurn?.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 1), 0) ?? 0;
+  // Saved messages, and what was just sent in demo mode. A row lays its own live text over itself
+  // (MessageList), so a token redraws that row and nothing here (ROADMAP P2). What this screen
+  // needs from the last run (status, model, error) changes a few times per answer.
+  const messages = useMemo(
+    () => [...(thread.data?.messages ?? []), ...local],
+    [thread.data?.messages, local],
+  );
+  const lastBase = messages[messages.length - 1];
+  const head = useRuns(useShallow((s) => headOf(lastBase ? s.turns[lastBase.id] : undefined)));
+  const last = useMemo(() => (lastBase ? withHead(lastBase, head) : undefined), [lastBase, head]);
 
   useEffect(() => {
     if (!selected && last)
@@ -233,13 +277,6 @@ export function ThreadView({ threadId }: { threadId: string }) {
     return () => cancelAnimationFrame(raf);
   }, [jumpTo]);
 
-  // Follow a streaming answer while you are at the bottom.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as text arrives
-  useEffect(() => {
-    const el = scroller.current;
-    if (el && following.current) el.scrollTop = el.scrollHeight;
-  }, [streamedLength, messages.length]);
-
   // A notice above the composer (a moved folder, a limit) makes the list shorter: while you
   // were at the bottom, stay there, so it never covers the last lines of the answer.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the list mounts once the thread has loaded
@@ -249,33 +286,6 @@ export function ThreadView({ threadId }: { threadId: string }) {
     return stayAtBottomOnShrink(el, () => following.current);
     // The list mounts once the thread has loaded.
   }, [threadId, thread.isPending]);
-
-  // For screen readers: the answer as it arrives, by sentence or paragraph
-  // (Settings → Accessibility), and always a word when it finishes. Only an
-  // answer seen streaming here is read, never an old one on load.
-  const announceMode = usePrefs((s) => s.prefs.accessibility.announce);
-  const showWhole = usePrefs((s) => s.prefs.reading.streaming === 'whole');
-  const spoken = useRef<{ id: string | null; upTo: number }>({ id: null, upTo: 0 });
-  const lastText =
-    last?.role === 'assistant'
-      ? (last.parts ?? []).reduce((t, p) => (p.type === 'text' ? t + p.text : t), '')
-      : '';
-  useEffect(() => {
-    if (last?.role !== 'assistant') return;
-    const writing = last.status === 'streaming' || last.status === 'pending';
-    if (writing && spoken.current.id !== last.id) spoken.current = { id: last.id, upTo: 0 };
-    if (spoken.current.id !== last.id) return;
-    if (writing && showWhole) return;
-    const r = nextAnnouncement(lastText, spoken.current.upTo, announceMode, !writing);
-    spoken.current.upTo = r.upTo;
-    if (writing) {
-      if (r.say) setAnnounce(r.say);
-      return;
-    }
-    spoken.current = { id: null, upTo: 0 };
-    const end = last.status === 'error' ? 'The answer could not be finished.' : 'Answer finished.';
-    setAnnounce(r.say ? `${r.say} ${end}` : end);
-  }, [last?.id, last?.status, last?.role, lastText, announceMode, showWhole]);
 
   // Once a frame at most: where you are, whether to follow, whether to load earlier.
   const onScroll = () => {
@@ -458,6 +468,11 @@ export function ThreadView({ threadId }: { threadId: string }) {
     return ok;
   };
 
+  // The composer is memoised: it gets this, which never changes, not a new function per render.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const onSend = useCallback((text: string, extras: SendExtras) => sendRef.current(text, extras), []);
+
   if (thread.isPending) {
     return (
       <div className="thread">
@@ -548,7 +563,6 @@ export function ThreadView({ threadId }: { threadId: string }) {
               <MessageList
                 messages={messages}
                 threadId={threadId}
-                turns={turns}
                 selected={selected}
                 onSelect={setSelected}
                 jumpTo={jumpTo}
@@ -585,7 +599,7 @@ export function ThreadView({ threadId }: { threadId: string }) {
           <Composer
             threadId={threadId}
             parentId={last?.id ?? null}
-            onSend={send}
+            onSend={onSend}
             busy={cc ? false : busy}
             notebookId={thread.data?.notebookId ?? null}
             claudeCode={claudeCode}
@@ -595,6 +609,13 @@ export function ThreadView({ threadId }: { threadId: string }) {
         {demo ? null : <BranchLayer threadId={threadId} />}
       </div>
 
+      <StreamEffects
+        lastBase={lastBase}
+        messageCount={messages.length}
+        scroller={scroller}
+        following={following}
+        setAnnounce={setAnnounce}
+      />
       <div className="sr-only" aria-live="polite" aria-atomic="false">
         {announce}
       </div>

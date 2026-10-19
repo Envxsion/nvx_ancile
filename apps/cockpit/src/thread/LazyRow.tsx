@@ -1,18 +1,27 @@
 /**
  * ------------------------------------------------------------------
  *  Title    |  Rows drawn when they come near
+ *  Ref      |  ROADMAP P3
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  A long thread costs only what is on screen: a message
- *           |  far from the viewport is its plain text (so the page's
- *           |  own find still finds it), and becomes the full message
- *           |  (markdown, highlighted code, tool steps) the first time
- *           |  it comes within a couple of screens. It stays drawn
- *           |  after that, so scrolling back is instant.
- *  How      |  One IntersectionObserver per thread scroller (LazyRoot)
- *           |  watches every row. Rows marked eager (the last few, a
- *           |  streaming answer, one waiting on an approval, the one
- *           |  you jumped to) are drawn at once. Without
+ *  Purpose  |  A long thread costs only what is near the screen, in
+ *           |  time and in memory. A message far from the viewport is
+ *           |  its plain text (so the page's own find still finds it);
+ *           |  within a couple of screens it is the full message
+ *           |  (markdown, highlighted code, tool steps); and once it
+ *           |  is several screens away again it goes back to its text,
+ *           |  held at the height it measured, so nothing shifts and
+ *           |  a read-through of 1,000 messages never holds more than a
+ *           |  few dozen drawn.
+ *  How      |  Two IntersectionObservers per thread scroller
+ *           |  (LazyRoot): one with a small margin that says "draw
+ *           |  this", one with a wide margin that says "this has gone
+ *           |  far" (the gap between them stops a row near the edge
+ *           |  from flapping). The row is the <li>, so it can measure
+ *           |  itself. Rows marked eager (the last few, a streaming
+ *           |  answer, one waiting on an approval, the selected one,
+ *           |  the one jumped to) are always drawn, and a row holding
+ *           |  keyboard focus is never taken down under it. Without
  *           |  IntersectionObserver everything is drawn.
  * ------------------------------------------------------------------
  */
@@ -34,11 +43,17 @@ import type { MessageView } from '../lib/types';
 
 /** How far outside the viewport a row is drawn in full ahead of time. */
 export const LAZY_MARGIN = '1600px 0px';
+/** How far away a drawn row has to be before it goes back to its text (more than LAZY_MARGIN). */
+export const KEEP_MARGIN = '5000px 0px';
 
-type Watch = (el: Element, onNear: () => void) => () => void;
+interface Handlers {
+  near: () => void;
+  far: () => void;
+}
+type Watch = (el: Element, h: Handlers) => () => void;
 const LazyContext = createContext<Watch | null>(null);
 
-/** One observer for all rows in `scroller`. */
+/** Two observers for all rows in `scroller`: one says a row came near, one that it went far. */
 export function LazyRoot({
   scroller,
   children,
@@ -49,35 +64,40 @@ export function LazyRoot({
   const [watch, setWatch] = useState<Watch | null>(null);
   useLayoutEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
-    const waiting = new Map<Element, () => void>();
-    const io = new IntersectionObserver(
+    const rows = new Map<Element, Handlers>();
+    const root = scroller.current;
+    const nearIo = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue;
-          const cb = waiting.get(e.target);
-          if (!cb) continue;
-          waiting.delete(e.target);
-          io.unobserve(e.target);
-          cb();
-        }
+        for (const e of entries) if (e.isIntersecting) rows.get(e.target)?.near();
       },
-      { root: scroller.current, rootMargin: LAZY_MARGIN },
+      { root, rootMargin: LAZY_MARGIN },
     );
-    setWatch(() => (el: Element, onNear: () => void) => {
-      waiting.set(el, onNear);
-      io.observe(el);
+    const keepIo = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (!e.isIntersecting) rows.get(e.target)?.far();
+      },
+      { root, rootMargin: KEEP_MARGIN },
+    );
+    setWatch(() => (el: Element, h: Handlers) => {
+      rows.set(el, h);
+      nearIo.observe(el);
+      keepIo.observe(el);
       return () => {
-        waiting.delete(el);
-        io.unobserve(el);
+        rows.delete(el);
+        nearIo.unobserve(el);
+        keepIo.unobserve(el);
       };
     });
-    return () => io.disconnect();
+    return () => {
+      nearIo.disconnect();
+      keepIo.disconnect();
+    };
   }, [scroller]);
   return <LazyContext.Provider value={watch}>{children}</LazyContext.Provider>;
 }
 
-/** What a row shows before it is drawn in full: its words, at reading measure. */
-export function placeholderText(m: MessageView, max = 1_200): string {
+/** What a row shows before it is drawn: its words, at reading measure. Long enough for find to reach. */
+export function placeholderText(m: MessageView, max = 8_000): string {
   const text = m.parts?.length
     ? partsText(m.parts)
     : m.blocks
@@ -99,24 +119,52 @@ export const LazyRow = memo(function LazyRow({
 }: {
   m: MessageView;
   eager: boolean;
-  /** The full row; only called once the row is drawn. */
+  /** The full row; only called while the row is drawn. */
   children: () => ReactNode;
 }) {
   const watch = useContext(LazyContext);
   const [near, setNear] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // The row's height when it was last drawn, kept while it is only its words.
+  const [held, setHeld] = useState<number | null>(null);
+  const ref = useRef<HTMLLIElement>(null);
   // Without IntersectionObserver at all, draw in full, as before. With it, a
   // row waits for the observer rather than drawing everything on first paint.
   const drawn = eager || near || typeof IntersectionObserver === 'undefined';
+  const isDrawn = useRef(drawn);
+  isDrawn.current = drawn;
+  // A row that was drawn for being eager stays drawn when it stops being eager (it is on
+  // screen); the far observer decides when it goes back to its words.
   useEffect(() => {
-    if (drawn || !watch || !ref.current) return;
-    return watch(ref.current, () => setNear(true));
-  }, [drawn, watch]);
+    if (eager) setNear(true);
+  }, [eager]);
+  useEffect(() => {
+    const li = ref.current;
+    if (eager || !watch || !li) return;
+    return watch(li, {
+      near: () => setNear(true),
+      far: () => {
+        // Words already: nothing to take down. Focus inside: never take a row from under the keyboard.
+        if (!isDrawn.current || li.contains(document.activeElement)) return;
+        setHeld(li.offsetHeight);
+        setNear(false);
+      },
+    });
+  }, [eager, watch]);
   const text = useMemo(() => (drawn ? '' : placeholderText(m)), [drawn, m]);
-  if (drawn) return <>{children()}</>;
   return (
-    <div ref={ref} className="msg-lazy" data-role={m.role} data-lazy>
-      {text}
-    </div>
+    <li ref={ref} data-mid={m.id}>
+      {drawn ? (
+        children()
+      ) : (
+        <div
+          className="msg-lazy"
+          data-role={m.role}
+          data-lazy
+          style={held ? { height: held, maxHeight: 'none', boxSizing: 'border-box' } : undefined}
+        >
+          {text}
+        </div>
+      )}
+    </li>
   );
 });

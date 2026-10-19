@@ -95,5 +95,8 @@ export default defineConfig({
   build: {
     target: 'es2023',
     sourcemap: !proUi,
+    // Vendor chunks (react, motion, tanstack, zod in manualChunks) were tried and left out: Rollup kept
+    // about 140 KB of code it otherwise drops, and Core serves the files from the same machine, so
+    // cache stability gains nothing. The first download is held by scripts/bundle-budget.mjs.
   },
 });

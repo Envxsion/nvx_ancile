@@ -20,21 +20,25 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { motion } from 'motion/react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { EvidencePanel } from '../drawer/EvidencePanel';
-import { NotesPanel } from '../drawer/NotesPanel';
-import { SourcesPanel } from '../drawer/SourcesPanel';
-import { LiveTree, TreePanel } from '../drawer/TreePanel';
 import { useBinding } from '../keys/dispatch';
 import { useThreadIdFromRoute } from '../lib/models';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useLinkedRepo, useRepoScope, useRepos } from '../repos/data';
-import { RepoPanel } from '../repos/RepoPanel';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { type DrawerTab, useUi } from '../state/ui';
 import { useBranchLayer } from '../tree/store';
 import { Icon, type IconName } from '../ui/Icon';
+import { lazyHost } from '../ui/lazyHost';
 import { Tip } from '../ui/primitives';
+
+// Each tab's panel loads when the drawer first shows it (ROADMAP P1).
+const EvidencePanel = lazyHost(() => import('../drawer/EvidencePanel'), 'EvidencePanel');
+const NotesPanel = lazyHost(() => import('../drawer/NotesPanel'), 'NotesPanel');
+const SourcesPanel = lazyHost(() => import('../drawer/SourcesPanel'), 'SourcesPanel');
+const TreePanel = lazyHost(() => import('../drawer/TreePanel'), 'TreePanel');
+const LiveTree = lazyHost(() => import('../drawer/TreePanel'), 'LiveTree');
+const RepoPanel = lazyHost(() => import('../repos/RepoPanel'), 'RepoPanel');
 
 export const TABS: { id: DrawerTab; label: string; icon: IconName; binding?: string }[] = [
   { id: 'sources', label: 'Sources', icon: 'sources', binding: 'drawer.sources' },

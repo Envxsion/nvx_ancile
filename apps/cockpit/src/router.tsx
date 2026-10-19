@@ -15,16 +15,13 @@ import {
   createRoute,
   createRouter,
   lazyRouteComponent,
+  type RouterHistory,
   redirect,
 } from '@tanstack/react-router';
 import { AppShell } from './app/AppShell';
-import { OpenApprovalScreen, OpenFlowRunScreen, OpenHelpScreen, OpenNewScreen } from './desktop/OpenScreens';
 import { keyText } from './keys/registry';
-import { AdminLayout, AdminSectionScreen } from './routes/admin/Admin';
+import { loadNotebook, loadThread, PRELOAD_DELAY_MS } from './lib/prefetch';
 import { HomeScreen } from './routes/Home';
-import { NotebookScreen } from './routes/Notebook';
-import { SetupScreen } from './routes/Setup';
-import { SettingsScreen } from './routes/settings/Settings';
 import { ThreadScreen } from './routes/Thread';
 import { EmptyState } from './ui/primitives';
 
@@ -54,24 +51,32 @@ const threadRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/t/$threadId',
   component: ThreadScreen,
+  // Runs for a link only once it has been hovered or focused for PRELOAD_DELAY_MS (lib/prefetch.ts);
+  // returns at once, so opening the thread never waits for it.
+  loader: loadThread,
 });
 const notebookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/n/$notebookId',
-  component: NotebookScreen,
+  component: lazyRouteComponent(() => import('./routes/Notebook'), 'NotebookScreen'),
+  loader: loadNotebook,
 });
-const setupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/setup', component: SetupScreen });
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/setup',
+  component: lazyRouteComponent(() => import('./routes/Setup'), 'SetupScreen'),
+});
 
 // Where an ancile:// link lands (desktop/OpenScreens.tsx). Each only opens a place.
 const openApprovalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/open/approval/$approvalId',
-  component: OpenApprovalScreen,
+  component: lazyRouteComponent(() => import('./desktop/OpenScreens'), 'OpenApprovalScreen'),
 });
 const openNewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/open/new',
-  component: OpenNewScreen,
+  component: lazyRouteComponent(() => import('./desktop/OpenScreens'), 'OpenNewScreen'),
   validateSearch: (s: Record<string, unknown>): { text?: string; notebook?: string } => ({
     ...(typeof s.text === 'string' && s.text ? { text: s.text.slice(0, 4000) } : {}),
     ...(typeof s.notebook === 'string' && s.notebook ? { notebook: s.notebook } : {}),
@@ -80,14 +85,14 @@ const openNewRoute = createRoute({
 const openHelpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/open/help',
-  component: OpenHelpScreen,
+  component: lazyRouteComponent(() => import('./desktop/OpenScreens'), 'OpenHelpScreen'),
   validateSearch: (s: Record<string, unknown>): { topic?: string } =>
     typeof s.topic === 'string' && s.topic ? { topic: s.topic } : {},
 });
 const openFlowRunRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/open/flow/$flowId/run',
-  component: OpenFlowRunScreen,
+  component: lazyRouteComponent(() => import('./desktop/OpenScreens'), 'OpenFlowRunScreen'),
 });
 
 // Flows (DESIGN.md §16): the editor and its canvas load on first visit.
@@ -117,10 +122,14 @@ const settingsRoute = createRoute({
 const settingsGroupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/$group',
-  component: SettingsScreen,
+  component: lazyRouteComponent(() => import('./routes/settings/Settings'), 'SettingsScreen'),
 });
 
-const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin', component: AdminLayout });
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: lazyRouteComponent(() => import('./routes/admin/Admin'), 'AdminLayout'),
+});
 const adminIndexRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: '/',
@@ -131,7 +140,7 @@ const adminIndexRoute = createRoute({
 const adminSectionRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: '$section',
-  component: AdminSectionScreen,
+  component: lazyRouteComponent(() => import('./routes/admin/Admin'), 'AdminSectionScreen'),
 });
 
 export const routeTree = rootRoute.addChildren([
@@ -151,7 +160,18 @@ export const routeTree = rootRoute.addChildren([
   adminRoute.addChildren([adminIndexRoute, adminSectionRoute]),
 ]);
 
-export const router = createRouter({ routeTree, defaultPreload: 'intent', scrollRestoration: false });
+/** Hover or focus loads a link's code and, after a short rest, its data (lib/prefetch.ts). */
+export function createAppRouter(history?: RouterHistory) {
+  return createRouter({
+    routeTree,
+    ...(history && { history }),
+    defaultPreload: 'intent',
+    defaultPreloadDelay: PRELOAD_DELAY_MS,
+    scrollRestoration: false,
+  });
+}
+
+export const router = createAppRouter();
 
 declare module '@tanstack/react-router' {
   interface Register {

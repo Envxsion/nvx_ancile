@@ -52,6 +52,7 @@ import { CACHE_BUSTER, persistable, persister, queryClient } from './lib/query';
 import { markRuntime } from './lib/runtime';
 import { router } from './router';
 import { useUi } from './state/ui';
+import { loadMarkdown } from './ui/Markdown';
 
 markRuntime();
 // Dev only: the screenshot scripts (scripts/shoot-*.mjs) seed the stores to draw states demo data cannot reach.
@@ -103,3 +104,6 @@ createRoot(root).render(
     </PersistQueryClientProvider>
   </StrictMode>,
 );
+
+// The markdown chunk is fetched now that the shell is on its way, not when the first answer needs it.
+void loadMarkdown();

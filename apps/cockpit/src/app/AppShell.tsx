@@ -18,18 +18,8 @@
 import { watchSystemTheme } from '@nvx/aperture';
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { type CSSProperties, useEffect } from 'react';
-import { ActivityHost } from '../activity/ActivityPanel';
-import { ApprovalDialog } from '../approvals/ApprovalDialog';
-import { ArtifactPanel } from '../artifacts/ArtifactPanel';
-import { ClaudeCodeSessionsHost } from '../claudecode/SessionsDialog';
-import { FileEditorHost } from '../code/FileEditorHost';
 import { command } from '../desktop/api';
-import { WhatChangedHost } from '../desktop/WhatChanged';
-import { EditorsHost } from '../editors/EditorsHost';
-import { HelpCentre } from '../help/HelpCentre';
-import { TourOverlay } from '../help/TourOverlay';
 import { installKeys, useBinding } from '../keys/dispatch';
-import { ShortcutsOverlay } from '../keys/ShortcutsOverlay';
 import { useConnection } from '../lib/connection';
 import { useApprovals, useNotebooks, useSetup, useThread, useThreads } from '../lib/data';
 import { useGlobalEvents } from '../lib/events';
@@ -37,13 +27,11 @@ import { useRuns } from '../lib/run';
 import { isDesktop } from '../lib/runtime';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useModelChangeToasts } from '../models/watch';
-import { Center } from '../notify/Center';
 import { Toaster } from '../notify/Toaster';
-import { Palette } from '../palette/Palette';
 import { BeamHost } from '../pro/beam';
 import { EditionSync } from '../pro/edition';
 import { SignInGate, useSignInGate } from '../pro/gate';
-import { ADMIN_SECTIONS } from '../routes/admin/sections';
+import { adminLabel } from '../routes/admin/labels';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
 import { Drawer } from '../shell/Drawer';
 import { Rail } from '../shell/Rail';
@@ -52,7 +40,25 @@ import { Titlebar } from '../shell/Titlebar';
 import { notify } from '../state/notify';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
+import { lazyHost } from '../ui/lazyHost';
 import { Runtime } from './Runtime';
+
+// Overlays and panels draw nothing until opened, so they load after the shell (ROADMAP P1).
+const ActivityHost = lazyHost(() => import('../activity/ActivityPanel'), 'ActivityHost');
+const ApprovalDialog = lazyHost(() => import('../approvals/ApprovalDialog'), 'ApprovalDialog');
+const ArtifactPanel = lazyHost(() => import('../artifacts/ArtifactPanel'), 'ArtifactPanel');
+const ClaudeCodeSessionsHost = lazyHost(
+  () => import('../claudecode/SessionsDialog'),
+  'ClaudeCodeSessionsHost',
+);
+const FileEditorHost = lazyHost(() => import('../code/FileEditorHost'), 'FileEditorHost');
+const WhatChangedHost = lazyHost(() => import('../desktop/WhatChanged'), 'WhatChangedHost');
+const EditorsHost = lazyHost(() => import('../editors/EditorsHost'), 'EditorsHost');
+const HelpCentre = lazyHost(() => import('../help/HelpCentre'), 'HelpCentre');
+const TourOverlay = lazyHost(() => import('../help/TourOverlay'), 'TourOverlay');
+const ShortcutsOverlay = lazyHost(() => import('../keys/ShortcutsOverlay'), 'ShortcutsOverlay');
+const Center = lazyHost(() => import('../notify/Center'), 'Center');
+const Palette = lazyHost(() => import('../palette/Palette'), 'Palette');
 
 /** A thread's crumbs: its notebook, then its title, from the list or else the open thread itself. */
 export function threadCrumbs(
@@ -75,11 +81,7 @@ function useCrumbs(pathname: string): { label: string; to?: string }[] {
   if (kind === 't') return threadCrumbs(id, threads.data, open.data, notebooks.data);
   if (kind === 'n') return [{ label: notebooks.data?.find((n) => n.id === id)?.title ?? 'Notebook' }];
   if (kind === 'settings') return [{ label: 'Settings' }];
-  if (kind === 'admin')
-    return [
-      { label: 'Admin', to: '/admin/health' },
-      { label: ADMIN_SECTIONS.find((s) => s.id === id)?.label ?? '' },
-    ];
+  if (kind === 'admin') return [{ label: 'Admin', to: '/admin/health' }, { label: adminLabel(id) }];
   return [];
 }
 

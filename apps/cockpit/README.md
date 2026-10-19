@@ -22,6 +22,21 @@ The fixtures are a notebook about a depot battery retrofit. Its suppliers, surve
 
 Sending a message in demo mode shows it on screen with an Undo toast and says plainly that nothing was sent.
 
+## Speed
+
+What keeps the Cockpit quick, and what holds it there (ROADMAP P1 to P5 and P7):
+
+| Area | How | Held by |
+|---|---|---|
+| First download | Settings, Admin, Setup, Notebook and the `ancile://` screens load per route; overlays and drawer panels load after the shell (`ui/lazyHost.tsx`); markdown and its parser load on demand (`ui/Markdown.tsx`) | `scripts/bundle-budget.mjs` runs after `vite build` and fails the build if the entry and its static imports pass 1,420 KB raw or 455 KB gzip (was 2,494 and 776). Lower the budget when a split lands; raise it only with a reason in the change. The roadmap's 900 KB goal needs LazyMotion and the Claude Code, receipt and teamwork rows on demand (TODO(phase-6)) |
+| A streamed token | Each message row reads its own run (`thread/MessageList.tsx`, `thread/liveOverlay.ts`); the screen reads only status, model and error; following and announcing sit in `StreamEffects`; the composer is memoised and gets stable props | `test/threadStream.test.tsx` counts renders per token |
+| Long threads | A row far from the screen goes back to its text at its measured height (`thread/LazyRow.tsx`): found by the browser's find, jumped to by `#message-id`, never taken while it holds focus | `test/threadWindow.test.tsx` |
+| Hover | Hovering or focusing a thread or notebook link fetches its data after 150 ms, via the route loaders (`lib/prefetch.ts`); the palette does the same for the highlighted item | `test/prefetch.test.tsx` |
+| Big graphs | ELK runs in a Web Worker (`lib/elk.ts`), with the main thread as the fallback | `test/elkWorker.test.ts` |
+| Long rail | Past 300 rows, long lists draw a window (`shell/WindowedList.tsx`); headings, pinned rows and notebooks are always drawn | `test/railWindow.test.tsx` |
+
+To put numbers on it, with the dev server up: `node scripts/perf-long-thread.mjs` (a 150-turn thread and a 1,000-thread rail, DOM nodes and heap after reading to the top; `COCKPIT_URL` can point at `vite preview`) and `node scripts/perf-layout.mjs` (a 500-node layout, on the page and in the worker).
+
 ## Layout
 
 ```

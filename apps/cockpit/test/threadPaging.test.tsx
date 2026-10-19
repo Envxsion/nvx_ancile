@@ -209,7 +209,6 @@ function list(messages: MessageView[]) {
       <MessageList
         messages={messages}
         threadId="t1"
-        turns={{}}
         selected={null}
         onSelect={() => {}}
         jumpTo={null}

@@ -14,21 +14,62 @@
  * ------------------------------------------------------------------
  */
 
-import type { RefObject } from 'react';
+import { memo, type RefObject, useMemo } from 'react';
 import { CcEventRow } from '../claudecode/ThreadMarker';
-import type { LiveTurn } from '../lib/run';
+import { useRuns } from '../lib/run';
 import type { MessageView } from '../lib/types';
 import { LazyRoot, LazyRow } from './LazyRow';
+import { overlay } from './liveOverlay';
 import { Message } from './Message';
 import { ToolCwd } from './ToolSteps';
 
 /** Messages at the end that are always drawn in full (where you read and where it streams). */
 export const EAGER_TAIL = 6;
 
-export function MessageList({
+/**
+ * One message of the thread. It reads its own run from the store, so a token redraws this row
+ * and nothing else (ROADMAP P2); the rest of the list is untouched.
+ */
+const ListRow = memo(function ListRow({
+  m,
+  threadId,
+  tail,
+  selected,
+  onSelect,
+  jump,
+}: {
+  m: MessageView;
+  threadId: string;
+  tail: boolean;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  jump: boolean;
+}) {
+  const live = useRuns((s) => s.turns[m.id]);
+  const row = useMemo(() => overlay(m, live), [m, live]);
+  const waiting = !!live && !live.done && (!!live.approvalId || live.status === 'waiting_approval');
+  const eager = tail || !!live || row.status === 'streaming' || row.status === 'pending' || selected || jump;
+  return (
+    <LazyRow m={row} eager={eager}>
+      {() => (
+        <Message
+          m={row}
+          threadId={threadId}
+          selected={selected}
+          onSelect={onSelect}
+          waiting={waiting}
+          liveModelName={live?.modelName ?? null}
+          approvalId={live?.approvalId ?? null}
+          approvals={live?.approvals}
+        />
+      )}
+    </LazyRow>
+  );
+});
+
+export const MessageList = memo(function MessageList({
   messages,
   threadId,
-  turns,
   selected,
   onSelect,
   jumpTo,
@@ -37,7 +78,6 @@ export function MessageList({
 }: {
   messages: MessageView[];
   threadId: string;
-  turns: Record<string, LiveTurn>;
   selected: string | null;
   onSelect: (id: string) => void;
   jumpTo: string | null;
@@ -59,36 +99,20 @@ export function MessageList({
                   <CcEventRow e={m.cc} />
                 </li>
               );
-            const live = turns[m.id];
-            const waiting = !!live && !live.done && (!!live.approvalId || live.status === 'waiting_approval');
-            const eager =
-              i >= eagerFrom ||
-              !!live ||
-              m.status === 'streaming' ||
-              m.status === 'pending' ||
-              selected === m.id ||
-              jumpTo === m.id;
             return (
-              <li key={m.id} data-mid={m.id}>
-                <LazyRow m={m} eager={eager}>
-                  {() => (
-                    <Message
-                      m={m}
-                      threadId={threadId}
-                      selected={selected === m.id}
-                      onSelect={onSelect}
-                      waiting={waiting}
-                      liveModelName={live?.modelName ?? null}
-                      approvalId={live?.approvalId ?? null}
-                      approvals={live?.approvals}
-                    />
-                  )}
-                </LazyRow>
-              </li>
+              <ListRow
+                key={m.id}
+                m={m}
+                threadId={threadId}
+                tail={i >= eagerFrom}
+                selected={selected === m.id}
+                onSelect={onSelect}
+                jump={jumpTo === m.id}
+              />
             );
           })}
         </ol>
       </ToolCwd.Provider>
     </LazyRoot>
   );
-}
+});

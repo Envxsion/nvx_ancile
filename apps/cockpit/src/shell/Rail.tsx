@@ -18,7 +18,6 @@
  */
 
 import { spring } from '@nvx/aperture';
-import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { motion } from 'motion/react';
 import {
@@ -27,7 +26,6 @@ import {
   memo,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -39,7 +37,7 @@ import { threadLink } from '../desktop/api';
 import { openEditor } from '../editors/store';
 import { Checklist } from '../help/Checklist';
 import { useBinding } from '../keys/dispatch';
-import { threadQuery, useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
+import { useArchivedThreads, useNotebooks, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
 import { deleteThread, moveThread, renameThread, setArchived, setPinned } from '../lib/threads';
 import type { Hue, NotebookView, ThreadSummary } from '../lib/types';
@@ -52,6 +50,7 @@ import { loadError } from '../ui/LoadFailed';
 import { ContextMenu, DropMenu, type MenuEntry } from '../ui/Menu';
 import { Kbd, Skeleton, Tip } from '../ui/primitives';
 import { NewNotebook } from './NewNotebook';
+import { WindowedList } from './WindowedList';
 
 /** A read that failed, sized for the rail: its own words and Try again, never "Nothing here yet". */
 function RailFailed({ error, what, onRetry }: { error: unknown; what: string; onRetry: () => unknown }) {
@@ -68,6 +67,12 @@ function RailFailed({ error, what, onRetry }: { error: unknown; what: string; on
 }
 
 type Row = { kind: 'notebook' | 'thread'; id: string };
+
+/** More rows than this in the rail and its long lists are windowed (ROADMAP P7). */
+export const RAIL_WINDOW_AT = 300;
+/** ...each list that has at least this many rows. */
+export const WINDOW_LIST_MIN = 60;
+const threadId = (t: ThreadSummary) => t.id;
 
 const DAY = 86_400_000;
 function bucket(iso: string, now: number): string {
@@ -134,7 +139,6 @@ const ThreadRow = memo(function ThreadRow({
   setRenaming,
   showTime,
   icon,
-  prefetch,
 }: {
   t: ThreadSummary;
   active: boolean;
@@ -145,7 +149,6 @@ const ThreadRow = memo(function ThreadRow({
   setRenaming: (id: string | null) => void;
   showTime: boolean;
   icon?: boolean;
-  prefetch: (id: string) => void;
 }) {
   const navigate = useNavigate();
   const items: MenuEntry[] = [
@@ -252,7 +255,6 @@ const ThreadRow = memo(function ThreadRow({
           params={{ threadId: t.id }}
           className="rail__item"
           data-active={active || undefined}
-          onMouseEnter={() => prefetch(t.id)}
           onDoubleClick={(e) => {
             e.preventDefault();
             setRenaming(t.id);
@@ -415,7 +417,6 @@ export function Rail() {
   const params = useParams({ strict: false });
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [cursor, setCursor] = useState(0);
   const [focused, setFocused] = useState(false);
   const [filter, setFilter] = useState('');
@@ -543,8 +544,11 @@ export function Rail() {
 
   const isCursor = (kind: Row['kind'], id: string) =>
     focused && rows[cursor]?.kind === kind && rows[cursor]?.id === id;
-  const prefetch = useCallback((id: string) => void qc.prefetchQuery(threadQuery(id)), [qc]);
   const nbs = useMemo(() => notebooks.data ?? [], [notebooks.data]);
+  // Past a few hundred rows, long lists draw only what is near (WindowedList.tsx), keeping the
+  // keyboard cursor's row drawn so j and k still walk through the hidden ones.
+  const windowAt = rows.length > RAIL_WINDOW_AT ? WINDOW_LIST_MIN : Number.POSITIVE_INFINITY;
+  const cursorThread = focused && rows[cursor]?.kind === 'thread' ? (rows[cursor]?.id ?? null) : null;
   // Notebooks that did not load are not "Start a notebook": a refresh that failed keeps the list.
   const notebooksFailed = notebooks.isError && !notebooks.data;
 
@@ -584,7 +588,6 @@ export function Rail() {
   const rowProps = {
     notebooks: nbs,
     setRenaming,
-    prefetch,
   };
 
   return (
@@ -760,21 +763,26 @@ export function Rail() {
                       </Link>
                     </div>
                     {n.threads.length > 0 ? (
-                      <ul className="rail__sub">
-                        {n.threads.map((t) => (
-                          <li key={t.id}>
-                            <ThreadRow
-                              t={t}
-                              {...rowProps}
-                              active={params.threadId === t.id}
-                              cursor={isCursor('thread', t.id)}
-                              draft={drafts.has(t.id)}
-                              renaming={renaming === t.id}
-                              showTime={false}
-                            />
-                          </li>
-                        ))}
-                      </ul>
+                      <WindowedList
+                        className="rail__sub"
+                        items={n.threads}
+                        keyOf={threadId}
+                        scroller={listRef}
+                        from={windowAt}
+                        cursorKey={cursorThread}
+                      >
+                        {(t) => (
+                          <ThreadRow
+                            t={t}
+                            {...rowProps}
+                            active={params.threadId === t.id}
+                            cursor={isCursor('thread', t.id)}
+                            draft={drafts.has(t.id)}
+                            renaming={renaming === t.id}
+                            showTime={false}
+                          />
+                        )}
+                      </WindowedList>
                     ) : null}
                   </li>
                 ))}
@@ -783,21 +791,25 @@ export function Rail() {
 
             {groups.byDate.map((g) => (
               <Section key={g.label} id={`d-${g.label}`} title={g.label}>
-                <ul className="rail__list">
-                  {g.items.map((t) => (
-                    <li key={t.id}>
-                      <ThreadRow
-                        t={t}
-                        {...rowProps}
-                        active={params.threadId === t.id}
-                        cursor={isCursor('thread', t.id)}
-                        draft={drafts.has(t.id)}
-                        renaming={renaming === t.id}
-                        showTime={g.label === 'Today' || g.label === 'Yesterday'}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <WindowedList
+                  items={g.items}
+                  keyOf={threadId}
+                  scroller={listRef}
+                  from={windowAt}
+                  cursorKey={cursorThread}
+                >
+                  {(t) => (
+                    <ThreadRow
+                      t={t}
+                      {...rowProps}
+                      active={params.threadId === t.id}
+                      cursor={isCursor('thread', t.id)}
+                      draft={drafts.has(t.id)}
+                      renaming={renaming === t.id}
+                      showTime={g.label === 'Today' || g.label === 'Yesterday'}
+                    />
+                  )}
+                </WindowedList>
               </Section>
             ))}
 

@@ -9,21 +9,20 @@
  *  How      |  elk "layered" with model order respected, so the same
  *           |  graph always lays out the same way. Notes and groups
  *           |  keep their place; group frames are refitted around
- *           |  their members afterwards.
+ *           |  their members afterwards. ELK runs in a Web Worker
+ *           |  (lib/elk.ts), so a big flow does not freeze the page.
  * ------------------------------------------------------------------
  */
 
 import type { FlowGraph, FlowNode } from '@nvx/contracts';
-import ELK from 'elkjs/lib/elk.bundled.js';
+import { layoutGraph } from '../lib/elk';
 import { boundsOf, NODE_H, NODE_W, sizeOf } from './graph';
-
-const elk = new ELK();
 
 export async function autoLayout(g: FlowGraph): Promise<FlowGraph> {
   const laid = g.nodes.filter((n) => n.kind !== 'note' && n.kind !== 'group');
   if (!laid.length) return g;
   const ids = new Set(laid.map((n) => n.id));
-  const out = await elk.layout({
+  const out = await layoutGraph({
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',

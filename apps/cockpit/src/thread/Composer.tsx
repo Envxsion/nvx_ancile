@@ -36,6 +36,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
+  memo,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -159,7 +160,7 @@ export const draftKey = (threadId: string, parentId: string | null) =>
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
-export function Composer({
+function ComposerImpl({
   threadId,
   parentId,
   onSend,
@@ -1224,3 +1225,10 @@ function saveLocal(key: string, text: string): void {
     /* storage full or blocked: the draft lives for this session only */
   }
 }
+
+/**
+ * Memoised: the thread screen hands it stable props, so a token arriving, or
+ * anything else that redraws the screen around it, leaves the box you are
+ * typing in alone (ROADMAP P2).
+ */
+export const Composer = memo(ComposerImpl);

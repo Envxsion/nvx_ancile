@@ -24,7 +24,6 @@ import { usePrefs } from '../state/prefs';
 import { Icon } from '../ui/Icon';
 import { linkMarkers, MD_COMPONENTS } from './Citations';
 import { markClaims } from './Claims';
-import { REHYPE_PLUGINS, REMARK_PLUGINS, urlTransform } from './mdPlugins';
 import {
   GROUP_AFTER,
   Prose,
@@ -180,9 +179,7 @@ export function Parts({
             parseIncompleteMarkdown={streaming && i === lastText}
             controls={false}
             components={MD_COMPONENTS}
-            remarkPlugins={REMARK_PLUGINS}
-            rehypePlugins={REHYPE_PLUGINS}
-            urlTransform={urlTransform}
+            plugins="thread"
           >
             {linkMarkers(streaming ? s.text : markClaims(s.text, s.base, claims))}
           </ProseWithArtifacts>

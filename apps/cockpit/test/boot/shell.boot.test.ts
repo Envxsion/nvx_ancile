@@ -14,6 +14,7 @@ import { PRO_SURFACES } from '../../src/pro/slot';
 // slow part, and under a full parallel run it overran the 5 s test budget
 // although the routes themselves resolve at once.
 import { router } from '../../src/router';
+import { adminLabel } from '../../src/routes/admin/labels';
 import { ADMIN_SECTIONS } from '../../src/routes/admin/sections';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -75,6 +76,8 @@ describe('boot: routes', () => {
       ...PRO_SURFACES.filter((s) => s.place === 'admin').map((s) => s.id),
     ];
     expect(ADMIN_SECTIONS.map((s) => s.id).sort()).toEqual([...required].sort());
+    // The breadcrumb names sections without loading them (routes/admin/labels.ts).
+    for (const s of ADMIN_SECTIONS) expect(adminLabel(s.id), s.id).toBe(s.label);
   });
 });
 
