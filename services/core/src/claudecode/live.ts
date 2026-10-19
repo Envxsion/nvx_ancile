@@ -915,7 +915,7 @@ export class ClaudeCodeLive {
     const lean = cp.lean === true;
     const firstTurn = cp.fresh === true && !cp.fork;
     if (!firstTurn || cp.noFiles) return { lean, first_turn: firstTurn };
-    const input = usage ? usage.input_tokens + usage.cached_tokens : 0;
+    const input = usage ? usage.input_tokens : 0; // every prompt token, cache reads included
     const svc = this.deps.service;
     if (!lean) {
       if (input > 0)
@@ -1384,16 +1384,20 @@ export class ClaudeCodeLive {
             if (part.type === 'citation_ref')
               await emit({ type: 'citation', message_id: cp.assistantMessageId, part });
         }
-        const billing = p.model_id ? (this.deps.billing?.(p.model_id) ?? null) : null;
+        // Claude Code bills the account it is signed into: a plan unless the registry knows it is metered.
+        const billing: ModelBilling = (p.model_id ? this.deps.billing?.(p.model_id) : null) ?? {
+          kind: 'plan',
+          payer: null,
+        };
         const usage: Usage | null = p.usage
-          ? { ...p.usage, cost_usd: turnCost ?? 0, ...(billing && { billing }) }
+          ? { ...p.usage, cost_usd: turnCost ?? 0, billing }
           : turnCost !== null
             ? {
                 input_tokens: 0,
                 output_tokens: 0,
                 cached_tokens: 0,
                 cost_usd: turnCost,
-                ...(billing && { billing }),
+                billing,
               }
             : null;
         main = { parts, usage };
@@ -1734,9 +1738,11 @@ export class ClaudeCodeLive {
     if (isObj(usage)) {
       const n = (v: unknown) => (typeof v === 'number' ? v : 0);
       t.modelSpan.span.set({
-        input_tokens: n(usage.input_tokens) + n(usage.cache_creation_input_tokens),
+        input_tokens:
+          n(usage.input_tokens) + n(usage.cache_creation_input_tokens) + n(usage.cache_read_input_tokens),
         output_tokens: n(usage.output_tokens),
         cached_tokens: n(usage.cache_read_input_tokens),
+        cache_write_tokens: n(usage.cache_creation_input_tokens),
       });
     }
   }

@@ -191,7 +191,7 @@ describe('a result with its call', () => {
     );
     await svc.syncThread(id);
     const msgs = await threads.messages(id);
-    expect(total(msgs)).toEqual({ input: 13, output: 12, cached: 100 });
+    expect(total(msgs)).toEqual({ input: 113, output: 12, cached: 100 });
     expect(msgs.filter(onlyResults)).toEqual([]);
   });
 });

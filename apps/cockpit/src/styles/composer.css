@@ -121,6 +121,13 @@
 .file-chip[data-state='failed']::after {
   display: none;
 }
+.file-chip__pro {
+  flex-basis: 100%;
+  list-style: none;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  font-size: var(--t-caption);
+}
 .file-chip[data-state='waiting'] {
   opacity: 0.72;
 }

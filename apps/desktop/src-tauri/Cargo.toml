@@ -49,6 +49,11 @@ time = { version = "0.3", features = ["local-offset"] }
 # can be clicked, below.
 tauri-plugin-notification = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Notification buttons over D-Bus (notify.rs). MIT or Apache-2.0, and already
+# built by the notification plugin, so the lock file gains no new crate.
+notify-rust = "4.11"
+
 [target.'cfg(windows)'.dependencies]
 # A job object that kills every sidecar (and its children) with the app.
 win32job = "2"

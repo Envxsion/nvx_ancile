@@ -18,7 +18,7 @@
           |  and are stored in knowledge.ocr_settings. A single source
           |  can ask for OCR on its own (sources.ocr), which is what
           |  "Read with OCR" on a failed source does.
- TODO     |  TODO(phase-0.1.1): Pro sends large scans to a GPU (CM1).
+ TODO     |  TODO(phase-0.3.0): Pro sends large scans to a GPU (CM1).
  Note     |  Each page's text is cached on disk beside the source, so
           |  a 500-page scan that is stopped, or the service
           |  restarting, carries on from the last page read. Nothing

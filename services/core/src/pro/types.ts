@@ -327,6 +327,35 @@ export interface ProHooks {
   }): Promise<import('../links/service').PackTurnContext[]>;
   /** An answer was saved (Flow lab: a shadow flow answers the same question off the record). */
   afterAnswer?(a: import('../conductor/pipeline').AnsweredTurn): Promise<void>;
+  /**
+   * LM1: how a local model is held for a turn in this notebook (Pro: per-notebook keep-alive and
+   * context-length presets). Asked once per turn, only for an Ollama model. null: Ollama's defaults.
+   */
+  localModelFor?(q: {
+    modelId: string;
+    notebookId: string | null;
+  }): Promise<import('../gateway/types').LocalModelOptions | null>;
+  /**
+   * EN1: a turn with no effort set on its thread asks what reasoning effort to use (Pro: a
+   * notebook's default, or "auto effort"). It rides on the request, never in the prompt, so it
+   * cannot change the cached start of the request. null: leave the model's own default.
+   */
+  effortFor?(
+    q: import('../conductor/pipeline').EffortQuery,
+  ): Promise<import('@nvx/contracts').AnswerEffort | null>;
+  /**
+   * CH6: a rough token count for an attached file's chip. Pure and quick: it runs while the file is
+   * read, and may not fail it.
+   */
+  attachmentTokens?(f: { kind: 'pdf' | 'text'; text: string; pages: number | null }): number;
+  /**
+   * CH6: a message with attached files is about to go. If it is over the model's context budget, answer
+   * the files with only their relevant pages (private notebooks stay local: nothing here calls a
+   * model). null or a file left out: it goes whole. An error is logged and the files go whole.
+   */
+  trimAttachments?(
+    q: import('../attachments/trim').TrimQuery,
+  ): Promise<import('../attachments/trim').TrimResult | null>;
   /** A router asks whether its route is already known (Flow lab: learned from your choices). */
   routeHint?(
     q: import('../flows/execute').RouteHintQuery,
@@ -376,8 +405,29 @@ export interface ProDesktop {
   keepsJobsInBackground(): boolean;
 }
 
+/** Which Ollama models are in memory now (LM1), for Pro's memory forecast. */
+export interface ProLocalModels {
+  loaded(): Promise<import('@nvx/contracts').LoadedModelsView>;
+}
+
+/** The running answer's step boundary, lent to Pro's steer mode (CH7). */
+export interface ProSteer {
+  /** Can the turn running in this thread take a note now, and if not, why. */
+  capability(threadId: string): import('../conductor/steer').SteerCapability;
+  /** Offer a note to the running turn; throws an AncileError (steer.*) when it cannot take it. */
+  offer(threadId: string, text: string, forMessageId?: string | null): import('../conductor/steer').SteerNote;
+  get(id: string): import('../conductor/steer').SteerNote | undefined;
+  cancel(id: string): boolean;
+}
+
 /** What Core lends Pro beyond the licence (Phase 6 Pro features). */
 export interface ProServices {
+  /** Steering a running answer (CH7). */
+  steer?: ProSteer;
+  /** What the Word and PDF export reads (EX3). */
+  exports?: import('./exportsource').ProExportSource;
+  /** Ollama's loaded models, for the keep-alive and context presets' memory forecast. */
+  localModels?: ProLocalModels;
   /** Approvals, for the notification buttons. */
   approvals?: ProApprovals;
   /** Threads, turns, models and flows for Beam, Insights and the Flow lab. */

@@ -69,6 +69,7 @@ import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './
 import { type EndContextSwitch, endContextOn, PgEpochStore } from './conductor/epoch';
 import { chatTurnHandler } from './conductor/pipeline';
 import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './conductor/retrieval';
+import { SteerBus } from './conductor/steer';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
 import { credentialRoutes, ENV_FOR_SECRET, GIT_REMOTE, MEMORY_REMOTE_SECRET } from './credentials/routes';
@@ -190,6 +191,7 @@ import { PgPermissionStore } from './permissions/store';
 import { loadPro } from './pro';
 import { proAnswers } from './pro/answers';
 import { proDataRoutes } from './pro/data';
+import { proExportSource } from './pro/exportsource';
 import { proPackHost } from './pro/packs';
 import { lockedProRoutes, ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
@@ -209,8 +211,10 @@ import { EnvFirstSecretStore, importEnvKeys, PgSecretStore, SecretBox } from './
 import { PgSettings, SETTING } from './settings';
 import { liveTester, setupRoutes } from './setup/routes';
 import { PgStateStore, stateRoutes } from './state/routes';
+import { bootRestore } from './system/bootRestore';
 import { DesktopHost, desktopInternalRoutes, desktopRoutes } from './system/desktop';
 import { sourceDiskGuard } from './system/disk';
+import { mustApply, readStaged } from './system/stagedRestore';
 import { startupInternalRoutes, startupRoutes, stoppedApp } from './system/startup';
 import { themeRoutes } from './system/theme';
 import { type TidyDeps, tidyRoutes, tidyStorage } from './system/tidy';
@@ -291,6 +295,28 @@ async function main() {
   const dataDir = resolve(env.ANCILE_DATA_DIR);
   const knowledgeDir = knowledgeVersionsDir(env.ANCILE_KNOWLEDGE_MIGRATIONS_DIR);
   const controllerDir = controllerMigrationsDir(env.ANCILE_CONTROLLER_MIGRATIONS_DIR);
+  // A restore chosen in setup is applied first, before the database is opened for anything else (SU1).
+  if (!preflight && mustApply(await readStaged(dataDir))) {
+    const seen = await schemaState(database.sql, { knowledgeDir }).catch(() => null);
+    await bootRestore({
+      sql: database.sql,
+      url: env.DATABASE_URL,
+      dataDir,
+      version: VERSION,
+      schema: () => ({ expected: seen?.expected ?? '', current: seen?.current ?? null }),
+      allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
+      managed: env.ANCILE_RUNTIME === 'desktop',
+      ...(env.NODE_ENV === 'production' &&
+        existsSync(resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist')) && {
+          cockpitDist: resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist'),
+        }),
+      listen: (fetch) =>
+        serve({ fetch, hostname: env.ANCILE_HOST, port: env.ANCILE_PORT }, () =>
+          log.warn({}, 'applying a restore chosen in setup: showing its progress'),
+        ),
+    });
+    return;
+  }
   let prepared: Prepared;
   try {
     prepared = await prepareDatabase({
@@ -1057,10 +1083,24 @@ async function main() {
       configured: !!factcheckWeb,
     });
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
-  const attachments = new AttachmentService({ knowledge: kn });
+  // CH6 (Pro): a token estimate on each chip; read at each attachment, so a lapse stops it at once.
+  const attachments = new AttachmentService({
+    knowledge: kn,
+    estimate: (f) =>
+      proHooks?.attachmentTokens && hasProFeature('attachment_pages')
+        ? proHooks.attachmentTokens(f)
+        : undefined,
+  });
+  // CH7 (Pro): notes added while a model works reach it at the next step. Pro's route offers them.
+  const steerBus = new SteerBus();
   const engines: Engines = new Engines({
     images,
     attachments,
+    // CH6 (Pro): only the relevant pages when the message is over the model's budget.
+    trimAttachments: (q) =>
+      proHooks?.trimAttachments && hasProFeature('attachment_pages')
+        ? proHooks.trimAttachments(q)
+        : Promise.resolve(null),
     registry,
     gateway: new GatewayEngine({
       repo: threads,
@@ -1129,7 +1169,15 @@ async function main() {
         memory,
         engineContext: gatewayContextHook({ threads, store: engineStore }),
         links: contextLinks,
+        // EN1 (Pro): a notebook's effort default, or auto effort. Read at each turn, so a lapse stops it.
+        localModelFor: (q) =>
+          proHooks?.localModelFor && hasProFeature('flow_lab')
+            ? proHooks.localModelFor(q)
+            : Promise.resolve(null),
+        effortFor: (q) =>
+          proHooks?.effortFor && hasProFeature('flow_lab') ? proHooks.effortFor(q) : Promise.resolve(null),
         switches: builtinSettings,
+        steer: steerBus,
         epochs: new PgEpochStore(sql),
         endContext: async (family) =>
           endContextOn(
@@ -1506,6 +1554,16 @@ async function main() {
                   ]
                 : [],
           }),
+          localModels: { loaded: () => loadedModels.view() },
+          steer: steerBus,
+          exports: proExportSource({
+            workspaceId: owner.workspaceId,
+            repo: threads,
+            scopes,
+            images,
+            imageThread: async (id) => (await imageStore.rows.get(id))?.thread_id ?? null,
+            kn,
+          }),
           answers: proAnswers({
             workspaceId: owner.workspaceId,
             repo: threads,
@@ -1579,6 +1637,7 @@ async function main() {
     dataDir,
     version: VERSION,
     schema: schemaNow,
+    managed: env.ANCILE_RUNTIME === 'desktop',
   };
   // What is running (docs/activity.md): runs, Claude Code sessions elsewhere, subagents, shells.
   const activity = createActivity({

@@ -320,6 +320,10 @@ async function appSchemas(sql: Sql): Promise<string[]> {
 export interface RestoreOptions extends Omit<BackupOptions, 'reason'> {
   /** A name from listBackups(). */
   name: string;
+  /** Tell where it is: the safety copy, clearing what is there, putting the backup back. */
+  onStep?: (step: 'safety' | 'clearing' | 'restoring') => void | Promise<void>;
+  /** Carrying on after a restart that interrupted a restore: the safety copy was taken already. */
+  skipSafety?: boolean;
 }
 
 /**
@@ -329,12 +333,14 @@ export interface RestoreOptions extends Omit<BackupOptions, 'reason'> {
  */
 export async function restoreBackup(
   o: RestoreOptions,
-): Promise<{ restored: BackupInfo; safety: BackupInfo }> {
+): Promise<{ restored: BackupInfo; safety: BackupInfo | null }> {
   const chosen = (await listBackups(o.dataDir)).find((b) => b.name === basename(o.name));
   if (!chosen) throw backupErrors.unknown(o.name);
   const tools = o.tools ?? findPgTools({ major: await serverMajor(o.sql) });
   // What is there now is kept first, so a restore can itself be undone.
-  const safety = await takeBackup({ ...o, tools, reason: 'before-restore' });
+  await o.onStep?.('safety');
+  const safety = o.skipSafety ? null : await takeBackup({ ...o, tools, reason: 'before-restore' });
+  await o.onStep?.('clearing');
   try {
     await o.sql.begin(async (tx) => {
       await tx`set local lock_timeout = '15s'`;
@@ -347,6 +353,7 @@ export async function restoreBackup(
       null,
     );
   }
+  await o.onStep?.('restoring');
   const r = await (o.run ?? spawnProcess)(
     tools.restore,
     [
@@ -364,10 +371,10 @@ export async function restoreBackup(
       r.timedOut
         ? 'pg_restore took longer than 30 minutes.'
         : r.stderr.trim().split(/\r?\n/).slice(-3).join(' '),
-      safety.path,
+      safety?.path ?? null,
     );
   }
-  log.info({ backup: chosen.name, safety: safety.name }, 'database restored from a backup');
+  log.info({ backup: chosen.name, safety: safety?.name ?? null }, 'database restored from a backup');
   return { restored: chosen, safety };
 }
 

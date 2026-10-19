@@ -127,6 +127,12 @@
   gap: var(--sp-3);
   margin: var(--sp-3) 0;
 }
+.export__pro {
+  margin: 0 0 var(--sp-3);
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  font-size: var(--t-small);
+}
 .copysplit {
   display: inline-flex;
   align-items: center;

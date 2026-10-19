@@ -428,7 +428,7 @@ export const FlowDecision = z.object({
 export type FlowDecision = z.infer<typeof FlowDecision>;
 
 /**
- * FL1: GET /messages/:id/shadow. A shadow flow answered the same question off the record (Pro:
+ * FL1: GET /pro/messages/:id/shadow. A shadow flow answered the same question off the record (Pro:
  * Flow lab). The answer never replaces the live one; this is what the "Shadow answer" link opens.
  * A shadow that failed says so, and the live answer is untouched. 404 when none ran. In the free
  * build the route answers 402 pro.feature_required (PRO_SEAM_ROUTES), and the Cockpit never asks.
@@ -552,6 +552,18 @@ export const AnswerRoute = z.object({
   thread_model_unready: z.string().optional(),
 });
 export type AnswerRoute = z.infer<typeof AnswerRoute>;
+
+/**
+ * provenance.effort (EN1): the reasoning effort an answer was asked for, and who chose it: you,
+ * for the thread; the notebook's default (Pro); or "auto effort" (Pro), where a quick decision call
+ * sorted the question's difficulty. `reason` is the one sentence the receipt's Why line shows.
+ */
+export const AnswerEffort = z.object({
+  level: z.enum(['low', 'medium', 'high']),
+  from: z.enum(['thread', 'notebook', 'auto']),
+  reason: z.string().optional(),
+});
+export type AnswerEffort = z.infer<typeof AnswerEffort>;
 
 /** Try a message against a flow (saved or a draft graph) without writing to a thread. */
 export const TryFlowRequest = z.object({

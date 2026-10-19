@@ -78,6 +78,20 @@ export interface ModelRequest {
    * and dropped for a model that takes none. Never in the prompt, so the cached start holds.
    */
   effort?: Effort;
+  /**
+   * LM1: how a local (Ollama) model is held, when something chose it (Pro: a notebook's
+   * keep-alive and context-length preset). Request parameters only, never in the prompt.
+   */
+  local?: LocalModelOptions;
+}
+
+export interface LocalModelOptions {
+  /** Ollama's keep_alive: a duration such as "30m", or -1 for until unloaded. */
+  keepAlive?: string | number;
+  /** The context length (num_ctx) to load the model with. */
+  numCtx?: number;
+  /** How many layers go to the GPU (Ollama's num_gpu): 0 keeps the model on the CPU. Absent: Ollama decides. */
+  numGpu?: number;
 }
 
 export type StreamChunk =

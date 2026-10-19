@@ -95,7 +95,9 @@ async function run(): Promise<void> {
         coreSchema: s.current,
         knowledgeRevision: s.knowledge?.current ?? null,
       });
-      console.log(`Restored ${restored.name}. What was there before is in ${safety.path}.`);
+      console.log(
+        `Restored ${restored.name}. What was there before is in ${safety?.path ?? 'the copy taken first'}.`,
+      );
       return;
     }
     default:

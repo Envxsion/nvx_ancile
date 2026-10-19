@@ -155,6 +155,67 @@ export function useDecide() {
   });
 }
 
+/**
+ * Decide many suggestions at once (the inbox's bulk bar): one request each, one notice, one Undo.
+ * Core decides each on its own, so one that was already dealt with is left out and counted, never
+ * stopping the rest. Undo reverses what this call did, newest first so memory commits revert cleanly.
+ */
+export async function decideMany(
+  ids: string[],
+  decision: 'approve' | 'reject',
+): Promise<{ done: string[]; left: number }> {
+  const done: string[] = [];
+  let left = 0;
+  const one = async (id: string) => {
+    try {
+      await api.post<MemoryProposal>(`/memory/proposals/${id}`, { decision });
+      done.push(id);
+    } catch {
+      left++;
+    }
+  };
+  // Keeping writes memory commits one after another; turning down writes nothing, so it can go in batches.
+  if (decision === 'approve') for (const id of ids) await one(id);
+  else for (let i = 0; i < ids.length; i += 10) await Promise.all(ids.slice(i, i + 10).map(one));
+  void refreshMemory();
+  const n = done.length;
+  const noun = n === 1 ? 'suggestion' : 'suggestions';
+  const rest = left ? ` ${left} could not be changed (already dealt with, or Core did not answer).` : '';
+  if (n === 0) {
+    notify({ level: 'warn', title: 'Nothing was changed', body: rest.trim() });
+    return { done, left };
+  }
+  notify({
+    level: left ? 'warn' : 'success',
+    title: decision === 'approve' ? `Remembered ${n} ${noun}` : `Turned down ${n} ${noun}`,
+    ...(rest.trim() && { body: rest.trim() }),
+    ttlMs: 12_000,
+    undo: () => {
+      void (async () => {
+        let stuck = 0;
+        for (const id of [...done].reverse()) {
+          try {
+            await api.post<MemoryProposal>(`/memory/proposals/${id}`, { decision: 'undo' });
+          } catch {
+            stuck++;
+          }
+        }
+        void refreshMemory();
+        notify(
+          stuck
+            ? {
+                level: 'warn',
+                title: `Put back ${n - stuck} of ${n}`,
+                body: `${stuck} could not be undone automatically. Open History to revert them.`,
+              }
+            : { level: 'success', title: `Put back ${n} ${noun}` },
+        );
+      })();
+    },
+  });
+  return { done, left };
+}
+
 export function useRevert() {
   return useMutation({
     mutationFn: (sha: string) => api.post<{ version: string }>('/memory/revert', { sha }),

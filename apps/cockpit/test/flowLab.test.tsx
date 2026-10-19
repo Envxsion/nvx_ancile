@@ -42,6 +42,17 @@ describe("the receipt's why-this-model line", () => {
     expect(whyThisModel(base)).toBe('The Support triage flow routed it.');
     expect(learnedWords(null)).toBe('');
   });
+
+  it('says which effort auto effort or the notebook chose (EN1), and stays quiet for your own choice', () => {
+    const plain = { name: 'Qwen3', attempts: [], claudeCodeSession: false };
+    expect(
+      whyThisModel({ ...plain, effort: { level: 'high', from: 'auto', reason: 'a multi-step proof.' } }),
+    ).toContain('Effort high, chosen by auto effort (a multi-step proof).');
+    expect(whyThisModel({ ...plain, effort: { level: 'low', from: 'notebook' } })).toContain(
+      "Effort low, this notebook's default.",
+    );
+    expect(whyThisModel({ ...plain, effort: { level: 'low', from: 'thread' } })).not.toContain('Effort');
+  });
 });
 
 describe('the Teamwork fold keeps what the learned router did', () => {
@@ -99,7 +110,7 @@ describe('Shadow answer link', () => {
   const route = (lic: boolean, s: unknown) =>
     mocked.get.mockImplementation(async (path: string) => {
       if (path === '/license/details') return licence(lic);
-      if (path === '/messages/m1/shadow') {
+      if (path === '/pro/messages/m1/shadow') {
         if (s instanceof Error) throw s;
         return s;
       }
@@ -132,7 +143,7 @@ describe('Shadow answer link', () => {
       new ApiCallError(404, { error: { code: 'request.not_found', title: 'x', hint: 'y' } } as never),
     );
     const a = wrap(<ShadowAnswerLink messageId="m1" />);
-    await waitFor(() => expect(mocked.get).toHaveBeenCalledWith('/messages/m1/shadow'));
+    await waitFor(() => expect(mocked.get).toHaveBeenCalledWith('/pro/messages/m1/shadow'));
     expect(a.container).toBeEmptyDOMElement();
     a.unmount();
     queryClient.clear();
@@ -140,7 +151,7 @@ describe('Shadow answer link', () => {
     route(false, shadow());
     const b = wrap(<ShadowAnswerLink messageId="m1" />);
     await waitFor(() => expect(mocked.get).toHaveBeenCalledWith('/license/details'));
-    expect(mocked.get).not.toHaveBeenCalledWith('/messages/m1/shadow');
+    expect(mocked.get).not.toHaveBeenCalledWith('/pro/messages/m1/shadow');
     expect(b.container).toBeEmptyDOMElement();
   });
 });

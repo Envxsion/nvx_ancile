@@ -17,6 +17,11 @@ export const PRO_FEATURES = [
   'insights',
   'context_packs',
   'desktop',
+  'smart_sections',
+  'code_apply',
+  'attachment_pages',
+  'steer',
+  'export_docs',
 ] as const;
 export const ProFeature = z.enum(PRO_FEATURES);
 export type ProFeature = z.infer<typeof ProFeature>;
@@ -30,8 +35,10 @@ export type ProFeature = z.infer<typeof ProFeature>;
 export const PRO_SEAM_ROUTES: readonly { method: 'GET' | 'POST'; path: string; feature: ProFeature }[] = [
   { method: 'GET', path: '/insights', feature: 'insights' },
   { method: 'GET', path: '/insights/engines', feature: 'insights' },
-  // FL1: the shadow flow's answer to a message (Pro: Flow lab). TODO(phase-0.1.1): Pro serves it from pro.shadow_results.
+  // FL1: the shadow flow's answer to a message (Pro: Flow lab; served from pro.shadow_results).
   { method: 'GET', path: '/messages/:id/shadow', feature: 'flow_lab' },
+  // TC4: saved smart sections in the rail (Pro).
+  { method: 'GET', path: '/smart-sections', feature: 'smart_sections' },
 ];
 
 /** How each feature is named and described wherever Pro is shown. */
@@ -67,5 +74,25 @@ export const PRO_FEATURE_WORDS: Record<ProFeature, { title: string; body: string
   desktop: {
     title: 'Desktop extras',
     body: 'Scheduled automations keep running with the window hidden, Approve and Deny on a notification for ordinary requests, links that start a flow, a Beta update channel and a way back to the previous version.',
+  },
+  smart_sections: {
+    title: 'Smart sections',
+    body: 'Save a filter such as "Claude Code this week" or "Cost over $1" and keep it in the rail as a section that fills itself.',
+  },
+  code_apply: {
+    title: 'Apply to repo',
+    body: 'Turn a code block in an answer into a patch for your linked repository, review it as a diff, and write it only when you approve.',
+  },
+  attachment_pages: {
+    title: 'Relevant pages of attached files',
+    body: 'A token estimate on every attached file, and when a message is too long for the model, only the pages that matter to it are kept.',
+  },
+  steer: {
+    title: 'Steer a running answer',
+    body: 'Add a note while a model is working through its steps, and it reads the note before its next step instead of after the answer ends.',
+  },
+  export_docs: {
+    title: 'Word and PDF export',
+    body: 'Export a thread as a Word or PDF file with an evidence appendix, or compare two branches side by side.',
   },
 };

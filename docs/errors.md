@@ -335,6 +335,9 @@ Tidy storage also ends with `system.disk_full` (checked before the backup) or `s
 | `system.migration_failed` | 500 | "The database update did not finish, so it was undone." with the file and the reason / Your data is as it was before the update. Try again; if it fails again, copy the debug info and report it. Each migration is one transaction. |
 | `system.restore_failed` | 500 | "The backup could not be restored." / Names the safety backup of the data as it was before the restore, and docs/runbooks/restore-backup.md. |
 | `system.backup_not_found` | 404 | "There is no backup by that name." / Pick one from the list of backups. |
+| `system.restoring` | 503 | "Restoring your backup." / This can take a while for a large backup. If NVX Ancile is closed, it carries on the next time it starts. Every route answers this while a restore chosen in setup is applied; the start-up screen shows its steps. |
+| `system.restore_not_staged` | 409 | "No restore is waiting." / Choose a backup first, then restart to restore it. |
+| `system.restore_in_progress` | 409 | "A restore is already under way." / Wait for it to finish. It carries on by itself if NVX Ancile is restarted. |
 | `system.restart_needed` | 503 | "The backup was restored." / NVX Ancile is starting again (desktop), or restart it with `pnpm start`. Every route answers this until Core restarts. |
 | `desktop.critical_in_app` | 403 | "A critical request can only be answered in NVX Ancile." / Open the request in the app to read what it will do, then decide there. A notification button (Pro) never answers a critical request, and Core refuses one even if Pro were asked. |
 | `desktop.already_answered` | 409 | "That request was already answered." / Nothing more to do. A button on a notification (Pro) found the request answered elsewhere. |
@@ -375,11 +378,27 @@ Tidy storage also ends with `system.disk_full` (checked before the backup) or `s
 | `pro.bad_request` | 400 | "“<field>” is required" (or must be text, a number, one of…) / Check the request and send it again. `error.context.field` names it. Pro's own checks use it too, with their own words (an email, an address). |
 | `pro.not_found` | 404 | "<Thing> is not there." / Refresh the page. |
 | `pro.not_started` | 503 | "Pro is still starting." / Try again in a moment. |
+| `pro.search_name_taken` | 409 | "There is already a saved search called “<name>”." / Pick another name, or rename the other one first. Names are compared without regard to capitals, per person. |
+| `pro.search_limit` | 409 | "You can keep 50 saved searches." / Delete one you no longer use, then save this one. |
+| `pro.search_slow` | 503 | "Searching every branch took too long." / Use longer words, or find in this branch only. Raised by Pro's "All branches" in the find bar after 6 seconds. Pro's Ctrl+K search never raises it: a kind of result that runs out of time is named in the answer (`incomplete`) and the rest still arrive. |
 | `beam.members` | 400 | "Pick between 2 and 6 models or flows" (or "The same pick is in there twice") / Beam asks several at once, so it needs at least two, each once. |
 | `beam.not_ready` | 422 | "<Model> cannot answer." / Add its key or switch it on in Settings → Models, or pick another. Nothing was asked. |
 | `beam.no_fuser` | 422 | "No model can fuse the answers." / Add a key in Settings → Models, or turn fusing off. |
 | `beam.busy` | 409 | "An answer is still being written here." / Wait for it to finish, or stop it, then ask again. |
 | `beam.not_a_question` | 422 | "Only a question can be beamed." / Pick the message you asked. Raised when Beam this question names an answer, not a question. |
+| `steer.not_running` | 409 | "No answer is being written here." / The turn has ended, so the message sends as a normal one. Raised by Pro's steer mode when a note is offered after the turn ended. |
+| `steer.not_supported` | 409 | "A flow cannot take a note while it runs" (or "This model cannot take a note while it works", for Claude Code) / The message waits and sends when this turn ends. |
+| `steer.branch_changed` | 409 | "You moved to another branch." / A note goes only to the answer it was written for. Send the message here as a new one instead. |
+| `steer.too_many` | 409 | "Up to 3 notes can wait for the next step." / Wait for the model to take them, or remove one. |
+| `steer.too_long` | 422 | "A note can be up to 4,000 characters." / Shorten it, or send it as a message when the turn ends. |
+| `export.nothing` | 422 | "There is nothing to export yet." / Send a message in this thread first, then export it. Raised by Pro's Word and PDF export. |
+| `export.branch_missing` | 404 | "That branch is not in this thread." / Open the thread again and choose a branch from the list. |
+| `export.same_branch` | 422 | "Choose a different branch to compare with." / A branch compared with itself shows nothing new. |
+| `export.too_large` | 413 | "This thread is too long to export as one file" (or "This file would be too large") / Export a shorter branch, turn off the evidence appendix or tool steps, or use the Markdown export, which has no size limit. A Word or PDF file is up to 24 MB. |
+| `smart_sections.not_found` | 404 | "That section no longer exists." / Reload the rail to see the sections you have. Sections are per person: another person's id is also not found. |
+| `smart_sections.name_taken` | 409 | "You already have a section called <name>." / Pick a different name, or edit the one you have. Names compare without regard to case. |
+| `smart_sections.limit` | 409 | "You can keep 30 smart sections." / Delete one you no longer use, then save this again. |
+| `smart_sections.bad_filter` | 400 | "“<field>” …" (or "Add at least one condition") / Fix that part of the filter and save it again. `error.context.field` names it. A section with no condition would list every thread, so it is refused. |
 | `flowlab.empty_set` | 422 | "This test set has no questions yet." / Add answers from your threads, or write questions, then run it. |
 | `flowlab.not_ready` | 422 | "<Model> cannot answer." / Add its key in Settings → Models, or run with stand-in models. |
 | `sync.unavailable` | 501 | "This build cannot sync." / Update NVX Ancile, then try again. |

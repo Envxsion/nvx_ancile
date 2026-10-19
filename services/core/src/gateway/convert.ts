@@ -274,8 +274,9 @@ function storedForm(m: ModelMessage, role: SdkMessage['role']): SdkMessage[] | n
     const ok = v.every(
       (x) => x && typeof x === 'object' && typeof (x as { role?: unknown }).role === 'string',
     );
-    // A user message was one user message; an answer was assistant and tool messages.
-    const right = role === 'user' ? v.every((x) => x.role === 'user') : v.every((x) => x.role !== 'user');
+    // A user message was one user message; an answer was assistant and tool messages (and, when
+    // the person added notes while it was written, the user notes between them: CH7).
+    const right = role === 'user' ? v.every((x) => x.role === 'user') : v.some((x) => x.role !== 'user');
     return ok && right ? (v as SdkMessage[]) : null;
   } catch {
     return null;
@@ -288,9 +289,14 @@ export function sentText(messages: SdkMessage[]): string | null {
 }
 
 /** An answer's parts as the provider messages they expand to, as the text to store (CA4). */
-export function sentOfAnswer(parts: Part[]): string | null {
+export function sentOfAnswer(parts: Part[], withNotes?: ModelMessage[]): string | null {
+  // CH7: an answer that took notes is its work with each note where it was taken (spliceNotes):
+  // exactly the messages the last round sent, so the next turn starts with the same bytes.
+  const messages: ModelMessage[] = withNotes?.length
+    ? withNotes
+    : [{ role: 'assistant', content: '', parts }];
   return sentText(
-    toSdkMessages([{ role: 'assistant', content: '', parts }], {
+    toSdkMessages(messages, {
       tools: true,
       reasoning: { mode: 'all', acrossEpochs: true },
     }),

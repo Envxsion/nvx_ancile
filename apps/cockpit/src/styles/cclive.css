@@ -290,6 +290,12 @@
 .cc-queued__when {
   flex: none;
 }
+.cc-queued__pro {
+  flex: none;
+  padding: 1px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-caption);
+}
 @container thread (max-width: 560px) {
   .cc-notice {
     flex-wrap: wrap;
@@ -298,7 +304,8 @@
     width: 100%;
     justify-content: flex-end;
   }
-  .cc-queued__when {
+  .cc-queued__when,
+  .cc-queued__pro {
     display: none;
   }
 }

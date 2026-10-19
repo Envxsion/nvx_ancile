@@ -14,9 +14,9 @@
  *           |  its hits prompt_cache_hit_tokens, which the AI SDK's
  *           |  OpenAI-compatible provider does not read. Each adapter
  *           |  converts to this meaning before a cost is worked out.
- *  Note     |  Claude Code's own records (claudecode/live.ts, map.ts)
- *           |  still count cache reads apart from input; they bill a
- *           |  plan, not a key. TODO(phase-0.1.1): CA2 brings them in.
+ *  Note     |  Claude Code's own records (claudecode/live.ts, map.ts) use
+ *           |  the same meaning, with cache_reported set and billing
+ *           |  kind plan (not a key); their cost stays Claude Code's.
  * ------------------------------------------------------------------
  */
 

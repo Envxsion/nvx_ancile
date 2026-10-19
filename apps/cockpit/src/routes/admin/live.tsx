@@ -29,6 +29,7 @@ import { queryClient } from '../../lib/query';
 import { AddModelDialog, useAddModel } from '../../models/AddModel';
 import { LoadedNow } from '../../models/LoadedNow';
 import { LocalModelsDialog, useLocalModelsDialog } from '../../models/LocalModels';
+import { LocalPresets } from '../../models/LocalPresets';
 import { MoreModelsDialog, moreModels } from '../../models/MoreModels';
 import { AdvisorButton } from '../../openrouter/ModelAdvisor';
 import { notify } from '../../state/notify';
@@ -326,6 +327,7 @@ export function LiveModels() {
       <MoreModelsDialog models={models.data ?? []} open={moreOpen} onOpenChange={setMoreOpen} />
       <LocalModelsDialog />
       <LoadedNow />
+      <LocalPresets />
       <ModelUpdates />
       <ModelBlocksView models={shown} />
     </>

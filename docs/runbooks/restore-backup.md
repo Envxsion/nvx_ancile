@@ -23,6 +23,8 @@ pnpm db:restore ancile-20261012-093005-before-migration.dump
 
 `db:restore` first takes a safety backup of what is there now (`…-before-restore.dump`), then drops NVX Ancile's schemas and restores the chosen backup in one transaction. Start again with `pnpm start`: migrations bring an older backup forward, backing it up first.
 
+From the first-run setup (Moving from another computer), choose a backup and select Restart and restore: the choice is staged, nothing changes until the restart, and the restart applies it with progress shown. A large restore carries on if NVX Ancile is closed part-way (the marker `backups/restore-staged.json` remembers it; the safety copy is taken once). If it cannot read the backup, it says so and names the safety copy.
+
 In the desktop app, restore from the start-up screen it shows when it cannot open your data (for example after an older version was installed over newer data): pick the backup, confirm, and every service starts again.
 
 By hand, with the Postgres tools pg0 installed (`~/.pg0/installation/<version>/bin`) and the app quit:

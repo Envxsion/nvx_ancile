@@ -308,8 +308,9 @@ export function apiIdOf(e: CcSessionMessage): string | null {
 }
 
 /**
- * Usage from an assistant entry. Input counts what was sent fresh plus
- * what was written to the cache; cached counts cache reads. Cost stays 0:
+ * Usage from an assistant entry, in the gateway's meaning (gateway/usage.ts, CA2):
+ * input is every prompt token (fresh, cache writes and cache reads), and
+ * cached and cache-write say how many of them were which. Cost stays 0:
  * Claude Code bills the account it is signed into, and Ancile does not
  * invent prices. TODO(phase-4): show a list-price estimate, marked as such.
  */
@@ -319,10 +320,10 @@ export function usageOf(e: CcSessionMessage): Usage | null {
   const u = m.usage;
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
   return {
-    input_tokens: n(u.input_tokens) + n(u.cache_creation_input_tokens),
+    input_tokens: n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens),
     output_tokens: n(u.output_tokens),
     cached_tokens: n(u.cache_read_input_tokens),
-    // Claude Code counts a cache write inside input_tokens (above); this says how much of it was.
+    // Claude Code's input_tokens leaves both cache figures out; input above counts them in.
     cache_write_tokens: n(u.cache_creation_input_tokens),
     cache_reported: true,
     cost_usd: 0,

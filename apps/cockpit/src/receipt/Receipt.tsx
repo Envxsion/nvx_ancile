@@ -143,6 +143,7 @@ function AnsweredBy({
     claudeCodeSession: !!prov?.claude_code,
     flowName: flow?.name ?? null,
     learned: flow?.decisions.find((d) => d.learned)?.learned ?? null,
+    effort: prov?.effort ?? null,
     unreadyName: prov?.route?.thread_model_unready ? modelName(prov.route.thread_model_unready) : null,
   });
   const billing = facts?.billing;

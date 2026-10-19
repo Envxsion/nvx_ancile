@@ -47,6 +47,11 @@ describe('pro seam', () => {
       'insights',
       'context_packs',
       'desktop',
+      'smart_sections',
+      'code_apply',
+      'attachment_pages',
+      'steer',
+      'export_docs',
     ]);
     expect(d.features.every((f) => !f.unlocked)).toBe(true);
     // Anything but a claim key is refused before nvx.sh is asked.

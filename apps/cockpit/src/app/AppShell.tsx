@@ -32,6 +32,7 @@ import { usePaletteShortcuts } from '../palette/shortcuts';
 import { BeamHost } from '../pro/beam';
 import { EditionSync } from '../pro/edition';
 import { SignInGate, useSignInGate } from '../pro/gate';
+import { SideAskHost } from '../pro/SideAsk';
 import { adminLabel } from '../routes/admin/labels';
 import { ConnectionBanner } from '../shell/ConnectionBanner';
 import { Drawer } from '../shell/Drawer';
@@ -262,6 +263,7 @@ export function AppShell() {
       <HelpCentre />
       <TourOverlay />
       <BeamHost />
+      <SideAskHost />
       <ClaudeCodeSessionsHost />
       <ActivityHost />
       <EditorsHost />

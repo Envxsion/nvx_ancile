@@ -8,13 +8,13 @@
  *           |  record, say so where the answer's flow is shown, and
  *           |  open what the shadow flow wrote. When it failed, say
  *           |  that too, and that the live answer is untouched.
- *  How      |  GET /messages/:id/shadow, asked only where the licence
+ *  How      |  GET /pro/messages/:id/shadow, asked only where the licence
  *           |  unlocks the Flow lab (the free build never asks). A 404
  *           |  is "none ran" and shows nothing. The answer opens in a
  *           |  dialog beside nothing else: it never replaces the live
  *           |  one.
- *  Note     |  TODO(phase-0.1.1): Pro serves the route from its saved
- *           |  shadow results; until it does the link never shows.
+ *  Note     |  Pro serves GET /pro/messages/:id/shadow from its saved
+ *           |  shadow results (FL1).
  * ------------------------------------------------------------------
  */
 
@@ -49,7 +49,7 @@ export function useShadow(messageId: string) {
     retry: false,
     queryFn: async (): Promise<ShadowOutcome | null> => {
       try {
-        return await api.get<ShadowOutcome>(`/messages/${messageId}/shadow`);
+        return await api.get<ShadowOutcome>(`/pro/messages/${messageId}/shadow`);
       } catch (e) {
         if (e instanceof ApiCallError && (e.status === 404 || e.status === 402)) return null;
         throw e;

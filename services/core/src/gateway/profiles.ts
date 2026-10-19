@@ -390,7 +390,7 @@ const openai: ProviderProfile = {
     { status: [503], codes: ['server_is_overloaded'], kind: 'overloaded', confirmed: true },
   ],
   usage: { ...OPENAI_USAGE },
-  // TODO(phase-0.1.1): CA11 uses prompt_cache_key and the 30m option on GPT-5.6+.
+  // TODO(phase-0.2.0): CA11 uses prompt_cache_key and the 30m option on GPT-5.6+.
   cache: autoCache({ minTokens: 1024, blockTokens: 128, ttl: ['in_memory', '24h', '30m'] }),
   reasoning: reasoning('none', 'reasoning items (Responses API only; Chat Completions returns none)', true, {
     via: 'param',

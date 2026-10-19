@@ -72,5 +72,7 @@ def extract_attachment(file: Annotated[UploadFile, File()]) -> dict[str, object]
     return {
         "markdown": doc.markdown,
         "pages": len(doc.pages),
+        # Where each page sits in `markdown` ([start, end)), so Core can keep the relevant pages (CH6, Pro).
+        "page_spans": [[p.char_start, p.char_end] for p in doc.pages],
         "title": doc.title,
     }

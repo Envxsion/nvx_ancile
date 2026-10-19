@@ -15,6 +15,7 @@
  */
 
 import type { FactcheckClaim, Part } from '@nvx/contracts';
+import { keptWords } from '@nvx/contracts/attachments';
 import { ProseWithArtifacts } from '../artifacts/ArtifactCard';
 import { ImageThreadProvider, ThreadImage } from '../images/ThreadImage';
 import { modelName } from '../lib/format';
@@ -41,7 +42,14 @@ type Segment =
   | { kind: 'reasoning'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: ToolResult | undefined }
   | { kind: 'seam'; key: string; from: string; to: string }
-  | { kind: 'file'; key: string; name: string; pages: number | undefined; truncated: boolean }
+  | {
+      kind: 'file';
+      key: string;
+      name: string;
+      pages: number | undefined;
+      truncated: boolean;
+      kept: string | null;
+    }
   | {
       kind: 'image';
       key: string;
@@ -68,7 +76,15 @@ function segments(parts: Part[]): Segment[] {
       out.push({ kind: 'tool', key: p.call_id, call: p, result: results.get(p.call_id) });
     else if (p.type === 'seam') out.push({ kind: 'seam', key: `s${i}`, from: p.from_model, to: p.to_model });
     else if (p.type === 'file' && p.text !== undefined)
-      out.push({ kind: 'file', key: `f${i}`, name: p.name, pages: p.pages, truncated: !!p.truncated });
+      out.push({
+        kind: 'file',
+        key: `f${i}`,
+        name: p.name,
+        pages: p.pages,
+        truncated: !!p.truncated,
+        // CH6 (Pro): only the relevant pages went; the words come from the file's own record.
+        kept: p.kept ? keptWords(p.kept) : null,
+      });
     else if (p.type === 'image')
       out.push({
         kind: 'image',
@@ -220,6 +236,7 @@ export function Parts({
               </span>
             ) : null}
             {s.truncated ? <span className="mute">start only</span> : null}
+            {s.kept ? <span className="mute">{s.kept}</span> : null}
           </p>
         );
       case 'seam':

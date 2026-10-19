@@ -1,0 +1,77 @@
+/* ------------------------------------------------------------------
+   Search beyond messages and "All branches" in the find bar (TS1, TS2).
+   Public hosts and the locked line. Tokens only; gilt is the Pro mark and
+   signal violet stays for focus. No motion is added, so reduced motion
+   needs nothing beyond the guard at the end.
+   ------------------------------------------------------------------ */
+.ts-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  color: var(--fg-2);
+  font-size: var(--t-small);
+}
+.ts-nudge p {
+  flex: 1 1 22ch;
+  margin: 0;
+}
+.ts-load {
+  margin: var(--sp-2) var(--sp-4);
+  color: var(--mute);
+  font-size: var(--t-small);
+}
+
+/* The find bar's "All branches" panel hangs under the bar. */
+.findbar-wrap {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-5);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  max-width: calc(100% - 2 * var(--sp-5));
+}
+.findbar-wrap > .findbar {
+  position: static;
+}
+.findbar__branches {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.findbar__branches[aria-pressed='true'] {
+  border-color: var(--gilt);
+  color: var(--fg);
+}
+.findbar__branches:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.findbar__panel {
+  width: min(440px, 100%);
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--lift-3);
+  box-shadow: var(--elev-3);
+  color: var(--fg-2);
+}
+:root[data-motion='reduced'] .findbar__panel,
+:root[data-motion='reduced'] .findbar__branches {
+  transition: none;
+  animation: none;
+}

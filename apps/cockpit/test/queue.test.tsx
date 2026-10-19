@@ -360,10 +360,16 @@ describe('the queued line', () => {
         },
       },
     });
-    const { rerender } = render(<ModelQueue threadId="t1" busy onSendNow={vi.fn()} onRemove={vi.fn()} />);
+    // The line reads the licence (the Pro steer control, or a line about it), so it needs the query client.
+    const line = (busy: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <ModelQueue threadId="t1" busy={busy} onSendNow={vi.fn()} onRemove={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(line(true));
     expect(screen.getByRole('status')).toHaveTextContent('Queued Later');
     expect(screen.getByRole('button', { name: 'Stop and send now' })).toBeInTheDocument();
-    rerender(<ModelQueue threadId="t1" busy={false} onSendNow={vi.fn()} onRemove={vi.fn()} />);
+    rerender(line(false));
     expect(screen.queryByRole('button', { name: 'Stop and send now' })).toBeNull();
   });
 });

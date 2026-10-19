@@ -22,8 +22,9 @@
  *           |  shown and left alone. Ollama on another computer works
  *           |  the same, but its memory is not read. Nothing loads
  *           |  early on battery: the Cockpit does not ask.
- *           |  TODO(phase-0.1.1): Pro per-notebook keep-alive and
- *           |  context-length presets, with a memory forecast.
+ *           |  Pro adds per-notebook keep-alive and context-length
+ *           |  presets with a memory forecast through ProHooks
+ *           |  (localModelFor): they ride on each chat request.
  * ------------------------------------------------------------------
  */
 

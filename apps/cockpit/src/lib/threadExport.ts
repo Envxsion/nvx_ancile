@@ -16,9 +16,10 @@
  *           |  first ones and counts the rest. A source that has been
  *           |  removed is named from the title kept with the answer.
  *  Note     |  Pro adds DOCX, a PDF with an evidence appendix and a
- *           |  branch comparison. TODO(phase-0.1.1): Pro export formats
- *           |  join at pro/ through the Pro seam. Images are named, not
- *           |  embedded: their links only work on this machine.
+ *           |  branch comparison. Core builds those (pro/core/exports,
+ *           |  reached through thread/ExportPro.tsx), so nothing here
+ *           |  changes for them. Images are named, not embedded, in
+ *           |  these free formats: their links only work on this machine.
  * ------------------------------------------------------------------
  */
 

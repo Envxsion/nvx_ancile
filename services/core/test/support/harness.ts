@@ -128,6 +128,8 @@ export interface HarnessOptions {
   endContext?: (family: string) => boolean | Promise<boolean>;
   /** The built-in automations' switches the features read (Name new threads, Suggest a branch, …). */
   switches?: import('../../src/automations/settings').JobSwitches;
+  /** CH7: where notes added while a model works are taken (Pro's route offers them). */
+  steer?: import('../../src/conductor/steer').SteerBus;
   /** Automations: built-in jobs and their extras (setup, options, more handlers). */
   automations?: {
     jobs?: Record<string, JobSpec>;
@@ -277,6 +279,7 @@ export async function harness(opts: HarnessOptions = {}) {
           ...(opts.retriever && { retriever: opts.retriever }),
           ...(opts.links && { links: opts.links }),
           ...(opts.switches && { switches: opts.switches }),
+          ...(opts.steer && { steer: opts.steer }),
           notebookTitle: async () => 'Test notebook',
           branches,
           flows,

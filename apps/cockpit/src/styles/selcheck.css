@@ -433,3 +433,29 @@ button.selev__source:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- Ask another model: the side card (AN2, Pro) ---------------------------- */
+
+.side-ask {
+  position: fixed;
+  z-index: 55;
+  right: var(--s-4, 16px);
+  bottom: var(--s-4, 16px);
+  width: min(26rem, calc(100vw - 32px));
+  max-height: min(70vh, 36rem);
+  overflow: auto;
+  padding: var(--s-3, 12px);
+  border-radius: var(--r-md);
+  background: var(--lift-3);
+  box-shadow: var(--elev-3);
+}
+.side-ask__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--s-2, 8px);
+  font-weight: 600;
+}
+.side-ask__head .btn {
+  margin-left: auto;
+}

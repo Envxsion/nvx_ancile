@@ -195,6 +195,26 @@ POST   /api/v1/pro/context-packs/import/preview     { file } → PackImportPrevi
 POST   /api/v1/pro/context-packs/import             { file, notebook_id? } → 201 ContextPack
 ```
 
+Steering a running answer (Pro, feature `steer`; 402 `pro.feature_required` in the free build). While a model works through its tool loop, a note reaches it at the next step boundary as a user note it can read, instead of waiting for the answer to end:
+
+```http
+GET    /api/v1/pro/steer/can?thread_id=thr_…  → { steerable, why?: no_turn | flow | engine, words? }
+POST   /api/v1/pro/steer                       { thread_id, text, after? } → 201 { id, state: pending }
+GET    /api/v1/pro/steer/stn_…                → { id, state: pending | applied | expired | cancelled, round? }
+DELETE /api/v1/pro/steer/stn_…                → { cancelled, state }
+```
+
+`after` is the answer the message was written under: a different one is `409 steer.branch_changed`. A note is `applied` when a model round takes it (the answer's provenance records `steered: [{id, text, round, at}]`), and `expired` when the turn ended first or Core restarted: the Cockpit then sends it as an ordinary message. A flow, and Claude Code as a model, cannot take a note (`409 steer.not_supported`); up to 3 notes wait at once, each up to 4,000 characters (`steer.too_many`, `steer.too_long`). The request is built with the note quoted as data, at the end, so the cached start of the prompt is unchanged.
+
+Word and PDF export (Pro, feature `export_docs`; 402 `pro.feature_required` in the free build). Core builds the file and answers with it as base64; nothing is stored:
+
+```http
+GET  /api/v1/pro/export/branches?thread_id=thr_…  → { head_id, branches: [{ head_id, label, messages, created_at, current }] }
+POST /api/v1/pro/export  { thread_id, format: docx | pdf, head_id?, compare_with?, options?: { thinking, steps, receipts, sources, appendix } } → { name, mime, bytes, data, private, notes, pages? }
+```
+
+`head_id` is the message the branch on screen ends at (default: the thread's current branch). `compare_with` is another branch end: the file then compares the two from where they split (a summary table, the answers side by side, how much of their wording they share). `appendix` (default on) adds the evidence appendix: each answer's cited sources with the stored passage and a SHA-256 fingerprint, a source removed since marked as removed, tool steps counted by tool with the first 60 listed, and receipts. Images are embedded (PNG and JPEG) in a single branch's file, up to 20 and 40 MB; the PDF draws Western European text and shows other characters as `?` (`notes` says how many), while the Word file keeps all of Unicode. A thread in a private notebook exports with a line at the top saying so, and `private: true`. `404 export.branch_missing`, `422 export.nothing`, `422 export.same_branch`, `413 export.too_large`.
+
 ### Bulk thread actions, the Trash and read state
 
 ```
@@ -266,7 +286,14 @@ POST /api/v1/models/shown { id, shown }                → ModelInfo (Admin → 
 GET  /api/v1/knowledge/ocr                             → OcrView { enabled, language, installed: { rapidocr, tesseract } }
 PUT  /api/v1/knowledge/ocr { enabled, language }       → OcrView
 POST /api/v1/sources/<id>/ocr                          → Source (read a scanned PDF with OCR, whatever the setting says)
-GET  /api/v1/messages/<id>/shadow                      → ShadowOutcome (Pro, Flow lab; 402 in the free build)
+GET  /api/v1/pro/messages/<id>/shadow                   → ShadowOutcome (Pro, Flow lab; 402 in the free build)
+GET    /api/v1/pro/smart-sections                   → { items: SmartSection[] }   (Pro, per person; 402 in the free build)
+POST   /api/v1/pro/smart-sections                   { name, filter } → 201 SmartSection { id: sec_…, name, filter, position, created_at }
+PATCH  /api/v1/pro/smart-sections/sec_…             { name?, filter? } → SmartSection
+DELETE /api/v1/pro/smart-sections/sec_…             → 204
+GET    /api/v1/pro/smart-sections/sec_…/threads     → { section, threads: [{id, title, updated_at}], total, capped, empty, cap }   (the matching threads, newest activity first, at most 500)
+POST   /api/v1/pro/smart-sections/preview           { filter } → the same, without saving
+                                                    filter: { engine?: gateway | claude_code | lab, days?, cost_over? (USD, a thread's total), notebook?, model?, title? }
 ```
 
 Contracts in `localmodels.ts`, `api.ts`, `knowledge.ts` and `flows.ts`. `unload` and `keep` refuse a model NVX Ancile does not list with `local_model.not_managed` (409).
@@ -298,7 +325,7 @@ GET  /api/v1/memory/imports/<id>                     → MemoryImportView
 POST /api/v1/memory/imports/<id>/decide { "accept": "all" | ["mpr_…"], "reject": "rest" | ["mpr_…"], "edits": { "mpr_…": "text" } } → MemoryImportDecisionResult
 ```
 
-`MemoryImportRequest` is `{ origin: ancile | claude_code | chatgpt | markdown, filename?, text? | data_base64?, target: { kind: user | agents | notebook, notebook_id? } }`. An NVX Ancile export (zip, bundle or Markdown) keeps its own paths; the others go to `target`. Proposals from an import have `kind: imported`, `provenance: import` and `import_id`; they are left out of `GET /memory/proposals`. Accepted entries go into one commit (`memory(import): N entries from <label>`, trailer `Ancile-Import: mim_…`), so undoing any one of them (`POST /memory/proposals/<id> {decision: "undo"}`) reverts them all. A bundle cannot leave private notebooks out (`422 memory.export_bundle_whole`).
+`MemoryImportRequest` is `{ origin: ancile | claude_code | chatgpt | markdown, filename?, text? | data_base64?, target: { kind: user | agents | notebook, notebook_id? } }`. An NVX Ancile export (zip, bundle or Markdown) keeps its own paths; the others go to `target`. Proposals from an import have `kind: imported`, `provenance: import` and `import_id`; they are left out of `GET /memory/proposals`. Accepted entries go into one commit (`memory(import): N entries from <label>`, trailer `Ancile-Import: mim_…`), so undoing any one of them (`POST /memory/proposals/<id> {decision: "undo"}`) reverts them all. A bundle cannot leave private notebooks out (`422 memory.export_bundle_whole`). `{decision: "undo"}` on a turned-down suggestion puts it back to waiting (nothing was written, so nothing is reverted); the inbox's bulk bar uses it for its one Undo.
 
 ### Branch, compare, merge
 
@@ -336,6 +363,7 @@ Contracts in `packages/contracts/src/system.ts`.
 
 - `GET /api/v1/system/startup` answers `StartupStatus`: `running`, or `stopped` with the error that stopped Core before it opened the database (`system.database_newer`, `system.backup_failed`, `system.disk_full`, `system.migration_failed`), the `actions` that fit, every backup, the one it suggests restoring, and the backups folder. While stopped, Core answers every other `/api/v1` route with that same error.
 - While stopped: `POST /api/v1/system/startup/restore {backup}` (a name from the list; a safety backup of what is there now is taken first), `POST /api/v1/system/startup/retry`, and `POST /api/v1/system/startup/continue-without-backup` (only after `system.backup_failed`; the next start updates once without a backup). Each answers `{restarting}`: true when the desktop app starts every service again.
+- Restore from the setup step (staged, because a restore replaces the whole database): `GET /api/v1/system/restore` answers `StagedRestoreState` (the marker in `<data>/backups/restore-staged.json`, and whether Core restarts itself), `POST /api/v1/system/restore/stage {backup}` only chooses (nothing changes), `DELETE /api/v1/system/restore` drops the choice (not while it is applied), and `POST /api/v1/system/restore/apply` asks for the restart (`{restore, restarting}`). At the next start Core applies it before opening the database and answers `system.restoring` on every route; `GET /system/startup` carries the marker as `restore` (`state`, `step`, `attempts`, `safety`, `error`). A restore a restart interrupted starts again from the marker and does not take a second safety copy. Backups are not encrypted, so no passphrase is involved.
 - `GET /api/v1/system/backups` answers `BackupList`; `POST /api/v1/system/backups` takes one now (`reason: "manual"`).
 - `POST /internal/v1/desktop/backup {reason: "before-downgrade"}` (service token): the desktop app before it installs an older build.
 - `GET /api/v1/system/pro-data` answers `ProDataSummary` (each table in the `pro` schema and its rows); `GET /api/v1/system/pro-data/export` answers `ProDataExport`, every row as JSON (bytes as base64), as a download. Both work in the free build and with a lapsed licence: Pro's data is never locked away or deleted.
@@ -579,6 +607,8 @@ Under `/api/v1` (packages/contracts/src/attachments.ts). A file for one message:
 |---|---|
 | `POST /threads/:id/attachments` | Multipart, the file as `file` (up to 25 MB). 201 `AttachmentRecord {id, name, mime, kind: pdf or text, bytes, pages, chars, truncated}`; never the text. A PDF is read by the knowledge service (`POST /kn/v1/attachments/extract`), the same reader as sources; text over 200,000 characters keeps its start (`truncated`). The file waits in memory for an hour. `413 attachment.too_large`, `415 attachment.type_not_allowed`, `422 attachment.unreadable`, `attachment.empty`, `attachment.scanned_pdf` |
 | `DELETE /threads/:id/attachments/:att` | 204: forget it |
+
+With Pro (feature `attachment_pages`), `AttachmentRecord` also carries `tokens` (a rough count for the chip), and a message over the model's context budget keeps only its most relevant pages: the `file` part gets `kept {pages, of, unit: page or part, partial?}` and its `text` holds those pages in order, with a line where pages were left out (the Cockpit writes it "Pages 3–7 of 40 kept"). Pages are ranked by relevance to the message words with local arithmetic only: no model is asked and nothing leaves the computer, so a private notebook's file is trimmed the same way. Scanned or blank pages are never kept; one page bigger than the budget is kept in part. A text file is cut into parts of about 3,000 characters and trimmed the same way. Claude Code threads are given a path, so there is nothing to trim. The knowledge reader's `POST /kn/v1/attachments/extract` answers `page_spans` (each page's `[start, end)` in the text) for this.
 
 `PATCH /threads/:id {effort: low, medium, high or null}` sets the thread's reasoning effort (EN1); `GET /models` lists `effort_levels` for each model that takes one (from its provider's profile). Effort is a request setting and not an epoch reason (docs/prompt-caching.md).
 

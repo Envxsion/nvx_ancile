@@ -612,7 +612,10 @@ export class MemoryService {
         decided: true,
       })) as MemoryProposal;
     }
-    // undo
+    // undo: a turned-down suggestion goes back to waiting (nothing was written, so nothing to revert)
+    if (p.status === 'rejected') {
+      return (await this.deps.proposals.update(id, { status: 'proposed' })) as MemoryProposal;
+    }
     if ((p.status !== 'applied' && p.status !== 'auto_applied') || !p.commit_sha) throw wrong();
     await this.revert(p.commit_sha);
     return (await this.deps.proposals.get(id)) as MemoryProposal;

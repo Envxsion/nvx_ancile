@@ -16,11 +16,12 @@
  * ------------------------------------------------------------------
  */
 
-import type { ModelConfig, Part } from '@nvx/contracts';
+import { type ModelConfig, type Part, SteeredNote } from '@nvx/contracts';
 import type { ModelMessage } from '../gateway/types';
 import { ancestorPath, childrenIndex } from '../threads/path';
 import { asTree, type MessageRecord, textOf } from '../threads/repo';
 import { BUILTIN_SYSTEM, loadPrompt, render, TOOLS_NOTE } from './prompt';
+import { noteMessage } from './steer';
 
 /** The messages from the root to the one being answered (nothing from sibling branches). */
 export function pathFor(messages: MessageRecord[], userMessageId: string): MessageRecord[] {
@@ -59,23 +60,64 @@ export function historyFor(
   return path
     .slice(from)
     .filter((m) => m.role !== 'system')
-    .map((m): ModelMessage => {
+    .flatMap((m): ModelMessage[] => {
       // The question being answered is sent fresh; every earlier message as it was sent.
       const form = m.id === userMessageId ? undefined : sentOf?.get(m.id);
       const sent = form?.sent;
-      return {
+      const epoch = form?.epoch_id ? { epochId: form.epoch_id } : {};
+      const whole: ModelMessage = {
         role: m.role,
         content: textOf(m.parts),
         parts: m.parts,
         ...(sent && { sent }),
-        ...(form?.epoch_id && { epochId: form.epoch_id }),
+        ...epoch,
       };
-    })
-    .filter(
-      (m) =>
+      const kept =
         m.role !== 'assistant' ||
-        (m.parts ?? []).some((p) => (p.type === 'text' && p.text.trim()) || p.type === 'tool_call'),
-    );
+        m.parts.some((p) => (p.type === 'text' && p.text.trim()) || p.type === 'tool_call');
+      if (!kept) return [];
+      // CH7: an answer that took notes. Its stored sent form already has them in place (CA4); one
+      // without (it could not be stored) is rebuilt from its parts with the notes spliced back in.
+      const steered = m.role === 'assistant' && !sent ? steeredOf(m.provenance) : [];
+      if (!steered.length) return [whole];
+      return spliceNotes(m.parts, steered).map((x) => (x.role === 'assistant' ? { ...x, ...epoch } : x));
+    });
+}
+
+/** provenance.steered, read defensively: a malformed entry is dropped, never thrown on. */
+export function steeredOf(provenance: Record<string, unknown> | undefined): SteeredNote[] {
+  const raw = provenance?.steered;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((n) => {
+    const r = SteeredNote.safeParse(n);
+    return r.success ? [r.data] : [];
+  });
+}
+
+/**
+ * CH7: the answer's parts with the notes put back where they were taken. A note records how many
+ * parts came before it (`part`), taken at a step boundary where the parts end with every tool call
+ * answered. So the turn reads in the order it happened: the work up to the note, the note, the work
+ * after it. An empty slice is skipped; a note taken before any work sits right after the question.
+ * The same function builds each round's request and a later turn's history, so the bytes agree.
+ */
+export function spliceNotes(parts: Part[], steered: readonly SteeredNote[] | undefined): ModelMessage[] {
+  const notes = (steered ?? [])
+    .map((n, i) => ({ n, i, at: Math.min(Math.max(n.part ?? parts.length, 0), parts.length) }))
+    .sort((a, b) => a.at - b.at || a.i - b.i);
+  const out: ModelMessage[] = [];
+  let from = 0;
+  const slice = (to: number) => {
+    const part = parts.slice(from, to);
+    from = to;
+    if (part.length) out.push({ role: 'assistant', content: textOf(part), parts: part });
+  };
+  for (const { n, at } of notes) {
+    slice(at);
+    out.push({ role: 'user', content: noteMessage(n.text) });
+  }
+  slice(parts.length);
+  return out;
 }
 
 /**
@@ -107,10 +149,6 @@ export function withTurnContext(history: ModelMessage[], block: string): ModelMe
     ...(q.parts && { parts: [{ type: 'text', text: lead }, ...q.parts] }),
   };
   return [...history.slice(0, i), next, ...history.slice(i + 1)];
-}
-
-export function withPartial(history: ModelMessage[], parts: Part[]): ModelMessage[] {
-  return parts.length ? [...history, { role: 'assistant', content: textOf(parts), parts }] : history;
 }
 
 export async function systemPrompt(opts: {

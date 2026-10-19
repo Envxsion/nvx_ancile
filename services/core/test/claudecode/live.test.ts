@@ -360,13 +360,15 @@ describe('sending a turn', () => {
       uuids: ['a2'],
       cost_estimate: { usd: 0.02 },
     });
+    // CA2: input counts the 100 cache reads in; the answer is billed to a plan.
     expect(answer?.usage).toEqual({
-      input_tokens: 10,
+      input_tokens: 110,
       output_tokens: 4,
       cached_tokens: 100,
       cache_write_tokens: 0,
       cache_reported: true,
       cost_usd: 0.02,
+      billing: { kind: 'plan', payer: null },
     });
     expect((await threads.getThread('thr_1'))?.active_head_id).toBe(cp.assistantMessageId);
     expect(synced).toContain(S);

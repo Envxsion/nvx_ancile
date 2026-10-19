@@ -81,6 +81,7 @@ type SlashModule = Awaited<ReturnType<typeof loadSlash>>;
 
 // The effort chip belongs to reasoning models only: its code loads when one is the model.
 export const loadEffortChip = () => import('./EffortChip');
+const loadThinkingChip = () => import('./ThinkingChip');
 
 // Reading a file for a message is rare: its client loads the first time a file is involved.
 const loadAttachLib = () => import('./attach');
@@ -89,6 +90,7 @@ const loadAttach = () => import('./AttachPanel');
 const AskDrop = lazyHost(loadAttach, 'AskDrop');
 const FileChips = lazyHost(loadAttach, 'FileChips');
 const EffortChip = lazyHost(loadEffortChip, 'EffortChip');
+const ThinkingChip = lazyHost(loadThinkingChip, 'ThinkingChip');
 
 export interface Mention {
   kind: 'source' | 'model' | 'notebook' | 'flow' | 'repo';
@@ -928,11 +930,12 @@ function ComposerImpl({
   const canSend = !!text.trim() && !sending && (!busy || canQueue) && !claudeCode?.readOnly;
   const ghost = !claudeCode && prefs.menus && slash ? slash.ghostFor(text, commands) : null;
   const hasEffort = synced && !claudeCode && !!effortLevels?.length;
+  const hasThinking = synced && !claudeCode && !!model?.reasoning;
   const modelPick = picked.find((p) => p.kind === 'model');
   // Chips fit the width: whole labels, short ones, then icons with a tooltip.
   const chips = claudeCode
     ? (claudeCode.chips ?? 3)
-    : 1 + (synced ? 1 : 0) + (scope ? 1 : 0) + (hasEffort ? 1 : 0);
+    : 1 + (synced ? 1 : 0) + (scope ? 1 : 0) + (hasEffort ? 1 : 0) + (hasThinking ? 1 : 0);
   const bar = useComposerBar(root, chips);
   const sendKeys = sendOnEnter ? 'enter' : isMac ? 'meta+enter' : 'ctrl+enter';
   const modelName = modelPick?.label ?? model?.name ?? null;
@@ -1355,6 +1358,7 @@ function ComposerImpl({
             {synced ? <ModelChoiceDialog /> : null}
             {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
             {hasEffort && effortLevels ? <EffortChip threadId={threadId} levels={effortLevels} /> : null}
+            {hasThinking ? <ThinkingChip threadId={threadId} /> : null}
           </>
         )}
         <span className="composer__hint mute" aria-live="polite" data-room={bar.hint || undefined}>

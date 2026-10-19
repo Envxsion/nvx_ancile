@@ -98,7 +98,7 @@ export interface RouteHint {
   reason: string;
   /**
    * The router only suggests (FL1): Core does not take the route, asks the router's model as usual,
-   * and records the suggestion beside its decision. TODO(phase-0.1.1): Pro answers with this in "suggest" mode.
+   * and records the suggestion beside its decision. Pro answers with this in "suggest" mode.
    */
   suggest_only?: boolean;
 }

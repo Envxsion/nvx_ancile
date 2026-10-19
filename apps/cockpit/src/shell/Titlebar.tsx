@@ -38,6 +38,7 @@ const MARK_LABEL: Record<MarkState, string> = {
 
 /** Remembers that the one-time note about Settings has been shown. */
 const SETTINGS_TIP = 'nvx.ancile.tip.settings-moved';
+const USED_PALETTE = 'nvx.ancile.palette.frecency';
 
 const THEME_ICON = { system: 'monitor', dark: 'moon', light: 'sun' } as const;
 const THEME_LABEL = {
@@ -61,10 +62,14 @@ export function Titlebar({ crumbs }: { crumbs: { label: string; to?: string }[] 
   useBinding('theme.toggle', cycleTheme);
 
   // The top-right Settings button went (ROADMAP NV2): say so once to someone who had it.
+  // Returning means they used the palette before; any stored key is not enough, because a
+  // fresh install writes several on first load. Never during setup, where it covered the
+  // primary button.
   useEffect(() => {
     try {
       if (localStorage.getItem(SETTINGS_TIP)) return;
-      const returning = localStorage.length > 0;
+      const onSetup = window.location.pathname.startsWith('/setup');
+      const returning = !onSetup && localStorage.getItem(USED_PALETTE) !== null;
       localStorage.setItem(SETTINGS_TIP, '1');
       if (returning)
         notify({

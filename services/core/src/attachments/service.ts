@@ -21,8 +21,11 @@
  *  Note     |  GR2: the text is data. The gateway wraps it as a quoted
  *           |  attachment (gateway/convert.ts); nothing in it is
  *           |  followed as an instruction.
- *           |  TODO(phase-0.1.1): Pro adds a token estimate per chip
- *           |  and trims to the relevant pages over budget.
+ *           |  CH6 (Pro): a chip gets a token estimate when Pro lends
+ *           |  one (deps.estimate), and the knowledge reader's page
+ *           |  spans are kept beside the text so Pro can keep the
+ *           |  relevant pages when a message is over the model's
+ *           |  budget (engines/index.ts asks; pagesFor gives them).
  * ------------------------------------------------------------------
  */
 
@@ -89,6 +92,8 @@ interface Held {
   record: AttachmentRecord;
   threadId: string;
   text: string;
+  /** PDF only: where each page sits in `text` as [start, end), cut to the characters kept. */
+  spans: [number, number][] | null;
   expires: number;
 }
 
@@ -107,6 +112,12 @@ export class AttachmentService {
     private readonly deps: {
       knowledge: Pick<KnowledgeClient, 'stream'>;
       now?: () => number;
+      /** Pro (CH6): a rough token count for a chip. Absent in the free build, which shows none. */
+      estimate?: (f: {
+        kind: AttachmentRecord['kind'];
+        text: string;
+        pages: number | null;
+      }) => number | undefined;
     },
   ) {}
 
@@ -139,13 +150,22 @@ export class AttachmentService {
 
     let text: string;
     let pages: number | null = null;
+    let spans: [number, number][] | null = null;
     if (kind === 'pdf') {
       const form = new FormData();
       form.set('file', new File([new Uint8Array(file.bytes)], name, { type: 'application/pdf' }));
       const res = await this.deps.knowledge.stream('POST', '/attachments/extract', { body: form });
-      const out = (await res.json()) as { markdown?: string; pages?: number };
-      text = (out.markdown ?? '').replace(/\r\n/g, '\n');
+      const out = (await res.json()) as {
+        markdown?: string;
+        pages?: number;
+        page_spans?: [number, number][];
+      };
+      const raw = out.markdown ?? '';
+      text = raw.replace(/\r\n/g, '\n');
       pages = out.pages && out.pages > 0 ? out.pages : null;
+      // The spans index the text as the reader wrote it; a changed length means they no longer fit.
+      if (text.length === raw.length && Array.isArray(out.page_spans) && out.page_spans.length === pages)
+        spans = out.page_spans.map(([a, b]) => [a, b] as [number, number]);
     } else {
       // A text file with NUL bytes or a high share of replacement characters is a binary one.
       if (file.bytes.subarray(0, 8_192).includes(0)) throw unreadable(name);
@@ -155,7 +175,14 @@ export class AttachmentService {
     }
     if (!text.trim()) throw unreadable(name);
     const truncated = text.length > ATTACHMENT_LIMITS.chars;
-    if (truncated) text = text.slice(0, ATTACHMENT_LIMITS.chars);
+    if (truncated) {
+      text = text.slice(0, ATTACHMENT_LIMITS.chars);
+      if (spans)
+        spans = spans.map(
+          ([a, b]) => [Math.min(a, text.length), Math.min(b, text.length)] as [number, number],
+        );
+    }
+    const tokens = this.deps.estimate?.({ kind, text, pages });
 
     this.sweep();
     const record: AttachmentRecord = {
@@ -167,8 +194,15 @@ export class AttachmentService {
       pages,
       chars: text.length,
       truncated,
+      ...(tokens !== undefined && { tokens }),
     };
-    this.held.set(record.id, { record, threadId, text, expires: this.now() + ATTACHMENT_LIMITS.keepMs });
+    this.held.set(record.id, {
+      record,
+      threadId,
+      text,
+      spans,
+      expires: this.now() + ATTACHMENT_LIMITS.keepMs,
+    });
     log.info({ kind, bytes: record.bytes, pages, truncated }, 'a file was attached to a message');
     return record;
   }
@@ -189,6 +223,27 @@ export class AttachmentService {
         ...(h.record.pages && { pages: h.record.pages }),
         ...(h.record.truncated && { truncated: true }),
       };
+    });
+  }
+
+  /**
+   * What Pro needs to keep the relevant pages (CH6): each file's id, kind, page count and page spans,
+   * in the order of `ids`. A file that is gone is left out (partsFor has already refused those).
+   */
+  pagesFor(
+    threadId: string,
+    ids: string[],
+  ): {
+    id: string;
+    kind: AttachmentRecord['kind'];
+    pages: number | null;
+    spans: [number, number][] | null;
+  }[] {
+    return ids.flatMap((id) => {
+      const h = this.held.get(id);
+      return h && h.threadId === threadId
+        ? [{ id, kind: h.record.kind, pages: h.record.pages, spans: h.spans }]
+        : [];
     });
   }
 

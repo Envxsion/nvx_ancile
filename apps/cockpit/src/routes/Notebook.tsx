@@ -193,6 +193,11 @@ export function NotebookScreen() {
       onSelect: () => openEditor({ kind: 'packs', level: 'notebook', id: nb.id, title: nb.title }),
     },
     {
+      label: 'Thinking effort',
+      icon: 'sparkle',
+      onSelect: () => openEditor({ kind: 'effort', id: nb.id, title: nb.title }),
+    },
+    {
       label: 'Merge a notebook into this one',
       icon: 'merge',
       onSelect: () => openEditor({ kind: 'merge', into: { id: nb.id, title: nb.title }, from: null }),

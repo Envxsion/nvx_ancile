@@ -30,6 +30,7 @@ import {
 } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { claudeCodeFiles, goneOrOther } from '../attachments/service';
+import { applyTrim, type TrimQuery, type TrimResult } from '../attachments/trim';
 import type { ClaudeCodeLive } from '../claudecode/live';
 import type { ModelRegistry } from '../gateway/registry';
 import { getEffectiveScope, type ScopeStore } from '../scopes';
@@ -172,7 +173,17 @@ export interface EnginesDeps {
   /** A turn's attached images (images/service.ts). */
   images?: { partsFor(threadId: string, ids: string[]): Promise<ImagePart[]> };
   /** A turn's attached files (attachments/service.ts, CH6). */
-  attachments?: { partsFor(threadId: string, ids: string[]): FilePart[]; release(ids: string[]): void };
+  attachments?: {
+    partsFor(threadId: string, ids: string[]): FilePart[];
+    release(ids: string[]): void;
+    /** Page spans for Pro's page trimming; absent where nothing can trim. */
+    pagesFor?(threadId: string, ids: string[]): Omit<TrimQuery['files'][number], 'name' | 'text'>[];
+  };
+  /**
+   * CH6 (Pro): keep the relevant pages of attached files when the message is over the model's budget.
+   * Absent in the free build; an error or a null answer sends the files whole.
+   */
+  trimAttachments?: (q: TrimQuery) => Promise<TrimResult | null>;
 }
 
 /** The model chosen cannot see images: say so plainly instead of sending them as nothing. */
@@ -189,6 +200,37 @@ export function noVision(model: string | null): AncileError {
 /** The engines a thread can use, and the one front door for a turn. */
 export class Engines {
   constructor(private readonly deps: EnginesDeps) {}
+
+  /** CH6: ask Pro to keep the relevant pages when the files are over budget. Never stops a send. */
+  private async trimmed(
+    thread: ThreadRecord,
+    req: Pick<TurnRequest, 'text' | 'parentId'>,
+    modelId: string | null,
+    ids: string[],
+    files: FilePart[],
+  ): Promise<FilePart[]> {
+    const { trimAttachments, attachments, registry } = this.deps;
+    const pages = attachments?.pagesFor?.(thread.id, ids);
+    if (!trimAttachments || !pages || pages.length !== files.length) return files;
+    try {
+      const result = await trimAttachments({
+        threadId: thread.id,
+        notebookId: thread.notebook_id,
+        message: req.text,
+        parentId: req.parentId === undefined ? (thread.active_head_id ?? null) : req.parentId,
+        contextWindow: (modelId ? registry.get(modelId)?.context_window : null) ?? null,
+        files: pages.map((p, i) => ({
+          ...p,
+          name: files[i]?.name ?? '',
+          text: files[i]?.text ?? '',
+        })),
+      });
+      return result?.length ? applyTrim(files, ids, result) : files;
+    } catch {
+      // Whole files go: a failed trim must not stop the message.
+      return files;
+    }
+  }
 
   list(): Engine[] {
     return [this.deps.gateway, this.deps.claudeCode];
@@ -249,6 +291,7 @@ export class Engines {
       if (engine === this.deps.claudeCode) throw claudeCodeFiles();
       if (!this.deps.attachments) throw goneOrOther();
       files = this.deps.attachments.partsFor(thread.id, attachmentIds);
+      files = await this.trimmed(thread, req, s.checkModel, attachmentIds, files);
     }
     let images: ImagePart[] = [];
     if (imageIds?.length) {

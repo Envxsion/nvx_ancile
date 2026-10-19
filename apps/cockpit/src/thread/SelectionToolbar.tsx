@@ -129,6 +129,20 @@ export function SelectionToolbar({ messageId }: { messageId: string }) {
         <Icon name="branch" size={13} />
         Branch from here
       </button>
+      <button
+        type="button"
+        className="selbar__btn selbar__btn--pro"
+        title="Part of Pro: a model of another family answers, with its cost"
+        onClick={() => {
+          void import('../pro/SideAsk').then((m) =>
+            m.openSideAsk({ threadId: h.threadId, messageId: h.messageId, text: h.text }),
+          );
+          useSelectionCheck.getState().hideToolbar(messageId);
+        }}
+      >
+        <Icon name="compare" size={13} />
+        Ask another model
+      </button>
       {h.via === 'menu' ? (
         <button type="button" className="selbar__btn" onClick={() => void copy()}>
           <Icon name="copy" size={13} />

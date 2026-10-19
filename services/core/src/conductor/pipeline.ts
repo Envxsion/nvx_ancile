@@ -31,6 +31,7 @@
 
 import {
   AncileError,
+  type AnswerEffort,
   type AnswerRoute,
   type Attempt,
   type CompactionProvenance,
@@ -38,11 +39,13 @@ import {
   type EpochProvenance,
   type EpochReason,
   ID_PREFIX,
+  isClaudeCodeModel,
   type ModelConfig,
   type Part,
   type Recovered,
   type RetrievalTrace,
   type RunEvent,
+  type SteeredNote,
   stepTitle,
   type Usage,
   type UsageCall,
@@ -60,10 +63,11 @@ import {
   withFlow,
 } from '../flows/turn';
 import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
+import { effortLevels } from '../gateway/effort';
 import { ChainFailedError, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
-import type { ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
+import type { LocalModelOptions, ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
 import { summariesBlock, type TurnLinks } from '../links/service';
 import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
@@ -89,7 +93,7 @@ import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type SentForm, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { applyCitations } from './citations';
-import { branchKeyFor, historyFor, pathFor, systemPrompt, withPartial, withTurnContext } from './context';
+import { branchKeyFor, historyFor, pathFor, spliceNotes, systemPrompt, withTurnContext } from './context';
 import {
   bridgeTarget,
   cacheTtlMs,
@@ -122,6 +126,7 @@ import {
   type RetrievalLimits,
   type Retriever,
 } from './retrieval';
+import type { SteerBus } from './steer';
 
 const log = logFor('conductor');
 
@@ -230,6 +235,11 @@ export interface TurnCheckpoint {
   engineContext?: EngineContextReport | null;
   /** Context links read for this turn (provenance.links); absent on older checkpoints. */
   linked?: TurnLinks | null;
+  /** EN1: the reasoning effort chosen for this turn (provenance.effort), decided once. */
+  effort?: AnswerEffort | null;
+  effortChecked?: boolean;
+  /** CH7: notes the person added while this answer was being written, and the model round each went into. */
+  steered?: SteeredNote[];
   /**
    * When each tool call still to settle was made (epoch ms), so its result
    * records how long the step took (tool_result.duration_ms), across a
@@ -352,6 +362,15 @@ export interface ConductorDeps {
   engineContext?: EngineContextHook;
   /** Context links (docs/notebooks.md): other notebooks' sources and threads' summaries, scope-checked now. */
   links?: { forTurn(threadId: string): Promise<TurnLinks> };
+  /**
+   * EN1: reasoning effort for a turn whose thread sets none (Pro: notebook defaults, auto effort).
+   * Asked once per turn and only for a model that takes effort; its errors are logged and ignored.
+   */
+  effortFor?: (q: EffortQuery) => Promise<AnswerEffort | null>;
+  /** LM1: keep-alive and context length for a local model in this notebook (Pro). Errors are ignored. */
+  localModelFor?: (q: { modelId: string; notebookId: string | null }) => Promise<LocalModelOptions | null>;
+  /** CH7 (Pro): notes added while the model works reach it at the next step (conductor/steer.ts). */
+  steer?: SteerBus;
   /** The built-in automations' switches (Watch the context window); absent: all on. */
   switches?: JobSwitches;
   /** CA2: where prompt epochs are kept; absent: in memory only (tests). */
@@ -365,6 +384,17 @@ export interface ConductorDeps {
   endContext?: (family: string) => boolean | Promise<boolean>;
   /** The clock epochs read (cold points, the date in the context block); tests move it. */
   now?: () => number;
+}
+
+/** EN1: what an effort decision may use. */
+export interface EffortQuery {
+  threadId: string;
+  notebookId: string | null;
+  /** The question being answered. */
+  text: string;
+  /** The levels the first model of the chain takes. */
+  levels: readonly ('low' | 'medium' | 'high')[];
+  signal: AbortSignal;
 }
 
 export interface AnsweredTurn {
@@ -525,10 +555,15 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
     ctx: { emit: (e: RunEventInput) => Promise<unknown> },
     error?: { code: string; title: string; hint: string },
   ) {
+    // A note that had not been taken by now did not get in; the Cockpit sends it as a message.
+    deps.steer?.end(cp.input.threadId, cp.input.assistantMessageId);
     const model = cp.answeredBy ? deps.registry.get(cp.answeredBy) : undefined;
     // CA4: what the model was sent of this answer, as text, before citations are tidied.
     // Next turn starts with these bytes. A flow's answer is not built from its parts, so none.
-    const sent = status === 'complete' && !cp.flow ? sentOfAnswer(cp.parts) : null;
+    const sent =
+      status === 'complete' && !cp.flow
+        ? sentOfAnswer(cp.parts, cp.steered?.length ? spliceNotes(cp.parts, cp.steered) : undefined)
+        : null;
     // Hold the answer to its sources: invented citation numbers go.
     let retrieval: Record<string, unknown> = {};
     if (cp.grounding?.trace.hits.length && status !== 'error') {
@@ -575,6 +610,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         ...(links.length && { links }),
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
         route: routeOf(cp),
+        ...(cp.effort && { effort: cp.effort }),
+        ...(cp.steered?.length && { steered: cp.steered }),
         ...(cp.frame && { epoch: epochOut(cp.frame) }),
         ...(cp.cacheResets?.length && { cache_resets: cp.cacheResets }),
         ...(error && { error }),
@@ -654,6 +691,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           : null;
       flowLookup?.catch(() => undefined);
       await deps.repo.updateMessage(msgId, { status: 'streaming', run_id: run.id });
+      // CH7: from here the person may add a note; a flow turn is marked once it is known.
+      deps.steer?.begin(cp.input.threadId, msgId, { steerable: !cp.flow });
       // Anything a previous attempt streamed but never checkpointed is
       // discarded; the client redraws from what is actually committed.
       if (cp.parts.length || run.attempt > 0 || cp.waiting) {
@@ -1626,13 +1665,52 @@ ${noted.stop.forModel}`,
         }
         if (engine?.report) cp.engineContext = engine.report;
         const splitSystem = frame.endContext ? systemBlocks(epoch) : null;
-        const history = withPartial(
-          engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough, sentMap),
-          cp.parts,
-        );
-        // EN1: the thread's reasoning effort rides on the request, never in the prompt, so it
-        // is not an epoch reason and the cached start of the request holds when it changes.
-        const effort = (await deps.repo.getThread(cp.input.threadId))?.settings?.effort;
+        const history =
+          engine?.history ?? historyFor(all, cp.input.userMessageId, cp.compaction?.skipThrough, sentMap);
+        // EN1: reasoning effort rides on the request, never in the prompt, so it is not an
+        // epoch reason and the cached start of the request holds when it changes. The thread's
+        // own choice wins; otherwise Pro may choose (a notebook default, or auto effort), once.
+        const threadEffort = (await deps.repo.getThread(cp.input.threadId))?.settings?.effort;
+        const effortModels = chain[0] ? effortLevels(chain[0]) : [];
+        if (!cp.effortChecked) {
+          cp.effortChecked = true;
+          if (threadEffort && effortModels.includes(threadEffort)) {
+            cp.effort = { level: threadEffort, from: 'thread' };
+          } else if (!threadEffort && deps.effortFor && effortModels.length) {
+            cp.effort = await deps
+              .effortFor({
+                threadId: cp.input.threadId,
+                notebookId: cp.input.notebookId,
+                text: textOf(all.find((m) => m.id === cp.input.userMessageId)?.parts ?? []),
+                levels: effortModels,
+                signal: ctx.signal,
+              })
+              .catch((err: unknown) => {
+                log.warn({ err }, 'the effort choice failed; the model keeps its default');
+                return null;
+              });
+            if (cp.effort && !effortModels.includes(cp.effort.level)) cp.effort = null;
+          }
+        }
+        const effort = threadEffort ?? cp.effort?.level;
+        // CH7: notes added while the model worked are taken now, at the step boundary: every tool
+        // call so far is answered, so `part` (the parts before the note) is a clean place to cut.
+        // The note stays in that place in every later request, so each request starts with the last.
+        for (const n of deps.steer?.take(cp.input.threadId, msgId, cp.rounds) ?? [])
+          cp.steered = [
+            ...(cp.steered ?? []),
+            { id: n.id, text: n.text, round: cp.rounds, part: cp.parts.length, at: n.at },
+          ];
+        const first = chain[0];
+        // Claude Code as a model runs its own loop inside one call: it cannot take a note mid-turn.
+        if (first && isClaudeCodeModel(first.id))
+          deps.steer?.begin(cp.input.threadId, msgId, { steerable: false, why: 'engine' });
+        const local =
+          first?.provider === 'ollama' && deps.localModelFor
+            ? await deps
+                .localModelFor({ modelId: first.id, notebookId: cp.input.notebookId })
+                .catch(() => null)
+            : null;
         const req: ModelRequest = {
           // What stays the same from turn to turn comes first, so providers' prompt
           // caches (Anthropic, OpenAI, vLLM's prefix cache, Ollama's KV cache) hold
@@ -1641,7 +1719,8 @@ ${noted.stop.forModel}`,
           system,
           // CA5: the rules and the snapshot apart, so Anthropic can mark both ends.
           ...(splitSystem && { systemBlocks: splitSystem }),
-          messages: withTurnContext(history, frame.block),
+          // The question comes last before this turn's own work; the work and the notes follow it in order.
+          messages: [...withTurnContext(history, frame.block), ...spliceNotes(cp.parts, cp.steered)],
           meta: { threadId: cp.input.threadId, notebookId: cp.input.notebookId },
           // CA5: provider cache keys: the same on every turn of this branch in this epoch.
           cache: {
@@ -1651,6 +1730,7 @@ ${noted.stop.forModel}`,
           },
           ...(tools.length && { tools, toolChoice: 'auto' as const }),
           ...(effort && { effort }),
+          ...(local && { local }),
         };
         // CA4: the newest question as it is sent now, stored as text for the turns that follow.
         if (cp.rounds === 0) {
@@ -1854,6 +1934,7 @@ ${noted.stop.forModel}`,
           await ctx.checkpoint(cp);
         }
         // ---- end Flows ----
+        deps.steer?.begin(cp.input.threadId, msgId, { steerable: !cp.flow });
 
         /** LB1: a call that kept failing ends the turn here, in words the user reads. */
         const stopForLoop = async () => {
@@ -1965,12 +2046,14 @@ ${cp.loopStop}`,
     async cancelled(run: RunRecord) {
       const cp = run.checkpoint as TurnCheckpoint;
       await deps.permissions.cancelApprovalsForRun(run.id);
+      deps.steer?.end(cp.input.threadId, cp.input.assistantMessageId);
       await deps.repo.updateMessage(cp.input.assistantMessageId, { status: 'stopped', parts: cp.parts });
     },
 
     async failed(run: RunRecord, error) {
       const cp = run.checkpoint as TurnCheckpoint;
       await deps.permissions.cancelApprovalsForRun(run.id);
+      deps.steer?.end(cp.input.threadId, cp.input.assistantMessageId);
       await deps.repo.updateMessage(cp.input.assistantMessageId, {
         status: 'error',
         parts: cp.parts,

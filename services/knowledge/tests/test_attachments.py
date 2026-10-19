@@ -27,6 +27,10 @@ def test_reads_each_page_and_counts_them() -> None:
     body = r.json()
     assert body["pages"] == 3
     assert "Bravo" in body["markdown"]
+    # Each page's place in the text, so Core can keep the relevant ones (CH6, Pro).
+    spans = body["page_spans"]
+    assert len(spans) == 3
+    assert "Bravo" in body["markdown"][spans[1][0] : spans[1][1]]
 
 
 def test_needs_the_service_token() -> None:

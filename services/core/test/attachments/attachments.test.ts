@@ -355,3 +355,157 @@ describe('the front door', () => {
     ).toBe('attachment.claude_code');
   });
 });
+
+describe('CH6 Pro seam: a token estimate and the relevant pages', () => {
+  const pdfKnowledge = () => {
+    const pages = ['Alpha page about turbines', 'Bravo page about budgets', 'Charlie page about hiring'];
+    const markdown = pages.join('\n\n');
+    let at = 0;
+    const page_spans = pages.map((p) => {
+      const span = [at, at + p.length];
+      at += p.length + 2;
+      return span;
+    });
+    return { stream: vi.fn(async () => Response.json({ markdown, pages: 3, page_spans })) as never };
+  };
+  type SentFile = { text?: string; kept?: unknown };
+  const stub = (turns: { files?: SentFile[] }[]): Engine =>
+    ({
+      id: 'e',
+      kind: 'gateway',
+      displayName: 'e',
+      modelPrefix: null,
+      capabilities: () => ({
+        streaming: true,
+        tools: true,
+        images: false,
+        own_context: false,
+        context_window: null,
+      }),
+      status: async () => ({ available: true, reason: null }),
+      start: async (t: { files?: SentFile[] }) => {
+        turns.push({ ...(t.files && { files: t.files }) });
+        return { run_id: 'r', user_message_id: 'u', assistant_message_id: 'a', model_id: null };
+      },
+    }) as never;
+  const thread = (claude = false) =>
+    ({
+      id: 'thr_1',
+      workspace_id: WS,
+      notebook_id: 'nb_1',
+      settings: claude ? { claude_code: { session_id: 's1', cwd: '/x' } } : {},
+      active_head_id: 'msg_9',
+    }) as never;
+  const model = {
+    id: 'cheap/text',
+    capabilities: ['tools'],
+    context_window: 8_000,
+  } as unknown as ModelConfig;
+  const door = (attachments: AttachmentService, trim?: unknown) => {
+    const turns: { files?: SentFile[] }[] = [];
+    const engines = new Engines({
+      registry: { get: () => model, chain: () => [model] } as never,
+      gateway: stub(turns),
+      claudeCode: stub([]),
+      scopeOf: async () =>
+        resolveScope({ notebookId: 'nb_1', threadId: 'thr_1', private: false, notebook: null, thread: null }),
+      attachments,
+      ...(trim ? { trimAttachments: trim as never } : {}),
+    });
+    return { turns, engines };
+  };
+  const send = {
+    text: 'how are the turbines',
+    parentId: undefined,
+    model: 'cheap/text',
+    idempotencyKey: 'k'.repeat(8),
+  };
+  const pdf = (svc: AttachmentService) =>
+    svc.add('thr_1', { name: 'm.pdf', mime: 'application/pdf', bytes: bytes('%PDF') });
+
+  it('shows no estimate in the free build, and the one Pro lends when it does', async () => {
+    const free = await new AttachmentService({ knowledge: knowledge() }).add('thr_1', {
+      name: 'a.txt',
+      mime: 'text/plain',
+      bytes: bytes('some words here'),
+    });
+    expect(free.tokens).toBeUndefined();
+    const lent = await new AttachmentService({
+      knowledge: knowledge(),
+      estimate: (f) => Math.ceil(f.text.length / 4),
+    }).add('thr_1', { name: 'a.txt', mime: 'text/plain', bytes: bytes('some words here') });
+    expect(lent.tokens).toBe(4);
+  });
+
+  it('keeps each PDF page in its place in the text, for Pro to choose from', async () => {
+    const svc = new AttachmentService({ knowledge: pdfKnowledge() });
+    const rec = await pdf(svc);
+    const [p] = svc.pagesFor('thr_1', [rec.id]);
+    expect(p).toMatchObject({ id: rec.id, kind: 'pdf', pages: 3 });
+    expect(p?.spans).toHaveLength(3);
+    expect(svc.pagesFor('thr_2', [rec.id])).toEqual([]);
+  });
+
+  it('asks Pro for the pages with the message and the model window, and sends what it keeps', async () => {
+    const attachments = new AttachmentService({ knowledge: pdfKnowledge() });
+    const rec = await pdf(attachments);
+    const asked: {
+      message: string;
+      contextWindow: number | null;
+      parentId: string | null;
+      files: { spans: unknown }[];
+    }[] = [];
+    const { engines, turns } = door(attachments, async (q: (typeof asked)[number]) => {
+      asked.push(q);
+      return [{ id: rec.id, text: 'Alpha page about turbines', kept: { pages: [1], of: 3, unit: 'page' } }];
+    });
+    await engines.send(thread(), { ...send, attachmentIds: [rec.id] });
+    expect(asked[0]).toMatchObject({
+      message: 'how are the turbines',
+      contextWindow: 8_000,
+      parentId: 'msg_9',
+    });
+    expect(asked[0]?.files[0]?.spans).toHaveLength(3);
+    expect(turns[0]?.files?.[0]).toMatchObject({
+      text: 'Alpha page about turbines',
+      kept: { pages: [1], of: 3 },
+    });
+  });
+
+  it('sends the whole file when Pro answers nothing, fails, or would not make it shorter', async () => {
+    const hooks = [
+      async () => null,
+      async () => {
+        throw new Error('boom');
+      },
+      async (q: { files: { id: string; text: string }[] }) => [
+        {
+          id: q.files[0]?.id ?? '',
+          text: `${q.files[0]?.text}, and more`,
+          kept: { pages: [1], of: 1, unit: 'page' },
+        },
+      ],
+    ];
+    for (const trim of hooks) {
+      const attachments = new AttachmentService({ knowledge: pdfKnowledge() });
+      const rec = await pdf(attachments);
+      const { engines, turns } = door(attachments, trim);
+      await engines.send(thread(), { ...send, attachmentIds: [rec.id] });
+      expect(turns[0]?.files?.[0]?.text).toContain('Charlie page about hiring');
+      expect(turns[0]?.files?.[0]?.kept).toBeUndefined();
+    }
+  });
+
+  it('never asks Pro about a Claude Code thread: it is given a path, so there is nothing to trim', async () => {
+    const attachments = new AttachmentService({ knowledge: pdfKnowledge() });
+    const rec = await pdf(attachments);
+    const trim = vi.fn(async () => null);
+    const { engines } = door(attachments, trim);
+    expect(
+      await code(
+        engines.send(thread(true), { ...send, model: 'claude-code/sonnet', attachmentIds: [rec.id] }),
+      ),
+    ).toBe('attachment.claude_code');
+    expect(trim).not.toHaveBeenCalled();
+  });
+});

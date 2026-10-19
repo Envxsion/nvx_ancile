@@ -7,8 +7,8 @@
  *  Purpose  |  What the composer draws once a file is dropped or
  *           |  chosen: in a notebook, the question "attach to this
  *           |  message, or add as a source?", and a chip for each file
- *           |  that goes with the message, with its page count and a
- *           |  "Keep in notebook" switch.
+ *           |  that goes with the message, with its page count (and, with
+ *           |  Pro, its token estimate) and a "Keep in notebook" switch.
  *  How      |  Loaded the first time a file is involved (lazyHost in
  *           |  Composer.tsx), so an idle composer does not carry it.
  *           |  The composer owns the state and the actions; this file
@@ -18,6 +18,7 @@
 
 import type { AttachmentRecord } from '@nvx/contracts';
 import { Icon } from '../ui/Icon';
+import { AttachPro } from './AttachPro';
 import { chipWords } from './attach';
 
 /** A file on its way to the next message: being read, then ready as a chip (CH6). */
@@ -135,6 +136,7 @@ export function FileChips({
           </button>
         </li>
       ))}
+      {files.some((f) => f.state === 'ready') ? <AttachPro /> : null}
     </>
   );
 }

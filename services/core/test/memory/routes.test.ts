@@ -142,6 +142,12 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     const r = await h.call<MemoryProposal>('POST', `/memory/proposals/${p.id}`, { decision: 'reject' });
     expect(r.body.status).toBe('rejected');
     expect((await userFile()).content).toBe(before);
+    // Undo (the inbox's bulk bar) puts it back to waiting, still unwritten; a second Undo is refused.
+    const back = await h.call<MemoryProposal>('POST', `/memory/proposals/${p.id}`, { decision: 'undo' });
+    expect(back.body.status).toBe('proposed');
+    expect((await userFile()).content).toBe(before);
+    const again = await h.call('POST', `/memory/proposals/${p.id}`, { decision: 'undo' });
+    expect(again.status).toBe(409);
     await h.settings.set(SETTING.memoryCapture, 'auto_confident');
   });
 

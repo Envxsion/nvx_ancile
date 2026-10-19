@@ -88,7 +88,9 @@ One sorted superset of the tools the notebook may use (never another notebook's:
 
 `core.messages.sent` holds each message exactly as it was sent, as text: a question with its context block (and so its source passages), an answer as the provider messages it expands to (the model's own tool arguments, results in call order, continuation text after them). It is written once and used as stored on every later turn, so a later caption, a rule change or a changed part never rewrites what a provider already saw. Messages without one (older ones, images, files, flow answers, other engines) are rebuilt from their parts, as before. Step durations and approval expiries live on the part, never in a tool result the model reads.
 
-Stored passages stay in the history, so a long grounded thread grows by its passages each turn. They are pruned only at an epoch. TODO(phase-0.1.1): CA9 prunes old passages at a new epoch.
+A steering note (CH7) is part of the answer it was added to: it is stored at the part where it was taken (`provenance.steered[].part`), sits between the work before and after it in every later round, and an answer that took notes stores its sent form with the notes in place, so the next turn sends the same bytes. Without a stored form it is rebuilt the same way from parts and provenance (`spliceNotes`).
+
+Stored passages stay in the history, so a long grounded thread grows by its passages each turn. They are pruned only at an epoch. TODO(phase-0.2.0): CA9 prunes old passages at a new epoch.
 
 ## Small models and the per-family switch
 

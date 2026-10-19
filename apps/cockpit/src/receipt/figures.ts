@@ -277,6 +277,15 @@ export interface WhyModelInput {
   learned?: { label: string; confidence: number; taken: boolean } | null | undefined;
   /** The name of a thread model that could no longer answer. */
   unreadyName?: string | null | undefined;
+  /** The reasoning effort it was asked for, when a notebook default or auto effort chose it (EN1, Pro). */
+  effort?: { level: string; from: string; reason?: string | undefined } | null | undefined;
+}
+
+/** EN1: " Effort: high, chosen by auto effort (a multi-step question)." After the model sentence; nothing for your own choice. */
+export function effortWords(e: WhyModelInput['effort']): string {
+  if (!e || e.from === 'thread') return '';
+  if (e.from === 'notebook') return ` Effort ${e.level}, this notebook's default.`;
+  return ` Effort ${e.level}, chosen by auto effort${e.reason ? ` (${e.reason.replace(/[.\s]+$/, '')})` : ''}.`;
 }
 
 /** FL1: what a router that learns did, in a sentence to follow "The X flow routed it." */
@@ -292,6 +301,10 @@ export function learnedWords(
 
 /** One or two sentences on why this model answered. */
 export function whyThisModel(i: WhyModelInput): string {
+  return `${whyModel(i)}${effortWords(i.effort)}`;
+}
+
+function whyModel(i: WhyModelInput): string {
   if (i.flowName) return `The ${i.flowName} flow routed it.${learnedWords(i.learned)}`;
   if (i.claudeCodeSession)
     return `This thread is a Claude Code session. Claude Code chose ${shortModelName(i.name)} for it.`;

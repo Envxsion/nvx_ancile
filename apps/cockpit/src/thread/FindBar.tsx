@@ -14,16 +14,26 @@
  *           |  it and marks the words with the browser's highlight
  *           |  (CSS.highlights) where it has one. The count is read
  *           |  out politely; motion is never added, so reduced motion
- *           |  needs nothing.
+ *           |  needs nothing. Pro adds "All branches": a panel under the bar
+ *           |  (thread/FindBranches.tsx) lists the hits on other
+ *           |  branches; picking one switches branch (lib/findBranches.ts)
+ *           |  and then steps to it here. A branch deleted since the
+ *           |  list was made is said so, and the list is asked again.
  * ------------------------------------------------------------------
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { switchToBranch } from '../lib/findBranches';
 import { useFind } from '../lib/findStore';
+import { queryClient } from '../lib/query';
 import { FIND_MAX, type FindHit, findInThread, keepActive, stepIndex } from '../lib/threadFind';
 import type { MessageView } from '../lib/types';
+import type { FindBranchPick } from '../pro/slot';
+import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
+import { FindBranches } from './FindBranches';
 import { applyFindMarks, clearFindMarks, revealHit } from './findDom';
+import '../styles/tsfind.css';
 
 export function FindBar({ messages }: { messages: MessageView[] }) {
   const hide = useFind((s) => s.hide);
@@ -31,6 +41,11 @@ export function FindBar({ messages }: { messages: MessageView[] }) {
   const input = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
   const [at, setAt] = useState(-1);
+  const [all, setAll] = useState(false);
+  const threadId = useFind((s) => s.threadId);
+  const leafId = messages.at(-1)?.id ?? null;
+  // A hit on another branch, once its branch is showing: step to it as soon as the messages are here.
+  const [pending, setPending] = useState<{ hit: FindHit; leaf: string } | null>(null);
   const hits = useMemo(() => findInThread(messages, q), [messages, q]);
   const prev = useRef<FindHit | undefined>(undefined);
 
@@ -72,6 +87,42 @@ export function FindBar({ messages }: { messages: MessageView[] }) {
     return () => cancelAnimationFrame(raf);
   }, [jump, q]);
 
+  // After the two effects above, so a jump from "All branches" wins over keeping the old match.
+  useEffect(() => {
+    if (!pending) return;
+    // Wait until the thread shows the new branch.
+    if (!messages.some((m) => m.id === pending.leaf || m.id === pending.hit.messageId)) return;
+    setPending(null);
+    const want = pending.hit;
+    const i = hits.findIndex(
+      (h) => h.messageId === want.messageId && h.where === want.where && h.callId === want.callId,
+    );
+    if (i >= 0) setAt(i);
+    else {
+      // Older than the loaded page: the thread loads it, then the bar marks it.
+      setAt(-1);
+      goTo(want);
+    }
+  }, [pending, hits, messages, goTo]);
+
+  const pick = async (p: FindBranchPick) => {
+    if (!threadId) return;
+    const done = await switchToBranch(threadId, p, leafId);
+    if (done === 'ok')
+      setPending({
+        leaf: p.leafId,
+        hit: { messageId: p.messageId, where: p.where, nth: 0, ...(p.callId && { callId: p.callId }) },
+      });
+    else if (done === 'gone') {
+      notify({
+        level: 'info',
+        title: 'That branch has been deleted',
+        body: 'The list is updated. Nothing moved.',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['pro', 'find', 'branches'] });
+    }
+  };
+
   const step = (dir: 1 | -1) => setAt((i) => stepIndex(i, hits.length, dir));
   const many = hits.length >= FIND_MAX;
   const status = !q.trim()
@@ -81,52 +132,77 @@ export function FindBar({ messages }: { messages: MessageView[] }) {
       : 'No matches';
 
   return (
-    <search className="findbar" aria-label="Find in this thread">
-      <Icon name="search" size={13} />
-      <input
-        ref={input}
-        className="findbar__input"
-        type="text"
-        value={q}
-        placeholder="Find in this thread"
-        aria-label="Find in this thread"
-        spellCheck={false}
-        autoComplete="off"
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            hide();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            step(e.shiftKey ? -1 : 1);
-          }
-        }}
-      />
-      <span className="findbar__count mute" data-num role="status" aria-live="polite">
-        {status}
-      </span>
-      <button
-        type="button"
-        className="icon-btn icon-btn--sm"
-        aria-label="Previous match"
-        disabled={!hits.length}
-        onClick={() => step(-1)}
-      >
-        <Icon name="chevronDown" size={13} className="findbar__up" />
-      </button>
-      <button
-        type="button"
-        className="icon-btn icon-btn--sm"
-        aria-label="Next match"
-        disabled={!hits.length}
-        onClick={() => step(1)}
-      >
-        <Icon name="chevronDown" size={13} />
-      </button>
-      <button type="button" className="icon-btn icon-btn--sm" aria-label="Close find" onClick={hide}>
-        <Icon name="close" size={13} />
-      </button>
-    </search>
+    <div className="findbar-wrap">
+      <search className="findbar" aria-label="Find in this thread">
+        <Icon name="search" size={13} />
+        <input
+          ref={input}
+          className="findbar__input"
+          type="text"
+          value={q}
+          placeholder="Find in this thread"
+          aria-label="Find in this thread"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              hide();
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              step(e.shiftKey ? -1 : 1);
+            }
+          }}
+        />
+        <span className="findbar__count mute" data-num role="status" aria-live="polite">
+          {status}
+        </span>
+        <button
+          type="button"
+          className="icon-btn icon-btn--sm"
+          aria-label="Previous match"
+          disabled={!hits.length}
+          onClick={() => step(-1)}
+        >
+          <Icon name="chevronDown" size={13} className="findbar__up" />
+        </button>
+        <button
+          type="button"
+          className="icon-btn icon-btn--sm"
+          aria-label="Next match"
+          disabled={!hits.length}
+          onClick={() => step(1)}
+        >
+          <Icon name="chevronDown" size={13} />
+        </button>
+        <button
+          type="button"
+          className="findbar__branches"
+          aria-pressed={all}
+          aria-label="Also find on other branches (Pro)"
+          onClick={() => setAll((v) => !v)}
+        >
+          All branches
+        </button>
+        <button type="button" className="icon-btn icon-btn--sm" aria-label="Close find" onClick={hide}>
+          <Icon name="close" size={13} />
+        </button>
+      </search>
+      {all && threadId ? (
+        <div className="findbar__panel">
+          {q.trim() ? (
+            <FindBranches
+              threadId={threadId}
+              query={q.trim()}
+              currentId={leafId}
+              pick={(p) => void pick(p)}
+            />
+          ) : (
+            <p className="ts-load mute">Type the words to find on the other branches.</p>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }

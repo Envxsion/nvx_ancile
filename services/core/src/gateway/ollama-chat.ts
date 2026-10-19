@@ -145,16 +145,20 @@ export async function* ollamaChat(
     toSdkMessages(req.messages, { tools, vision, ...(opts.images && { images: opts.images }) }),
   );
   if (req.system !== undefined) messages.unshift({ role: 'system', content: req.system });
-  const numCtx = servedWindow(m);
+  const numCtx = req.local?.numCtx ?? servedWindow(m);
   const think = effortOptions(m, req.effort).think;
   const body = {
     model: m.provider_model,
     messages,
     stream: true,
+    // LM1: a notebook's keep-alive preset (Pro).
+    ...(req.local?.keepAlive !== undefined && { keep_alive: req.local.keepAlive }),
     // EN1: gpt-oss reads "low", "medium" or "high"; undefined for a model that takes no effort.
     ...(think && { think }),
     options: {
       num_ctx: numCtx,
+      // LM1: GPU layers, only when something chose them (0 is a choice: CPU only).
+      ...(req.local?.numGpu !== undefined && { num_gpu: req.local.numGpu }),
       ...(req.maxOutputTokens !== undefined && { num_predict: req.maxOutputTokens }),
       ...(req.temperature !== undefined && { temperature: req.temperature }),
     },

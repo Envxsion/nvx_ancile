@@ -14,8 +14,8 @@
  *           |  them all. Attention is three states and one rule:
  *           |  needs you (a run waits on an approval), working (a run
  *           |  is live), unread (an answer you have not opened).
- *  Note     |  TODO(phase-0.1.1): the memory inbox takes the same
- *           |  selection rules and bulk bar (ROADMAP TC4).
+ *  Note     |  The memory inbox (memory/Inbox.tsx) uses the same
+ *           |  rules over its cards; nothing here knows what an id is.
  * ------------------------------------------------------------------
  */
 
@@ -81,8 +81,8 @@ export function dragIds(sel: Selection, grabbed: string, order: readonly string[
 }
 
 /** Said to screen readers when the selection changes. */
-export function selectionSaid(n: number): string {
-  return n === 0 ? 'Selection cleared' : `${n} ${n === 1 ? 'thread' : 'threads'} selected`;
+export function selectionSaid(n: number, noun = 'thread'): string {
+  return n === 0 ? 'Selection cleared' : `${n} ${n === 1 ? noun : `${noun}s`} selected`;
 }
 
 /* ---- Attention (RA1) ------------------------------------------------------- */

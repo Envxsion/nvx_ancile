@@ -21,10 +21,11 @@
 
 import type { system } from '@nvx/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { relative } from '../lib/format';
 import { reportFailure } from '../ops/common';
+import { RestoreProgress } from '../setup/restore';
 import { ErrorState } from '../ui/ErrorState';
 import { Icon } from '../ui/Icon';
 
@@ -59,6 +60,8 @@ export function StartupGate({ children }: { children: ReactNode }) {
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
+    // A restore chosen in setup is being applied: follow it until it ends.
+    refetchInterval: (query) => (query.state.data?.error?.code === 'system.restoring' ? 2000 : false),
   });
   if (q.data?.state === 'stopped') return <StartupScreen status={q.data} />;
   return <>{children}</>;
@@ -96,6 +99,45 @@ export function StartupScreen({ status }: { status: Status }) {
   const can = (a: system.StartupAction) => status.actions.includes(a);
   const error = status.error;
   const pick = status.backups.find((b) => b.name === chosen) ?? null;
+  const restoring = error?.code === 'system.restoring';
+  // A finished restore: the desktop app starts again by itself; wait for it, then load the app.
+  const finished = restoring && status.restore?.state === 'done';
+  useEffect(() => {
+    if (finished) void waitForCore();
+  }, [finished]);
+
+  if (restoring)
+    return (
+      <main className="startup" aria-labelledby="startup-title">
+        <section className="startup__card m-glass">
+          <span className="startup__icon" aria-hidden="true">
+            <Icon name="archive" size={22} />
+          </span>
+          <h1 id="startup-title" className="startup__title">
+            Restoring your backup
+          </h1>
+          <RestoreProgress status={status} />
+          {can('retry') ? (
+            <div className="startup__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy}
+                data-busy={retry.isPending || undefined}
+                onClick={() => retry.mutate()}
+              >
+                <Icon name="regenerate" size={14} /> Start NVX Ancile again
+              </button>
+            </div>
+          ) : null}
+          {restarting ? (
+            <p className="startup__status" role="status">
+              <Icon name="clock" size={14} /> {restarting}
+            </p>
+          ) : null}
+        </section>
+      </main>
+    );
 
   return (
     <main className="startup" aria-labelledby="startup-title">

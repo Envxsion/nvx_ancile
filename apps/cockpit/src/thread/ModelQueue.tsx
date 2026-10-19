@@ -7,7 +7,8 @@
  *  Purpose  |  Shows the message that waits behind a running answer,
  *           |  what it waits for, and the three things you can do:
  *           |  let it wait, stop the answer and send it now, or take
- *           |  it back.
+ *           |  it back. With Pro, a waiting message may be offered to
+ *           |  the running answer as a note (thread/SteerSlot.tsx).
  *  How      |  Same line as Claude Code's queue (claudecode/LiveBar):
  *           |  "Queued", the words, "Sends when this turn ends". A
  *           |  message that will not send by itself (the answer ended
@@ -19,6 +20,7 @@
 
 import { Icon } from '../ui/Icon';
 import { HELD_WORDS, useQueue } from './queue';
+import { SteerSlot } from './SteerSlot';
 import '../styles/cclive.css';
 
 export function ModelQueue({
@@ -47,9 +49,11 @@ export function ModelQueue({
       <span className="hint-line__text">
         <strong>Queued</strong> {q.text}
       </span>
-      <span className="mute cc-queued__when">
-        {held && q.why ? HELD_WORDS[q.why] : 'Sends when this turn ends'}
-      </span>
+      {held && q.why ? (
+        <span className="mute cc-queued__when">{HELD_WORDS[q.why]}</span>
+      ) : (
+        <SteerSlot threadId={threadId} q={q} busy={busy} />
+      )}
       {held || busy ? (
         <button type="button" className="link-btn" onClick={onSendNow}>
           {held ? (q.why === 'branch' ? 'Send here' : 'Send now') : 'Stop and send now'}

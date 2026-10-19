@@ -15,8 +15,8 @@
  *           |  at that message. Loaded when the bar is first used.
  *  Note     |  Highlighted text is data: it is quoted as text, never
  *           |  run, and a note holds it as a block quote.
- *           |  TODO(phase-0.1.1): Pro adds "Ask another model about
- *           |  this" through Beam (pro/ seam).
+ *           |  "Ask another model about this" is Pro's (pro/SideAsk.tsx
+ *           |  opens its card; the bar button is public, gated there).
  * ------------------------------------------------------------------
  */
 

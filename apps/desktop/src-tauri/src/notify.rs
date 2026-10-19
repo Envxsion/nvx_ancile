@@ -15,9 +15,11 @@
 //           |  notification. Windows toasts can be clicked (the
 //           |  window opens on that approval or thread) and can carry
 //           |  Approve and Deny when Core sent them (Pro, ordinary
-//           |  requests only). Elsewhere the system notification has
-//           |  no click we can hear, so coming back to the window
-//           |  within half a minute opens the same place.
+//           |  requests only). Linux does the same where the daemon
+//           |  offers actions (notify-rust). macOS, and a Linux daemon
+//           |  that ignores actions, has no click we can hear, so
+//           |  coming back to the window within half a minute opens
+//           |  the same place.
 //  Note     |  Focus Assist (Windows) and Focus (macOS) are the
 //           |  system's: a notification it holds back is not shown
 //           |  until it lets it through. A click only opens a place
@@ -210,9 +212,116 @@ pub fn show(app: &tauri::AppHandle, toast: &Toast, on_click: impl Fn(Click) + Se
     }
 }
 
-// TODO(phase-0.1.1): Pro's Approve and Deny buttons on macOS and Linux. The notification plugin
-// there cannot carry actions we can hear; Windows (above) can.
-#[cfg(not(windows))]
+/// The buttons a toast carries, as (argument, label) pairs: "approve:apr_1" and "deny:apr_1".
+/// None without an approval id, so a toast that is not a request never gets a button.
+pub fn button_args(toast: &Toast) -> Vec<(String, String)> {
+    match &toast.approval_id {
+        Some(id) => toast
+            .actions
+            .iter()
+            .map(|a| (format!("{}:{}", a.id, id), a.label.clone()))
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// What came of a pressed button, from Core's answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Core took the answer.
+    Answered,
+    /// The request was already answered in the app (or elsewhere): do nothing, and say so.
+    AlreadyAnswered,
+    /// Refused for any other reason (a critical request, no longer Pro): open it in the app.
+    OpenInApp,
+}
+
+/// Read Core's reply to `approval_action` (Ok, or "409: {...desktop.already_answered...}").
+pub fn outcome_of(result: &Result<(), String>) -> Outcome {
+    match result {
+        Ok(()) => Outcome::Answered,
+        Err(e) if e.starts_with("409") || e.contains("desktop.already_answered") => {
+            Outcome::AlreadyAnswered
+        }
+        Err(_) => Outcome::OpenInApp,
+    }
+}
+
+/// A plain note with no buttons and no click: "That request was already answered".
+pub fn note(app: &tauri::AppHandle, title: &str, body: &str) {
+    let toast = Toast {
+        title: title.into(),
+        body: Some(body.into()),
+        href: "/".into(),
+        approval_id: None,
+        actions: Vec::new(),
+    };
+    show(app, &toast, |_| {});
+}
+
+// Limits, plainly. Approve and Deny in the notification (Pro, ordinary requests only):
+//   Windows  yes: toast buttons, heard through tauri-winrt-notification.
+//   Linux    yes where the notification daemon offers actions (checked per run); a daemon that
+//            ignores them still shows the notification, and coming back to the window within
+//            half a minute opens the place. Uses notify-rust (MIT or Apache-2.0), the crate
+//            the notification plugin already builds on.
+//   macOS    no. The plugin's desktop backend (notify-rust, mac-notification-sys) draws no action
+//            buttons and hears no click, and banners only show one button under the alert style.
+//            Returning to the window opens the place, as before.
+// TODO(phase-0.2.0): macOS buttons through UNUserNotificationCenter action categories
+// (objc2-user-notifications), which needs a signed, notarised bundle to test honestly.
+// See docs/desktop.md.
+#[cfg(target_os = "linux")]
+pub fn show(_app: &tauri::AppHandle, toast: &Toast, on_click: impl Fn(Click) + Send + 'static) {
+    use notify_rust::Notification;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::OnceLock;
+
+    /// Waiting threads alive at once; past this a toast is shown without waiting.
+    static LIVE: AtomicUsize = AtomicUsize::new(0);
+    static ACTIONS: OnceLock<bool> = OnceLock::new();
+    let daemon_has_actions = *ACTIONS.get_or_init(|| {
+        notify_rust::get_capabilities()
+            .map(|c| c.iter().any(|x| x == "actions"))
+            .unwrap_or(false)
+    });
+
+    let mut n = Notification::new();
+    n.appname("NVX Ancile").summary(&toast.title);
+    if let Some(body) = &toast.body {
+        n.body(body);
+    }
+    if daemon_has_actions {
+        // "default" is the body click on daemons that send it; the rest are the buttons.
+        n.action("default", "Open");
+        for (arg, label) in button_args(toast) {
+            n.action(&arg, &label);
+        }
+    }
+    let href = toast.href.clone();
+    let wait = daemon_has_actions && LIVE.load(Ordering::SeqCst) < 16;
+    if wait {
+        LIVE.fetch_add(1, Ordering::SeqCst);
+    }
+    std::thread::spawn(move || {
+        match n.show() {
+            Ok(handle) if wait => {
+                handle.wait_for_action(|action| {
+                    if action != "__closed" {
+                        on_click(click_of(Some(action), &href));
+                    }
+                });
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("could not show a notification: {e}"),
+        }
+        if wait {
+            LIVE.fetch_sub(1, Ordering::SeqCst);
+        }
+    });
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 pub fn show(app: &tauri::AppHandle, toast: &Toast, _on_click: impl Fn(Click) + Send + 'static) {
     use tauri_plugin_notification::NotificationExt;
     let mut n = app.notification().builder().title(&toast.title);
@@ -378,5 +487,53 @@ mod tests {
             assert!(!safe_href(bad), "{bad:?}");
         }
         assert!(!safe_href(&format!("/{}", "a".repeat(400))));
+    }
+
+    #[test]
+    fn buttons_only_on_a_request() {
+        let with = Toast {
+            title: "t".into(),
+            body: None,
+            href: "/".into(),
+            approval_id: Some("apr_1".into()),
+            actions: vec![
+                Action {
+                    id: "approve".into(),
+                    label: "Approve".into(),
+                },
+                Action {
+                    id: "deny".into(),
+                    label: "Deny".into(),
+                },
+            ],
+        };
+        let args = button_args(&with);
+        assert_eq!(
+            args[0],
+            ("approve:apr_1".to_string(), "Approve".to_string())
+        );
+        assert_eq!(args[1].0, "deny:apr_1");
+        let without = Toast {
+            approval_id: None,
+            ..with
+        };
+        assert!(button_args(&without).is_empty());
+    }
+
+    #[test]
+    fn a_pressed_button_is_read_back_from_core() {
+        assert_eq!(outcome_of(&Ok(())), Outcome::Answered);
+        assert_eq!(
+            outcome_of(&Err("409: {\"code\":\"desktop.already_answered\"}".into())),
+            Outcome::AlreadyAnswered
+        );
+        assert_eq!(
+            outcome_of(&Err("403: {\"code\":\"desktop.critical_in_app\"}".into())),
+            Outcome::OpenInApp
+        );
+        assert_eq!(
+            outcome_of(&Err("connection refused".into())),
+            Outcome::OpenInApp
+        );
     }
 }

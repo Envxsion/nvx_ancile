@@ -157,3 +157,21 @@
 .trash[data-compact] .trash__note {
   font-size: var(--t-small);
 }
+
+/* Smart sections where Pro is not on (ROADMAP TC4): one quiet gilt row that explains itself. */
+.rail__locked {
+  margin: var(--sp-2) 0 var(--sp-1);
+  border-radius: var(--r-sm);
+}
+.rail__locked .rail__ghost {
+  border: 0;
+}
+.rail__pro {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--gilt);
+  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.4);
+}

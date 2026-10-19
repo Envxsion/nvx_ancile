@@ -46,6 +46,39 @@ export const StartupAction = z.enum(['restore', 'retry', 'continue_without_backu
 export type StartupAction = z.infer<typeof StartupAction>;
 
 /**
+ * A restore chosen from the setup step (ROADMAP SU1). It is staged first, applied when
+ * NVX Ancile restarts (Core is then the only thing using the database), and kept until
+ * it finishes, so a large one carries on after a restart.
+ */
+export const StagedRestore = z.object({
+  backup: z.string(),
+  bytes: z.number().int().nonnegative(),
+  staged_at: z.string(),
+  /** staged: chosen, nothing changed. restarting: apply it on the next start. running: being applied. failed / done: over. */
+  state: z.enum(['staged', 'restarting', 'running', 'failed', 'done']),
+  /** Where a running restore is. */
+  step: z.enum(['waiting', 'safety', 'clearing', 'restoring', 'done']),
+  /** Starts so far; more than one means it carried on after a restart. */
+  attempts: z.number().int().nonnegative(),
+  /** The safety copy of what was there before, once taken. */
+  safety: z.string().nullable(),
+  error: z.object({ title: z.string(), hint: z.string() }).nullable(),
+});
+export type StagedRestore = z.infer<typeof StagedRestore>;
+
+/** POST /api/v1/system/restore/stage: choose a backup to restore. Changes nothing yet. */
+export const StageRestoreRequest = z.object({ backup: z.string().min(1).max(200) }).strict();
+export type StageRestoreRequest = z.infer<typeof StageRestoreRequest>;
+
+/** GET /api/v1/system/restore */
+export const StagedRestoreState = z.object({
+  restore: StagedRestore.nullable(),
+  /** Whether "Restart and restore" restarts by itself (the desktop app) or you restart it. */
+  managed: z.boolean(),
+});
+export type StagedRestoreState = z.infer<typeof StagedRestoreState>;
+
+/**
  * GET /api/v1/system/startup. `running`: everything is up. `stopped`: Core
  * stopped before changing anything, with the reason and what can be done.
  */
@@ -61,6 +94,8 @@ export const StartupStatus = z.object({
   suggested: z.string().nullable(),
   /** Where the backups are, to show and to open. */
   folder: z.string(),
+  /** A restore chosen in setup that is waiting, running or finished (absent from an older Core). */
+  restore: StagedRestore.nullable().optional(),
 });
 export type StartupStatus = z.infer<typeof StartupStatus>;
 

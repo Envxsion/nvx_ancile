@@ -13,9 +13,9 @@
  *           |  then jumps to that message and opens that fold. The
  *           |  count is recomputed as an answer streams, and the step
  *           |  you are on stays put while it does.
- *  Note     |  Free searches the current branch. TODO(phase-0.1.1):
- *           |  Pro adds "All branches", listing hits on other branches
- *           |  with a jump that switches branch (Pro seam).
+ *  Note     |  Free searches the current branch. Pro adds "All
+ *           |  branches" (FindBranches seam), listing hits on other
+ *           |  branches with a jump that switches branch.
  * ------------------------------------------------------------------
  */
 

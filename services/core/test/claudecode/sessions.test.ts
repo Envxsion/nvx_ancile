@@ -224,7 +224,7 @@ describe('importing', () => {
     expect(a?.parts[2]).toMatchObject({ call_id: 'call1', ok: true, result: 'export const x = 1;' });
     // One API response spans entries a1 and a2: its usage counts once.
     expect(a?.usage).toEqual({
-      input_tokens: 13,
+      input_tokens: 113,
       output_tokens: 12,
       cached_tokens: 100,
       cache_write_tokens: 0,

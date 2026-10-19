@@ -42,6 +42,8 @@ export interface ModelView {
   chat?: boolean;
   /** EN1: the reasoning efforts its provider takes; absent: no effort chip. */
   effortLevels?: readonly import('@nvx/contracts').Effort[];
+  /** The model can reason (its effective capabilities say so): the thread shows the Thinking toggle. */
+  reasoning?: boolean;
   /** Added in Settings → Models: can be edited and removed. */
   custom?: boolean;
   /** Where an OpenAI-compatible model is served. */
@@ -197,6 +199,8 @@ export interface ThreadView {
   claudeCode?: import('@nvx/contracts').ClaudeCodeBinding | null;
   /** EN1: the reasoning effort chosen for this thread; null or absent: the model's default. */
   effort?: import('@nvx/contracts').Effort | null;
+  /** Extended thinking is on for this thread. */
+  thinking?: boolean;
   /**
    * Paging (lib/threadPages.ts): the path's head, how many messages it has,
    * the id of the first one loaded (the cursor for the page before it) and

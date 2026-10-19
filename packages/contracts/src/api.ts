@@ -134,7 +134,7 @@ export const ThreadSettings = z
     ancile: AncileInstructions.optional(),
     /**
      * Extended thinking is on for this thread. Turning it on or off starts a new
-     * prompt epoch (docs/prompt-caching.md). TODO(phase-0.1.1): the Cockpit toggle.
+     * prompt epoch (docs/prompt-caching.md). The Cockpit's Thinking toggle sets it.
      */
     thinking: z.boolean().optional(),
     /**

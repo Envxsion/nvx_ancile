@@ -121,6 +121,7 @@ export function toModelView(m: ModelInfo): ModelView {
     offline: m.offline,
     chat: !m.capabilities.some((c) => c === 'embeddings' || c === 'rerank'),
     ...(m.effort_levels?.length && { effortLevels: m.effort_levels }),
+    ...(m.capabilities.includes('reasoning') && { reasoning: true }),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
     ...(m.status === 'signed_out' && { note: 'Sign in to Claude Code first' }),
@@ -262,6 +263,8 @@ export interface Provenance {
   flow?: FlowProvenance;
   /** How the answer was routed and why (DESIGN §16.3): a flow or one model, and who chose it. */
   route?: AnswerRoute;
+  /** The reasoning effort asked for, and who chose it (EN1). */
+  effort?: import('@nvx/contracts').AnswerEffort;
   /** What its engine was given and why (docs/engines.md): recalled, digested, dropped, seeded. */
   engine_context?: import('@nvx/contracts').EngineContextReport;
   /** Problems that fixed themselves while it was written (retries that worked). */
@@ -535,6 +538,7 @@ export function toThreadView(p: ThreadPath): ThreadView {
     activeRun: p.active_run ? { id: p.active_run.id, messageId: p.active_run.message_id } : null,
     claudeCode: p.thread.settings.claude_code ?? null,
     effort: p.thread.settings.effort ?? null,
+    thinking: p.thread.settings.thinking === true,
     headId: p.head_id,
     total: p.total ?? p.messages.length,
     cursor: p.messages[0]?.id ?? null,

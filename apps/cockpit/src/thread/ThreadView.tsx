@@ -85,7 +85,7 @@ import { headOf, overlay, withHead } from './liveOverlay';
 import { MessageList } from './MessageList';
 import { ModelGoneNotice } from './ModelGoneNotice';
 import { NewTextPill } from './NewTextPill';
-import { dequeue, enqueue, hold, queueStep, useQueue } from './queue';
+import { dequeue, enqueue, hold, queueStep, resolveSteer, takeBack, useQueue } from './queue';
 import { stayAtBottomOnShrink } from './stayAtBottom';
 
 // Claude Code's status line, notices and pickers belong to threads from Claude Code only: they load
@@ -445,6 +445,16 @@ export function ThreadView({ threadId }: { threadId: string }) {
   useEffect(() => {
     if (cc) return;
     const step = queueStep(queued, { busy, lastId: last?.id ?? null, lastStatus: last?.status });
+    // CH7 (Pro): the model read the note, or the turn ended with it still waiting: Core says which.
+    if (step === 'steered') {
+      dequeue(threadId);
+      setAnnounce('The model has your note.');
+      return;
+    }
+    if (step === 'resolve-steer') {
+      void resolveSteer(threadId);
+      return;
+    }
     if (step === 'hold-error') hold(threadId, 'error');
     if (step === 'hold-branch') hold(threadId, 'branch');
     if (step !== 'send') return;
@@ -458,9 +468,8 @@ export function ThreadView({ threadId }: { threadId: string }) {
 
   // Back out of the queue: its words return to the composer, joined to whatever is written there.
   const unqueue = useCallback(() => {
-    const q = dequeue(threadId);
-    if (q)
-      window.dispatchEvent(new CustomEvent('ancile:composer-insert', { detail: { threadId, text: q.text } }));
+    const text = takeBack(threadId);
+    if (text) window.dispatchEvent(new CustomEvent('ancile:composer-insert', { detail: { threadId, text } }));
   }, [threadId]);
 
   const sendQueuedNow = () => {

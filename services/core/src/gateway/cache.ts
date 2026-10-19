@@ -155,7 +155,7 @@ export function cacheExtras(
       session_id: key,
       // Middle-out squeezing rewrites the prompt when it is long, so no two calls start alike.
       transforms: [],
-      // TODO(phase-0.1.1): unconfirmed. Automatic cache control for Claude models routed through OpenRouter.
+      // Top-level cache_control is OpenRouter's automatic caching for Claude (openrouter.ai/docs/features/prompt-caching).
       ...(m.provider_model.startsWith('anthropic/') && { cache_control: { type: 'ephemeral' } }),
     };
   }

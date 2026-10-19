@@ -5,7 +5,9 @@
  *  ID       |  cockpit
  * ------------------------------------------------------------------
  *  Purpose  |  Choose what an export holds and save it: Markdown, a
- *           |  page that prints to PDF, or the whole tree as JSON.
+ *           |  page that prints to PDF, or the whole tree as JSON. With
+ *           |  Pro, Word and PDF files with an evidence appendix and a
+ *           |  branch comparison sit below (thread/ExportPro.tsx).
  *  How      |  Nothing leaves the machine: the file is built here
  *           |  (the tree is fetched from Core). Thinking is off by
  *           |  default, tool steps and sources are on. Escape closes.
@@ -30,6 +32,7 @@ import {
 import type { ThreadView } from '../lib/types';
 import { notify } from '../state/notify';
 import { Check, Segmented } from '../ui/controls';
+import { ExportPro } from './ExportPro';
 
 const MIME: Record<ExportFormat, string> = {
   markdown: 'text/markdown',
@@ -58,6 +61,12 @@ function printHtml(html: string): void {
     setTimeout(() => frame.remove(), 60_000);
   };
   document.body.appendChild(frame);
+}
+
+/** The message the branch on screen ends at (a reply Core has not named yet is not one). */
+function headOf(t: ThreadView | undefined): string | null {
+  const id = t?.messages.findLast((m) => !m.folded && !m.cc)?.id ?? null;
+  return id && !id.startsWith('pending-') ? id : null;
 }
 
 export function ExportHost() {
@@ -153,6 +162,13 @@ export function ExportHost() {
               </>
             )}
           </div>
+          <ExportPro
+            threadId={threadId}
+            title={queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.title ?? 'thread'}
+            headId={headOf(queryClient.getQueryData<ThreadView>(keys.thread(threadId)))}
+            options={o}
+            onDone={close}
+          />
           <div className="dialog__actions">
             <button type="button" className="btn btn--ghost" onClick={close}>
               Cancel

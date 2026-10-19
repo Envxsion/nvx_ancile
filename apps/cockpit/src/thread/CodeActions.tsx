@@ -4,9 +4,10 @@
  *  Ref      |  roadmap AN3
  *  ID       |  cockpit
  * ------------------------------------------------------------------
- *  Purpose  |  Run (Python), Wrap and Save as file in a code block's
+ *  Purpose  |  Run (Python), Wrap, Save as file and (Pro, in a thread
+ *           |  with a linked repo) Apply to repo in a code block's
  *           |  header, and a Mermaid block drawn as a diagram with
- *           |  Show code.
+ *           |  Show code and Open as artifact.
  *  How      |  Loaded the first time an answer has a code block. Run
  *           |  does not run anything itself: it writes the request in
  *           |  the composer (lib/codeActions.ts) and you send it, so
@@ -16,19 +17,22 @@
  *           |  asks about shows its reason and asks again. Mermaid
  *           |  loads on first diagram, renders in strict mode, and
  *           |  shows the code with a note when it does not parse.
+ *           |  Open as artifact hands the diagram to the artifact panel
+ *           |  (full size, copy and download there); a diagram still
+ *           |  being written waits. Apply to repo is pro/ApplyToRepo.tsx.
  *  Note     |  Code from an answer is data: nothing in it is run by
- *           |  this page. TODO(phase-0.1.1): Pro "Apply to repo" in a
- *           |  repo-linked thread, opening the diff in the lab (Pro
- *           |  seam). Open a diagram as an artifact: TODO(phase-0.1.1).
+ *           |  this page.
  * ------------------------------------------------------------------
  */
 
 import { useEffect, useId, useState } from 'react';
+import { openArtifact } from '../artifacts/store';
 import { saveFile } from '../code/api';
 import { openFile } from '../code/store';
 import { defaultFileName, fileNameProblem, isPython, runRequest } from '../lib/codeActions';
 import { insertInComposer } from '../lib/selectionActions';
-import { useThreadId } from '../lib/threadContext';
+import { useAnswer, useThreadId } from '../lib/threadContext';
+import { ApplyToRepo } from '../pro/ApplyToRepo';
 import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
 import { CodeBlock } from './Code';
@@ -102,6 +106,7 @@ export function CodeTools({
         <Icon name="download" size={12} />
         <span className="code__copy-word">Save as file</span>
       </button>
+      <ApplyToRepo code={code} lang={lang} />
       {saving ? (
         <form
           className="code__save"
@@ -135,8 +140,17 @@ export function CodeTools({
   );
 }
 
+/** A stable key for a diagram, so opening the same one twice is the same artifact. */
+export function diagramKey(code: string): string {
+  let h = 5381;
+  for (let i = 0; i < code.length; i++) h = ((h * 33) ^ code.charCodeAt(i)) >>> 0;
+  return `diagram-${h.toString(36)}`;
+}
+
 /** A Mermaid block as a diagram; the code a click away, and shown at once if it will not draw. */
 export function MermaidView({ code }: { code: string }) {
+  const threadId = useThreadId();
+  const answer = useAnswer();
   const [svg, setSvg] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -162,6 +176,40 @@ export function MermaidView({ code }: { code: string }) {
     };
   }, [code, id]);
 
+  // A fence still being written is not a finished diagram: opening it would show half of it.
+  const writing = answer?.streaming ?? false;
+  const openAsArtifact = (
+    <button
+      type="button"
+      className="code__act"
+      disabled={writing}
+      title={
+        writing
+          ? 'Wait for the answer to finish: the diagram may not be complete yet'
+          : 'Open the diagram full size, with copy and download'
+      }
+      onClick={() =>
+        openArtifact({
+          threadId,
+          messageId: answer?.messageId ?? null,
+          artifact: {
+            key: diagramKey(code),
+            type: 'mermaid',
+            title: 'Diagram',
+            language: null,
+            content: code,
+            complete: true,
+            start: 0,
+            end: code.length,
+          },
+        })
+      }
+    >
+      <Icon name="expand" size={12} />
+      Open as artifact
+    </button>
+  );
+
   if (failed || !svg || showCode)
     return (
       <div className="mmd">
@@ -169,9 +217,12 @@ export function MermaidView({ code }: { code: string }) {
           <p className="mmd__note mute">This diagram could not be drawn. The code is below.</p>
         ) : null}
         {svg && showCode ? (
-          <button type="button" className="code__act" onClick={() => setShowCode(false)}>
-            Show diagram
-          </button>
+          <>
+            <button type="button" className="code__act" onClick={() => setShowCode(false)}>
+              Show diagram
+            </button>
+            {openAsArtifact}
+          </>
         ) : null}
         <CodeBlock code={code} lang="mermaid" clamp={0} />
       </div>
@@ -184,6 +235,7 @@ export function MermaidView({ code }: { code: string }) {
         <button type="button" className="code__act" onClick={() => setShowCode(true)}>
           Show code
         </button>
+        {openAsArtifact}
       </figcaption>
     </figure>
   );

@@ -47,6 +47,7 @@ import { requestGuard } from '../http/guard';
 import { errorHandler } from '../obs/errors';
 import { logFor } from '../obs/logger';
 import { traceMiddleware } from '../obs/tracing';
+import { clearStaged, readStaged, requestApply, stageRestore } from './stagedRestore';
 
 const log = logFor('startup');
 
@@ -65,10 +66,17 @@ export interface StartupDeps {
   version: string;
   schema: () => Pick<SchemaState, 'expected' | 'current'>;
   tools?: PgTools;
+  /** The desktop app starts every service again when Core exits with RESTART_ALL_EXIT. */
+  managed?: boolean;
+  exit?: (code: number) => void;
 }
 
 /** Which actions fit an error. */
-export function actionsFor(code: string | null, hasBackups: boolean): system.StartupAction[] {
+export function actionsFor(
+  code: string | null,
+  hasBackups: boolean,
+  restore: system.StagedRestore | null = null,
+): system.StartupAction[] {
   switch (code) {
     case 'system.database_newer':
       return [...(hasBackups ? (['restore'] as const) : []), 'reinstall'];
@@ -77,6 +85,9 @@ export function actionsFor(code: string | null, hasBackups: boolean): system.Sta
     case 'system.disk_full':
     case 'system.migration_failed':
       return ['retry', ...(hasBackups ? (['restore'] as const) : [])];
+    // A restore that failed can be tried again from the setup step: start up again to get there.
+    case 'system.restoring':
+      return restore?.state === 'failed' ? ['retry'] : [];
     case null:
       return [];
     default:
@@ -96,15 +107,17 @@ export async function startupStatus(
       ? (backups.find((b) => b.reason === 'before-migration')?.name ?? null)
       : null);
   const s = deps.schema();
+  const restore = await readStaged(deps.dataDir);
   return {
     state: error ? 'stopped' : 'running',
     version: deps.version,
     schema: { expected: s.expected, current: s.current },
     error: error ? error.toJSON(traceId).error : null,
-    actions: actionsFor(error?.code ?? null, backups.length > 0),
+    actions: actionsFor(error?.code ?? null, backups.length > 0, restore),
     backups: backups.map(publicBackup),
     suggested,
     folder: backupsDir(deps.dataDir),
+    restore,
   };
 }
 
@@ -121,6 +134,31 @@ export function startupRoutes(deps: StartupDeps) {
       folder: backupsDir(deps.dataDir),
     } satisfies system.BackupList),
   );
+  // Restore from the setup step: choose, restart, and it is applied before anything opens the database.
+  r.get('/system/restore', async (c) => {
+    c.header('cache-control', 'no-store');
+    return c.json({
+      restore: await readStaged(deps.dataDir),
+      managed: deps.managed === true,
+    } satisfies system.StagedRestoreState);
+  });
+  r.post('/system/restore/stage', async (c) => {
+    const req = await body(c, system.StageRestoreRequest);
+    return c.json(await stageRestore(deps.dataDir, req.backup), 201);
+  });
+  r.delete('/system/restore', async (c) => {
+    await clearStaged(deps.dataDir);
+    return c.json({ ok: true });
+  });
+  r.post('/system/restore/apply', async (c) => {
+    const restore = await requestApply(deps.dataDir);
+    const managed = deps.managed === true;
+    if (managed) {
+      const exit = deps.exit ?? ((code: number) => setTimeout(() => process.exit(code), 400).unref());
+      exit(RESTART_ALL_EXIT);
+    }
+    return c.json({ restore, restarting: managed });
+  });
   r.post('/system/backups', async (c) => {
     const s = deps.schema();
     const b = await takeBackup({
@@ -212,7 +250,7 @@ export function stoppedApp(deps: StoppedDeps) {
       status: 503,
       errorClass: 'transient',
     });
-    return restart(c, { restored: publicBackup(restored), safety: publicBackup(safety) });
+    return restart(c, { restored: publicBackup(restored), safety: safety ? publicBackup(safety) : null });
   });
   api.post('/system/startup/retry', (c) => restart(c, {}));
   api.post('/system/startup/continue-without-backup', async (c) => {

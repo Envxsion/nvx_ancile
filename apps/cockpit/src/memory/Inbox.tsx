@@ -15,16 +15,30 @@
  *           |  seen only once waits under "Watching" with its
  *           |  uncertainty written in (M8). Below the waiting ones,
  *           |  what was kept on its own lately, each with Undo.
+ *           |  Cards select like threads in the rail (ROADMAP TC4):
+ *           |  Ctrl or Cmd click or Space toggles, Shift click or
+ *           |  Shift with an arrow runs a range, Ctrl+A takes all. A
+ *           |  floating bar then keeps or turns down the lot, with one
+ *           |  Undo (shell/selection.ts holds the rules).
  * ------------------------------------------------------------------
  */
 
 import type { MemoryProposal } from '@nvx/contracts';
-import { type KeyboardEvent, useRef, useState } from 'react';
+import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { relative } from '../lib/format';
+import {
+  EMPTY,
+  extendTo,
+  prune,
+  type Selection,
+  selectAll,
+  selectionSaid,
+  toggle as toggleSel,
+} from '../shell/selection';
 import { Icon } from '../ui/Icon';
 import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
-import { type Keep, useDecide, useMemoryUi, useProposals } from './api';
+import { decideMany, type Keep, useDecide, useMemoryUi, useProposals } from './api';
 import { Evidence } from './Evidence';
 import { KeepIn } from './KeepIn';
 
@@ -50,7 +64,24 @@ const where = (path: string) =>
 export const lapses = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 
-function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void }) {
+interface Picking {
+  selected: boolean;
+  /** How many cards are selected. */
+  count: number;
+  pick: (id: string, how: 'toggle' | 'range' | 'range-add' | 'all') => void;
+  decideAll: (decision: 'approve' | 'reject') => void;
+  clear: () => void;
+}
+
+function Card({
+  p,
+  onMove,
+  picking,
+}: {
+  p: MemoryProposal;
+  onMove: (d: 1 | -1, extend?: boolean) => void;
+  picking: Picking;
+}) {
   const decide = useDecide();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(p.text);
@@ -72,16 +103,39 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
     );
   };
 
+  // With several cards selected (this one among them), A and R decide them all.
+  const many = picking.selected && picking.count > 1;
+
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
-    if (editing || e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (editing || e.target !== e.currentTarget || e.altKey) return;
     const k = e.key.toLowerCase();
-    if (k === 'a') act('approve');
-    else if (k === 'r') act('reject');
-    else if (k === 'e') setEditing(true);
+    if ((e.ctrlKey || e.metaKey) && k === 'a') picking.pick(p.id, 'all');
+    else if (e.ctrlKey || e.metaKey) return;
+    else if (k === ' ') picking.pick(p.id, 'toggle');
+    else if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp'))
+      onMove(e.key === 'ArrowDown' ? 1 : -1, true);
+    else if (e.key === 'Escape' && picking.count > 0) picking.clear();
+    else if (k === 'a') {
+      if (many) picking.decideAll('approve');
+      else act('approve');
+    } else if (k === 'r') {
+      if (many) picking.decideAll('reject');
+      else act('reject');
+    } else if (k === 'e') setEditing(true);
     else if (k === 'j' || e.key === 'ArrowDown') onMove(1);
     else if (k === 'k' || e.key === 'ArrowUp') onMove(-1);
     else return;
     e.preventDefault();
+  };
+
+  // Ctrl, Cmd or Shift click picks the card; a plain click on its blank space lets go of a selection.
+  const onClick = (e: MouseEvent<HTMLElement>) => {
+    if ((e.target as HTMLElement).closest('button, a, textarea, input, select, summary')) return;
+    if (e.shiftKey) {
+      picking.pick(p.id, e.ctrlKey || e.metaKey ? 'range-add' : 'range');
+      window.getSelection()?.removeAllRanges();
+    } else if (e.ctrlKey || e.metaKey) picking.pick(p.id, 'toggle');
+    else if (picking.count > 0) picking.clear();
   };
 
   return (
@@ -89,9 +143,11 @@ function Card({ p, onMove }: { p: MemoryProposal; onMove: (d: 1 | -1) => void })
       className="mem-card"
       data-leaving={leaving ?? undefined}
       data-untrusted={untrusted || undefined}
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a focusable card with its own shortcuts (A, E, R)
+      data-selected={picking.selected || undefined}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a focusable card with its own shortcuts (A, E, R, Space)
       tabIndex={0}
       onKeyDown={onKey}
+      onClick={onClick}
       aria-label={`${KIND[p.kind]} for ${where(p.target_path)}: ${p.text}`}
     >
       <header className="mem-card__head">
@@ -219,27 +275,84 @@ function Kept({ p }: { p: MemoryProposal }) {
 
 export function Inbox() {
   const proposals = useProposals();
-  const list = useRef<HTMLOListElement>(null);
-  if (proposals.isPending) return <Skeleton lines={4} label="Loading the inbox" />;
-  // A failed read is not "Nothing waiting".
-  if (proposals.isError && !proposals.data)
-    return <LoadFailed error={proposals.error} what="The inbox" onRetry={() => proposals.refetch()} />;
+  const root = useRef<HTMLDivElement>(null);
+  const [sel, setSel] = useState<Selection>(EMPTY);
+  const [said, setSaid] = useState('');
+  const [busy, setBusy] = useState(false);
+
   const items = proposals.data?.items ?? [];
   const waiting = items.filter((p) => p.status === 'proposed');
   const watching = items.filter((p) => p.status === 'watching');
   const done = items.filter((p) => p.status !== 'proposed' && p.status !== 'watching').slice(0, 20);
+  // Every card on screen, in reading order: a range runs along this.
+  const order = [...waiting, ...watching].map((p) => p.id);
+  const orderKey = order.join(',');
 
-  const move = (from: number) => (d: 1 | -1) => {
-    const cards = list.current?.querySelectorAll<HTMLElement>('.mem-card');
-    cards?.[Math.max(0, Math.min(cards.length - 1, from + d))]?.focus();
+  // Cards that were decided (here or elsewhere) leave the selection.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: orderKey stands for order
+  useEffect(() => setSel((s) => prune(s, order)), [orderKey]);
+
+  const apply = useCallback((next: Selection) => {
+    setSel(next);
+    setSaid(selectionSaid(next.ids.size, 'suggestion'));
+  }, []);
+
+  const pick = (id: string, how: 'toggle' | 'range' | 'range-add' | 'all') =>
+    apply(
+      how === 'toggle'
+        ? toggleSel(sel, id)
+        : how === 'all'
+          ? selectAll(order)
+          : extendTo(sel, order, id, how === 'range-add'),
+    );
+
+  const decideAll = async (decision: 'approve' | 'reject') => {
+    const ids = order.filter((id) => sel.ids.has(id));
+    if (!ids.length || busy) return;
+    setBusy(true);
+    try {
+      await decideMany(ids, decision);
+      apply(EMPTY);
+    } finally {
+      setBusy(false);
+    }
   };
 
+  const picking = (id: string): Picking => ({
+    selected: sel.ids.has(id),
+    count: sel.ids.size,
+    pick,
+    decideAll: (d) => void decideAll(d),
+    clear: () => apply(EMPTY),
+  });
+
+  const move = (from: number) => (d: 1 | -1, extend?: boolean) => {
+    const cards = root.current?.querySelectorAll<HTMLElement>('.mem-card');
+    const at = Math.max(0, Math.min((cards?.length ?? 1) - 1, from + d));
+    cards?.[at]?.focus();
+    const id = order[at];
+    if (extend && id) {
+      // Shift with an arrow starts from the card you were on, then runs to the next.
+      const start = order[from];
+      const base = sel.anchor ? sel : start ? toggleSel(EMPTY, start) : sel;
+      apply(extendTo(base, order, id));
+    }
+  };
+
+  if (proposals.isPending) return <Skeleton lines={4} label="Loading the inbox" />;
+  // A failed read is not "Nothing waiting".
+  if (proposals.isError && !proposals.data)
+    return <LoadFailed error={proposals.error} what="The inbox" onRetry={() => proposals.refetch()} />;
+
   return (
-    <div className="mem-inbox">
+    <div className="mem-inbox" ref={root}>
+      <p className="sr-only" role="status" aria-live="polite">
+        {said}
+      </p>
       {waiting.length ? (
-        <ol className="mem-inbox__list" ref={list}>
+        <ol className="mem-inbox__list">
           {waiting.map((p, i) => (
-            <Card key={p.id} p={p} onMove={move(i)} />
+            <Card key={p.id} p={p} onMove={move(i)} picking={picking(p.id)} />
           ))}
         </ol>
       ) : (
@@ -261,7 +374,7 @@ export function Inbox() {
           </p>
           <ol className="mem-inbox__list">
             {watching.map((p, i) => (
-              <Card key={p.id} p={p} onMove={move(waiting.length + i)} />
+              <Card key={p.id} p={p} onMove={move(waiting.length + i)} picking={picking(p.id)} />
             ))}
           </ol>
         </section>
@@ -278,6 +391,49 @@ export function Inbox() {
             ))}
           </ul>
         </section>
+      ) : null}
+      {sel.ids.size > 0 ? (
+        <div
+          className="bulkbar mem-inbox__bar"
+          role="toolbar"
+          aria-label={`Actions for ${sel.ids.size} selected ${sel.ids.size === 1 ? 'suggestion' : 'suggestions'}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              apply(EMPTY);
+            }
+          }}
+        >
+          <span className="bulkbar__count" data-num>
+            {sel.ids.size} selected
+          </span>
+          <button
+            type="button"
+            className="bulkbar__btn"
+            disabled={busy}
+            onClick={() => void decideAll('approve')}
+          >
+            <Icon name="seal" size={13} />
+            Remember
+          </button>
+          <button
+            type="button"
+            className="bulkbar__btn"
+            disabled={busy}
+            onClick={() => void decideAll('reject')}
+          >
+            <Icon name="close" size={13} />
+            Not these
+          </button>
+          <button
+            type="button"
+            className="icon-btn icon-btn--xs"
+            aria-label="Clear selection"
+            onClick={() => apply(EMPTY)}
+          >
+            <Icon name="close" size={11} />
+          </button>
+        </div>
       ) : null}
     </div>
   );

@@ -1,0 +1,58 @@
+/* ==========================================================================
+   Apply to repo: the dialog a code block opens (ROADMAP AN3). Tokens only.
+   Pro fills the body; this is the shell and its locked card.
+   ========================================================================== */
+
+.apply {
+  position: fixed;
+  z-index: 51;
+  inset: 6vh 50% auto auto;
+  translate: 50% 0;
+  display: flex;
+  flex-direction: column;
+  width: min(960px, calc(100vw - 32px));
+  max-height: 88vh;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--lift-2);
+  box-shadow:
+    var(--shadow-modal),
+    inset 0 0 0 1px var(--hair-2);
+  animation: pop var(--d-short) var(--ease);
+}
+.apply:focus {
+  outline: none;
+}
+@media (max-width: 760px) {
+  .apply {
+    inset: 0;
+    translate: none;
+    width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}
+.apply__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--hair);
+}
+.apply__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.apply__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}

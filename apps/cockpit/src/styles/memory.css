@@ -1236,3 +1236,24 @@
   font-size: var(--t-small);
   color: var(--fg-2);
 }
+
+/* Selecting suggestions (ROADMAP TC4): a neutral wash and edge like the rail's, never violet. */
+.mem-card[data-selected] {
+  background: var(--chalk-2);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--edge-2);
+}
+.mem-inbox__bar {
+  position: sticky;
+  left: auto;
+  right: auto;
+  bottom: 12px;
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+.mem-inbox__bar .bulkbar__count {
+  flex: 0 0 auto;
+  padding: 0 8px;
+}

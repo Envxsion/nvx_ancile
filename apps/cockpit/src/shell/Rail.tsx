@@ -22,6 +22,8 @@
  *           |  archive, export and delete with one Undo. Threads that
  *           |  need you float to the top; answering ones pulse; an
  *           |  unread answer leaves a solid dot until you open it.
+ *           |  Pro's saved smart sections draw between Pinned and
+ *           |  Notebooks (pro/SmartSectionsHost.tsx).
  * ------------------------------------------------------------------
  */
 
@@ -65,6 +67,7 @@ import {
 import type { Hue, NotebookView, ThreadSummary } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { runHindsight } from '../memory/api';
+import { SmartSectionsHost } from '../pro/SmartSectionsHost';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, isIconName } from '../ui/Icon';
@@ -991,8 +994,6 @@ export function Rail() {
           <RailFailed error={threads.error} what="Threads" onRetry={() => threads.refetch()} />
         ) : (
           <>
-            {/* TODO(phase-0.1.1): Pro saved smart sections ("Claude Code this week", "Cost over $1") draw here,
-                through the Pro surface slot and a new entry in the closed list in contracts/pro.ts. */}
             {groups.needsYou.length > 0 ? (
               <Section id="needs" title="Needs you">
                 <ul className="rail__list">
@@ -1039,6 +1040,14 @@ export function Rail() {
                   ))}
                 </ul>
               </Section>
+            ) : null}
+
+            {/* TC4: saved smart sections (Pro; the free build shows what they are). Hidden while filtering. */}
+            {!q ? (
+              <SmartSectionsHost
+                activeId={params.threadId ?? null}
+                notebooks={nbs.map((n) => ({ id: n.id, title: n.title }))}
+              />
             ) : null}
 
             <Section

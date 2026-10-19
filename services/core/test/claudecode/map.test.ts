@@ -18,6 +18,7 @@ import {
   type StoredMessage,
   stepMs,
   unknownText,
+  usageOf,
 } from '../../src/claudecode/map';
 
 const S = 'sess-map-0001';
@@ -213,7 +214,7 @@ describe('a tool result joins the answer holding its call', () => {
     ]);
     // m1 once (on the first message), m2 once.
     expect(planned[1]?.usage).toEqual({
-      input_tokens: 10,
+      input_tokens: 110, // 10 fresh + 100 read from the cache: every prompt token
       output_tokens: 5,
       cached_tokens: 100,
       cache_write_tokens: 0,
@@ -518,8 +519,8 @@ describe('repairing a thread an older mapping wrote', () => {
       res('r2', 5, 'c2'),
       say('a3', 6, 'm2', [{ type: 'text', text: 'Done.' }], { input_tokens: 3, output_tokens: 7 }),
     ];
-    const once = { input_tokens: 10, output_tokens: 5, cached_tokens: 100, cost_usd: 0 };
-    const both = { input_tokens: 13, output_tokens: 12, cached_tokens: 100, cost_usd: 0 };
+    const once = { input_tokens: 110, output_tokens: 5, cached_tokens: 100, cost_usd: 0 };
+    const both = { input_tokens: 113, output_tokens: 12, cached_tokens: 100, cost_usd: 0 };
     const msgs = (second: StoredMessage['usage']) => [
       stored('U1', 'user', null, [{ type: 'text', text: 'Go' }], { uuid: 'u1', uuids: ['u1'] }),
       stored('A1', 'assistant', 'U1', [callPart('c1')], { uuid: 'a1', uuids: ['a1'] }, { usage: once }),
@@ -554,5 +555,34 @@ describe('repairing a thread an older mapping wrote', () => {
     // An entry it cannot find in the transcript: left as it is.
     expect(planRepair(S, msgs(both), [twice.filter((e) => e.uuid !== 'a1b')]).counts.recounted).toBe(0);
     expect(planRepair(S, msgs(both), [twice]).updates.find((x) => x.id === 'A1')?.usage).toBeUndefined();
+  });
+});
+
+describe('usage in the gateway meaning (CA2)', () => {
+  it('counts cache reads and writes inside input, and says how many of them were which', () => {
+    const e = say('a1', 0, 'm1', [], {
+      input_tokens: 5,
+      output_tokens: 7,
+      cache_creation_input_tokens: 20,
+      cache_read_input_tokens: 300,
+    });
+    expect(usageOf(e)).toEqual({
+      input_tokens: 325,
+      output_tokens: 7,
+      cached_tokens: 300,
+      cache_write_tokens: 20,
+      cache_reported: true,
+      cost_usd: 0,
+    });
+  });
+
+  it('reports a cache that was zero as zero, not as unknown', () => {
+    const u = usageOf(say('a2', 0, 'm2', [], { input_tokens: 4, output_tokens: 1 }));
+    expect(u).toMatchObject({
+      input_tokens: 4,
+      cached_tokens: 0,
+      cache_write_tokens: 0,
+      cache_reported: true,
+    });
   });
 });

@@ -79,12 +79,15 @@ function textOf(m: ModelMessage | undefined): string {
 
 type ToolResult = Extract<Part, { type: 'tool_result' }>;
 
+/** A note the person added mid-turn (CH7) is a user message, but it is not the question. */
+const isNote = (m: ModelMessage) => m.role === 'user' && m.content.startsWith('Note from the user, added');
+
 /** Tool results the model has been given since the latest user message. */
 function resultsSinceUser(messages: ModelMessage[]): ToolResult[] {
   const out: ToolResult[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as ModelMessage;
-    if (m.role === 'user') break;
+    if (m.role === 'user' && !isNote(m)) break;
     for (const p of m.parts ?? []) if (p.type === 'tool_result') out.unshift(p);
   }
   return out;
@@ -129,7 +132,7 @@ export class FakeProvider implements ModelClient {
     if (this.calls.length > 200) this.calls.splice(0, this.calls.length - 200);
     let b = model.provider_model;
     let delay = this.delay;
-    const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
+    const lastUser = [...req.messages].reverse().find((m) => m.role === 'user' && !isNote(m));
     // `/ttft <ms>` on a line of its own: the provider's own wait before its
     // first word (the load test measures NVX Ancile's overhead above it).
     // The turn's passages ride ahead of the question (conductor/context withTurnContext).

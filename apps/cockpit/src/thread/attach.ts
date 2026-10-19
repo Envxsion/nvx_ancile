@@ -14,8 +14,13 @@
  *  Note     |  Nothing here adds to a notebook. "Keep in notebook" on a
  *           |  chip is the ordinary source upload (sources/uploads),
  *           |  made after the message has gone.
- *           |  TODO(phase-0.1.1): Pro shows a token estimate on the chip
- *           |  and trims to the relevant pages when over budget.
+ *           |  Pro (CH6) adds a token estimate to the chip (Core sends
+ *           |  `tokens` only when Pro is on) and, when a message is
+ *           |  over the model's budget, keeps the relevant pages: the
+ *           |  sent file then says "Pages 3–7 of 40 kept"
+ *           |  (thread/Parts.tsx). Without Pro the chip says what it
+ *           |  holds and one quiet line says what Pro adds
+ *           |  (thread/AttachPro.tsx).
  * ------------------------------------------------------------------
  */
 
@@ -59,9 +64,14 @@ export function discardAttachment(threadId: string, id: string): void {
   }).catch(() => undefined);
 }
 
-/** What a chip says about its file: "12 pages", "start only", or nothing for a short text file. */
-export function chipWords(r: Pick<AttachmentRecord, 'kind' | 'pages' | 'truncated'>): string {
+/**
+ * What a chip says about its file: "12 pages", "start only", or nothing for a short text file. With
+ * Pro, "about 8,400 tokens" too, so you can see what the file costs before you send.
+ */
+export function chipWords(
+  r: Pick<AttachmentRecord, 'kind' | 'pages' | 'truncated'> & { tokens?: number | undefined },
+): string {
   const pages = r.pages ? `${r.pages} ${r.pages === 1 ? 'page' : 'pages'}` : '';
-  if (r.truncated) return pages ? `${pages}, start only` : 'start only';
-  return pages;
+  const tokens = r.tokens !== undefined ? `about ${r.tokens.toLocaleString('en-GB')} tokens` : '';
+  return [pages, r.truncated ? 'start only' : '', tokens].filter(Boolean).join(', ');
 }

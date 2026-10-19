@@ -13,6 +13,7 @@
 import { NewClaudeCodeThread } from '../claudecode/NewThread';
 import { LinksDialog } from '../notebooks/LinksDialog';
 import { MergeDialog } from '../notebooks/MergeDialog';
+import { NotebookEffortDialog } from '../pro/NotebookEffort';
 import { PackPicker } from '../pro/PackPicker';
 import { ScopeEditor } from '../scopes/ScopeEditor';
 import { lazyHost } from '../ui/lazyHost';
@@ -48,6 +49,8 @@ export function EditorsHost() {
         onOpenChange={(o) => !o && close()}
       />
     );
+  if (open.kind === 'effort')
+    return <NotebookEffortDialog key={open.id} notebookId={open.id} title={open.title} onClose={close} />;
   if (open.kind === 'merge')
     return <MergeDialog open onOpenChange={(o) => !o && close()} into={open.into} from={open.from} />;
   if (open.kind === 'init-agents')

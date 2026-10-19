@@ -26,6 +26,7 @@ import { useBinding } from '../keys/dispatch';
 import { useFactcheck, useProgress } from '../lib/factcheck';
 import { hueVar, modelById, modelName, percent, stamp, usd } from '../lib/format';
 import { partsText, reasonWords, unknownCount } from '../lib/mappers';
+import { AnswerContext } from '../lib/threadContext';
 import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { aliasAnswered } from '../models/lines';
@@ -48,6 +49,7 @@ import { MessageActions } from './MessageActions';
 import { Parts } from './Parts';
 import { SavedNote } from './SavedNote';
 import { SelectionToolbar } from './SelectionToolbar';
+import { SteerNotes } from './SteerNotes';
 import { useLiveTeam } from './teamworkState';
 import { useHighlight } from './useHighlight';
 import { displayUserParts } from './userText';
@@ -252,6 +254,10 @@ export const Message = memo(function Message({
   // Pending (queued, not started yet) reads as writing: it shows the dots and
   // Stop, never "paused until you decide", which is only for approvals.
   const streaming = m.status === 'streaming' || m.status === 'pending';
+  const answerInfo = useMemo(
+    () => (m.role === 'assistant' ? { messageId: m.id, createdAt: m.createdAt, streaming } : null),
+    [m.role, m.id, m.createdAt, streaming],
+  );
   const unfinished = streaming;
   const name = model?.name ?? m.modelName ?? liveModelName ?? null;
   const sib = m.siblings;
@@ -447,17 +453,19 @@ export const Message = memo(function Message({
         {shownParts ? (
           <CiteProvider parts={shownParts} trace={m.provenance?.retrieval} messageId={m.id}>
             <ClaimsProvider messageId={m.id} claims={claims}>
-              <Parts
-                parts={shownParts}
-                streaming={streaming}
-                waiting={waiting}
-                approvals={approvals}
-                claims={claims}
-                holdText={streaming && whole}
-                subagents={m.subagents}
-                messageId={m.id}
-                threadId={threadId}
-              />
+              <AnswerContext.Provider value={answerInfo}>
+                <Parts
+                  parts={shownParts}
+                  streaming={streaming}
+                  waiting={waiting}
+                  approvals={approvals}
+                  claims={claims}
+                  holdText={streaming && whole}
+                  subagents={m.subagents}
+                  messageId={m.id}
+                  threadId={threadId}
+                />
+              </AnswerContext.Provider>
             </ClaimsProvider>
           </CiteProvider>
         ) : (
@@ -584,6 +592,7 @@ export const Message = memo(function Message({
       ) : null}
 
       {m.role === 'user' && !editing ? <SavedNote messageId={m.id} /> : null}
+      {m.role === 'assistant' && !streaming ? <SteerNotes provenance={m.provenance} /> : null}
 
       {m.role === 'assistant' && (team || flow) ? (
         <MemoryTray

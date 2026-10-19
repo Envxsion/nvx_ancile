@@ -14,10 +14,11 @@
  *           |  the user message as a FilePart. Nothing is added to a
  *           |  notebook unless the person turns "Keep in notebook" on,
  *           |  which is a separate, explicit source upload.
- *  Note     |  TODO(phase-0.1.1): Pro adds a token estimate per chip
- *           |  and trims to the relevant pages when a file is over
- *           |  budget. AttachmentRecord has room for `tokens`; the
- *           |  free build leaves it out.
+ *  Note     |  Pro (CH6) adds a token estimate per chip (`tokens`; the
+ *           |  free build leaves it out) and, when a message is over
+ *           |  the model's context budget, keeps only the most
+ *           |  relevant pages: FilePart.kept says which, and
+ *           |  keptWords() says it in words.
  * ------------------------------------------------------------------
  */
 
@@ -70,4 +71,30 @@ export function attachableKind(name: string, mime: string): AttachmentKind | nul
   if (['application/json', 'application/xml', 'application/x-yaml', 'application/toml'].includes(mime))
     return 'text';
   return ATTACHMENT_TEXT_EXTENSIONS.includes(ext) ? 'text' : null;
+}
+
+/** Which pages a trimmed file kept, as "3–7, 12": runs of neighbours become a range. */
+export function pageRuns(pages: readonly number[]): string {
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    let j = i;
+    while (j + 1 < sorted.length && (sorted[j + 1] as number) === (sorted[j] as number) + 1) j++;
+    runs.push(j > i ? `${sorted[i]}–${sorted[j]}` : `${sorted[i]}`);
+    i = j + 1;
+  }
+  return runs.join(', ');
+}
+
+/** "Pages 3–7 of 40 kept": what a trimmed file says on its chip and in the thread. */
+export function keptWords(k: {
+  pages: readonly number[];
+  of: number;
+  unit: 'page' | 'part';
+  partial?: boolean | undefined;
+}): string {
+  const noun = k.unit === 'page' ? 'Page' : 'Part';
+  const one = k.pages.length === 1;
+  const words = `${noun}${one ? '' : 's'} ${pageRuns(k.pages)} of ${k.of} kept`;
+  return k.partial ? `${words}, the last one in part` : words;
 }

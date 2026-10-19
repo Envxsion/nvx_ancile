@@ -548,10 +548,20 @@ fn on_click(app: &AppHandle, core: &Core, click: Click) {
             let app = app.clone();
             let core = core.clone();
             std::thread::spawn(move || {
-                if let Err(e) = core.approval_action(&approval_id, approve) {
-                    // Refused (not Pro any more, a critical request, already answered): show it in the app.
-                    log::info!("a notification button was refused ({e})");
-                    crate::open_route(&app, format!("/open/approval/{approval_id}"));
+                let result = core.approval_action(&approval_id, approve);
+                match notify::outcome_of(&result) {
+                    notify::Outcome::Answered => {}
+                    // Answered in the app already: a no-op, with a note, and the window stays put.
+                    notify::Outcome::AlreadyAnswered => notify::note(
+                        &app,
+                        "That request was already answered",
+                        "Nothing more to do.",
+                    ),
+                    // Refused (a critical request, no longer Pro): show it in the app.
+                    notify::Outcome::OpenInApp => {
+                        log::info!("a notification button was refused ({result:?})");
+                        crate::open_route(&app, format!("/open/approval/{approval_id}"));
+                    }
                 }
             });
         }

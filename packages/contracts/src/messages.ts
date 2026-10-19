@@ -38,6 +38,21 @@ export const FilePart = z.object({
   pages: z.number().int().positive().optional(),
   /** Only the start of the file was kept (a very long one). */
   truncated: z.boolean().optional(),
+  /**
+   * CH6 (Pro): the file was over the model's context budget, so only its most relevant pages
+   * (or parts, for a text file) are in `text`. Absent: all of it went.
+   */
+  kept: z
+    .object({
+      /** The pages (or parts) that went, 1-based, in order. */
+      pages: z.array(z.number().int().positive()),
+      /** How many the file has. */
+      of: z.number().int().positive(),
+      unit: z.enum(['page', 'part']),
+      /** The last kept page was cut short (one page was bigger than the budget). */
+      partial: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type FilePart = z.infer<typeof FilePart>;
 export const ImagePart = z.object({
@@ -207,6 +222,20 @@ export const Recovered = z.object({
 export type Recovered = z.infer<typeof Recovered>;
 
 export const MAX_RECOVERED = 20;
+
+/**
+ * A note the person added while the answer was written (provenance.steered, CH7): which model round
+ * took it, and `part`, how many of the answer's parts came before it, so it can be put back in place.
+ * Answers written before `part` was kept have none: their notes sit after the last part.
+ */
+export const SteeredNote = z.object({
+  id: z.string(),
+  text: z.string(),
+  round: z.number().int().nonnegative(),
+  part: z.number().int().nonnegative().optional(),
+  at: z.string(),
+});
+export type SteeredNote = z.infer<typeof SteeredNote>;
 
 export const Message = z.object({
   id: z.string(),

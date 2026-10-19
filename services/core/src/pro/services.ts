@@ -22,9 +22,11 @@ import type {
   ProApprovals,
   ProController,
   ProDb,
+  ProLocalModels,
   ProNotice,
   ProPackHost,
   ProServices,
+  ProSteer,
   ProSyncSource,
 } from './types';
 
@@ -79,6 +81,9 @@ export function proServices(deps: {
   sync?: ProSyncSource;
   answers?: ProAnswers;
   packs?: ProPackHost;
+  localModels?: ProLocalModels;
+  steer?: ProSteer;
+  exports?: import('./exportsource').ProExportSource;
   approvals?: ProApprovals;
 }): ProServices {
   return {
@@ -91,6 +96,9 @@ export function proServices(deps: {
     ...(deps.sync && { sync: deps.sync }),
     ...(deps.answers && { answers: deps.answers }),
     ...(deps.packs && { packs: deps.packs }),
+    ...(deps.localModels && { localModels: deps.localModels }),
+    ...(deps.steer && { steer: deps.steer }),
+    ...(deps.exports && { exports: deps.exports }),
     ...(deps.approvals && { approvals: deps.approvals }),
     now: () => new Date(),
   };

@@ -375,6 +375,16 @@ describe('OpenRouter', () => {
     expect(cacheExtras(claude, scope).options.openrouter?.cache_control).toEqual({ type: 'ephemeral' });
     expect(cacheExtras(openrouter, scope).options.openrouter?.cache_control).toBeUndefined();
   });
+
+  it('puts that marker at the top level of the request body, as OpenRouter documents, and only for Claude', async () => {
+    const claude = model('openrouter', 'anthropic/claude-sonnet-5-5');
+    const { seen, fetch } = rig(() => orStream('Anthropic', 0));
+    const client = new AiSdkClient(secrets, { fetch }, undefined, routing);
+    await run(client, claude, { cache: scope });
+    await run(client, openrouter, { cache: scope });
+    expect(seen[0]?.body.cache_control).toEqual({ type: 'ephemeral' });
+    expect(seen[1]?.body.cache_control).toBeUndefined();
+  });
 });
 
 describe('a retry sends the same body', () => {

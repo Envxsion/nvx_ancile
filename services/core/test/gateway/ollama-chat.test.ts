@@ -113,6 +113,26 @@ describe('Ollama as a model', () => {
     expect(out.some((c) => c.type === 'warning')).toBe(false);
   });
 
+  it('sends num_gpu only when a preset chose it, and 0 counts as chosen', async () => {
+    const bodies: { options: Record<string, unknown> }[] = [];
+    const fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return ndjson([
+        { message: { content: '' }, done: true, done_reason: 'stop', prompt_eval_count: 5, eval_count: 1 },
+      ]);
+    }) as unknown as typeof globalThis.fetch;
+    for (const local of [undefined, { numCtx: 4096 }, { numGpu: 0 }, { numGpu: 24 }])
+      await collect(
+        ollamaChat(
+          qwen,
+          { messages: [{ role: 'user', content: 'Hi' }], ...(local && { local }) },
+          new AbortController().signal,
+          { baseUrl: qwen.base_url as string, fetch, warned: new Set() },
+        ),
+      );
+    expect(bodies.map((b) => b.options.num_gpu)).toEqual([undefined, undefined, 0, 24]);
+  });
+
   it('warns once per thread when Ollama read only part of the prompt', async () => {
     const fetch = (async () =>
       ndjson([

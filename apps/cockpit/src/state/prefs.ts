@@ -106,7 +106,10 @@ function scheduleSync(all: Preferences, changedAt: number) {
   pendingSync = JSON.stringify({ value: { prefs, changedAt } });
   syncTimer = setTimeout(() => {
     pendingSync = null;
-    void api.put('/ui-state/prefs', { value: { prefs, changedAt } }).catch(() => undefined);
+    // Through a promise, so a put that throws (or a stand-in that returns nothing) can't escape a timer.
+    void Promise.resolve()
+      .then(() => api.put('/ui-state/prefs', { value: { prefs, changedAt } }))
+      .catch(() => undefined);
   }, 800);
 }
 // A change made just before the tab closes still reaches Core (keepalive
