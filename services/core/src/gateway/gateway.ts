@@ -19,7 +19,7 @@
  */
 
 import { AncileError, type ErrorClass, type ModelConfig } from '@nvx/contracts';
-import { CircuitBreaker, ClassifiedError, classify, FALLBACKABLE } from '@nvx/resilience';
+import { CircuitBreaker, ClassifiedError, classify, FALLBACKABLE, isConnectionError } from '@nvx/resilience';
 import { currentContext } from '../context';
 import { startSpan } from '../obs/spans';
 import { type NodeWaking, nodeWakingFrom, waitOrSkip } from './compute';
@@ -53,6 +53,12 @@ export const SHORT_RETRY_AFTER_MS = 10_000;
 
 /** How many times one model is asked again after a short Retry-After, per call. */
 const SAME_MODEL_RETRIES = 1;
+
+/**
+ * A connection that failed (nothing came back, nothing was refused) is asked again on the same model,
+ * after these pauses, before any fallback: a network blip is not the model's fault.
+ */
+export const CONNECTION_BACKOFF_MS = [400, 1_200] as const;
 
 const abortableSleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -184,6 +190,7 @@ export class Gateway {
     let shownBy: string | null = null;
     // How often each model was asked again after a short Retry-After (GW1).
     const asked = new Map<string, number>();
+    const reconnects = new Map<string, number>();
 
     for (let i = 0; i < chain.length; i++) {
       const model = chain[i] as ModelConfig;
@@ -288,6 +295,20 @@ export class Gateway {
           asked.set(model.id, (asked.get(model.id) ?? 0) + 1);
           // A little extra, so the retry does not land on the very edge of the window.
           await this.sleep(wait + 250, signal);
+          i -= 1;
+          continue;
+        }
+        // A dropped connection: ask the same model again after a short, growing pause, before any fallback.
+        const redo = reconnects.get(model.id) ?? 0;
+        if (
+          !state.committed &&
+          cls === 'transient' &&
+          model.provider !== 'ollama' &&
+          isConnectionError(err) &&
+          redo < CONNECTION_BACKOFF_MS.length
+        ) {
+          reconnects.set(model.id, redo + 1);
+          await this.sleep(CONNECTION_BACKOFF_MS[redo] as number, signal);
           i -= 1;
           continue;
         }

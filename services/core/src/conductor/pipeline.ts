@@ -40,6 +40,7 @@ import {
   type EpochReason,
   ID_PREFIX,
   isClaudeCodeModel,
+  type Message,
   type ModelConfig,
   type Part,
   type Recovered,
@@ -66,7 +67,7 @@ import {
 import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
 import { effortLevels } from '../gateway/effort';
 import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
-import { canChat, type ModelRegistry } from '../gateway/registry';
+import { canChat, type ModelRegistry, type Need } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { LocalModelOptions, ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
 import { summariesBlock, type TurnLinks } from '../links/service';
@@ -1722,7 +1723,7 @@ ${noted.stop.forModel}`,
         const all = await messages();
         let chain: ModelConfig[];
         try {
-          chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel);
+          chain = deps.registry.chain(cp.input.taskClass, cp.input.explicitModel, turnNeeds(all));
         } catch (err) {
           // The thread's model runs on a GPU node that is stopped (its models are not
           // offered while it is): say that, with Start node, not "No model is ready".
@@ -2218,6 +2219,14 @@ ${cp.loopStop}`,
   };
 }
 
+/** What a stand-in model must handle for this turn: images it can see, and room for the conversation. */
+export function turnNeeds(all: readonly Message[]): { needs?: Need[]; ctxTokens?: number } {
+  const hasImage = all.some((m) => m.parts.some((p) => p.type === 'image'));
+  const text = all.flatMap((m) => m.parts.flatMap((p) => (p.type === 'text' ? [p.text] : []))).join(' ');
+  const ctxTokens = approxTokens(text);
+  return { ...(hasImage && { needs: ['vision' as const] }), ...(ctxTokens > 0 && { ctxTokens }) };
+}
+
 const perMtok = (n: number) => `$${Number(n.toFixed(n < 1 ? 3 : 2))}`;
 export const priceWords = (m: ModelConfig) =>
   m.price.input_per_mtok === 0 && m.price.output_per_mtok === 0
@@ -2244,19 +2253,34 @@ function pinnedUnavailable(
   } catch {
     return null;
   }
-  const options = route
-    .filter((m) => !tried.has(m.id) && m.id !== pinned && canChat(m))
-    .slice(0, 2)
+  const was = registry.get(pinned);
+  // Cheaper models first, from every ready chat model (not only this class's chain): the ones that
+  // were not tried because the fallback list has a cap. Then the dearer ones the default route uses.
+  const cheaper = was ? registry.cheaperThan(was, { exclude: tried }) : [];
+  const seen = new Set<string>();
+  const options = [...cheaper, ...route]
+    .filter((m) => !tried.has(m.id) && m.id !== pinned && canChat(m) && !seen.has(m.id) && !!seen.add(m.id))
+    .slice(0, 3)
     .map((m) => ({ model_id: m.id, name: m.display_name, price: priceWords(m) }));
   if (!options.length) return null;
-  const was = registry.get(pinned);
   const name = was?.display_name ?? pinned;
   const first = err.attempts[0] as FailedAttempt;
+  // Plain words from the class, never the provider's own text: that stays in the attempts below.
+  const what = `${name} ${CLASS_WORDS[first.errorClass] ?? 'could not answer'}${first.errorClass === 'transient' ? ' and did not answer when asked again' : ''}.`;
+  const others = err.attempts.length - 1;
+  const cheaperTried = err.attempts.slice(1).some((a) => {
+    const m = registry.get(a.model);
+    return !!m && !!was && m.price.output_per_mtok <= was.price.output_per_mtok;
+  });
+  const next =
+    others > 0 && cheaperTried
+      ? 'The cheaper models tried after it could not answer either.'
+      : 'No cheaper model could take over.';
   return {
     event: {
       code: 'model.pinned_unavailable',
       title: `${name} could not answer`,
-      hint: `${whyShort(name, { reason: first.errorClass, detail: first.detail })} No cheaper model could take over, and NVX Ancile will not move a model you chose to a dearer one without asking.`,
+      hint: `${what} ${next} NVX Ancile will not move a model you chose to a dearer one without asking.`,
       attempts: err.attempts.map((a) => ({
         target: a.model,
         class: a.errorClass,

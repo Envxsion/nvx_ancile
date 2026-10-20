@@ -65,6 +65,9 @@ const HOUR = 3_600_000;
 export const CHECK_EVERY_MS = 24 * HOUR;
 export const FIRST_RUN_DELAY_MS = 60_000;
 export const TICK_EVERY_MS = HOUR;
+/** The one-time lineup upgrade runs this long after boot, and again this long after an inconclusive try. */
+export const UPGRADE_DELAY_MS = 90_000;
+export const UPGRADE_RETRY_MS = 5 * 60_000;
 export const MANUAL_MIN_GAP_MS = 60_000;
 export const TEST_CALL_TIMEOUT_MS = 30_000;
 /**
@@ -128,6 +131,7 @@ export interface ModelWatchDeps {
   bundledPricesDate?: string | null;
   newId?: () => string;
   firstRunDelayMs?: number;
+  upgradeDelayMs?: number;
   tickEveryMs?: number;
   keyDelayMs?: number;
 }
@@ -206,6 +210,7 @@ export class ModelWatch {
   private loaded: Promise<void> | null = null;
   private firstTimer: unknown = null;
   private tickTimer: unknown = null;
+  private upgradeTimer: unknown = null;
   private abort = new AbortController();
   private busy = false;
   private queue: Promise<unknown> = Promise.resolve();
@@ -236,11 +241,40 @@ export class ModelWatch {
       this.deps.firstRunDelayMs ?? FIRST_RUN_DELAY_MS,
     );
     this.tickTimer = this.timers.setInterval(() => void this.tick(), this.deps.tickEveryMs ?? TICK_EVERY_MS);
+    // The lineup upgrade does not wait for the hourly tick: a model the provider refuses should not stay
+    // offered for an hour after boot.
+    this.upgradeSoon(this.deps.upgradeDelayMs ?? UPGRADE_DELAY_MS);
+  }
+
+  private upgradeSoon(ms: number): void {
+    if (this.upgradeTimer) this.timers.clearTimeout(this.upgradeTimer);
+    this.upgradeTimer = this.timers.setTimeout(() => {
+      this.upgradeTimer = null;
+      void this.upgradeNow();
+    }, ms);
+  }
+
+  /** Run the upgrade step outside the hourly tick; a busy run is waited for, and an inconclusive try is repeated. */
+  private async upgradeNow(): Promise<void> {
+    if (this.abort.signal.aborted) return;
+    if (this.busy) return this.upgradeSoon(30_000);
+    this.busy = true;
+    try {
+      await this.load();
+      const done = await this.upgradeLineup();
+      if (done === 'again') this.upgradeSoon(UPGRADE_RETRY_MS);
+    } catch (err) {
+      log.warn({ err }, 'the lineup upgrade did not finish');
+    } finally {
+      this.busy = false;
+    }
   }
 
   stop(): void {
     if (this.firstTimer) this.timers.clearTimeout(this.firstTimer);
     if (this.tickTimer) this.timers.clearInterval(this.tickTimer);
+    if (this.upgradeTimer) this.timers.clearTimeout(this.upgradeTimer);
+    this.upgradeTimer = null;
     this.firstTimer = null;
     this.tickTimer = null;
     for (const h of this.keyTimers.values()) this.timers.clearTimeout(h);
@@ -324,6 +358,18 @@ export class ModelWatch {
   /** Check now: all providers, or one. Each at most once a minute. */
   async check(provider?: string): Promise<ModelWatchReport> {
     await this.load();
+    // A check you ask for also finishes the lineup upgrade, if it has not been done.
+    this.upgradeTries = 0;
+    if (!this.busy) {
+      this.busy = true;
+      try {
+        await this.upgradeLineup();
+      } catch (err) {
+        log.warn({ err }, 'the lineup upgrade did not finish');
+      } finally {
+        this.busy = false;
+      }
+    }
     const all = await this.targets();
     if (!all.length) return this.report();
     let picked = all;
@@ -861,9 +907,9 @@ export class ModelWatch {
    * says so; then move a line off a model that turned out unavailable. A try that could not be read
    * (offline, a limit) is repeated on the next hourly check, up to three times.
    */
-  async upgradeLineup(): Promise<void> {
+  async upgradeLineup(): Promise<'done' | 'again'> {
     const done = await this.deps.settings.get<number>(SETTING.lineupVersion);
-    if (typeof done === 'number' && done >= LINEUP_VERSION) return;
+    if (typeof done === 'number' && done >= LINEUP_VERSION) return 'done';
     const reg = this.deps.registry;
     await reg.refresh();
     const names = new Set(await this.deps.secrets.names());
@@ -884,6 +930,7 @@ export class ModelWatch {
     if (Object.keys(on).length) await reg.setEnabled(on);
     const tested = await this.testedIds();
     let inconclusive = false;
+    let changed = Object.keys(on).length > 0;
     for (const p of providers) {
       const cap = p === 'openrouter' ? TEST_CAP_OPENROUTER : TEST_CAP;
       const picks = new Map<string, ModelConfig>();
@@ -893,15 +940,18 @@ export class ModelWatch {
         if (m.provider === p && reg.enabled(m) && isCheap(m) && m.via === 'direct') picks.set(m.id, m);
       const todo = [...picks.values()].filter((m) => !tested.has(m.id)).slice(0, cap + 2);
       for (const m of todo) {
-        if (this.abort.signal.aborted) return;
-        if ((await this.verify(m)) === 'unknown') inconclusive = true;
+        if (this.abort.signal.aborted) return 'again';
+        const seen = await this.verify(m);
+        if (seen === 'unknown') inconclusive = true;
+        if (seen === 'refused') changed = true;
       }
     }
     await this.repointDeadLines();
     this.upgradeTries++;
-    if (!inconclusive || this.upgradeTries >= 3)
-      await this.deps.settings.set(SETTING.lineupVersion, LINEUP_VERSION);
-    await this.announce('watch');
+    const finished = !inconclusive || this.upgradeTries >= 3;
+    if (finished) await this.deps.settings.set(SETTING.lineupVersion, LINEUP_VERSION);
+    if (changed) await this.announce('watch');
+    return finished ? 'done' : 'again';
   }
 
   /** A line whose answering model the provider refused moves to the newest stable model of the line that can answer. */

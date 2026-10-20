@@ -43,6 +43,7 @@ import {
   type ModelLine,
   type ModelTier,
   type Part,
+  TIER_RANK,
   type Want,
 } from '@nvx/contracts';
 import {
@@ -87,6 +88,7 @@ import {
   assignTier,
   defaultWantFor,
   resolveWant,
+  standInCost,
   type TierAssignment,
   type WantContext,
   type WantResolution,
@@ -110,6 +112,12 @@ export interface RegistryOptions {
    */
   ollamaFacts?: (name: string) => Promise<OllamaModelFacts | null>;
 }
+
+/** A thing a turn needs a model to be able to do (a ModelConfig capability). */
+export type Need = ModelConfig['capabilities'][number];
+
+/** How many models outside a class's chain a failing pinned model may fall back to. */
+const MAX_EXTRA_FALLBACKS = 4;
 
 /** How long Ollama's list of pulled models is trusted before refresh() asks again. */
 export const OLLAMA_TAGS_TTL_MS = 30_000;
@@ -926,6 +934,40 @@ export class ModelRegistry {
   }
 
   /**
+   * Every ready chat model no dearer than `pinned` that can do what the turn needs, to stand in when a
+   * pinned model fails. Same or lower tier first, then cheapest first. A tier above the pinned one comes
+   * after, so a cheaper but stronger model is a last resort rather than a surprise.
+   */
+  cheaperThan(
+    pinned: ModelConfig,
+    opts: {
+      named?: ReadonlySet<string>;
+      exclude?: ReadonlySet<string>;
+      needs?: readonly Need[];
+      ctxTokens?: number;
+    } = {},
+  ): ModelConfig[] {
+    const named = opts.named ?? new Set<string>();
+    const rank = (m: ModelConfig) => TIER_RANK[this.tierOf(m)];
+    const mine = rank(pinned);
+    return this.readyChat()
+      .filter(
+        (m) =>
+          m.id !== pinned.id &&
+          !opts.exclude?.has(m.id) &&
+          noDearerThan(pinned, m, named) &&
+          (opts.needs ?? []).every((n) => m.capabilities.includes(n)) &&
+          (!opts.ctxTokens || m.context_window >= opts.ctxTokens),
+      )
+      .sort(
+        (a, b) =>
+          Number(rank(a) > mine) - Number(rank(b) > mine) ||
+          standInCost(a) - standInCost(b) ||
+          a.id.localeCompare(b.id),
+      );
+  }
+
+  /**
    * The best ready models for a need (TR1), in the order to try them. Never fails for lack of a
    * listed model: it widens and says how (`degraded`); only when no chat model is ready does it throw
    * routing.no_chat_model.
@@ -975,7 +1017,11 @@ export class ModelRegistry {
    * answer (and is a chat model). The offline models close every chat chain in the dev stack, so
    * a turn with no keys configured still gets an answer and says which.
    */
-  chain(taskClass: string, explicit?: string | null, opts: { generatorFamily?: string } = {}): ModelConfig[] {
+  chain(
+    taskClass: string,
+    explicit?: string | null,
+    opts: { generatorFamily?: string; needs?: readonly Need[]; ctxTokens?: number } = {},
+  ): ModelConfig[] {
     const ready = new Map(
       this.models
         .filter((m) => this.status(m) === 'ready')
@@ -1067,6 +1113,18 @@ export class ModelRegistry {
         classes,
         ready,
       );
+    }
+    // A pinned model that fails falls back to any ready model no dearer than it, not only the ones this
+    // class names: the cheaper models outside the chain come last, cheapest first.
+    const pinnedModel = usable ? ready.get(usable) : undefined;
+    if (pinnedModel && out[0]?.id === pinnedModel.id) {
+      const extra = this.cheaperThan(pinnedModel, {
+        named,
+        exclude: new Set(out.map((m) => m.id)),
+        ...(opts.needs && { needs: opts.needs }),
+        ...(opts.ctxTokens && { ctxTokens: opts.ctxTokens }),
+      });
+      out = [...out, ...extra.slice(0, MAX_EXTRA_FALLBACKS)];
     }
     // RT1: late in the cycle, with credit left, a model paid from the credit goes ahead of an equal one.
     return this.credit.first

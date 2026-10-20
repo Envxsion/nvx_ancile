@@ -200,7 +200,8 @@ export function noChatModel(): AncileError {
   });
 }
 
-const priceOf = (m: ModelConfig) =>
+/** What a model costs, for ordering: output counts four times input, a plan engine last. */
+export const standInCost = (m: ModelConfig) =>
   isSubscription(m) ? Number.POSITIVE_INFINITY : m.price.output_per_mtok * 4 + m.price.input_per_mtok;
 
 /**
@@ -260,7 +261,7 @@ export function resolveWant(
   const other = (m: ModelConfig) => !gen || !same(m.family, gen);
   const sourceRank = ctx.sourceRank ?? (() => 0);
   const order = (a: ModelConfig, b: ModelConfig) =>
-    sourceRank(a) - sourceRank(b) || priceOf(a) - priceOf(b) || a.id.localeCompare(b.id);
+    sourceRank(a) - sourceRank(b) || standInCost(a) - standInCost(b) || a.id.localeCompare(b.id);
 
   // Steps, in the fixed order. Each model lands in the first step it qualifies for.
   type Step = {

@@ -124,8 +124,27 @@ export function classify(err: unknown): ErrorClass {
     const inner = classify(e.cause);
     if (inner !== 'bug') return inner;
   }
-  if (/fetch failed|network|socket hang up/i.test(message)) return 'transient';
+  if (CONNECTION_WORDS.test(message)) return 'transient';
   return 'bug';
+}
+
+/** What a failed connection says, whichever client wrote it ("Cannot connect to API: ..." is the AI SDK's). */
+const CONNECTION_WORDS =
+  /fetch failed|network|socket hang up|cannot connect|connection (?:error|refused|reset|closed|terminated)|econn(?:reset|refused)|etimedout|enotfound|eai_again/i;
+
+/**
+ * Whether `err` is the connection itself failing (no answer came back, so nothing was refused): the
+ * kind of trouble a second try a moment later usually clears. An HTTP status means the provider
+ * answered, so it is not one.
+ */
+export function isConnectionError(err: unknown, depth = 0): boolean {
+  if (!err || typeof err !== 'object' || depth > 4) return false;
+  const e = err as ErrorLike;
+  if (typeof e.status === 'number' || typeof e.statusCode === 'number') return false;
+  if (typeof e.code === 'string' && NETWORK_CODES.has(e.code)) return true;
+  const message = typeof e.message === 'string' ? e.message : '';
+  if (CONNECTION_WORDS.test(message)) return true;
+  return e.cause && e.cause !== err ? isConnectionError(e.cause, depth + 1) : false;
 }
 
 /** Parse a Retry-After header (seconds or HTTP date) to milliseconds. */

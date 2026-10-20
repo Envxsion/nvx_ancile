@@ -9,7 +9,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../../src/config/load';
 import { ModelRegistry, secretFor } from '../../../src/gateway/registry';
 import { resolveChain } from '../../../src/gateway/router';
-import { isCheap, LINEUP_VERSION, TEST_CAP, TEST_CAP_OPENROUTER } from '../../../src/models/watch/service';
+import {
+  isCheap,
+  LINEUP_VERSION,
+  TEST_CAP,
+  TEST_CAP_OPENROUTER,
+  UPGRADE_DELAY_MS,
+} from '../../../src/models/watch/service';
 import { MemorySecretStore, SecretBox } from '../../../src/secrets';
 import { MemorySettings, SETTING } from '../../../src/settings';
 import { world } from './world';
@@ -324,6 +330,44 @@ describe('an install that saved its keys before the lineup existed', () => {
         : undefined;
     await w.watch.upgradeLineup();
     expect(w.registry.get('google/gemini-flash-lite:latest')?.id).toBe('google/gemini-3.5-flash-lite');
+  });
+
+  it('runs shortly after boot, not on the hourly tick, and again after a manual check', async () => {
+    const w = await world({ models: shipped, keys: ['GOOGLE_GENERATIVE_AI_API_KEY'] });
+    await w.settings.set(SETTING.customModels, [customFlashLite25]);
+    await w.registry.refresh();
+    w.testFor = (m) =>
+      m.id === 'google/gemini-2.5-flash-lite'
+        ? { ok: false, detail: 'refused', refused: 'no longer available to new users.' }
+        : undefined;
+    w.watch.start();
+    const soon = w.timers.timeouts.find((t) => !t.cleared && t.ms === UPGRADE_DELAY_MS);
+    expect(soon).toBeDefined();
+    expect(UPGRADE_DELAY_MS).toBeLessThanOrEqual(2 * 60_000);
+    soon?.fn();
+    await w.watch.idle();
+    for (let i = 0; i < 50 && (await w.settings.get(SETTING.lineupVersion)) === undefined; i++)
+      await new Promise((r) => setTimeout(r, 20));
+    expect(await w.settings.get(SETTING.lineupVersion)).toBe(LINEUP_VERSION);
+    expect(w.registry.info().find((m) => m.id === 'google/gemini-2.5-flash-lite')?.status).toBe(
+      'unavailable',
+    );
+    w.watch.stop();
+  });
+
+  it('POST /models/watch/check also finishes an upgrade that has not run', async () => {
+    const w = await world({ models: shipped, keys: ['GOOGLE_GENERATIVE_AI_API_KEY'] });
+    await w.settings.set(SETTING.customModels, [customFlashLite25]);
+    await w.registry.refresh();
+    w.testFor = (m) =>
+      m.id === 'google/gemini-2.5-flash-lite'
+        ? { ok: false, detail: 'refused', refused: 'no longer available to new users.' }
+        : undefined;
+    await w.watch.check().catch(() => undefined);
+    expect(await w.settings.get(SETTING.lineupVersion)).toBe(LINEUP_VERSION);
+    expect(w.registry.info().find((m) => m.id === 'google/gemini-2.5-flash-lite')?.status).toBe(
+      'unavailable',
+    );
   });
 
   it('a try that could not be read (offline) is repeated on the next check, then given up on after three', async () => {

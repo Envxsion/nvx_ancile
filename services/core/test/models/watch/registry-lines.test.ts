@@ -79,10 +79,12 @@ describe('aliases before any check', () => {
     ]);
     // The pin goes first; utility also wants a small model, so the other ready ones follow by closeness to it.
     expect(w.registry.chain('utility').map((m) => m.id)[0]).toBe('anthropic/claude-haiku-4-5');
-    // An explicit alias goes first and is recorded as the concrete model.
+    // An explicit alias goes first and is recorded as the concrete model. The class's cheaper models
+    // follow, then any other ready model no dearer than it (here the small one).
     expect(w.registry.chain('chat.default', 'anthropic/opus:latest').map((m) => m.id)).toEqual([
       'anthropic/claude-opus-5-5',
       'anthropic/claude-sonnet-5-5',
+      'anthropic/claude-haiku-4-5',
     ]);
   });
 

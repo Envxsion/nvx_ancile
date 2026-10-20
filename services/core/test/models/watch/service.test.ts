@@ -4,7 +4,12 @@
  */
 import { ModelWatchReport } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
-import { CHECK_EVERY_MS, FIRST_RUN_DELAY_MS, MANUAL_MIN_GAP_MS } from '../../../src/models/watch/service';
+import {
+  CHECK_EVERY_MS,
+  FIRST_RUN_DELAY_MS,
+  MANUAL_MIN_GAP_MS,
+  UPGRADE_DELAY_MS,
+} from '../../../src/models/watch/service';
 import { entry, world } from './world';
 
 const HOUR = 3_600_000;
@@ -384,7 +389,7 @@ describe('schedule', () => {
     const w = await world();
     w.anthropic.data = base();
     w.watch.start();
-    expect(w.timers.timeouts.map((t) => t.ms)).toEqual([FIRST_RUN_DELAY_MS]);
+    expect(w.timers.timeouts.map((t) => t.ms)).toEqual([FIRST_RUN_DELAY_MS, UPGRADE_DELAY_MS]);
     expect(w.timers.intervals.map((t) => t.ms)).toEqual([HOUR]);
     const anthropicCalls = () => w.calls.filter((c) => c.url.includes('anthropic.com')).length;
 

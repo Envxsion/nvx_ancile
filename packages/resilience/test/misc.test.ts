@@ -9,6 +9,7 @@ import {
   Deadline,
   DeadlineExceededError,
   instantClock,
+  isConnectionError,
   ManualClock,
   runChain,
   withTimeout,
@@ -36,6 +37,22 @@ describe('classify', () => {
     expect(classify(new Error('wrap', { cause: { status: 503 } }))).toBe('transient');
     expect(classify(new Error('who knows'))).toBe('bug');
     expect(classify({ finishReason: 'content-filter' })).toBe('refusal');
+  });
+});
+
+describe('a dropped connection', () => {
+  it('is transient, whichever client words it', () => {
+    expect(classify(new Error('Cannot connect to API: fetch failed'))).toBe('transient');
+    expect(classify(new Error('Connection reset by peer'))).toBe('transient');
+  });
+
+  it('is told apart from a provider that answered', () => {
+    expect(isConnectionError(new Error('Cannot connect to API: socket hang up'))).toBe(true);
+    expect(isConnectionError(Object.assign(new Error('x'), { code: 'ECONNRESET' }))).toBe(true);
+    expect(isConnectionError(new Error('wrapper', { cause: new Error('fetch failed') }))).toBe(true);
+    expect(isConnectionError(Object.assign(new Error('Cannot connect'), { status: 500 }))).toBe(false);
+    expect(isConnectionError(new Error('invalid x-api-key'))).toBe(false);
+    expect(isConnectionError(undefined)).toBe(false);
   });
 });
 

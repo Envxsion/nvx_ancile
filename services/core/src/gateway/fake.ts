@@ -16,6 +16,8 @@
  *           |    fail:500             throw a 500 before any output
  *           |    fail:timeout         throw a timeout before any output
  *           |    fail:auth            throw a 401
+ *           |    fail:connect         throw "Cannot connect to API" (no status), every time
+ *           |    fail:blip            the same, on this model's first call only
  *           |    refusal              open with a refusal
  *           |    filter               finish with content_filter
  *           |    overflow             throw a context-length error
@@ -221,6 +223,11 @@ export class FakeProvider implements ModelClient {
     if (b === 'fail:500') throw httpError(500, 'upstream exploded');
     if (b === 'fail:timeout') throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
     if (b === 'fail:auth') throw httpError(401, 'invalid x-api-key');
+    if (
+      b === 'fail:connect' ||
+      (b === 'fail:blip' && this.calls.filter((c) => c.model === model.id).length === 1)
+    )
+      throw new Error('Cannot connect to API: fetch failed');
     if (b === 'overflow') throw httpError(400, 'prompt is too long: 210000 tokens > 200000 maximum');
     if (b === 'filter') {
       yield finish('content-filter');
