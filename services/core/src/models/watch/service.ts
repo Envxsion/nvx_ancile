@@ -348,10 +348,26 @@ export class ModelWatch {
       const targets = (await this.targets()).filter((t) => this.due(t));
       await this.runTargets(targets);
       await this.upgradeLineup();
+      await this.retestUnavailable();
     } catch (err) {
       log.warn({ err }, 'the model check did not finish');
     } finally {
       this.busy = false;
+    }
+  }
+
+  /**
+   * A model a provider refused may be allowed again (a setting changed, a plan upgraded): once a day
+   * each one is tried again with one token. A pass puts it back; another refusal keeps it, with the
+   * time of this try; an answer that says nothing about the model (an outage) changes nothing.
+   */
+  async retestUnavailable(): Promise<void> {
+    const reg = this.deps.registry;
+    for (const u of reg.unavailableList()) {
+      if (this.abort.signal.aborted) return;
+      if (this.now() - Date.parse(u.at) < CHECK_EVERY_MS) continue;
+      const model = reg.getExact(u.id);
+      if (model) await this.verify(model);
     }
   }
 

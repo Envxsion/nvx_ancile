@@ -60,7 +60,9 @@ export type FailureNote =
   /** MiniMax 2056: the plan's usage window is spent. A plan key never spends the pay-as-you-go balance. */
   | 'plan_window'
   /** OpenRouter: a balance below zero blocks every model, free ones too. */
-  | 'negative_balance';
+  | 'negative_balance'
+  /** OpenRouter: the account's privacy settings ignore every provider that serves this model. */
+  | 'privacy_blocked';
 
 /** One way a provider says something went wrong. The first rule that matches wins. */
 export interface ErrorRule {
@@ -536,6 +538,15 @@ const openrouter: ProviderProfile = {
   check: { kind: 'balance', method: 'GET', path: '/key', confirmed: true },
   modelsPath: '/models',
   errors: [
+    // The account's privacy settings (data policy, ignored providers) leave no provider for this model.
+    // Whatever the status, it is about this model and this account, so the model is unavailable until
+    // the settings change (seen live, 21 Oct: google/gemma-3-12b-it, "All providers have been ignored").
+    {
+      text: /(all providers have been ignored|no allowed providers are available)/i,
+      kind: 'model_not_permitted',
+      confirmed: true,
+      note: 'privacy_blocked',
+    },
     // A 402 whose reason is the in-flight budget is transient: retry later (openrouter.ai/docs/api-reference/limits).
     { status: [402], text: /in_flight_budget_exhausted/i, kind: 'rate_limited', confirmed: true },
     // Insufficient credits. A balance below zero gives a 402 on free models too, until credit lifts it above zero.

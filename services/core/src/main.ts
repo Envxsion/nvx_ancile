@@ -181,7 +181,7 @@ import { MemoryTransfer } from './memory/transfer';
 import { modelWatchRoutes } from './models/watch/routes';
 import { ModelWatch } from './models/watch/service';
 import { PgWatchStore } from './models/watch/store';
-import { gatewayTestCall } from './models/watch/testcall';
+import { gatewayTestCall, modelRefusal } from './models/watch/testcall';
 import { NotebookMergeService } from './notebooks/merge';
 import { PgMergeStore } from './notebooks/merge-store';
 import { PgNotebookRepo } from './notebooks/repo';
@@ -562,6 +562,12 @@ async function main() {
     breaker: new CircuitBreaker(),
     // A cold node says how long it needs; wait that long plus two minutes.
     computeEtaMarginMs: 120_000,
+    // A model the provider will not serve to this account (a privacy setting, a plan) is skipped by every
+    // chain from now on, until a key or setting changes or the daily test passes (models/watch).
+    onModelRefused: (model, attempt) => {
+      const why = modelRefusal({ attempts: [attempt] });
+      if (why) void registry.markUnavailable(model.id, why, new Date().toISOString()).catch(() => undefined);
+    },
   });
   // The daily model watch (MD4, MD5): live model lists, prices, and "follow latest" lines.
   const modelWatch = new ModelWatch({

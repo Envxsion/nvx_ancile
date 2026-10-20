@@ -36,6 +36,58 @@ const NO_CREDIT = {
 };
 const RATE = { error: { code: 'rate_limit_exceeded', message: 'Rate limit reached' } };
 
+describe("OpenRouter: the account's privacy settings leave no provider for the model", () => {
+  const BLOCKED = {
+    error: {
+      code: 404,
+      message:
+        'All providers have been ignored. To change your default ignored providers, visit: https://openrouter.ai/settings/preferences',
+    },
+  };
+  it.each([400, 404])(
+    'a %i is about this model and this account: permanent, with a hint to the settings',
+    (status) => {
+      const e = wrap(sdkError(status, BLOCKED), 'openrouter', {
+        model: 'google/gemma-3-12b-it',
+      }) as ClassifiedError;
+      expect(e.errorClass).toBe('permanent');
+      expect(e.code).toBe('provider.model_not_permitted');
+      expect(e.title).toBe('Your OpenRouter privacy settings block every provider for this model');
+      expect(e.hint).toContain('openrouter.ai/settings/privacy');
+    },
+  );
+});
+
+describe('a model the provider refuses for good is reported to whoever keeps the list', () => {
+  it('calls onModelRefused for provider.model_not_permitted, and for nothing else', async () => {
+    const seen: string[] = [];
+    const client: ModelClient = {
+      // biome-ignore lint/correctness/useYield: fails before it has anything to say
+      async *stream(model: ModelConfig) {
+        if (model.id === 'fake/a')
+          throw wrap(sdkError(404, { error: { message: 'All providers have been ignored.' } }), 'openrouter');
+        throw wrap(sdkError(429, RATE), 'openai');
+      },
+    };
+    const gw = new Gateway({
+      client,
+      breaker: new CircuitBreaker({ clock: instantClock() }),
+      sleep: async () => undefined,
+      onModelRefused: (m, a) => seen.push(`${m.id}:${a.code}`),
+    });
+    await expect(
+      (async () => {
+        for await (const _ of gw.stream(
+          [fakeModel('a', 'echo'), fakeModel('b', 'echo')],
+          { messages: [{ role: 'user', content: 'hi' }] },
+          new AbortController().signal,
+        ));
+      })(),
+    ).rejects.toBeDefined();
+    expect(seen).toEqual(['fake/a:provider.model_not_permitted']);
+  });
+});
+
 describe('wrap: an SDK error read through the provider', () => {
   it('OpenAI out of credit is permanent with its own code and words, and is not retried', () => {
     const e = wrap(sdkError(429, NO_CREDIT), 'openai') as ClassifiedError;

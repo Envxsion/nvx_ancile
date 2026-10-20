@@ -329,6 +329,10 @@ const NOTE_WORDS: Record<FailureNote, (name: string) => { title: string; hint: s
     title: `${name} says your account is out of credit`,
     hint: `Add credit at ${name}. While the balance is below zero every model is blocked, free ones too. Then try again, or pick another model.`,
   }),
+  privacy_blocked: (name) => ({
+    title: `Your ${name} privacy settings block every provider for this model`,
+    hint: `Allow a provider in your ${name} privacy settings (openrouter.ai/settings/privacy), or pick another model.`,
+  }),
 };
 
 /**
@@ -371,12 +375,15 @@ export function failureWords(
           : `${name} is not available where you are. Use another provider, or a key from an account in a supported country.`,
       };
     }
-    case 'model_not_permitted':
+    case 'model_not_permitted': {
+      const special = ctx.note === 'privacy_blocked' ? NOTE_WORDS.privacy_blocked(name) : null;
       return {
         code: 'provider.model_not_permitted',
-        title: `${name} says this key can't use ${ctx.model ?? 'that model'}`,
-        hint: `Pick another model, or check that your plan or project at ${name} includes it.`,
+        title: special?.title ?? `${name} says this key can't use ${ctx.model ?? 'that model'}`,
+        hint:
+          special?.hint ?? `Pick another model, or check that your plan or project at ${name} includes it.`,
       };
+    }
     case 'bad_key': {
       const others = ctx.regionHint ? otherRegions(profile, ctx.region).map((r) => r.label) : [];
       const hint = others.length

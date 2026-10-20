@@ -136,6 +136,48 @@ describe('a model the provider refuses (F3c)', () => {
     expect(w.registry.info().find((m) => m.id === 'google/gemini-3.5-flash-lite')?.status).toBe('ready');
   });
 
+  it('leaves an unavailable model out of every chain, and tries it again once a day', async () => {
+    const w = await googleWorld();
+    refuse(w, 'google/gemini-3.5-flash-lite');
+    w.watch.keySaved('google');
+    fire(w);
+    await w.watch.idle();
+    const ids = (cls: string) => w.registry.chain(cls).map((m) => m.id);
+    expect(ids('chat.default')).not.toContain('google/gemini-3.5-flash-lite');
+    expect(w.registry.readyChat().map((m) => m.id)).not.toContain('google/gemini-3.5-flash-lite');
+    expect(w.registry.cheaperThan(GOOGLE[2] as ModelConfig).map((m) => m.id)).not.toContain(
+      'google/gemini-3.5-flash-lite',
+    );
+
+    // Within a day: not tried again, even when the provider would now serve it.
+    w.testFor = undefined;
+    w.tested.length = 0;
+    await w.watch.retestUnavailable();
+    expect(w.tested).toEqual([]);
+    // After a day: tried, and put back when it answers.
+    w.clock.advance(24 * 3_600_000 + 1);
+    await w.watch.retestUnavailable();
+    expect(w.tested.map((m) => m.id)).toEqual(['google/gemini-3.5-flash-lite']);
+    expect(w.registry.info().find((m) => m.id === 'google/gemini-3.5-flash-lite')?.status).toBe('ready');
+  });
+
+  it('keeps it unavailable when the daily try is refused again', async () => {
+    const w = await googleWorld();
+    refuse(w, 'google/gemini-3.5-flash-lite');
+    w.watch.keySaved('google');
+    fire(w);
+    await w.watch.idle();
+    w.clock.advance(24 * 3_600_000 + 1);
+    await w.watch.retestUnavailable();
+    expect(w.registry.info().find((m) => m.id === 'google/gemini-3.5-flash-lite')?.status).toBe(
+      'unavailable',
+    );
+    // The time of that try is kept, so the next one is a day after it.
+    w.tested.length = 0;
+    await w.watch.retestUnavailable();
+    expect(w.tested).toEqual([]);
+  });
+
   it('a transient failure (no refusal) leaves the model ready', async () => {
     const w = await googleWorld();
     w.testResult = { ok: false, detail: 'rate limited' };
@@ -179,6 +221,18 @@ describe('modelRefusal', () => {
     expect(
       modelRefusal(chain({ errorClass: 'permanent', code: 'provider.model_not_permitted', detail: 'x' })),
     ).toBe('x');
+  });
+  it("reads OpenRouter's 'all providers have been ignored' as this account blocking the model", () => {
+    const why = modelRefusal(
+      chain({
+        errorClass: 'transient',
+        detail: 'All providers have been ignored. To change your default ignored providers, visit: x',
+      }),
+    );
+    expect(why).toContain('All providers have been ignored');
+    expect(why).toContain(
+      'Your OpenRouter privacy settings block every provider for this model: openrouter.ai/settings/privacy',
+    );
   });
   it('says nothing about the model for a key, credit or rate problem', () => {
     expect(

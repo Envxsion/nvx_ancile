@@ -734,6 +734,11 @@ export class ModelRegistry {
     return this.unavailable[id]?.reason ?? null;
   }
 
+  /** Every model a provider refused for good, with when it was last seen refused (for the daily re-test). */
+  unavailableList(): { id: string; reason: string; at: string }[] {
+    return Object.entries(this.unavailable).map(([id, v]) => ({ id, ...v }));
+  }
+
   private async saveUnavailable(next: Record<string, { reason: string; at: string }>): Promise<void> {
     await this.opts.settings.set(SETTING.modelUnavailable, next);
     this.unavailable = next;

@@ -28,6 +28,10 @@ export const TEST_PROMPT = 'Reply with the single word: ready';
 const REFUSAL_WORDS =
   /(no longer available|not found|does not exist|not supported|deprecated|not permitted|no access|unknown model)/i;
 
+const PRIVACY_BLOCK = /(all providers have been ignored|no allowed providers are available)/i;
+const PRIVACY_HINT =
+  'Your OpenRouter privacy settings block every provider for this model: openrouter.ai/settings/privacy';
+
 /**
  * The provider's reason when it refused this model for good (F3c): a 404, a model the key may not use,
  * or a 400 that says the model is gone. Null for anything that is about the key, the account or the
@@ -40,6 +44,10 @@ export function modelRefusal(err: unknown): string | null {
   )?.attempts?.at(-1);
   const e = last ?? (err as { errorClass?: string; message?: string; code?: string });
   const message = String((last ? last.detail : (e as { message?: string }).message) ?? '');
+  // The account's privacy settings leave OpenRouter no provider for the model: about this account and
+  // this model, so it is unavailable, whatever class the status gave it. Their words, then the way out.
+  if (PRIVACY_BLOCK.test(message))
+    return `${message.replace(/\s+/g, ' ').trim().slice(0, 160)} ${PRIVACY_HINT}`;
   if (e.errorClass !== 'permanent') return null;
   if (e.code !== 'provider.model_not_permitted' && !REFUSAL_WORDS.test(message)) return null;
   // The provider's own sentence when it gave one, else ours. Cut short; the gateway never puts a key in it.

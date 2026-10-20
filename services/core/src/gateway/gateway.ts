@@ -50,6 +50,12 @@ export interface GatewayOptions {
   ledger?: CallLedger;
   /** Wait before asking the same model again after a short Retry-After (tests replace it). */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /**
+   * A provider refused this model for this account for good (provider.model_not_permitted: not
+   * offered to the key, or the account's privacy settings leave it no provider). The registry marks
+   * it unavailable, so no chain asks it again until a key or setting changes.
+   */
+  onModelRefused?: (model: ModelConfig, attempt: FailedAttempt) => void;
 }
 
 /**
@@ -114,11 +120,13 @@ export class Gateway {
   private readonly computeEtaMarginMs: number | null;
   private readonly sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   private readonly ledger: CallLedger | undefined;
+  private readonly onModelRefused: GatewayOptions['onModelRefused'];
   /** What a call is for when its caller does not say (see `as`). */
   private purpose = 'other';
 
   constructor(opts: GatewayOptions) {
     this.ledger = opts.ledger;
+    this.onModelRefused = opts.onModelRefused;
     this.client = opts.client;
     this.breaker = opts.breaker ?? new CircuitBreaker();
     this.probeChars = opts.refusalProbeChars ?? 160;
@@ -364,14 +372,22 @@ export class Gateway {
           continue;
         }
         const named = (err instanceof ClassifiedError || err instanceof AncileError) && err.code ? err : null;
-        attempts.push({
+        const attempt: FailedAttempt = {
           model: model.id,
           errorClass: cls,
           detail,
           ...(named?.code && { code: named.code }),
           ...(named?.title && { title: named.title }),
           ...(named?.hint && { hint: named.hint }),
-        });
+        };
+        attempts.push(attempt);
+        if (attempt.code === 'provider.model_not_permitted') {
+          try {
+            this.onModelRefused?.(model, attempt);
+          } catch {
+            /* noting a refusal must never fail the call */
+          }
+        }
         if (!next || !FALLBACKABLE.has(cls)) throw new ChainFailedError(attempts);
         yield { type: 'fallback', from: model.id, to: next.id, reason: cls, detail };
       }
