@@ -126,13 +126,29 @@ export interface IndexSource {
 
 export class MemoryIndex {
   private files = new Map<string, IndexedFile>();
+  private turns: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly source: IndexSource,
     private readonly sink?: MemoryIndexSink,
   ) {}
 
-  async rebuild(): Promise<void> {
+  /**
+   * One re-read at a time, in the order they were asked for. Writers refresh after their commit,
+   * and two of them overlap: if the earlier one's read finished last it would put older text back
+   * over newer, and the index would stay behind the files until the next write to that file.
+   */
+  private inTurn<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.turns.then(fn, fn);
+    this.turns = run.catch(() => undefined);
+    return run;
+  }
+
+  rebuild(): Promise<void> {
+    return this.inTurn(() => this.rebuildNow());
+  }
+
+  private async rebuildNow(): Promise<void> {
     const listed = await this.source.list();
     const next = new Map<string, IndexedFile>();
     for (const f of listed) {
@@ -145,7 +161,11 @@ export class MemoryIndex {
   }
 
   /** Re-read one file after Core wrote it. */
-  async refresh(path: string): Promise<IndexedFile | undefined> {
+  refresh(path: string): Promise<IndexedFile | undefined> {
+    return this.inTurn(() => this.refreshNow(path));
+  }
+
+  private async refreshNow(path: string): Promise<IndexedFile | undefined> {
     const read = await this.source.read(path).catch(() => null);
     if (!read) {
       this.files.delete(path);

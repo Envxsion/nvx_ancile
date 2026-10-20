@@ -9,11 +9,15 @@
  *           |  is a commit with a meaningful message; history, diff and
  *           |  revert come from git itself.
  *  How      |  simple-git, one write at a time (a promise queue: git's
- *           |  index is not safe to share). write() checks baseVersion
- *           |  (the file's last commit) and, if a change landed in
- *           |  between, tries a three-way merge with `git merge-file`
- *           |  before giving up with MemoryConflict, which carries both
- *           |  sides with conflict markers for the editor.
+ *           |  index is not safe to share). Anything that reads a file
+ *           |  to change it (update, writeMany) does so inside that queue,
+ *           |  so two writers never build on the same old text, and a
+ *           |  write that git refuses puts the files back as they were.
+ *           |  write() is for an edit made elsewhere: it checks
+ *           |  baseVersion (the file's last commit) and, if a change
+ *           |  landed in between, tries a three-way merge with
+ *           |  `git merge-file` before giving up with MemoryConflict,
+ *           |  which carries both sides with conflict markers.
  *  Note     |  The repository keeps bytes as written (autocrlf off), so a
  *           |  hand-edited CRLF file stays CRLF. Paths are checked
  *           |  before they touch the disk: relative, inside the root,
@@ -291,6 +295,11 @@ export class GitMemoryProvider implements MemoryProvider {
       });
       return { content, version };
     }
+    // The version first, then the text. A commit landing between the two gives newer text with
+    // an older version, which a later save() merges cleanly (both sides hold that change); the
+    // other order gives older text with a newer version, and a save() built on it would silently
+    // undo the commit that landed in between.
+    const committed = (await this.lastCommitOf(p)) ?? 'uncommitted';
     const content = await readFile(this.abs(p), 'utf8').catch(() => {
       throw new AncileError({
         code: 'memory.not_found',
@@ -301,7 +310,7 @@ export class GitMemoryProvider implements MemoryProvider {
         detail: p,
       });
     });
-    return { content, version: (await this.lastCommitOf(p)) ?? 'uncommitted' };
+    return { content, version: committed };
   }
 
   write(change: MemoryWrite): Promise<{ version: string }> {
@@ -340,27 +349,83 @@ export class GitMemoryProvider implements MemoryProvider {
       }
 
       if (onDisk === content) return { version: current ?? (await this.head()), merged, changed: false };
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, content, 'utf8');
-      await this.git.add([path]);
-      await this.git.commit(change.message, [path], {
-        '--author': `${change.author.name} <${change.author.email}>`,
-      });
+      await this.commitFiles([{ path, before: onDisk, after: content }], change.message, change.author);
       return { version: (await this.lastCommitOf(path)) as string, merged, changed: true };
     });
   }
 
+  /**
+   * Read a file, change it and commit it as one step inside the write queue: `change` is given
+   * the file's text now (null: not there yet) and answers the new text, or null to leave it.
+   * For a change that builds on what is already there (add an entry, update one), so that no
+   * writer works from text another writer has since replaced. `change` must not call anything
+   * that waits on this queue (write, update, writeMany, remove, revert); read() is fine.
+   */
+  async update(
+    path: string,
+    change: (current: {
+      content: string | null;
+      version: string | null;
+    }) => Promise<string | null> | string | null,
+    message: string,
+    author: { name: string; email: string },
+  ): Promise<{ version: string; changed: boolean }> {
+    await this.ensure();
+    const p = safeMemoryPath(path);
+    return this.serial(async () => {
+      const onDisk = await readFile(this.abs(p), 'utf8').catch(() => null);
+      const version = onDisk === null ? null : await this.lastCommitOf(p);
+      const next = await change({ content: onDisk, version });
+      if (next === null || next === onDisk)
+        return { version: version ?? (await this.head()), changed: false };
+      await this.commitFiles([{ path: p, before: onDisk, after: next }], message, author);
+      return { version: (await this.lastCommitOf(p)) as string, changed: true };
+    });
+  }
+
+  /**
+   * Write the files and commit them. If git refuses (a lock held by another program, a full disk),
+   * the files go back to what they were and nothing stays staged, so the failed write leaves no
+   * trace for the next writer to commit by accident. Call inside the write queue.
+   */
+  private async commitFiles(
+    files: { path: string; before: string | null; after: string }[],
+    message: string,
+    author: { name: string; email: string },
+  ): Promise<void> {
+    const paths = files.map((f) => f.path);
+    try {
+      for (const f of files) {
+        const file = this.abs(f.path);
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, f.after, 'utf8');
+      }
+      await this.git.add(paths);
+      await this.git.commit(message, paths, { '--author': `${author.name} <${author.email}>` });
+    } catch (err) {
+      for (const f of files) {
+        const file = this.abs(f.path);
+        if (f.before === null) await rm(file, { force: true }).catch(() => undefined);
+        else await writeFile(file, f.before, 'utf8').catch(() => undefined);
+      }
+      await this.git.raw(['reset', '--quiet', '--', ...paths]).catch(() => undefined);
+      throw err;
+    }
+  }
+
   /** Remove a file in its own commit (history keeps it, so a revert brings it back). */
-  remove(
+  async remove(
     path: string,
     message: string,
     author: { name: string; email: string },
   ): Promise<{ version: string }> {
     const p = safeMemoryPath(path);
+    // Before the queue, never inside it: ensure() queues too, and would wait for its own caller.
+    await this.ensure();
     return this.serial(async () => {
-      await this.ensure();
       // History still names a deleted file, so ask the disk.
-      if ((await readFile(this.abs(p), 'utf8').catch(() => null)) === null)
+      const before = await readFile(this.abs(p), 'utf8').catch(() => null);
+      if (before === null)
         throw new AncileError({
           code: 'memory.not_found',
           title: `There is no memory file called ${p}`,
@@ -368,8 +433,15 @@ export class GitMemoryProvider implements MemoryProvider {
           status: 404,
           errorClass: 'permanent',
         });
-      await this.git.rm([p]);
-      await this.git.commit(message, [p], { '--author': `${author.name} <${author.email}>` });
+      try {
+        await this.git.rm([p]);
+        await this.git.commit(message, [p], { '--author': `${author.name} <${author.email}>` });
+      } catch (err) {
+        // Put the file back as it was, so the failed delete leaves nothing staged.
+        await this.git.raw(['reset', '--quiet', '--', p]).catch(() => undefined);
+        await writeFile(this.abs(p), before, 'utf8').catch(() => undefined);
+        throw err;
+      }
       return { version: await this.head() };
     });
   }
@@ -435,14 +507,15 @@ export class GitMemoryProvider implements MemoryProvider {
   }
 
   /** A revert commit; refuses (and leaves the tree clean) if it would conflict. */
-  revert(
+  async revert(
     sha: string,
     author: { name: string; email: string },
     message?: string,
   ): Promise<{ version: string }> {
-    if (!SHA.test(sha)) return Promise.reject(badVersion(sha));
+    if (!SHA.test(sha)) throw badVersion(sha);
+    // Before the queue, never inside it: ensure() queues too, and would wait for its own caller.
+    await this.ensure();
     return this.serial(async () => {
-      await this.ensure();
       try {
         await this.git.raw(['revert', '--no-commit', sha]);
       } catch (err) {
@@ -484,20 +557,14 @@ export class GitMemoryProvider implements MemoryProvider {
       const current = new Map<string, string | null>();
       for (const p of safe) current.set(p, await readFile(this.abs(p), 'utf8').catch(() => null));
       const next = await change(current);
-      const changed: string[] = [];
+      const files: { path: string; before: string | null; after: string }[] = [];
       for (const [p, content] of next) {
         if (!current.has(p)) throw badPath(p);
         if (current.get(p) === content) continue;
-        const file = this.abs(p);
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(file, content, 'utf8');
-        changed.push(p);
+        files.push({ path: p, before: current.get(p) ?? null, after: content });
       }
-      if (changed.length) {
-        await this.git.add(changed);
-        await this.git.commit(message, changed, { '--author': `${author.name} <${author.email}>` });
-      }
-      return { version: (await this.git.revparse(['HEAD'])).trim(), changed };
+      if (files.length) await this.commitFiles(files, message, author);
+      return { version: (await this.git.revparse(['HEAD'])).trim(), changed: files.map((f) => f.path) };
     });
   }
 

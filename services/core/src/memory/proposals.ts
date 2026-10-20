@@ -14,7 +14,12 @@
 
 import type { MemoryImportOrigin, MemoryProposal } from '@nvx/contracts';
 import type { Sql } from 'postgres';
-import { ulid } from 'ulid';
+import { monotonicFactory } from 'ulid';
+
+// Ids made in the same millisecond still sort in the order they were made. The inbox lists
+// newest first by (created_at, id); a plain ulid() breaks a same-millisecond tie at random, so
+// one correction that files a lesson and then a preference could list them the wrong way round.
+const ulid = monotonicFactory();
 
 export type NewProposal = Omit<MemoryProposal, 'id' | 'created_at' | 'decided_at' | 'commit_sha'> & {
   commit_sha?: string | null;

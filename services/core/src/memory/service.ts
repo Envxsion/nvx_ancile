@@ -115,6 +115,7 @@ import {
   worthAsking,
 } from './passive';
 import type { ProposalStore } from './proposals';
+import { KeyedQueue, Queue } from './queue';
 import {
   formatCommitMessage,
   type GitMemoryProvider,
@@ -268,6 +269,8 @@ function globToRegExp(pattern: string): RegExp {
 
 export class MemoryService {
   private privacy: MemoryServiceDeps['privacy'];
+  private readonly decisions = new KeyedQueue();
+  private readonly filing = new Queue();
 
   constructor(private readonly deps: MemoryServiceDeps) {
     this.privacy = deps.privacy;
@@ -294,27 +297,20 @@ export class MemoryService {
     if (!s) return;
     const about = await s.get<string>(SETTING.memoryAbout);
     if (!about?.trim() || (await s.get<boolean>('memory.about.written'))) return;
-    const { content, version } = await this.deps.provider.read('USER.md').catch(() => ({
-      content: '# About me\n',
-      version: null as string | null,
-    }));
-    const doc = addEntry(parseMemory(content), 'About', cleanEntry(about), {
-      m: ulid().slice(-8).toLowerCase(),
-      src: 'onboarding',
-      at: today(),
-    });
-    await this.deps.provider.writeDetailed({
-      path: 'USER.md',
-      content: renderMemory(doc),
-      baseVersion: version,
-      message: formatCommitMessage({
+    const meta = { m: ulid().slice(-8).toLowerCase(), src: 'onboarding', at: today() };
+    // start() indexes everything next, so there is nothing to refresh here.
+    await this.deps.provider.update(
+      'USER.md',
+      ({ content }) =>
+        renderMemory(addEntry(parseMemory(content ?? '# About me\n'), 'About', cleanEntry(about), meta)),
+      formatCommitMessage({
         scope: 'user',
         summary: 'what you said about yourself at setup',
         body: [],
         trailers: {},
       }),
-      author: this.deps.user,
-    });
+      this.deps.user,
+    );
     await s.set('memory.about.written', true);
   }
 
@@ -639,7 +635,15 @@ export class MemoryService {
     return p.section || 'Notes';
   }
 
-  async decide(id: string, req: ProposalDecisionRequest): Promise<MemoryProposal> {
+  /**
+   * One decision on a suggestion at a time. A double click on Approve, or two tabs, would
+   * otherwise both find it waiting and both write it: the second now finds it already dealt with.
+   */
+  decide(id: string, req: ProposalDecisionRequest): Promise<MemoryProposal> {
+    return this.decisions.run(id, () => this.decideNow(id, req));
+  }
+
+  private async decideNow(id: string, req: ProposalDecisionRequest): Promise<MemoryProposal> {
     const p = await this.deps.proposals.get(id);
     if (!p)
       throw new AncileError({
@@ -722,11 +726,6 @@ export class MemoryService {
   private async applyProposal(p: MemoryProposal, auto: boolean, nb?: NotebookInfo | null): Promise<string> {
     const provider = this.deps.provider;
     const path = p.target_path;
-    const exists = await provider.exists(path);
-    const current = exists
-      ? await provider.read(path)
-      : { content: await this.newFileFor(path, nb), version: null };
-    let doc = parseMemory(current.content);
     const key = ulid().slice(-8).toLowerCase();
     const src = p.evidence.find((e) => e.message_id)?.message_id ?? p.evidence.find((e) => e.run_id)?.run_id;
     const meta: EntryMeta & { m: string } = {
@@ -736,18 +735,23 @@ export class MemoryService {
       at: today(),
     };
     const text = cleanEntry(p.text);
-    const target = p.target_key && doc.blocks.some((b) => b.kind === 'entry' && b.key === p.target_key);
-    if (p.op === 'update' && target) {
-      doc = updateEntry(doc, p.target_key as string, text, {
-        conf: meta.conf,
-        ...(src && { src }),
-        at: meta.at,
-      });
-    } else {
-      doc = addEntry(doc, p.section, text, meta);
-      if (p.op === 'supersede' && target)
-        doc = supersedeEntry(doc, p.target_key as string, key, meta.at as string);
-    }
+    /** The file with this change made to it: built from the file as it is when the write's turn comes. */
+    const change = async (current: { content: string | null }) => {
+      let doc = parseMemory(current.content ?? (await this.newFileFor(path, nb)));
+      const target = p.target_key && doc.blocks.some((b) => b.kind === 'entry' && b.key === p.target_key);
+      if (p.op === 'update' && target) {
+        doc = updateEntry(doc, p.target_key as string, text, {
+          conf: meta.conf,
+          ...(src && { src }),
+          at: meta.at,
+        });
+      } else {
+        doc = addEntry(doc, p.section, text, meta);
+        if (p.op === 'supersede' && target)
+          doc = supersedeEntry(doc, p.target_key as string, key, meta.at as string);
+      }
+      return renderMemory(doc);
+    };
     const ev = p.evidence[0];
     const thread = ev?.thread_id
       ? await this.deps.threads?.getThread(ev.thread_id).catch(() => undefined)
@@ -772,18 +776,19 @@ export class MemoryService {
       ...later,
       `Detected: ${label} · confidence ${meta.conf} · ${auto ? 'auto-applied' : 'approved'}`,
     ];
-    const r = await provider.writeDetailed({
+    // Read, change and commit in one step in the repository's write queue (repo.ts update): a
+    // change built here from a read made earlier would undo whatever was saved in between.
+    const r = await provider.update(
       path,
-      content: renderMemory(doc),
-      baseVersion: current.version,
-      message: formatCommitMessage({
+      change,
+      formatCommitMessage({
         scope: scopeOf(path),
         summary: summarise(text),
         body,
         trailers: { 'Ancile-Proposal': p.id },
       }),
-      author: auto ? provider.author : this.deps.user,
-    });
+      auto ? provider.author : this.deps.user,
+    );
     await this.deps.index.refresh(path);
     return r.version;
   }
@@ -849,43 +854,45 @@ export class MemoryService {
     };
 
     // M8, proved or suggested: a lesson from a run needs a second sighting or checked evidence.
-    let seen: MemoryProposal | undefined;
-    if (needsSightings(c)) {
-      seen = findWatch(await this.deps.proposals.watching(), c.targetPath, fields.text);
-      const sightings = (seen?.sightings ?? 0) + 1;
-      if (sightings < SIGHTINGS_NEEDED) {
-        const w = await this.deps.proposals.create({
-          kind: c.kind,
-          target_path: c.targetPath,
-          section: c.section,
-          ...fields,
-          confidence: c.confidence,
-          provenance: c.provenance,
-          evidence,
-          status: 'watching',
-          sightings,
-          expires_at: watchExpiry(this.now()),
-          uncertainty: uncertaintyFor({ kind: c.kind, text: fields.text }),
-        });
-        await this.announce(w, c, false, true);
-        return w;
+    // Looking for the watch item and filing the new sighting happen as one step: two captures of
+    // the same lesson at once would each find nothing and each file a first sighting, and it
+    // would never count as seen twice. (Only the proposals store is touched here, so it is short.)
+    const filed = await this.filing.run(async () => {
+      let seen: MemoryProposal | undefined;
+      if (needsSightings(c)) {
+        seen = findWatch(await this.deps.proposals.watching(), c.targetPath, fields.text);
+        const sightings = (seen?.sightings ?? 0) + 1;
+        if (sightings < SIGHTINGS_NEEDED) {
+          const w = await this.deps.proposals.create({
+            kind: c.kind,
+            target_path: c.targetPath,
+            section: c.section,
+            ...fields,
+            confidence: c.confidence,
+            provenance: c.provenance,
+            evidence,
+            status: 'watching',
+            sightings,
+            expires_at: watchExpiry(this.now()),
+            uncertainty: uncertaintyFor({ kind: c.kind, text: fields.text }),
+          });
+          return { proposal: w, watching: true };
+        }
       }
-    }
-
-    let p: MemoryProposal;
-    if (seen) {
-      // The second sighting: the watch item becomes an ordinary proposal, with both cases as evidence.
-      p =
-        (await this.deps.proposals.update(seen.id, {
-          status: 'proposed',
-          ...fields,
-          evidence: [...seen.evidence, ...evidence].slice(-6),
-          sightings: (seen.sightings ?? 1) + 1,
-          expires_at: null,
-          uncertainty: null,
-        })) ?? seen;
-    } else {
-      p = await this.deps.proposals.create({
+      if (seen) {
+        // The second sighting: the watch item becomes an ordinary proposal, with both cases as evidence.
+        const became =
+          (await this.deps.proposals.update(seen.id, {
+            status: 'proposed',
+            ...fields,
+            evidence: [...seen.evidence, ...evidence].slice(-6),
+            sightings: (seen.sightings ?? 1) + 1,
+            expires_at: null,
+            uncertainty: null,
+          })) ?? seen;
+        return { proposal: became, watching: false };
+      }
+      const made = await this.deps.proposals.create({
         kind: c.kind,
         target_path: c.targetPath,
         section: c.section,
@@ -895,7 +902,13 @@ export class MemoryService {
         evidence,
         status: 'proposed',
       });
+      return { proposal: made, watching: false };
+    });
+    if (filed.watching) {
+      await this.announce(filed.proposal, c, false, true);
+      return filed.proposal;
     }
+    let p = filed.proposal;
     if (verdict === 'auto_apply') {
       const sha = await this.applyProposal(p, true, opts.notebook);
       p =
