@@ -30,6 +30,9 @@ export default defineConfig({
           exclude: ['test/boot/**'],
           // Store contract tests also run against Postgres when CORE_TEST_DATABASE_URL is set.
           globalSetup: ['test/support/pg-setup.ts'],
+          // The memory tests make real git commits; under a full parallel run on Windows
+          // several pass the 5 s default and fail as flakes, hiding real failures.
+          testTimeout: 15_000,
         },
       },
       { test: { name: 'boot', include: ['test/boot/**/*.boot.test.ts'], testTimeout: 8000 } },
