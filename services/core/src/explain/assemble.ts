@@ -37,7 +37,8 @@ import {
   RetrievalTrace,
   SelectionCheck,
 } from '@nvx/contracts';
-import type { MessageRecord } from '../threads/repo';
+import { words } from '../memory/index';
+import { type MessageRecord, textOf } from '../threads/repo';
 
 type Call = Extract<Part, { type: 'tool_call' }>;
 type Result = Extract<Part, { type: 'tool_result' }>;
@@ -103,6 +104,26 @@ export function pairTools(
           : null,
       };
     });
+}
+
+/**
+ * The entries an answer was given, those it shares the most words with first. The rest keep the
+ * memory pack's own order (its rank), so the "Used:" line names what bore on the answer and puts
+ * the remainder behind "and N more".
+ */
+export function relevantFirst<T extends { text: string }>(used: T[], answer: string): T[] {
+  if (used.length < 2 || !answer) return used;
+  const said = words(answer);
+  const score = (u: T) => {
+    const w = words(u.text);
+    let both = 0;
+    for (const x of w) if (said.has(x)) both++;
+    return w.size ? both / Math.sqrt(w.size) : 0;
+  };
+  return used
+    .map((u, i) => ({ u, i, s: score(u) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.u);
 }
 
 export function assembleExplain(input: {
@@ -174,7 +195,7 @@ export function assembleExplain(input: {
     },
     attempts,
     memory: memory.success ? memory.data : null,
-    memory_used: input.memoryUsed ?? [],
+    memory_used: relevantFirst(input.memoryUsed ?? [], textOf(m.parts)),
     retrieval: retrieval.success ? retrieval.data : null,
     retrieval_error: re?.code ? { code: String(re.code), title: String(re.title ?? '') } : null,
     tools: pairTools(m.parts, input.decisions, input.actionOf, input.scope),

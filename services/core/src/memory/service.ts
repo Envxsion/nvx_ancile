@@ -52,6 +52,7 @@ import {
   type CaptureCandidate,
   CorrectionDetection,
   checkDecision,
+  contrast,
   correctionSignal,
   FailureLesson,
   failureEpisodes,
@@ -63,6 +64,7 @@ import {
   ReconcileOutput,
   reconcileLocally,
   reversalSignal,
+  reversalStatement,
   scrubPaths,
   staleStatement,
   topicSlug,
@@ -70,6 +72,7 @@ import {
 import {
   COMPARE_CHARS,
   COMPARE_PROMPT,
+  COMPARE_TOKENS,
   CompareResult,
   checkRubric,
   detectExample,
@@ -95,9 +98,16 @@ import {
   watchExpiry,
 } from './gates';
 import { checkReview, condense, HINDSIGHT_PROMPT, HindsightReview, turnsOf } from './hindsight';
-import { type IndexedEntry, indexFile, isGuideFile, type MemoryIndex, similarity } from './index';
-import { buildMemoryPack, type InjectFile, type MemoryPack, memoryBudget } from './inject';
-import type { Utility } from './llm';
+import { type IndexedEntry, indexFile, isGuideFile, type MemoryIndex, similarity, words } from './index';
+import {
+  approxTokens,
+  buildMemoryPack,
+  CAPTURE_NOTE,
+  type InjectFile,
+  type MemoryPack,
+  memoryBudget,
+} from './inject';
+import type { Utility, UtilityOutcome } from './llm';
 import {
   condensePassive,
   emptyLedger,
@@ -250,8 +260,12 @@ const KIND_LABEL: Record<MemoryProposal['kind'], string> = {
   imported: 'imported',
 };
 
+/** The start of the rationale of something the person asked to be remembered. */
+const ASKED_NOTE = 'You asked me to remember this.';
+
 /** What the commit says detected the change. */
 function kindLabel(p: MemoryProposal, repeated: boolean): string {
+  if (p.rationale.startsWith(ASKED_NOTE)) return 'asked';
   if (p.target_path.startsWith('STANDARDS/')) return 'standard from an example';
   if (p.rationale.startsWith('Noticed in passing'))
     return repeated ? 'said more than once' : 'noticed in passing';
@@ -474,6 +488,7 @@ export class MemoryService {
       this.deps.user,
     );
     await this.deps.index.refresh(path);
+    await this.withdrawAbout(path, { all: true }).catch(() => undefined);
     return r;
   }
 
@@ -774,7 +789,7 @@ export class MemoryService {
           ? [`From run ${ev.run_id}.`]
           : []),
       ...later,
-      `Detected: ${label} · confidence ${meta.conf} · ${auto ? 'auto-applied' : 'approved'}`,
+      `${label === 'asked' ? 'You asked me to remember this' : `Detected: ${label}`} · confidence ${meta.conf} · ${auto ? 'auto-applied' : 'approved'}`,
     ];
     // Read, change and commit in one step in the repository's write queue (repo.ts update): a
     // change built here from a read made earlier would undo whatever was saved in between.
@@ -790,7 +805,27 @@ export class MemoryService {
       auto ? provider.author : this.deps.user,
     );
     await this.deps.index.refresh(path);
+    await this.withdrawAbout(path, { key: p.target_key, saved: p }).catch(() => undefined);
     return r.version;
+  }
+
+  /**
+   * Proposals still waiting that are about something that just changed are out of date: the
+   * entry they would update was superseded or replaced, the file is gone, or the same thing was
+   * just saved. They are withdrawn (as if declined) so the inbox never offers a stale change.
+   */
+  private async withdrawAbout(
+    path: string,
+    about: { key?: string | null; saved?: MemoryProposal; all?: boolean },
+  ): Promise<void> {
+    const waiting = await this.deps.proposals.list({ status: ['proposed'] });
+    for (const w of waiting) {
+      if (w.id === about.saved?.id || w.target_path !== path) continue;
+      const sameEntry = !!about.key && w.target_key === about.key;
+      const sameWords = !!about.saved && similarity(w.text, about.saved.text) >= 0.9;
+      if (about.all || sameEntry || sameWords)
+        await this.deps.proposals.update(w.id, { status: 'rejected', decided: true });
+    }
   }
 
   /**
@@ -803,13 +838,30 @@ export class MemoryService {
    * Whether a run-learned lesson is a rule yet is decided here, by sightings.
    */
   async consider(
-    c: CaptureCandidate,
+    c0: CaptureCandidate,
     opts: { notebook?: NotebookInfo | null } = {},
   ): Promise<MemoryProposal | null> {
+    let c = c0;
     const mode = await this.captureMode();
     const explicit = !!c.explicit && c.provenance === 'user_message';
     if (mode === 'off' && !explicit) return null;
     await this.sweepWatches().catch(() => undefined);
+    // A reversal replaces the entry it contradicts, wherever that entry lives: "US-style dates"
+    // against a USER.md date entry is that entry's business even when the detector guessed that
+    // the new fact belonged to a notebook.
+    if (c.reversal) {
+      const best = this.deps.index.search(c.text, { min: 0.12, limit: 6 }).find(
+        (e) =>
+          !e.path.startsWith('FAILURES/') &&
+          !e.path.startsWith('STANDARDS/') &&
+          // Another notebook's decisions are not this person's to take back from here.
+          (!e.path.startsWith('PROJECTS/') ||
+            e.path === c.targetPath ||
+            (!!opts.notebook && e.path === `PROJECTS/${opts.notebook.slug}.md`)),
+      );
+      if (best && best.path !== c.targetPath && this.typeOf(best.path))
+        c = { ...c, targetPath: best.path, section: best.section ?? c.section };
+    }
     const spec = this.typeOf(c.targetPath)?.spec;
     const neighbours = this.deps.index
       .search(c.text, { path: c.targetPath, limit: 5, min: 0.1 })
@@ -1000,7 +1052,14 @@ export class MemoryService {
         entries: live(path).map((e) => asInject(e)),
       });
     }
-    return { ...buildMemoryPack(files, budget), budget };
+    const built = buildMemoryPack(files, budget);
+    // The one-line note rides with the pinned part (stable, so a cached prefix stays valid), and
+    // only while capture is on.
+    if (req.part !== 'ranked' && (await this.captureMode()) !== 'off') {
+      const text = built.text ? `${built.text}\n\n${CAPTURE_NOTE}` : CAPTURE_NOTE;
+      return { ...built, text, tokens: built.tokens + approxTokens(CAPTURE_NOTE), budget };
+    }
+    return { ...built, budget };
   }
 
   async preview(req: PackRequest): Promise<MemoryPreview> {
@@ -1290,6 +1349,8 @@ export class MemoryService {
       if (!t || !shown.shown.includes(it.turn) || statement.length < 8 || seen.has(statement.toLowerCase()))
         continue;
       if (similarity(statement, t.user) < 0.1) continue;
+      // Already remembered (an explicit "remember", an earlier proposal that was saved): nothing to add.
+      if (this.alreadyRemembered(statement)) continue;
       seen.add(statement.toLowerCase());
       if (filed + saved >= PASSIVE_MAX_ITEMS) break;
       const project = it.scope === 'notebook' && nb;
@@ -1320,6 +1381,25 @@ export class MemoryService {
     return { asked: true, filed, saved };
   }
 
+  /**
+   * A statement whose words an existing live entry already carries (three quarters of them, and
+   * the same stance: a "not" on one side only is a change, not a repeat).
+   */
+  private alreadyRemembered(statement: string): boolean {
+    const mine = words(statement);
+    if (mine.size === 0) return false;
+    const negated = /\b(?:not|never|no|don'?t|doesn'?t|avoid|without|stop)\b/i.test(statement);
+    return this.deps.index.search(statement, { limit: 3, min: 0.3 }).some((e) => {
+      const theirs = words(e.text);
+      let both = 0;
+      for (const w of mine) if (theirs.has(w)) both++;
+      return (
+        both / mine.size >= 0.75 &&
+        negated === /\b(?:not|never|no|don'?t|doesn'?t|avoid|without|stop)\b/i.test(e.text)
+      );
+    });
+  }
+
   /* ---- Learning from an example ---------------------------------------------- */
 
   /**
@@ -1334,28 +1414,73 @@ export class MemoryService {
     userText: string,
     nb: NotebookInfo | null | undefined,
   ): Promise<void> {
-    if (!this.deps.utility) return;
-    const rubric = checkRubric(
-      await this.deps.utility
-        .json(
-          STANDARD_PROMPT,
-          {
-            role: ex.role,
-            theirs: exampleBlock(ex.theirs),
-            mine: ex.mine.length ? exampleBlock(ex.mine) : '',
+    const say = (outcome: 'learned' | 'not_learned', title: string, body: string) =>
+      this.deps.bus
+        ?.publish({
+          type: 'memory.note',
+          message_id: turn.userMessageId,
+          thread_id: turn.threadId,
+          outcome,
+          title,
+          body,
+        })
+        .catch(() => undefined);
+    const who = `your ${ex.role}'s`;
+    const fail = async (reason: string) => {
+      log.info({ thread_id: turn.threadId, reason }, 'no standard learned from an example');
+      await say(
+        'not_learned',
+        `Couldn't learn ${who} standard`,
+        `${reason[0]?.toUpperCase()}${reason.slice(1)}.`,
+      );
+    };
+    if (!this.deps.utility) return fail('no model is set up to read it');
+
+    // The cheap tier first (distilling rules from a page is a narrow job); the default model only
+    // if the cheap one's answer is unusable. What it cost is logged, never shown.
+    const vars = {
+      role: ex.role,
+      theirs: exampleBlock(ex.theirs),
+      mine: ex.mine.length ? exampleBlock(ex.mine) : '',
+    };
+    const localOnly = await this.localOnlyFor(turn.notebookId);
+    let rubric: StandardRubric | null = null;
+    let reason = '';
+    let tokens = 0;
+    let usd = 0;
+    let modelId = '';
+    for (const taskClasses of [['memory.detector'], ['chat.default']]) {
+      let outcome: UtilityOutcome | undefined;
+      const answer = await this.deps.utility
+        .json(STANDARD_PROMPT, vars, StandardRubric, {
+          maxOutputTokens: 900,
+          taskClasses,
+          ...(localOnly && { localOnly: true }),
+          outcome: (o) => {
+            outcome = o;
           },
-          StandardRubric,
-          {
-            maxOutputTokens: 700,
-            taskClasses: ['chat.default'],
-            ...((await this.localOnlyFor(turn.notebookId)) && { localOnly: true }),
-          },
-        )
-        .catch(() => null),
+        })
+        .catch(() => null);
+      if (outcome) {
+        tokens += outcome.inputTokens + outcome.outputTokens;
+        usd += outcome.costUsd ?? 0;
+        modelId = outcome.modelId ?? modelId;
+      }
+      if (!answer) {
+        reason = outcome?.reason ?? 'the model did not answer';
+        continue;
+      }
+      rubric = checkRubric(answer);
+      if (rubric) break;
+      reason = 'none of the rules it wrote were safe or specific enough to keep';
+    }
+    log.info(
+      { thread_id: turn.threadId, model: modelId, tokens, usd: usd || undefined, learned: !!rubric },
+      'distilled a standard from an example',
     );
-    if (!rubric) return;
+    if (!rubric) return fail(reason);
     const path = standardPath(ex.role);
-    const files = [...ex.theirs, ...ex.mine].filter((p) => p.from !== 'pasted block').map((p) => p.from);
+    const files = [...ex.theirs, ...ex.mine].filter((p) => !p.from.startsWith('pasted')).map((p) => p.from);
     const intro = ownWords(userText).slice(0, 240);
     const evidence = [
       {
@@ -1376,7 +1501,7 @@ export class MemoryService {
         ? 'Distilled from an example you asked to learn from.'
         : 'Distilled from an example you shared.',
     };
-    await this.consider(
+    const filed = await this.consider(
       { ...base, text: standardText(ex.role, rubric), confidence: Math.min(rubric.confidence, 0.8) },
       { notebook: nb },
     );
@@ -1386,6 +1511,13 @@ export class MemoryService {
         { ...base, section: 'Your work', text: diff, confidence: Math.min(rubric.confidence, 0.7) },
         { notebook: nb },
       );
+    if (filed)
+      await say(
+        'learned',
+        `Learned ${who} standard`,
+        filed.status === 'proposed' ? 'It is waiting in Memory for your yes.' : 'It is saved in Memory.',
+      );
+    else await fail('that standard is already in Memory');
   }
 
   /**
@@ -1428,10 +1560,14 @@ export class MemoryService {
         status: 422,
         errorClass: 'permanent',
       });
+    let outcome: UtilityOutcome | undefined;
     const out = await this.deps.utility
       ?.json(COMPARE_PROMPT, { standard: chosen.text, work }, CompareResult, {
-        maxOutputTokens: 900,
+        maxOutputTokens: COMPARE_TOKENS,
         taskClasses: ['chat.default'],
+        outcome: (o) => {
+          outcome = o;
+        },
         ...((await this.localOnlyFor(
           (
             await threads.getThread(m.thread_id).catch(() => undefined)
@@ -1439,14 +1575,17 @@ export class MemoryService {
         )) && { localOnly: true }),
       })
       .catch(() => null);
-    if (!out)
+    if (!out) {
+      const why = outcome?.reason ?? 'no model is set up for this';
+      log.warn({ reason: why, model: outcome?.modelId }, 'a comparison with a standard failed');
       throw new AncileError({
         code: 'memory.compare_unavailable',
         title: 'The comparison could not be done',
-        hint: 'No model answered, or its answer could not be read. Check that a default model is set up, then try again.',
+        hint: `${why[0]?.toUpperCase()}${why.slice(1)}. Try again, or pick a different default model.`,
         status: 503,
         errorClass: 'transient',
       });
+    }
     return {
       standard: { path: chosen.path, key: chosen.key, text: chosen.text, commit: chosen.commit },
       summary: out.summary,
@@ -1519,11 +1658,13 @@ export class MemoryService {
       )
       .catch(() => null);
     // Without a model: the last sentence that is not only taking something back.
-    const fallback = own
-      .split(/(?<=[.!])\s+/)
-      .map((x) => x.trim())
-      .filter((x) => x && !reversalOnly(x))
-      .at(-1);
+    const fallback =
+      reversalStatement(own) ||
+      own
+        .split(/(?<=[.!])\s+/)
+        .map((x) => x.trim())
+        .filter((x) => x && !reversalOnly(x))
+        .at(-1);
     const statement = det?.statement?.trim() || fallback;
     if (!statement)
       throw new AncileError({
@@ -1672,6 +1813,7 @@ export class MemoryService {
           ],
           provenance: 'user_message',
           explicit: true,
+          note: ASKED_NOTE,
         },
         { notebook: nb },
       );
@@ -1682,67 +1824,112 @@ export class MemoryService {
     // 0b. Someone else's work shown as the bar to aim for: a standard, proposed (never saved unasked).
     const example = user && userText ? detectExample(userText, user.parts) : null;
     if (example)
-      await this.learnExample(turn, example, userText, nb).catch((err) =>
-        log.warn({ err, thread_id: turn.threadId }, 'could not learn a standard from the example'),
-      );
+      await this.learnExample(turn, example, userText, nb).catch(async (err) => {
+        log.warn({ err, thread_id: turn.threadId }, 'could not learn a standard from the example');
+        await this.deps.bus
+          ?.publish({
+            type: 'memory.note',
+            message_id: turn.userMessageId,
+            thread_id: turn.threadId,
+            outcome: 'not_learned',
+            title: `Couldn't learn your ${example.role}'s standard`,
+            body: 'Something went wrong while saving it.',
+          })
+          .catch(() => undefined);
+      });
 
     // 1. A correction of the assistant, in the user's own words. Taking something back
     //    ("scrap that", "I've moved to...") counts even with no answer to reply to.
     const reversal = reversalSignal(userText);
     let heard = false;
-    if (!ask && !example && user && threads && this.deps.utility) {
-      const original = user.edit_of_id ? await threads.getMessage(user.edit_of_id) : undefined;
-      let assistant: { parts: Part[]; role: string; parent_id?: string | null } | undefined;
-      if (original) {
-        const all = await threads.messages(turn.threadId);
-        assistant = all.find((m) => m.parent_id === original.id && m.role === 'assistant');
-      } else if (user.parent_id) {
-        const parent = await threads.getMessage(user.parent_id);
-        if (parent?.role === 'assistant') assistant = parent;
-      }
-      const assistantText = assistant ? textOf(assistant.parts) : null;
-      const editedFrom = original ? textOf(original.parts) : null;
-      // What was asked before the answer being corrected: the "asked" of a lesson.
-      const askedId = assistant?.parent_id;
-      const asker = askedId ? await threads.getMessage(askedId) : undefined;
-      const earlierRequest = asker?.role === 'user' ? ownWords(textOf(asker.parts)) : null;
-      if (correctionSignal({ userText, assistantText, editedFrom })) {
-        // The model sees only what the user wrote themselves: quotes, pasted
-        // blocks and code are someone else's words and must not become memory.
-        const own = ownWords(userText);
-        const det = await this.deps.utility.json(
-          PROMPTS.detect,
-          {
-            assistant_message: (assistantText ?? '').slice(0, 2_000),
-            user_message: own.slice(0, 2_000),
-            edited_from: editedFrom?.slice(0, 1_000) ?? '',
-            earlier_request: earlierRequest?.slice(0, 600) ?? '',
-          },
-          CorrectionDetection,
-        );
-        // 1a. The answer was wrong: what was asked, what was done, what was wanted. Said twice, it is kept.
-        if (det?.is_correction && det.lesson && assistantText)
-          await this.learnMistake(turn, det.lesson, userText, nb).catch((err) =>
-            log.warn({ err }, 'could not note the mistake'),
+    // The detector said something about the message (even "nothing durable"): its word stands.
+    let judged = false;
+    try {
+      if (!ask && !example && user && threads && this.deps.utility) {
+        const original = user.edit_of_id ? await threads.getMessage(user.edit_of_id) : undefined;
+        let assistant: { parts: Part[]; role: string; parent_id?: string | null } | undefined;
+        if (original) {
+          const all = await threads.messages(turn.threadId);
+          assistant = all.find((m) => m.parent_id === original.id && m.role === 'assistant');
+        } else if (user.parent_id) {
+          const parent = await threads.getMessage(user.parent_id);
+          if (parent?.role === 'assistant') assistant = parent;
+        }
+        const assistantText = assistant ? textOf(assistant.parts) : null;
+        const editedFrom = original ? textOf(original.parts) : null;
+        // What was asked before the answer being corrected: the "asked" of a lesson.
+        const askedId = assistant?.parent_id;
+        const asker = askedId ? await threads.getMessage(askedId) : undefined;
+        const earlierRequest = asker?.role === 'user' ? ownWords(textOf(asker.parts)) : null;
+        if (correctionSignal({ userText, assistantText, editedFrom })) {
+          // The model sees only what the user wrote themselves: quotes, pasted
+          // blocks and code are someone else's words and must not become memory.
+          const own = ownWords(userText);
+          const det = await this.deps.utility.json(
+            PROMPTS.detect,
+            {
+              assistant_message: (assistantText ?? '').slice(0, 2_000),
+              user_message: own.slice(0, 2_000),
+              edited_from: editedFrom?.slice(0, 1_000) ?? '',
+              earlier_request: earlierRequest?.slice(0, 600) ?? '',
+            },
+            CorrectionDetection,
           );
-        if (
-          det?.is_correction &&
-          det.durable &&
-          det.scope !== 'none' &&
-          det.statement.trim() &&
-          !staleStatement(det.statement, own, editedFrom)
-        ) {
-          const project = det.scope === 'notebook' && nb;
+          judged = !!det;
+          // 1a. The answer was wrong: what was asked, what was done, what was wanted. Said twice, it is kept.
+          if (det?.is_correction && det.lesson && assistantText)
+            await this.learnMistake(turn, det.lesson, userText, nb).catch((err) =>
+              log.warn({ err }, 'could not note the mistake'),
+            );
+          if (
+            det?.is_correction &&
+            det.durable &&
+            det.scope !== 'none' &&
+            det.statement.trim() &&
+            !staleStatement(det.statement, own, editedFrom)
+          ) {
+            const project = det.scope === 'notebook' && nb;
+            const made = await this.consider(
+              {
+                kind: 'preference',
+                targetPath: project ? `PROJECTS/${nb.slug}.md` : 'USER.md',
+                section: project ? 'Decisions' : 'Preferences',
+                text: asEntry(det.statement),
+                ...(reversal && { reversal: true }),
+                // Corrections are short. A long message is probably a paste, so
+                // whatever it yields is proposed, never kept without a yes.
+                confidence: own.length > LONG_MESSAGE ? Math.min(det.confidence, 0.6) : det.confidence,
+                evidence: [
+                  {
+                    threadId: turn.threadId,
+                    messageId: turn.userMessageId,
+                    runId: turn.runId,
+                    quote: userText,
+                  },
+                ],
+                provenance: 'user_message',
+              },
+              { notebook: nb },
+            );
+            heard = !!made;
+          }
+        }
+      }
+      // A reversal the model made nothing of (it did not answer, or called it a one-off): what is
+      // left once the take-back words are cut off is still what is true now. Proposed, never
+      // saved unasked, and it replaces the entry it contradicts.
+      if (reversal && !ask && !example && !heard && user && (!judged || contrast(userText))) {
+        const statement = reversalStatement(userText);
+        if (statement) {
+          const project = !!nb && /\b(?:in|for|on)\s+(?:this|the)\s+(?:notebook|project)\b/i.test(userText);
           const made = await this.consider(
             {
               kind: 'preference',
-              targetPath: project ? `PROJECTS/${nb.slug}.md` : 'USER.md',
+              targetPath: project && nb ? `PROJECTS/${nb.slug}.md` : 'USER.md',
               section: project ? 'Decisions' : 'Preferences',
-              text: asEntry(det.statement),
-              ...(reversal && { reversal: true }),
-              // Corrections are short. A long message is probably a paste, so
-              // whatever it yields is proposed, never kept without a yes.
-              confidence: own.length > LONG_MESSAGE ? Math.min(det.confidence, 0.6) : det.confidence,
+              text: statement,
+              reversal: true,
+              confidence: 0.7,
               evidence: [
                 {
                   threadId: turn.threadId,
@@ -1752,12 +1939,15 @@ export class MemoryService {
                 },
               ],
               provenance: 'user_message',
+              note: 'You took something back, so this is proposed.',
             },
             { notebook: nb },
           );
           heard = !!made;
         }
       }
+    } catch (err) {
+      log.warn({ err, thread_id: turn.threadId }, 'could not act on what the person said');
     }
     // A reversal that taught memory nothing is said so, with a way to save it anyway.
     if (reversal && !ask && !example && !heard)

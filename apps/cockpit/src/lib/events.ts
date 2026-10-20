@@ -23,7 +23,7 @@ import { onReviewerStatus } from '../auto/store';
 import { onClaudeCodeChanged } from '../claudecode/api';
 import { webNotifyEvent } from '../desktop/webNotify';
 import { onInterpreterRequested } from '../interpreter/host';
-import { onMemoryProposal, onMemoryUnchanged } from '../memory/api';
+import { onMemoryNote, onMemoryProposal, onMemoryUnchanged } from '../memory/api';
 import { refreshModels } from '../models/watch';
 import { decisionChime } from '../notify/chime';
 import { onMcpServerChanged, onMcpToolsChanged } from '../ops/mcp';
@@ -137,6 +137,9 @@ export function useGlobalEvents(): void {
             }
             break;
           }
+          case 'memory.note':
+            onMemoryNote(e);
+            break;
           case 'memory.unchanged':
             onMemoryUnchanged(e);
             break;

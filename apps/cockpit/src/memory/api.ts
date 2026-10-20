@@ -296,6 +296,21 @@ export function useCompare() {
   });
 }
 
+/** What memory did with an example the person showed: a standard waiting in Memory, or why not. */
+export function onMemoryNote(e: {
+  message_id: string;
+  outcome: 'learned' | 'not_learned';
+  title: string;
+  body: string;
+}) {
+  notify({
+    id: `memory-note-${e.message_id}`,
+    level: e.outcome === 'learned' ? 'info' : 'warn',
+    title: e.title,
+    body: e.body,
+  });
+}
+
 /**
  * Memory heard what sounded like a reversal and changed nothing: say so quietly, and offer
  * to save what the message said.

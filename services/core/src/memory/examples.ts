@@ -12,7 +12,9 @@
  *  How      |  Pure. Rules on the person's own words find the phrase
  *           |  ("my manager's report", "how my lead writes"); content
  *           |  comes from attachments (their stored text) and pasted
- *           |  blocks (fenced, quoted or set off by a rule line). Two
+ *           |  blocks (fenced, quoted or set off by a rule line), or, with
+ *           |  none of those, plain paragraphs after a line such as
+ *           |  "this is my manager's update:" or "this is mine:". Two
  *           |  pieces are theirs and mine; one alone is theirs. The
  *           |  distilled standard is checked here before it is shown
  *           |  as a proposal.
@@ -104,6 +106,48 @@ export function pastedBlocks(text: string): { before: string; text: string }[] {
   return out.filter((b) => b.text.length >= MIN_EXAMPLE_CHARS);
 }
 
+const MINE_MARK = `(?:mine|my own|my version|my draft|my attempt|my (?:own )?(?:update|report|work|one|email|pr|pull request|doc|document|review|code|writing)|what i (?:wrote|did|have|made))`;
+const LEAD_IN = String.raw`(?:(?:ok|okay|so|and|now|also|then)[,\s]+)*`;
+const MINE_LINE = new RegExp(
+  String.raw`^\s*${LEAD_IN}(?:(?:this is|this was|here'?s|here is|below is)\s+)?${MINE_MARK}\b`,
+  'i',
+);
+const THEIRS_LINE = new RegExp(
+  String.raw`^\s*${LEAD_IN}(?:this is|this was|here'?s|here is|below is|attached is|these are|and here)\b`,
+  'i',
+);
+
+/**
+ * Plain paragraphs: a short line that says whose work follows ("This is my manager's update:",
+ * "This is mine:"), then the text up to the next such line. Used only when nothing was fenced,
+ * quoted or ruled off. A closing question ("Can you compare them?") is not part of the work.
+ */
+export function plainSections(text: string): { label: 'theirs' | 'mine'; text: string }[] {
+  const out: { label: 'theirs' | 'mine'; lines: string[] }[] = [];
+  for (const line of text.split('\n')) {
+    const colon = line.indexOf(':');
+    const head = colon >= 0 ? line.slice(0, colon) : line;
+    const inline = colon >= 0 ? line.slice(colon + 1).trim() : '';
+    let label: 'theirs' | 'mine' | null = null;
+    if (head.length <= 160) {
+      if (MINE_LINE.test(head) && !THEIRS.some((re) => re.test(head))) label = 'mine';
+      else if (THEIRS_LINE.test(head) && THEIRS.some((re) => re.test(head))) label = 'theirs';
+    }
+    if (label) out.push({ label, lines: inline ? [inline] : [] });
+    else out.at(-1)?.lines.push(line);
+  }
+  return out.flatMap((sec) => {
+    const paras = sec.lines
+      .join('\n')
+      .trim()
+      .split(/\n\s*\n/);
+    const last = paras.at(-1) ?? '';
+    if (paras.length > 1 && /\?\s*$/.test(last) && last.length <= 200) paras.pop();
+    const body = paras.join('\n\n').trim();
+    return body.length >= MIN_EXAMPLE_CHARS ? [{ label: sec.label, text: body }] : [];
+  });
+}
+
 /** What the person showed: the role, and which piece is theirs and which is mine. Null: not an example. */
 export function detectExample(userText: string, parts: Part[] = []): ExampleDetection | null {
   if (!userText) return null;
@@ -123,8 +167,12 @@ export function detectExample(userText: string, parts: Part[] = []): ExampleDete
     if (p.type === 'file' && p.text && p.text.trim().length >= MIN_EXAMPLE_CHARS)
       pieces.push({ label: labelFor(p.name, role), text: p.text.trim(), from: p.name });
   }
-  for (const b of pastedBlocks(userText))
+  const blocks = pastedBlocks(userText);
+  for (const b of blocks)
     pieces.push({ label: labelFor(b.before, role), text: b.text, from: 'pasted block' });
+  if (blocks.length === 0)
+    for (const b of plainSections(userText))
+      pieces.push({ label: b.label, text: b.text, from: 'pasted text' });
   if (pieces.length === 0) return null;
 
   // Labels from the words near each piece are trusted only when they tell the pieces apart
@@ -156,13 +204,22 @@ export const standardPath = (role: string) => `STANDARDS/${topicSlug(role)}.md`;
 
 /* ---- What the model returns ---------------------------------------------------- */
 
+/**
+ * A model's text, cut to fit with a marker instead of rejecting the whole answer: a long rule
+ * is still a useful rule, and a reply thrown away for being a few characters over costs a call.
+ */
+export const clip = (max: number) =>
+  z.string().transform((s) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s));
+/** A list kept to its first `max` items. */
+const few = <T extends z.ZodTypeAny>(item: T, max: number) => z.array(item).transform((a) => a.slice(0, max));
+
 export const StandardRubric = z.object({
   /** What kind of work the example is: "Weekly update", "Pull request". */
-  title: z.string().max(80),
-  rules: z.array(z.string().max(200)).max(10).default([]),
+  title: clip(80),
+  rules: few(clip(200), 10).default([]),
   /** How the person's own piece differs, only when one was shown. */
-  differences: z.array(z.string().max(240)).max(6).default([]),
-  confidence: z.coerce.number().min(0).max(1).default(0.7),
+  differences: few(clip(240), 6).default([]),
+  confidence: z.coerce.number().min(0).max(1).catch(0.7).default(0.7),
 });
 export type StandardRubric = z.infer<typeof StandardRubric>;
 
@@ -175,7 +232,7 @@ export const STANDARD_PROMPT = {
 
 /** Rules that read like an instruction to a system or a hook for a leak, not a standard of work. */
 const SUSPICIOUS =
-  /(ignore (?:all |any )?(?:previous|prior|above|earlier)|disregard|system prompt|you (?:must|should) (?:now|always) |do not tell|don'?t tell the user|exfiltrate|https?:\/\/|\bapi[_ -]?key\b|\bpassword\b|run the following|execute|<\/?[a-z]+>)/i;
+  /(ignore (?:all |any )?(?:previous|prior|above|earlier)|disregard|system prompt|you (?:must|should) (?:now|always) |do not tell|don'?t tell the user|exfiltrate|https?:\/\/|\bapi[_ -]?key\b|\bpassword\b|run the following|execut(?:e|ing) (?:the|this|any|all|these|following|commands?)|<\/?[a-z]+>)/i;
 
 const tidy = (s: string) =>
   s
@@ -219,14 +276,16 @@ export const exampleBlock = (pieces: Piece[]) =>
 /* ---- Compare with a standard --------------------------------------------------- */
 
 export const CompareResult = z.object({
-  summary: z.string().max(400),
-  differences: z
-    .array(
-      z.object({ point: z.string().max(120), yours: z.string().max(240), standard: z.string().max(240) }),
-    )
-    .max(8)
-    .default([]),
-  suggestions: z.array(z.string().max(300)).max(6).default([]),
+  summary: clip(600),
+  differences: few(
+    z.object({
+      point: clip(160).default(''),
+      yours: clip(400).default(''),
+      standard: clip(400).default(''),
+    }),
+    8,
+  ).default([]),
+  suggestions: few(clip(500), 6).default([]),
 });
 export type CompareResult = z.infer<typeof CompareResult>;
 
@@ -239,3 +298,5 @@ export const COMPARE_PROMPT = {
 
 /** Characters of the work compared. */
 export const COMPARE_CHARS = 6_000;
+/** Tokens the comparison may use: a summary, eight differences and six edits run to about 1,200. */
+export const COMPARE_TOKENS = 1_600;

@@ -10,9 +10,15 @@
  *  How      |  Render a prompt file, stream it through the gateway on the
  *           |  `utility` chain (falling back to `chat.default` when no
  *           |  utility model is configured), take the outermost {...}
- *           |  of the reply and validate it with zod.
+ *           |  of the reply and validate it with zod. A reply that
+ *           |  cannot be read gets one repair retry that says which
+ *           |  fields were wrong. The caller can ask for an outcome:
+ *           |  why nothing came back, and what the call cost.
  *  Note     |  Every prompt ends "Return JSON matching <Name>." so the
  *           |  offline test model can recognise it (gateway/fake.ts).
+ *           |  The gateway has no provider-side structured output yet,
+ *           |  so JSON is asked for in the prompt and checked here.
+ *           |  TODO(phase-5): use a provider's JSON mode where it exists.
  * ------------------------------------------------------------------
  */
 
@@ -25,6 +31,19 @@ import type { ModelRegistry } from '../gateway/registry';
 import { logFor } from '../obs/logger';
 
 const log = logFor('memory');
+
+/** What one utility call came to, for a caller that wants to say why nothing happened. */
+export interface UtilityOutcome {
+  ok: boolean;
+  /** Why not, in words a note can use. Never any of the content. */
+  reason?: string;
+  /** The model that answered last. */
+  modelId?: string;
+  /** Tokens over every attempt (the repair retry included). */
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number;
+}
 
 export interface Utility {
   json<S extends z.ZodTypeAny>(
@@ -40,6 +59,8 @@ export interface Utility {
       taskClasses?: string[];
       /** Use only a model on this machine or the person's own node (a private notebook). */
       localOnly?: boolean;
+      /** Called once with what the call came to, answer or not. */
+      outcome?: (o: UtilityOutcome) => void;
     },
   ): Promise<z.infer<S> | null>;
 }
@@ -80,37 +101,84 @@ export function utilityFrom(deps: {
 
   return {
     async json(prompt, vars, schema, opts) {
+      const out: UtilityOutcome = { ok: false, inputTokens: 0, outputTokens: 0 };
+      const done = (extra: Partial<UtilityOutcome>) => opts?.outcome?.({ ...out, ...extra });
       const models = chain(opts?.taskClasses, opts?.localOnly);
-      if (!models.length) return null;
+      if (!models.length) {
+        done({ reason: 'no model is set up for this' });
+        return null;
+      }
       const template = await loadPrompt(deps.promptsDir, prompt.id, prompt.fallback);
       let content = render(template, vars);
       if (!content.includes(`Return JSON matching ${prompt.output}`))
         content += `\n\nReturn JSON matching ${prompt.output}.`;
-      const signal = AbortSignal.timeout(deps.timeoutMs ?? 45_000);
-      let text = '';
-      try {
+      const asked = content;
+      const maxOutputTokens = opts?.maxOutputTokens ?? 800;
+
+      const ask = async (text: string, tokens: number) => {
+        const signal = AbortSignal.timeout(deps.timeoutMs ?? 45_000);
+        let reply = '';
+        let cutOff = false;
         for await (const ev of deps.gateway.stream(
           models,
           {
             system: SYSTEM,
-            messages: [{ role: 'user', content }],
+            messages: [{ role: 'user', content: text }],
             temperature: 0,
-            maxOutputTokens: opts?.maxOutputTokens ?? 800,
+            maxOutputTokens: tokens,
           },
           signal,
         )) {
-          if (ev.type === 'chunk' && ev.chunk.type === 'text') text += ev.chunk.delta;
+          if (ev.type === 'model') out.modelId = ev.modelId;
+          if (ev.type !== 'chunk') continue;
+          if (ev.chunk.type === 'text') reply += ev.chunk.delta;
+          else if (ev.chunk.type === 'finish') {
+            cutOff = /length|max_tokens/i.test(ev.chunk.finishReason);
+            out.inputTokens += ev.chunk.usage.inputTokens;
+            out.outputTokens += ev.chunk.usage.outputTokens;
+            if (ev.chunk.costUsd !== undefined) out.costUsd = (out.costUsd ?? 0) + ev.chunk.costUsd;
+          }
         }
-      } catch (err) {
-        log.warn({ err, prompt: prompt.id }, 'a memory utility call failed');
-        return null;
+        return { reply, cutOff };
+      };
+
+      let why = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let r: { reply: string; cutOff: boolean };
+        try {
+          r = await ask(
+            attempt === 0
+              ? asked
+              : `${asked}\n\nYour last reply could not be used (${why}). Reply again with only the JSON object, keeping every field short.`,
+            attempt === 0 ? maxOutputTokens : Math.round(maxOutputTokens * 1.5),
+          );
+        } catch (err) {
+          log.warn({ err, prompt: prompt.id }, 'a memory utility call failed');
+          done({ reason: 'the model did not answer' });
+          return null;
+        }
+        const json = extractJson(r.reply);
+        if (json === undefined) {
+          why = r.cutOff ? 'it was cut off before the JSON ended' : 'it was not JSON';
+        } else {
+          const parsed = schema.safeParse(json);
+          if (parsed.success) {
+            done({ ok: true });
+            return parsed.data;
+          }
+          // Field names and issue codes only: never what the person's content said.
+          why = parsed.error.issues
+            .slice(0, 4)
+            .map((i) => `${i.path.join('.') || 'reply'}: ${i.code}`)
+            .join(', ');
+        }
+        log.info(
+          { prompt: prompt.id, attempt: attempt + 1, reason: why, chars: r.reply.length },
+          'a memory utility call returned something unusable',
+        );
       }
-      const parsed = schema.safeParse(extractJson(text));
-      if (!parsed.success) {
-        log.info({ prompt: prompt.id }, 'a memory utility call returned something unusable');
-        return null;
-      }
-      return parsed.data;
+      done({ reason: `the reply could not be read (${why})` });
+      return null;
     },
   };
 }

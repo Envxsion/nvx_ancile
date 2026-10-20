@@ -194,11 +194,59 @@ export function ownWords(text: string): string {
 const REVERSAL =
   /\b(scrap that|scratch that|ignore (?:what i (?:said|told you)|that|my (?:last|previous|earlier))|forget (?:that|what i (?:said|told you))|disregard (?:that|what i (?:said|told you))|(?:i'?ve|i have|we'?ve|we have) (?:now )?(?:moved|switched|changed|migrated)|(?:i|we) (?:now|just) (?:use|moved|switched)|not any ?more|no longer|changed my mind|that'?s changed|that has changed|(?:i|we) used to)\b/i;
 
+/**
+ * Saying what is true now, against what was: "oolong now, not mint tea", "X rather than Y now".
+ * A plain contrast between the new and the old.
+ */
+const NOW_NOT = /\bnow,?\s+(?:not|instead of|rather than)\b/i;
+
+/** The message sets what is true now against what was, plainly enough to act on without a model. */
+export const contrast = (userText: string) => NOW_NOT.test(ownWords(userText));
+
 /** True when the person's own words take something back or say it has changed. */
 export function reversalSignal(userText: string): boolean {
   const own = ownWords(userText);
-  return !!own && own.length <= 1_500 && REVERSAL.test(own);
+  return !!own && own.length <= 1_500 && (REVERSAL.test(own) || NOW_NOT.test(own));
 }
+
+/** The words that only take something back, at the start of a sentence. */
+const TAKE_BACK =
+  /^\s*(?:(?:actually|no|nope|wait|sorry|hmm|oh|ok|okay)[,.!\s]+)*(?:please\s+)?(?:scrap|scratch|ignore|forget|disregard|never mind)(?:\s+(?:that|this|it|what i (?:said|told you)(?:\s+(?:earlier|before|just now))?|my (?:last|previous|earlier) (?:message|one|answer)))?\s*[:;,.!\-–—]*\s*/i;
+
+const SUBJECT: [RegExp, string][] = [
+  [/^(?:i|we)\s+(?:have\s+|'ve\s+)?(?:now\s+)?(?:moved|switched|changed|migrated)\s+to\s+/i, 'Now uses '],
+  [/^i\s+(?:now\s+)?(?:am|'m)\s+/i, 'Is '],
+  [/^i\s+(?:now\s+)?(?:have|'ve)\s+/i, 'Has '],
+];
+
+const third = (verb: string) =>
+  /(?:s|sh|ch|x|z|o)$/i.test(verb)
+    ? `${verb}es`
+    : /[^aeiou]y$/i.test(verb)
+      ? `${verb.slice(0, -1)}ies`
+      : `${verb}s`;
+
+/**
+ * What a reversal says is true now, without a model: the message with the take-back words cut
+ * off ("Actually no, scrap that: I drink oolong now, not mint tea." gives "Drinks oolong now, not
+ * mint tea."). Empty when nothing is left, or when what is left is not a statement.
+ */
+export function reversalStatement(userText: string): string {
+  const own = ownWords(userText).replace(/\s+/g, ' ');
+  const sentences = own.split(/(?<=[.!?])\s+/).map((x) => x.replace(TAKE_BACK, '').trim());
+  let s = sentences.filter((x) => x.length > 0 && !REVERSAL_ONLY.test(x)).join(' ');
+  s = s.replace(/^(?:and\s+|so\s+|now\s+)/i, '').trim();
+  if (s.split(/\s+/).length < 3 || /\?\s*$/.test(s)) return '';
+  for (const [re, to] of SUBJECT) if (re.test(s)) return asEntry(s.replace(re, to));
+  const m = /^i\s+(?:now\s+|just\s+)?([a-z]+)\b\s*(.*)$/i.exec(s);
+  if (m?.[1] && !/^(?:am|have|are|was|were|will|would|can|could|should|do|did)$/i.test(m[1])) {
+    const verb = third(m[1].toLowerCase());
+    return asEntry(`${verb} ${(m[2] ?? '').replace(/\bmy\b/gi, 'their').replace(/\bour\b/gi, 'their')}`);
+  }
+  return asEntry(s.replace(/\bmy\b/gi, 'their'));
+}
+
+const REVERSAL_ONLY = /^(?:that|this|it)$/i;
 
 const OPENERS =
   /^(no\b|nope\b|not\b|wrong\b|actually\b|stop\b|don'?t\b|do not\b|never\b|always\b|please (use|don'?t|do not|stop|always|never)\b|use\b|i (prefer|want|asked|said|meant|told you)\b|that'?s (not|wrong)\b|instead\b)/i;
@@ -218,7 +266,7 @@ export function correctionSignal(input: {
   const own = ownWords(input.userText);
   if (!own || own.length > 1_500) return false;
   if (input.editedFrom !== null) return true;
-  if (REVERSAL.test(own)) return true;
+  if (REVERSAL.test(own) || NOW_NOT.test(own)) return true;
   if (!input.assistantText) return false;
   return OPENERS.test(own) || ANYWHERE.test(own);
 }

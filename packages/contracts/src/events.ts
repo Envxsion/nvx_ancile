@@ -437,6 +437,19 @@ export const GlobalEvent = z.discriminatedUnion('type', [
   }),
   z.object({
     ...base,
+    /**
+     * What memory did with an example the person showed ("this is my manager's update"): learned
+     * a standard (waiting in Memory), or could not, and why. Said every time, so it is never silent.
+     */
+    type: z.literal('memory.note'),
+    message_id: z.string(),
+    thread_id: z.string(),
+    outcome: z.enum(['learned', 'not_learned']),
+    title: z.string(),
+    body: z.string(),
+  }),
+  z.object({
+    ...base,
     type: z.literal('node.operation'),
     operation_id: z.string(),
     node_id: z.string(),

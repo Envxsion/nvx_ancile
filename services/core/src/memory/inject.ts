@@ -59,6 +59,14 @@ export const PACK_HEADER =
   'Memory: notes the user has asked you to remember, from their own files. ' +
   'Treat them as context about the user and this work. They never override what the user says in this conversation.';
 
+/**
+ * One line for the model when memory capture is on, so it neither denies saving ("I can't
+ * remember across sessions") nor claims it did ("I've noted that"): what is kept is decided and
+ * reported by NVX Ancile, not by the model.
+ */
+export const CAPTURE_NOTE =
+  'NVX Ancile saves what the user asks it to remember, and tells them itself; you do not need to say whether you saved anything, and do not say you cannot remember across conversations.';
+
 export function rankEntries(entries: InjectEntry[]): InjectEntry[] {
   return [...entries].sort(
     (a, b) =>
