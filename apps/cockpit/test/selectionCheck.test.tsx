@@ -611,7 +611,7 @@ describe('EV1: the Evidence tab while a check runs', () => {
       .filter((li) => li.classList.contains('claim-card'));
     expect(cards).toHaveLength(3);
     expect(cards[0]).toHaveAttribute('data-live', 'judged');
-    expect(within(cards[0] as HTMLElement).getByText('Judged by google/gemini-pro')).toBeInTheDocument();
+    expect(within(cards[0] as HTMLElement).getByText('Judged by Gemini Pro')).toBeInTheDocument();
     expect(within(cards[0] as HTMLElement).getByText('Prime the pump first.')).toBeInTheDocument();
     expect(cards[1]).toHaveAttribute('data-live', 'found');
     expect(within(cards[1] as HTMLElement).getByText('Checking')).toBeInTheDocument();
