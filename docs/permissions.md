@@ -146,7 +146,7 @@ when { resource.host == "api.internal.example.com" };
 - **Permissions:** every saved permission (a *grant* in the API: `GET /grants`) with its pattern, scope, uses, last use and expiry. One past its expiry no longer counts at the gate; it stays listed, marked **Expired** (a word and an icon, not colour alone) with how long ago, until you revoke it or give it a new expiry with **Edit**. **Show** filters the list: All, Active or Expired, each with its count. Its "⋯" menu edits or revokes it. A revocation takes effect on the very next check. The page was called Grants; `/admin/grants` still opens it.
   - **Edit** narrows the pattern, changes where it applies, or sets a new expiry (which also brings an expired one back). A pattern can only narrow: the new one must sit inside the old (`fs:/workspace/**` → `fs:/workspace/docs/*.md` is fine; the reverse, or bringing in a `**` the old one lacked, is refused with `permission.pattern_too_broad`). To allow more, revoke and answer the next request. A new scope takes its thread or notebook from the approval it came from; under Careful a scope can narrow but never widen past one thread.
   - **Revoke** asks first, then shows an Undo for ten minutes (`POST /grants/:id/restore`). After that the revocation stands and the agent asks again.
-- **Decisions:** the latest 200 decisions: when, what, on what, the outcome and its tier (`GET /decisions?limit=`).
+- **Decisions:** the latest 200 decisions: when, what, on what, the outcome and its tier (`GET /permissions/decisions?limit=`; it was `GET /decisions`, which now answers the decision layer's status, see [decisions.md](decisions.md)).
 
 ## Path confinement (SC1)
 

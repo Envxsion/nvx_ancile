@@ -504,7 +504,8 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
     return c.json(g);
   });
 
-  r.get('/decisions', async (c) => {
+  // /decisions belongs to the decision layer (decisions/routes.ts); the permission log lives under /permissions.
+  r.get('/permissions/decisions', async (c) => {
     const limit = Math.min(500, Math.max(1, Number(c.req.query('limit') ?? 200) || 200));
     return c.json({ items: await store.listDecisions(limit), next_cursor: null });
   });
