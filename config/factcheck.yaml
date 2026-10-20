@@ -11,8 +11,12 @@ weights:
   retrieval: 0.2        # how good the evidence that was found is
 thresholds:
   contradict: 0.6       # contradicting evidence above this marks a claim contradicted
-  verified: 0.6         # source support at or above this (and the verifier agreeing) verifies a claim;
-                        # one passage that states it outright (score ~0.95) is enough
+  verified: 0.5         # the verdict follows the checker's stance: "supported" with a passage behind it
+                        # verifies a claim. This is the least sure (0 to 1) the checker may say it is
+                        # when it supports it; under it the claim stays unverified. Escalation (under 0.6) is separate
+  relevant: 0.15        # a source passage less relevant than this is not evidence (relevance = 0.6 x reranker
+                        # score + 0.4 x shared words: 0 to 0.05 for another subject, 0.3 and up on the subject).
+                        # With none left, an obvious claim goes to common knowledge, any other reads: no source covers it.
 web_search: false       # look claims up on the web in every notebook (needs SEARXNG_URL). Off by default; a notebook turns it on with "Check on the web"
 web_daily_cap_usd: 0.25 # most web lookups through a model may cost in a day (USD). SearXNG is free and not counted. 0: no model lookups
 limits:                 # hard limits on one fact-check. A claim that hits one reads "Not checked: <reason>"

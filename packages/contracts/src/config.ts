@@ -296,7 +296,14 @@ export const AutomationsFile = z.object({
 export const FactcheckFile = z.object({
   version: z.literal(1),
   weights: z.object({ support: z.number(), agreement: z.number(), retrieval: z.number() }),
-  thresholds: z.object({ contradict: z.number(), verified: z.number() }),
+  thresholds: z.object({
+    /** Contradicting evidence above this makes a claim contradicted. */
+    contradict: z.number(),
+    /** The least sure a checker that says "supported" may be for the claim to be verified. */
+    verified: z.number(),
+    /** A source passage less relevant than this is not evidence (0 to 1; default 0.15). */
+    relevant: z.number().min(0).max(1).optional(),
+  }),
   web_search: z.boolean().default(false),
   /** The most web lookups through a model may cost in a day, in USD. SearXNG is not counted. 0 turns them off. */
   web_daily_cap_usd: z.number().min(0).default(0.25),

@@ -12,6 +12,14 @@
  *           |  support    = squash(Σ rerank_score × stance)
  *           |  agreement  = 1 agree · 0.5 insufficient · 0 contradicted
  *           |  retrieval  = mean(top-3 rerank) × coverage
+ *           |  The verdict is not read off that number. It follows the
+ *           |  checker's stance: contradicted if it (or the evidence it
+ *           |  marked) contradicts; verified if every checker says
+ *           |  supported, a passage backs the claim and the checker is
+ *           |  not under `verified` sure of itself; else unverified.
+ *           |  A passage that states a claim outright is verified at
+ *           |  whatever its retrieval score, and the number is shown
+ *           |  beside the verdict, not instead of it.
  * ------------------------------------------------------------------
  */
 
@@ -34,12 +42,28 @@ export interface ScoreWeights {
 export interface ScoreThresholds {
   /** Contradicting evidence mass above this makes a claim contradicted. */
   contradict: number;
-  /** Support above this (with no contradiction) makes a claim verified. */
+  /**
+   * The least sure a checker that says "supported" may be for the claim to be verified (its own
+   * confidence, 0 to 1). A checker that gave none is not second-guessed.
+   */
   verified: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = { support: 0.5, agreement: 0.3, retrieval: 0.2 };
-export const DEFAULT_THRESHOLDS: ScoreThresholds = { contradict: 0.5, verified: 0.6 };
+export const DEFAULT_THRESHOLDS: ScoreThresholds = { contradict: 0.5, verified: 0.5 };
+
+/**
+ * A source passage whose relevance to a claim is under this is not evidence for it. Relevance is
+ * 0.6 × the reranker's score (a sigmoid of a cross-encoder logit: near 0 for a passage on another
+ * subject, near 1 for one that answers the claim) + 0.4 × the share of the claim's words in the
+ * passage; an unrelated passage scores 0 to 0.05 and a passage that touches the subject, 0.3 and up.
+ * 0.15 sits in the gap between them. Config: thresholds.relevant.
+ */
+export const DEFAULT_RELEVANT = 0.15;
+
+/** The cut for this config. */
+export const relevantAt = (t: { relevant?: number | undefined } | undefined): number =>
+  t?.relevant ?? DEFAULT_RELEVANT;
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const STANCE: Record<Stance, number> = { supports: 1, contradicts: -1, neutral: 0 };
@@ -85,6 +109,8 @@ export function scoreClaim(
     evidence: Evidence[];
     verifier: VerifierVerdict | VerifierVerdict[];
     coverage: number;
+    /** The checker's own confidence in its stance, when it gave one (the least of several). */
+    checkerConfidence?: number | null | undefined;
   },
   weights: ScoreWeights = DEFAULT_WEIGHTS,
   thresholds: ScoreThresholds = DEFAULT_THRESHOLDS,
@@ -103,7 +129,14 @@ export function scoreClaim(
   let verdict: ClaimVerdict = 'unverified';
   if (contradictionMass(input.evidence) >= thresholds.contradict || verdicts.includes('contradicted'))
     verdict = 'contradicted';
-  else if (support >= thresholds.verified && verdicts.every((v) => v === 'supported')) verdict = 'verified';
+  else if (
+    verdicts.every((v) => v === 'supported') &&
+    // A passage the checker leaned on, or one that plainly bears on the claim (it may name no ref).
+    (input.evidence.some((e) => e.stance === 'supports') ||
+      input.evidence.some((e) => clamp01(e.score) >= 0.5)) &&
+    (input.checkerConfidence == null || input.checkerConfidence >= thresholds.verified)
+  )
+    verdict = 'verified';
   return { verdict, confidence, support, agreement, retrieval };
 }
 

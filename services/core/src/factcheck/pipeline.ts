@@ -70,6 +70,8 @@ export interface ClaimOutcome {
   rationale: string;
   /** Every checker's verdict, when more than one asked (mission-critical mode). */
   verdicts?: VerifierVerdict[];
+  /** How sure the checker said it was (the least of several), when it said. */
+  confidence?: number | null;
   /** Judged from common knowledge, not from evidence. */
   general?: boolean;
   /** Which model, at what tier, and how it got there (TR3). */
@@ -87,6 +89,7 @@ export function scoreOutcome(o: ClaimOutcome, cfg: ScoreConfig = DEFAULT_SCORE_C
             evidence: o.evidence,
             verifier: o.verdicts?.length ? o.verdicts : o.verdict,
             coverage: o.coverage,
+            checkerConfidence: o.confidence,
           },
           cfg.weights,
           cfg.thresholds,
