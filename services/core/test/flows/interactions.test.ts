@@ -9,6 +9,7 @@
 import type { AnswerRoute, Flow, FlowProvenance, Message, ThreadPath } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { validateFlow } from '../../src/flows/validate';
+import { fakeModel } from '../../src/gateway/fake';
 import { type Harness, harness } from '../support/harness';
 
 let h: Harness;
@@ -183,13 +184,34 @@ describe('a thread model that can no longer answer', () => {
       parts: [{ type: 'text', text: 'hi' }],
       model: 'gone/model',
     });
-    expect(r.status).toBe(409);
+    // Nothing ever listed this id: not "removed", just not a model.
+    expect(r.status).toBe(404);
     const e = (
       r.body as unknown as { error: { code: string; title: string; context: Record<string, unknown> } }
     ).error;
-    expect(e.code).toBe('model.gone');
-    expect(e.title).toBe('gone/model is no longer available');
+    expect(e.code).toBe('model.unknown');
+    expect(e.title).toBe('There is no model called gone/model');
     expect(e.context).toMatchObject({ model_id: 'gone/model', suggested_model: expect.any(String) });
+  });
+
+  it('a model that was listed and then removed is "gone", not "unknown"', async () => {
+    h = await harness();
+    const t = await h.newThread();
+    const custom = {
+      ...fakeModel('mine', 'echo'),
+      id: 'custom/mine',
+      provider: 'openai-compatible',
+      base_url: 'http://localhost:9/v1',
+    };
+    await h.registry.saveCustom([custom]);
+    await h.registry.saveCustom([]);
+    const r = await h.call('POST', `/threads/${t}/messages`, {
+      parent_id: null,
+      parts: [{ type: 'text', text: 'hi' }],
+      model: 'custom/mine',
+    });
+    expect(r.status).toBe(409);
+    expect((r.body as unknown as { error: { code: string } }).error.code).toBe('model.gone');
   });
 
   it('a reply whose model was removed does not regenerate as another model unasked', async () => {

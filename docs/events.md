@@ -30,7 +30,7 @@ Every event has a monotonic `seq` (also sent as the SSE `id`) and an ISO `at`. R
 | `activity` | `phase` (`hooks`, `compacting`, or `null` when it ended), `detail?` | The live footer's phase ("Running PostToolUse hooks") |
 | `context.shared` | `message_id`, `engine`, `notice`, `turns`, `tokens`, `seeded_from_summary` | One line above the answer: some of the thread went to Claude Code (docs/engines.md) |
 | `warning` | `code`, `message` | Inline notice |
-| `error` | `code`, `title`, `hint`, `attempts[]` | Error block with **Copy debug info** |
+| `error` | `code`, `title`, `hint`, `attempts[]`, `options[]?` (`model.pinned_unavailable`: models to try instead, `{model_id, name, price?}`) | Error block with **Copy debug info** |
 | `done` | `message_id` | Stream ends |
 
 ## Global events

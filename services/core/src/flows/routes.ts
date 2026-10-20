@@ -42,6 +42,8 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { currentContext, newTraceId } from '../context';
+import { canChat } from '../gateway/registry';
+import { isSubscription } from '../gateway/router';
 import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunStore } from '../runs/engine';
@@ -54,7 +56,7 @@ import { assemble } from './context';
 import { executeFlow, type FlowRuntime, initialFlowState } from './execute';
 import { buildGraph, incomingFlowEdges } from './graph';
 import { flowNotFound } from './store';
-import { type TemplateModels, templates } from './templates';
+import { cheapestModels, type TemplateModels, templates } from './templates';
 import { mockModels, TRY_USER_ID, type TryCheckpoint, tryState, withVirtual } from './try';
 import { conversationFor, type FlowsService, makeTurnRuntime } from './turn';
 import { validateFlow } from './validate';
@@ -102,7 +104,12 @@ export function flowRoutes(deps: FlowRouteDeps) {
       }
     };
     const main = first('chat.default') ?? 'offline/test';
-    return { main, cheap: first('utility') ?? main, deep: first('chat.deep') ?? main };
+    const routed = { main, cheap: first('utility') ?? main, deep: first('chat.deep') ?? main };
+    // Cheapest ready chat models by role; the routes above only when none has a price.
+    const ready = registry
+      .all()
+      .filter((m) => canChat(m) && !isSubscription(m) && registry.status(m) === 'ready');
+    return cheapestModels(ready, routed);
   };
 
   const validate = async (graph: FlowGraph, flow?: Flow | null, published = false) => {

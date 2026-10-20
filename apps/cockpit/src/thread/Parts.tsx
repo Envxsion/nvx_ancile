@@ -41,7 +41,7 @@ type Segment =
   | { kind: 'text'; key: string; text: string; base: number }
   | { kind: 'reasoning'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: ToolResult | undefined }
-  | { kind: 'seam'; key: string; from: string; to: string }
+  | { kind: 'seam'; key: string; from: string; to: string; because: string | undefined }
   | {
       kind: 'file';
       key: string;
@@ -74,7 +74,15 @@ function segments(parts: Part[]): Segment[] {
     if (p.type === 'reasoning' && p.text.trim()) out.push({ kind: 'reasoning', key: `r${i}`, text: p.text });
     else if (p.type === 'tool_call')
       out.push({ kind: 'tool', key: p.call_id, call: p, result: results.get(p.call_id) });
-    else if (p.type === 'seam') out.push({ kind: 'seam', key: `s${i}`, from: p.from_model, to: p.to_model });
+    else if (p.type === 'seam')
+      out.push({
+        kind: 'seam',
+        key: `s${i}`,
+        from: p.from_model,
+        to: p.to_model,
+        // Only a seam where another model answered the whole turn says why in words.
+        because: p.kind === 'answered_by' ? (p.detail ?? undefined) : undefined,
+      });
     else if (p.type === 'file' && p.text !== undefined)
       out.push({
         kind: 'file',
@@ -242,7 +250,9 @@ export function Parts({
       case 'seam':
         return (
           <p key={s.key} className="seam" title="NVX Ancile switched models without starting over.">
-            {modelName(s.to)} continued after {modelName(s.from)} stopped
+            {s.because
+              ? `Answered by ${modelName(s.to)}: ${s.because}`
+              : `${modelName(s.to)} continued after ${modelName(s.from)} stopped`}
           </p>
         );
       default:

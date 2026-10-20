@@ -117,7 +117,15 @@ Claude Pro or Max and ChatGPT Plus or Pro are subscriptions to the providers' ow
 
 ## Routing chains
 
-When nothing more specific chooses a model, the task class's fallback chain does: the first model in it that can answer is tried first, then the next. Change a chain in **Admin → Routing**. Drag a model by its grip, or open its **⋯** menu for **Move up**, **Move down** and **Remove from chain**; **Add model** offers the chat models that can answer now. Every change saves at once and applies to the next turn. A model without its key, or switched off, stays in the chain but is skipped. **Reset to default** goes back to `config/routing.yaml`, and offers Undo.
+When nothing more specific chooses a model, the task class's fallback chain does: the first model in it that can answer is tried first, then the next. Change a chain in **Admin → Routing**.
+
+### Pinned models and fallbacks
+
+A model you choose for a message or a thread is *pinned*. If it cannot answer (the provider says it is unavailable, your quota is zero, it is blocked), NVX Ancile falls back only to a model **no dearer than the pinned one**: both its input and its output price per million tokens must be no higher. Local models and models on a plan count as $0, but only when they are already switched on and able to chat. A subscription engine (Claude Code) is never a fallback for an API model unless a chain you saved in Admin → Routing names it.
+
+When no model that cheap can answer, the turn stops with `model.pinned_unavailable` and offers **Try with** the dearer models the default route would have used, **Pick another model** and **Try again**; nothing dearer is used unasked. Turns with no pinned model keep their whole chain. Either way, when a different model answers than the one asked for, the message carries a short line saying who answered and why ("Answered by Llama 3.3 70B: Gemini 2.5 Flash-Lite isn't available to new users."). Other notes on a message, each shown only when it applies: "Cut off at the length limit" with **Continue**; a note that images were not shown to a model that cannot see them (the model is told too, as "[image: photo.png, not shown to this model]"); and "about" before the tokens of a turn you stopped, whose usage is an estimate because the provider never reported it.
+
+New flows start on the cheapest ready chat models that fit each role, with a cost cap of $0.25 a run. Drag a model by its grip, or open its **⋯** menu for **Move up**, **Move down** and **Remove from chain**; **Add model** offers the chat models that can answer now. Every change saves at once and applies to the next turn. A model without its key, or switched off, stays in the chain but is skipped. **Reset to default** goes back to `config/routing.yaml`, and offers Undo.
 
 ## Which model answers
 

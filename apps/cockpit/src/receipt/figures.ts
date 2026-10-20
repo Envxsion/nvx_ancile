@@ -242,6 +242,8 @@ export function stripFacts(a: {
   else if (a.claudeBilledTo)
     cost = a.usage.cost_usd > 0 ? `about ${money(a.usage.cost_usd)}` : 'billed to your key';
   else cost = money(a.usage.cost_usd);
+  // A stopped turn the provider never reported on: Ancile's estimate, said as one.
+  if (a.usage.estimated && /^\$|^[0-9]/.test(cost)) cost = `about ${cost}`;
   return {
     modelName: shortModelName(a.modelName),
     badge: a.badge,

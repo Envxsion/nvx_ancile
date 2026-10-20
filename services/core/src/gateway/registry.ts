@@ -31,6 +31,7 @@
  */
 
 import {
+  CLAUDE_CODE_PROVIDER,
   isCreditModel,
   isLineAlias,
   lineAlias,
@@ -41,6 +42,7 @@ import {
   type ModelInfo,
   type ModelLine,
   type ModelTier,
+  type Part,
 } from '@nvx/contracts';
 import {
   currentOf,
@@ -159,6 +161,8 @@ export class ModelRegistry {
   private savedChains: Record<string, string[]> = {};
   /** Ids of the models you added (Settings → Models), merged in on refresh. */
   private customIds = new Set<string>();
+  /** Every id this process has listed, so a later "not found" can tell removed from never existed. */
+  private everSeen = new Set<string>();
   /**
    * What Ollama has pulled, once it has answered: a model it does not have
    * cannot answer. Null until it first answers; a later silence keeps the
@@ -185,6 +189,7 @@ export class ModelRegistry {
 
   /** Re-read which keys exist and which models were switched on. Cheap; call after any change. */
   async refresh(): Promise<void> {
+    this.noteSeen();
     const secretNames = new Set(await this.opts.secrets.names());
     const overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
     const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
@@ -519,12 +524,33 @@ export class ModelRegistry {
     this.pickStarters();
   }
 
+  private noteSeen(): void {
+    for (const m of this.models) this.everSeen.add(m.id);
+  }
+
+  /**
+   * True when this id was in the list once, or something you saved still names it
+   * (an on/off switch, a colour, a saved chain): it was removed or renamed.
+   * False: nothing here ever had that id (a typo, or a model from another install).
+   * The memory is per process, so after a restart a removed model with nothing
+   * saved about it reads as unknown.
+   */
+  wasKnown(id: string): boolean {
+    return (
+      this.everSeen.has(id) ||
+      id in this.overrides ||
+      id in this.hues ||
+      Object.values(this.savedChains).some((ids) => ids.includes(id))
+    );
+  }
+
   /**
    * Phase 5: the models your GPU nodes serve, read from the Controller
    * (compute/bridge.ts). They replace the previous set; configured models
    * are never touched.
    */
   setNodeModels(models: ModelConfig[]): void {
+    this.noteSeen();
     for (let i = this.models.length - 1; i >= 0; i--)
       if (this.models[i]?.provider === NODE_PROVIDER) this.models.splice(i, 1);
     this.models.push(...models.map((m) => ({ ...m, provider: NODE_PROVIDER, via: 'controller' as const })));
@@ -535,6 +561,7 @@ export class ModelRegistry {
    * they replace that provider's previous set; configured models are never touched.
    */
   setProviderModels(provider: string, models: ModelConfig[]): void {
+    this.noteSeen();
     for (let i = this.models.length - 1; i >= 0; i--)
       if (this.models[i]?.provider === provider) this.models.splice(i, 1);
     this.models.push(...models.map((m) => ({ ...m, provider })));
@@ -804,8 +831,22 @@ export class ModelRegistry {
       if (!only) throw new NoRouteError(taskClass);
       return [only];
     }
+    // What the person themselves put in a chain for this class (or the one it falls back to).
+    const named = new Set<string>();
+    for (let tc = taskClass; ; ) {
+      for (const id of this.savedChains[tc] ?? []) named.add(id);
+      const i = tc.lastIndexOf('.');
+      if (i < 0) break;
+      tc = tc.slice(0, i);
+    }
+    for (const id of this.savedChains['chat.default'] ?? []) named.add(id);
     const out = resolveChain(
-      { taskClass, explicit: usable ?? undefined, generatorFamily: opts.generatorFamily },
+      {
+        taskClass,
+        explicit: usable ?? undefined,
+        generatorFamily: opts.generatorFamily,
+        namedByPerson: named,
+      },
       classes,
       ready,
     );
@@ -853,7 +894,7 @@ export class RoutingClient implements ModelClient {
     this.own.set(provider, client);
   }
 
-  stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
+  private streamGuarded(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     // The test profile's send guard (e2e-guard.ts): refused before any client, network or CLI is touched.
     // Thrown from inside the stream, so the gateway handles it like any other failure of that model.
     let reserved = 0;
@@ -872,4 +913,46 @@ export class RoutingClient implements ModelClient {
       : (m.provider === 'fake' ? this.fake : this.sdk).stream(m, req, signal);
     return liveGuardActive() && m.provider !== 'fake' ? tallyLive(m, req, inner, reserved) : inner;
   }
+
+  async *stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
+    // A model that cannot see pictures is told where one was, never left to guess from silence.
+    const blind = m.provider === CLAUDE_CODE_PROVIDER || !m.capabilities.includes('vision');
+    const unseen = blind ? withoutImages(req) : null;
+    if (unseen?.names.length)
+      yield {
+        type: 'warning',
+        code: 'image.not_shown',
+        message: `Not shown to ${m.display_name}, which cannot see images: ${unseen.names.join(', ')}.`,
+      };
+    yield* this.streamGuarded(m, unseen?.req ?? req, signal);
+  }
+}
+
+/**
+ * Images in the conversation, as text a model without vision can read:
+ * "[image: photo.png, not shown to this model]", plus the caption when there is one.
+ * Returns the request unchanged (and no names) when it carries no image.
+ */
+export function withoutImages(req: ModelRequest): { req: ModelRequest; names: string[] } {
+  const names: string[] = [];
+  const messages = req.messages.map((msg) => {
+    if (!msg.parts?.some((p) => p.type === 'image')) return msg;
+    const parts = msg.parts.map((p): Part => {
+      if (p.type !== 'image') return p;
+      const name = p.alt?.trim() || 'untitled';
+      if (!names.includes(name)) names.push(name);
+      const caption = p.caption ? ` [Image, described: ${p.caption}]` : '';
+      return {
+        type: 'text',
+        text: `
+[image: ${name}, not shown to this model]${caption}
+`,
+      };
+    });
+    const extra = parts.flatMap((p, i) =>
+      msg.parts?.[i]?.type === 'image' && p.type === 'text' ? [p.text] : [],
+    );
+    return { ...msg, parts, content: `${msg.content}${extra.join('')}` };
+  });
+  return { req: names.length ? { ...req, messages } : req, names };
 }

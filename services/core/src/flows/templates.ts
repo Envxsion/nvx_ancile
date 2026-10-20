@@ -11,6 +11,8 @@
  *           |  first with escalation when unsure.
  *  How      |  Each template is built from the models you actually
  *           |  have ready (main, cheap, deep), so it runs as made.
+ *           |  Those are the cheapest that fit each role, and the
+ *           |  flow's cost cap starts low (cheapestModels).
  * ------------------------------------------------------------------
  */
 
@@ -21,6 +23,7 @@ import {
   type FlowNode,
   FlowSettings,
   type FlowTemplate,
+  type ModelConfig,
   ModelParams,
 } from '@nvx/contracts';
 
@@ -33,7 +36,33 @@ export interface TemplateModels {
   deep: string;
 }
 
-const settings = FlowSettings.parse({});
+/**
+ * A new flow spends little until you say otherwise: a quarter of a dollar a run
+ * (the editor's default stays $1). Templates default to the cheapest models that fit.
+ */
+export const TEMPLATE_COST_CAP_USD = 0.25;
+const settings = FlowSettings.parse({ cost_cap_usd: TEMPLATE_COST_CAP_USD });
+
+/** What a model costs for a typical turn (three parts reading to one writing), in dollars per million tokens. */
+const blended = (m: ModelConfig) => 3 * m.price.input_per_mtok + m.price.output_per_mtok;
+
+/**
+ * Starting models for the templates: the cheapest ready chat models that fit each
+ * role, not the strongest. `models` are those ready to chat now (no test models, no
+ * plan engines, whose price reads $0 for a different reason). The cheap and everyday
+ * roles take the cheapest that can use tools (else the cheapest); the deep role the
+ * cheapest that reasons. With no priced model ready, `fallback` stands.
+ */
+export function cheapestModels(models: ModelConfig[], fallback: TemplateModels): TemplateModels {
+  const priced = models
+    .filter((m) => m.price.input_per_mtok > 0 || m.price.output_per_mtok > 0)
+    .sort((a, b) => blended(a) - blended(b));
+  const cheap = priced[0];
+  if (!cheap) return fallback;
+  const main = priced.find((m) => m.capabilities.includes('tools')) ?? cheap;
+  const deep = priced.find((m) => m.capabilities.includes('reasoning')) ?? main;
+  return { main: main.id, cheap: cheap.id, deep: deep.id };
+}
 const at = (x: number, y: number) => ({ x, y });
 const model = (
   id: string,

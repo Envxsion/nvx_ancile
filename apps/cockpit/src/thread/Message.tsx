@@ -30,7 +30,7 @@ import { useFactcheck, useProgress } from '../lib/factcheck';
 import { hueVar, modelById, modelName, percent, stamp, usd } from '../lib/format';
 import { partsText, reasonWords, unknownCount } from '../lib/mappers';
 import { AnswerContext } from '../lib/threadContext';
-import { editMessage, regenerate, showVersion, stopMessage } from '../lib/turns';
+import { editMessage, regenerate, sendMessage, showVersion, stopMessage } from '../lib/turns';
 import type { Block, CitationView, MessageView, Span } from '../lib/types';
 import { aliasAnswered } from '../models/lines';
 import { receiptFacts } from '../receipt/facts';
@@ -49,6 +49,7 @@ import { LabChanges } from './LabChanges';
 import { LiveFooter } from './LiveFooter';
 import { MemoryTray } from './MemoryTray';
 import { MessageActions } from './MessageActions';
+import { useModelGoneStore } from './model-gone-store';
 import { Parts } from './Parts';
 import { SavedNote } from './SavedNote';
 import { SelectionToolbar } from './SelectionToolbar';
@@ -149,6 +150,36 @@ function ErrorActions({ m, threadId }: { m: MessageView; threadId: string }) {
           Open the flow
         </Link>
       ) : null}
+      {m.error?.options?.map((o) => (
+        <button
+          key={o.model_id}
+          type="button"
+          className="btn btn--primary btn--sm"
+          title={o.price}
+          onClick={() => void regenerate(threadId, m, o.model_id)}
+        >
+          Try with {o.name}
+        </button>
+      ))}
+      {m.error?.options?.length ? (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() =>
+            useModelGoneStore.getState().set(threadId, {
+              modelId: m.modelId ?? '',
+              suggested: m.error?.options?.[0]?.model_id ?? null,
+              again: (model) => regenerate(threadId, m, model),
+              words: {
+                heading: 'Pick a model for this answer.',
+                body: 'The model you chose could not answer. Pick another and it will be asked again.',
+              },
+            })
+          }
+        >
+          Pick another model
+        </button>
+      ) : null}
       <button
         type="button"
         className="btn btn--ghost btn--sm"
@@ -157,6 +188,39 @@ function ErrorActions({ m, threadId }: { m: MessageView; threadId: string }) {
         Try again
       </button>
     </div>
+  );
+}
+
+/** The message carries its own seam line saying who answered and why (Parts.tsx). */
+const saysWhoAnswered = (parts: MessageView['parts']) =>
+  !!parts?.some((p) => p.type === 'seam' && p.kind === 'answered_by');
+
+/**
+ * Under an answer that stopped at the output limit: said once, quietly, with the
+ * way on. Continue sends a short "continue" as your next message in the thread.
+ */
+function CutOff({ m, threadId }: { m: MessageView; threadId: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <p className="msg__cutoff mute">
+      Cut off at the length limit.{' '}
+      <button
+        type="button"
+        className="link-btn"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void sendMessage({
+            threadId,
+            parentId: m.id,
+            text: 'Continue from where you were cut off.',
+            ...(m.modelId && { model: m.modelId }),
+          }).finally(() => setBusy(false));
+        }}
+      >
+        Continue
+      </button>
+    </p>
   );
 }
 
@@ -392,7 +456,11 @@ export const Message = memo(function Message({
         <Grounding trace={m.provenance.retrieval} onWhy={() => useUi.getState().showReceipt(m.id)} />
       ) : null}
 
-      {m.role === 'assistant' && m.fallback && !streaming && !aliasAnswered(m.fallback.from, m.modelId) ? (
+      {m.role === 'assistant' &&
+      m.fallback &&
+      !streaming &&
+      !aliasAnswered(m.fallback.from, m.modelId) &&
+      !saysWhoAnswered(m.parts) ? (
         <p
           className="msg__fallback"
           title="NVX Ancile switched models without interrupting you. Open the receipt for the details."
@@ -542,6 +610,14 @@ export const Message = memo(function Message({
 
       {m.lab && !streaming ? (
         <LabChanges runId={m.lab.runId} undone={m.lab.undone} threadId={threadId} />
+      ) : null}
+
+      {m.role === 'assistant' && !streaming && m.provenance?.images_not_shown?.length ? (
+        <p className="msg__note mute">{m.provenance.images_not_shown.join(' ')}</p>
+      ) : null}
+
+      {m.role === 'assistant' && !streaming && m.provenance?.cut_off && m.status !== 'error' ? (
+        <CutOff m={m} threadId={threadId} />
       ) : null}
 
       {m.role === 'assistant' && m.status === 'error' ? (

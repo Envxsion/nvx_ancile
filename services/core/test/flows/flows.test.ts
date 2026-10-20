@@ -569,6 +569,41 @@ describe('flow routes', () => {
     expect(last.body.output).toBe(run.body.output);
   });
 
+  it('a try-out run can be read back, though it belongs to no thread', async () => {
+    h = await harness();
+    const f = await fromTemplate('tpl_single');
+    const tried = await h.call<{ run_id: string }>('POST', '/flows/try', {
+      text: 'Hello',
+      flow_id: f.id,
+      mock: true,
+    });
+    await h.settle(tried.body.run_id);
+    const run = await h.call<{ id: string; kind: string; status: string }>(
+      'GET',
+      `/runs/${tried.body.run_id}`,
+    );
+    expect(run.status).toBe(200);
+    expect(run.body).toMatchObject({ id: tried.body.run_id, kind: 'flow_try' });
+    const missing = await h.call('GET', '/runs/run_that_is_not_there');
+    expect(missing.status).toBe(404);
+  });
+
+  it('templates start on the cheapest ready models and a low cost cap', async () => {
+    const pricey = { ...fakeModel('big', 'echo'), price: { input_per_mtok: 15, output_per_mtok: 75 } };
+    const small = { ...fakeModel('small', 'echo'), price: { input_per_mtok: 0.8, output_per_mtok: 4 } };
+    h = await harness({
+      models: [pricey, small],
+      taskClasses: { 'chat.default': [pricey.id], 'chat.deep': [pricey.id], utility: [pricey.id] },
+    });
+    const items = (await h.call<{ items: { graph: FlowGraph }[] }>('GET', '/flows/templates')).body.items;
+    const used = items.flatMap((t) =>
+      t.graph.nodes.flatMap((n) => ('model' in n.params ? [String(n.params.model)] : [])),
+    );
+    expect(used.length).toBeGreaterThan(0);
+    expect(new Set(used)).toEqual(new Set([small.id]));
+    expect(items.every((t) => t.graph.settings.cost_cap_usd <= 0.25)).toBe(true);
+  });
+
   it('estimates what crosses each edge', async () => {
     h = await harness();
     const r = await h.call<{ edges: { node_id: string; total: number; over: boolean }[] }>(

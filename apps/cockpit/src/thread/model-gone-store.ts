@@ -25,6 +25,8 @@ export interface ModelGone {
   suggested: string | null;
   /** Send the same thing again with the model picked. */
   again: (model: string) => Promise<boolean>;
+  /** Own words, when the model is not gone but could not answer (model.pinned_unavailable). */
+  words?: { heading: string; body: string };
 }
 
 interface ModelGoneStore {
