@@ -35,6 +35,7 @@ import { openEditor } from '../editors/store';
 import { SET_UP_CLAUDE_CODE, useClaudeCodeSetup, useModelGroups } from '../engines/api';
 import { useFlows } from '../flows/api';
 import { searchHelp } from '../help/articles';
+import { loadGuide, useGuideLoaded } from '../help/lazyGuide';
 import { filterQuery, type SearchFilter } from '../lib/searchFilter';
 import { lazyHost } from '../ui/lazyHost';
 
@@ -284,10 +285,16 @@ export function Palette() {
   const [filters, setFilters] = useState<SearchFilter>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { hits, busy } = useMessageSearch(query, open && scope === 'all', filters);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: show() is derived from scope
+  // The "Providers and paying" chapter loads the first time a search could reach the guide.
+  const guideIn = useGuideLoaded();
+  const searchesGuide = open && typed && show('help');
+  useEffect(() => {
+    if (searchesGuide) void loadGuide().catch(() => undefined);
+  }, [searchesGuide]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: show() is derived from scope; guideIn adds the lazy chapter
   const helpHits = useMemo(
     () => (show('help') && typed ? searchHelp(query).slice(0, 5) : []),
-    [query, scope],
+    [query, scope, guideIn],
   );
   const uses = useMemo(() => (open ? readUses() : {}), [open]);
 

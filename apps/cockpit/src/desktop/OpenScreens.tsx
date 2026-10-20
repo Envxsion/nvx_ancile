@@ -26,6 +26,7 @@ import type { Approval } from '@nvx/contracts';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Suspense, useEffect, useState } from 'react';
 import { ARTICLES } from '../help/articles';
+import { loadGuide } from '../help/lazyGuide';
 import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
@@ -135,15 +136,31 @@ export function OpenNewScreen() {
   return null;
 }
 
-/** ancile://help[/<topic>]: the help centre, on the topic if there is one. */
+/**
+ * ancile://help[/<topic>]: the help centre, on the topic if there is one. The URL's hash can name a
+ * section of it (`?topic=pay-ways#which-balance`), as a guide citation does (citeGuide).
+ */
 export function OpenHelpScreen() {
   const search = useSearch({ strict: false }) as { topic?: string };
   const navigate = useNavigate();
   useEffect(() => {
     const topic = typeof search.topic === 'string' ? search.topic : null;
-    const article = topic ? ARTICLES.find((a) => a.id === topic)?.id : undefined;
-    useUi.getState().setHelp(true, article ?? null);
-    void navigate({ to: '/', replace: true });
+    const section = location.hash.replace(/^#/, '');
+    let cancelled = false;
+    void (async () => {
+      let article = topic ? ARTICLES.find((a) => a.id === topic)?.id : undefined;
+      // A chapter that loads on demand: fetch it before deciding the topic is unknown.
+      if (topic && !article) {
+        await loadGuide().catch(() => undefined);
+        article = ARTICLES.find((a) => a.id === topic)?.id;
+      }
+      if (cancelled) return;
+      useUi.getState().setHelp(true, article ? (section ? `${article}#${section}` : article) : null);
+      void navigate({ to: '/', replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [search.topic, navigate]);
   return null;
 }

@@ -15,16 +15,77 @@
 import { spring } from '@nvx/aperture';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, m as motion } from 'motion/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  isValidElement,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useBinding, useLayer } from '../keys/dispatch';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { Markdown } from '../ui/Markdown';
 import { Kbd } from '../ui/primitives';
-import { LINK_COMPONENTS } from '../ui/SafeLink';
-import { ARTICLES, type Article, articleById, CHAPTERS, searchHelp } from './articles';
+import { LINK_COMPONENTS, SafeLink } from '../ui/SafeLink';
+import {
+  ARTICLES,
+  type Article,
+  articleById,
+  CHAPTERS,
+  markUnconfirmed,
+  NOT_CONFIRMED_HREF,
+  searchHelp,
+  sectionsOf,
+  slugOf,
+} from './articles';
+import { loadGuide, useGuideLoaded } from './lazyGuide';
 import { useHelp } from './store';
 import { TOURS } from './tours';
+
+/** "20 Oct 2026" for an ISO date. */
+function shortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+function textOf(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join('');
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return '';
+}
+
+/** "article#section" to its parts. */
+function parseRef(ref: string): { id: string; section: string | null } {
+  const at = ref.indexOf('#');
+  return at < 0 ? { id: ref, section: null } : { id: ref.slice(0, at), section: ref.slice(at + 1) || null };
+}
+
+/** Markdown parts for an article: section anchors on ### headings and the quiet "Not yet confirmed" label. */
+function guideComponents(article: Article) {
+  const ids = new Map<string, string>();
+  for (const s of sectionsOf(article.body)) if (!ids.has(s.title)) ids.set(s.title, s.id);
+  return {
+    ...LINK_COMPONENTS,
+    a: (props: ComponentProps<'a'>) =>
+      props.href === NOT_CONFIRMED_HREF ? (
+        <span className="help__nyc" title="This has not been confirmed at the vendor's own page.">
+          {props.children}
+        </span>
+      ) : (
+        <SafeLink {...props} />
+      ),
+    h3: ({ children }: ComponentProps<'h3'>) => {
+      const text = textOf(children);
+      return <h3 id={ids.get(text) ?? slugOf(text)}>{children}</h3>;
+    },
+  };
+}
 
 function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: string) => void }) {
   const i = ARTICLES.findIndex((a) => a.id === article.id);
@@ -33,6 +94,8 @@ function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: strin
   const startTour = useHelp((s) => s.startTour);
   const setHelp = useUi((s) => s.setHelp);
   const tour = article.tour ? TOURS[article.tour] : undefined;
+  const components = useMemo(() => guideComponents(article), [article]);
+  const body = useMemo(() => markUnconfirmed(article.body, article.unconfirmed), [article]);
   return (
     <article className="help__article">
       <p className="help__crumb">{articleById(article.id)?.chapter.title}</p>
@@ -54,9 +117,23 @@ function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: strin
           <span className="mute">· {tour.steps.length} steps</span>
         </button>
       ) : null}
-      <Markdown className="md help__body" controls={false} mode="static" components={LINK_COMPONENTS}>
-        {article.body}
+      <Markdown className="md help__body" controls={false} mode="static" components={components}>
+        {body}
       </Markdown>
+      {article.sources?.length ? (
+        <footer className="help__sources">
+          <h3 className="help__sources-h">
+            {article.checked ? `Sources, checked ${shortDate(article.checked)}` : 'Sources'}
+          </h3>
+          <ul>
+            {article.sources.map((src) => (
+              <li key={src.url}>
+                <SafeLink href={src.url}>{src.title}</SafeLink>
+              </li>
+            ))}
+          </ul>
+        </footer>
+      ) : null}
       <nav className="help__pager" aria-label="More articles">
         {prev ? (
           <button type="button" className="help__page" onClick={() => onOpen(prev.id)}>
@@ -81,7 +158,9 @@ function Contents({ onOpen, query }: { onOpen: (id: string) => void; query: stri
   const tours = useHelp((s) => s.tours);
   const startTour = useHelp((s) => s.startTour);
   const setHelp = useUi((s) => s.setHelp);
-  const results = useMemo(() => searchHelp(query), [query]);
+  const loaded = useGuideLoaded();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the lazy chapter adds articles once it loads
+  const results = useMemo(() => searchHelp(query), [query, loaded]);
 
   if (query.trim())
     return (
@@ -170,8 +249,14 @@ export function HelpCentre() {
   const [stack, setStack] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+  const loaded = useGuideLoaded();
   useLayer(open);
   useBinding('help.open', () => setHelp(true));
+
+  // The "Providers and paying" chapter is not in the first download: fetch it as the guide opens.
+  useEffect(() => {
+    if (open) void loadGuide().catch(() => undefined);
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -180,12 +265,30 @@ export function HelpCentre() {
     }
   }, [open, initial]);
 
-  const current = stack.length ? articleById(stack[stack.length - 1] ?? '')?.article : undefined;
-  const openArticle = (id: string) => {
-    setStack((s) => [...s, id]);
+  const topRef = stack.length ? parseRef(stack[stack.length - 1] ?? '') : null;
+  const current = topRef ? articleById(topRef.id)?.article : undefined;
+  const section = current ? (topRef?.section ?? null) : null;
+  const waiting = !!topRef && !current && !loaded;
+  const openArticle = (ref: string) => {
+    setStack((s) => [...s, ref]);
     setQuery('');
-    requestAnimationFrame(() => document.querySelector('.help__scroll')?.scrollTo({ top: 0 }));
+    if (!parseRef(ref).section)
+      requestAnimationFrame(() => document.querySelector('.help__scroll')?.scrollTo({ top: 0 }));
   };
+
+  // A citation can name a section ("article#section"): scroll to it once the article has drawn.
+  useEffect(() => {
+    if (!open || !current || !section || query) return;
+    let tries = 0;
+    let frame = 0;
+    const tick = () => {
+      const el = document.getElementById(section);
+      if (el) el.scrollIntoView({ block: 'start' });
+      else if (tries++ < 40) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [open, current, section, query]);
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => setHelp(o)}>
@@ -254,7 +357,9 @@ export function HelpCentre() {
                   />
                 </label>
                 <div className="help__scroll" data-scrollable>
-                  {current && !query ? (
+                  {waiting && !query ? (
+                    <p className="help__none">Loading this article.</p>
+                  ) : current && !query ? (
                     <ArticleView article={current} onOpen={openArticle} />
                   ) : (
                     <Contents onOpen={openArticle} query={query} />
