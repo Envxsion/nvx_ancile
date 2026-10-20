@@ -312,6 +312,18 @@ describe('the one-line note and the Used line', () => {
     expect(ranked.text).not.toContain(CAPTURE_NOTE);
   });
 
+  it('leaves the note out where the scope does not let memory be written', async () => {
+    const base = {
+      notebookId: null,
+      modelId: 'fake',
+      contextWindow: 100_000,
+      query: 'x',
+      part: 'pinned',
+    } as const;
+    expect((await mem().pack({ ...base, memoryWrite: false })).text).not.toContain(CAPTURE_NOTE);
+    expect((await mem().pack({ ...base, memoryWrite: true })).text).toContain(CAPTURE_NOTE);
+  });
+
   it('lists the entries that bear on the answer first', () => {
     const used = [
       { text: 'Drinks mint tea.' },

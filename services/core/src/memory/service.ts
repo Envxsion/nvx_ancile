@@ -229,6 +229,11 @@ export interface PackRequest {
    * those ranked for it ('ranked'). Absent: both, as one block.
    */
   part?: 'pinned' | 'ranked';
+  /**
+   * Whether memory may be written from this thread's scope. False: the one-line capture note is left
+   * out, so the model is never told Ancile saves things it will not. Absent: allowed (a preview).
+   */
+  memoryWrite?: boolean;
 }
 
 /** {model} in a path: the model id with "/" replaced by "__". */
@@ -1054,8 +1059,9 @@ export class MemoryService {
     }
     const built = buildMemoryPack(files, budget);
     // The one-line note rides with the pinned part (stable, so a cached prefix stays valid), and
-    // only while capture is on.
-    if (req.part !== 'ranked' && (await this.captureMode()) !== 'off') {
+    // only while capture is on and the thread's scope lets memory be written: where it cannot be,
+    // the note would promise a save that will not happen.
+    if (req.part !== 'ranked' && req.memoryWrite !== false && (await this.captureMode()) !== 'off') {
       const text = built.text ? `${built.text}\n\n${CAPTURE_NOTE}` : CAPTURE_NOTE;
       return { ...built, text, tokens: built.tokens + approxTokens(CAPTURE_NOTE), budget };
     }

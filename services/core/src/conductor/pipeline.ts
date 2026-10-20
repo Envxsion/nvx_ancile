@@ -1145,6 +1145,8 @@ ${noted.stop.forModel}`,
             contextWindow: target.context_window,
             query,
             ...(part && { part }),
+            // Where the scope forbids writing memory, the model is not told that Ancile saves things.
+            ...(scope && { memoryWrite: scope.scope.memory_write }),
           });
         } catch (err) {
           log.warn({ err }, 'memory could not be read; answering without it');
