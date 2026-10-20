@@ -61,7 +61,33 @@ export function htmlAsText() {
   return (tree: MdNode) => walk(tree);
 }
 
-export const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText];
+/**
+ * remark plugin: a single line break in a paragraph stays a line break. Chat
+ * models (Gemini above all) write a status block as lines with one newline
+ * between them and mean them as lines; markdown would join them into one
+ * run of words. Code is untouched (only text nodes are split), and a blank
+ * line still starts a new paragraph.
+ */
+function softBreaks(node: MdNode): void {
+  if (!node.children) return;
+  node.children = node.children.flatMap((c): MdNode[] => {
+    if (c.type === 'text' && c.value?.includes('\n')) {
+      const lines = c.value.split(/\r?\n/);
+      return lines.flatMap((line, i): MdNode[] => [
+        ...(i > 0 ? [{ type: 'break' }] : []),
+        ...(line ? [{ type: 'text', value: line }] : []),
+      ]);
+    }
+    softBreaks(c);
+    return [c];
+  });
+}
+
+export function keepLineBreaks() {
+  return (tree: MdNode) => softBreaks(tree);
+}
+
+export const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText, keepLineBreaks];
 
 /**
  * Images written inline as data:image/… (a model's own picture, a chart) are
