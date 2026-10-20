@@ -110,6 +110,8 @@ export interface LiveOpenParams {
   tools?: string[];
   /** Which of the person's settings load; [] none. Absent: user, project and local. */
   setting_sources?: ('user' | 'project' | 'local')[];
+  /** true: only mcp_servers load; the account's connectors and the person's own servers stay out. */
+  strict_mcp?: boolean;
 }
 
 /** A tool call the session asks about (pushed as session.permission). */

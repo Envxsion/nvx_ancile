@@ -27,7 +27,7 @@ User replied:
 {{user_message}}
 {{#edited_from}}
 
-(The user edited an earlier message. It originally said: {{edited_from}})
+(The user edited an earlier message. It originally said: {{edited_from}} That wording is replaced: the statement must come from the reply above only.)
 {{/edited_from}}
 
 Return JSON matching CorrectionDetection.

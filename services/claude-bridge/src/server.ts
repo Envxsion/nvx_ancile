@@ -202,6 +202,7 @@ export function openParams(p: Record<string, unknown>): OpenParams {
     ...(env && { env }),
     ...(p.persist === false && { persist: false }),
     ...(p.tools !== undefined && { tools: names(p.tools, 'tools') }),
+    ...(p.strict_mcp === true && { strict_mcp: true }),
     ...(p.setting_sources !== undefined && { setting_sources: sources(p.setting_sources) }),
   };
 }

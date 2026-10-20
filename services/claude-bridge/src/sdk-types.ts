@@ -151,6 +151,8 @@ export interface SdkQueryOptions {
   permissionMode?: string;
   includePartialMessages?: boolean;
   settingSources?: ('user' | 'project' | 'local')[];
+  /** Only the servers passed in mcpServers; never the account's connectors or the person's own. */
+  strictMcpConfig?: boolean;
   /** Built-in tools available; [] turns every one off. */
   tools?: string[];
   systemPrompt?: { type: 'preset'; preset: 'claude_code'; append?: string };

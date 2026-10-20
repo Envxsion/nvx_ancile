@@ -59,6 +59,7 @@ import {
   PROMPTS,
   ReconcileOutput,
   reconcileLocally,
+  staleStatement,
   topicSlug,
 } from './capture';
 import { detectExplicit } from './explicit';
@@ -1053,6 +1054,21 @@ export class MemoryService {
     while (this.capturing.size) await Promise.all([...this.capturing]);
   }
 
+  /** Reject the pending proposals that quote an edited message (or one it replaced earlier). */
+  private async withdrawSuperseded(editOfId: string): Promise<void> {
+    const threads = this.deps.threads;
+    if (!threads) return;
+    const chain = new Set<string>();
+    for (let id: string | null | undefined = editOfId; id && !chain.has(id); ) {
+      chain.add(id);
+      id = (await threads.getMessage(id))?.edit_of_id;
+    }
+    const waiting = await this.deps.proposals.list({ status: ['proposed'] });
+    for (const p of waiting)
+      if (p.evidence.some((e) => e.message_id && chain.has(e.message_id)))
+        await this.deps.proposals.update(p.id, { status: 'rejected', decided: true });
+  }
+
   private async capture(turn: TurnRecord): Promise<void> {
     const off = (await this.captureMode()) === 'off';
     const threads = this.deps.threads;
@@ -1060,6 +1076,9 @@ export class MemoryService {
     const userText = user && user.role === 'user' ? textOf(user.parts) : '';
     const nb = turn.notebookId ? await this.deps.notebook?.(turn.notebookId).catch(() => null) : null;
 
+    // 0. An edited message replaces the one it edits: a proposal still waiting that was
+    //    drawn from the old wording is withdrawn (not written; the new turn derives afresh).
+    if (user?.edit_of_id && threads) await this.withdrawSuperseded(user.edit_of_id);
     // 0. M2 / GR3: the person asked, in their own words, for something to be kept.
     //    Only the user's message is ever read here, never a tool result or a source.
     const ask = userText ? detectExplicit(userText) : null;
@@ -1110,7 +1129,13 @@ export class MemoryService {
           },
           CorrectionDetection,
         );
-        if (det?.is_correction && det.durable && det.scope !== 'none' && det.statement.trim()) {
+        if (
+          det?.is_correction &&
+          det.durable &&
+          det.scope !== 'none' &&
+          det.statement.trim() &&
+          !staleStatement(det.statement, own, editedFrom)
+        ) {
           const project = det.scope === 'notebook' && nb;
           await this.consider(
             {
