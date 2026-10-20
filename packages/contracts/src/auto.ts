@@ -19,7 +19,17 @@
 import { z } from 'zod';
 
 /** Who reviewed a call. `fake` exists only in tests and evals. */
-export const AutoReviewerId = z.enum(['jev_openrouter', 'jev_direct', 'local_model', 'rules', 'fake']);
+export const AutoReviewerId = z.enum([
+  'jev_openrouter',
+  'jev_direct',
+  /** DM1: the decision-model layer (docs/decisions.md): a hosted route picked by free allowance, then price. */
+  'decisions',
+  /** DM1: a decision server on this computer or the person's own GPU node. */
+  'decisions_local',
+  'local_model',
+  'rules',
+  'fake',
+]);
 export type AutoReviewerId = z.infer<typeof AutoReviewerId>;
 
 /** How an Auto mode call was settled. */

@@ -313,7 +313,9 @@ export const RunEvent = z.discriminatedUnion('type', [
     call_id: z.string().optional(),
     action: z.string(),
     via: z.enum(['plan', 'cache', 'reviewer', 'rules']),
-    reviewer: z.enum(['jev_openrouter', 'jev_direct', 'local_model', 'rules', 'fake']).nullable(),
+    reviewer: z
+      .enum(['jev_openrouter', 'jev_direct', 'decisions', 'decisions_local', 'local_model', 'rules', 'fake'])
+      .nullable(),
   }),
   /**
    * Auto mode could not settle a call by itself: its approval joins a group,

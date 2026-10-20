@@ -150,6 +150,12 @@ export const FlowNode = z.discriminatedUnion('kind', [
       min_confidence: z.number().min(0).max(1).default(0.5),
       /** May choose several routes at once (they run in parallel). */
       multi: z.boolean().default(false),
+      /**
+       * Who picks the route. `model`: the router's own chat model, as before. `decision`: a decision
+       * model (docs/decisions.md; free allowance first, then the cheapest), with the chat model as the
+       * fallback when none is available or sure enough.
+       */
+      decider: z.enum(['model', 'decision']).optional(),
       /** OpenRouter models: how the router's own call picks a provider. */
       routing: RoutingSettings.optional(),
     }),

@@ -36,6 +36,8 @@ export const CredentialId = z.enum([
   'memory_remote',
   /** TypeSafe's Jev, Auto mode's reviewer when called directly (docs/auto-mode.md). */
   'typesafe',
+  /** Cloudflare Workers AI: an API token and an account ID. Free decisions from Clef and Clef-flash (docs/decisions.md). */
+  'cloudflare',
 ]);
 export type CredentialId = z.infer<typeof CredentialId>;
 
@@ -64,6 +66,8 @@ export const CredentialStatus = z.object({
   unavailable_reason: z.string().nullable(),
   /** Anthropic only: the workspace a personal key bills (not a secret). */
   workspace_id: z.string().nullable().optional(),
+  /** Cloudflare only: the account ID the token runs under (not a secret). Null when not saved. */
+  account_id: z.string().nullable().optional(),
   /** Anthropic only (CR1): this key draws on the plan's monthly API credit. Null when not set up. */
   plan_credit: PlanCredit.nullable().optional(),
   /**
@@ -95,6 +99,12 @@ export const AnthropicWorkspaceId = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9_-]{4,128}$/, 'Paste the workspace ID only, such as wrkspc_01AbC…');
+
+/** A Cloudflare account ID: 32 hex characters. */
+export const CloudflareAccountId = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{32}$/i, 'Paste the account ID only: 32 letters and numbers from the Workers AI page');
 
 /** A personal Anthropic key, which needs a workspace ID beside it. */
 export const isPersonalAnthropicKey = (value: string | undefined | null): boolean =>
@@ -143,6 +153,8 @@ export const SaveCredentialRequest = z
     workspace_id: AnthropicWorkspaceId.optional(),
     /** Providers with regions: where the key was made. Checked against the provider's regions; ignored for the rest. */
     region: ProviderRegionId.optional(),
+    /** Cloudflare only: the account ID shown on the Workers AI page (32 hex characters). */
+    account_id: CloudflareAccountId.optional(),
   })
   .strict();
 export type SaveCredentialRequest = z.infer<typeof SaveCredentialRequest>;
