@@ -1828,8 +1828,7 @@ ${noted.stop.forModel}`,
         cp.roundOpen = {
           inTokens: approxTokens(
             [req.system ?? '', ...req.messages.map((m) => m.content), JSON.stringify(req.tools ?? [])].join(
-              '
-',
+              ' ',
             ),
           ),
           outChars: 0,
