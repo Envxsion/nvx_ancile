@@ -16,10 +16,8 @@
   background: var(--mute);
   transition: width var(--dur-2, 200ms) ease;
 }
-@media (prefers-reduced-motion: reduce) {
-  .decision-meter > span {
-    transition: none;
-  }
+:root[data-motion='reduced'] .decision-meter > span {
+  transition: none;
 }
 .decision-route__controls {
   display: flex;

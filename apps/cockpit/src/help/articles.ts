@@ -741,7 +741,7 @@ Turning one on affects only private notebooks. Everywhere else these features al
 
 **They bill input only.** Output is free, and none of them offers prompt caching, so nothing here is ever shown as a cache saving.
 
-## The free allowance, in numbers
+### The free allowance, in numbers
 
 Cloudflare Workers AI gives **10,000 neurons a day** free, and the count resets at **00:00 UTC** (11 am in Melbourne during daylight saving). A neuron is Cloudflare's own unit:
 
@@ -750,7 +750,7 @@ Cloudflare Workers AI gives **10,000 neurons a day** free, and the count resets 
 
 Past the free line, Workers AI bills $0.011 per 1,000 neurons on the paid plan (Clef-flash $0.038 and Clef $0.24 per million tokens). NVX Ancile **never takes that step for you**: it counts what you use, leaves Cloudflare at 9,950 neurons (you can change this) and moves on.
 
-## What happens on each decision
+### What happens on each decision
 
 1. In a private notebook, a decision server on this computer or your own GPU node goes first. Hosted models are used only if you allowed them in **Settings → Private notebooks**.
 2. Routes with free allowance left that suit the task come first. Fast sorting prefers Clef-flash; a security review prefers Clef or Jev.
@@ -759,23 +759,27 @@ Past the free line, Workers AI bills $0.011 per 1,000 neurons on the paid plan (
 
 Each paid provider has a daily spend cap, $1 unless you change it. A decision costs a few millionths of a dollar, so the cap is a safety net, not a budget.
 
-## Add Cloudflare (free)
+### Add Cloudflare (free)
 
 1. In the Cloudflare dashboard open **Workers AI** and choose **Use REST API**. Copy the **account ID**.
 2. Make an API token from the **Workers AI** template. It needs Workers AI Read and Edit.
 3. Open **Settings → API keys → Decision models**, paste both, and choose **Check and save**. The check is Cloudflare's token verify call, which uses no neurons.
 
-## Add Jev
+### Add Jev
 
 Your **OpenRouter** key already works for Jev (and for Perplexity's and Clef's decision models there). A direct **TypeSafe** key works too, and is the next route if OpenRouter runs out of credit.
 
-## On your own hardware
+### On your own hardware
 
 Clef-flash's weights are open (Apache 2.0). Serve them with vLLM or SGLang and they answer the same API at \`/v1/systemone\`. Laya (421 million parameters) runs on a CPU through \`laya-serve\` and answers the same way. Paste the address in **Settings → Decisions → On this computer**. It counts as private and costs nothing. Ollama cannot serve these models, because it returns text rather than probabilities.
 
-## Not supported
+### Not supported
 
-There is no hosted "Julia" decision API. Julia-1 is a small open model from Supersonic Labs; if you serve it behind a Jev-compatible server, the same address field takes it. Other decision models on OpenRouter (Microsoft, Inception, Liquid AI, Upstage) are not added yet.`,
+There is no hosted "Julia" decision API. Julia-1 is a small open model from Supersonic Labs; if you serve it behind a Jev-compatible server, the same address field takes it. Other decision models on OpenRouter (Microsoft, Inception, Liquid AI, Upstage) are not added yet.
+
+### What NVX Ancile does about it
+
+It counts what you use against each free allowance and leaves before the edge, never after. It never turns a decision into a paid Cloudflare charge, and it never blocks a chat: if no decision model can answer, the feature carries on the way it did before. The OpenAI Decisions API (GPT-6 Luna) is a preview. Its own pages were not readable when this was written, so it is off until you turn it on, and it may refuse your key.`,
       },
       {
         id: 'grants',
