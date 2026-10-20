@@ -509,17 +509,21 @@ Any key can be changed in Settings → Keyboard.`,
 
 Open it in **Admin → Memory**. Every change is a commit: **History** shows who changed what and when, and **Undo this change** takes any of it back.
 
-To see exactly what a thread's next answer will be given, open the **receipt** on any answer: the memory it used is listed with the version of each file.`,
+To see exactly what a thread's next answer will be given, open the **receipt** on any answer: the memory it used is listed with the version of each file, starting with a **Used:** line in words.`,
       },
       {
         id: 'memory-learning',
         title: 'How it learns',
         summary: 'Corrections become preferences; a failure then a fix becomes a lesson.',
         keywords: 'memory learn correction capture inbox propose auto undo',
-        body: `After each answer, NVX Ancile looks for two things, without slowing the answer down:
+        body: `After each answer, NVX Ancile looks for a few things, without slowing the answer down:
 
 - **A correction in your own words.** "No, use British spelling" or "always give metric units" becomes a preference. A one-off fix ("the second number is wrong") does not.
 - **A tool that failed and then worked.** The lesson goes in Lessons so the same mistake is spotted sooner next time.
+
+- **Things you say in passing.** "I prefer tabs" or "my manager is Dana", said once, waits in the inbox. Said again, it is kept, with **Undo**. Switch this off at the top of **Admin → Memory**. Private notebooks stay off unless you allow it.
+- **Someone else's work as the bar.** Paste or attach "how my manager writes updates", ideally with yours. You get a short standard to approve, and **Compare with a standard** (the menu beside Copy) shows how your work differs. It is always your yes: a rule written from pasted text is never kept on its own.
+- **A mistake you correct**, and **a change of mind** ("scrap that, I now use US dates"), which replaces the old entry. If nothing clear was learned from a change of mind, a quiet note says so and **Update memory** saves it.
 
 Before anything is written, it is compared with what is already remembered: the same thing said again is ignored, a better wording replaces the old one, and a change of mind keeps the old belief under Superseded so you can see what changed.
 

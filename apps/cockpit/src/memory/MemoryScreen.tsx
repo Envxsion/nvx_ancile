@@ -15,9 +15,16 @@
 
 import type { MemorySettings } from '@nvx/contracts';
 import { type KeyboardEvent, useEffect, useRef } from 'react';
-import { Segmented } from '../ui/controls';
+import { Segmented, Switch } from '../ui/controls';
 import { Icon, type IconName } from '../ui/Icon';
-import { type MemoryTab, useMemorySettings, useMemoryUi, usePendingProposals, useSetCapture } from './api';
+import {
+  type MemoryTab,
+  useMemorySettings,
+  useMemoryUi,
+  usePendingProposals,
+  useSetCapture,
+  useSetPassive,
+} from './api';
 import { Timeline } from './History';
 import { Inbox } from './Inbox';
 import { MemoryBrowser } from './MemoryBrowser';
@@ -45,6 +52,24 @@ export function CaptureControl({ size }: { size?: 'sm' }) {
       onChange={(v) => set.mutate(v)}
       options={CAPTURE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
     />
+  );
+}
+
+/** Noticing things said in passing: on unless switched off. Private notebooks follow their own setting. */
+export function PassiveControl() {
+  const settings = useMemorySettings();
+  const set = useSetPassive();
+  const on = settings.data?.passive !== false;
+  return (
+    <div className="mem__passive">
+      <Switch checked={on} onChange={(v) => set.mutate(v)} label="Learn from things said in passing" />
+      <span
+        className="mute"
+        title="A fact you mention once waits in the inbox. Mentioned again, it is kept. Private notebooks follow Settings → Private notebooks."
+      >
+        Learn from things said in passing
+      </span>
+    </div>
   );
 }
 
@@ -105,6 +130,7 @@ export function MemoryScreen() {
           <CaptureControl size="sm" />
           <span className="mute mem__capture-desc">{capture?.desc}</span>
         </div>
+        <PassiveControl />
       </div>
 
       <div className="mem-tabs" role="tablist" aria-label="Memory" ref={tabs}>

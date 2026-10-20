@@ -62,7 +62,7 @@ import {
 } from './figures';
 import { ReceiptPro } from './ReceiptPro';
 import { receiptId, stripId } from './ReceiptStrip';
-import { LinksUsed, MemoryFiles, Retrieval } from './Sections';
+import { LinksUsed, MemoryFiles, MemoryUsed, Retrieval } from './Sections';
 import { Timeline } from './Timeline';
 
 const n = (v: number) => v.toLocaleString('en-GB');
@@ -366,6 +366,7 @@ function WentIn({
   const sources = x && (r || x.retrieval_error || x.origin === 'claude_code_import');
 
   const rows: { key: string; node: ReactNode }[] = [];
+  if (x?.memory_used?.length) rows.push({ key: 'used', node: <MemoryUsed used={x.memory_used} /> });
   if (memory)
     rows.push({
       key: 'memory',

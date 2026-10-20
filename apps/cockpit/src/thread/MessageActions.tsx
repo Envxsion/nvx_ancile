@@ -15,8 +15,10 @@
  * ------------------------------------------------------------------
  */
 
+import type { CompareResponse } from '@nvx/contracts';
 import { useBinding } from '../keys/dispatch';
 import type { CopyFormat } from '../lib/answerText';
+import { ApiCallError, api } from '../lib/api';
 import { branchHere } from '../lib/branching';
 import { keys, useModels } from '../lib/data';
 import { openExport } from '../lib/exportStore';
@@ -178,8 +180,33 @@ function copyMenu(m: MessageView, threadId: string): MenuEntry[] {
       ? forms.map((f) => ({ label: f.label, onSelect: () => void copyAs(m, f.id) }))
       : []),
     ...(m.role === 'assistant' ? [{ kind: 'separator' as const }] : []),
+    {
+      label: 'Compare with a standard',
+      icon: 'factcheck' as const,
+      onSelect: () => void compareWithStandard(m.id),
+    },
     { label: 'Export this thread', icon: 'download' as const, onSelect: () => openExport(threadId) },
   ];
+}
+
+/** Your work against a standard learned from an example: a short list of differences and edits. */
+async function compareWithStandard(messageId: string): Promise<void> {
+  try {
+    const r = await api.post<CompareResponse>('/memory/compare', { message_id: messageId });
+    const edits = r.suggestions.map((s) => `- ${s}`).join('\n');
+    notify({
+      id: `compare-${messageId}`,
+      level: 'info',
+      title: `Compared with ${r.standard.path.replace(/^STANDARDS\//, '').replace(/\.md$/, '')}'s standard`,
+      body: `${r.summary}${edits ? `\n\n${edits}` : ''}`,
+    });
+  } catch (e) {
+    notify({
+      level: 'warn',
+      title: e instanceof ApiCallError ? e.body.error.title : 'The comparison did not run',
+      ...(e instanceof ApiCallError && { body: e.body.error.hint }),
+    });
+  }
 }
 
 export function MessageActions({

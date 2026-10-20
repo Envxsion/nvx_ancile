@@ -16,6 +16,7 @@
  */
 
 import type {
+  CompareResponse,
   HindsightResponse,
   MemoryCommit,
   MemoryDiff,
@@ -265,11 +266,70 @@ export function useDeleteFile() {
   });
 }
 
+/** Learn from things said in passing (on unless switched off). */
+export function useSetPassive() {
+  return useMutation({
+    mutationFn: (passive: boolean) =>
+      api.put<MemorySettings>('/memory/settings', {
+        capture: queryClient.getQueryData<MemorySettings>(memoryKeys.settings)?.capture ?? 'auto_confident',
+        passive,
+      }),
+    onMutate: (passive) =>
+      queryClient.setQueryData(memoryKeys.settings, {
+        ...queryClient.getQueryData<MemorySettings>(memoryKeys.settings),
+        capture: queryClient.getQueryData<MemorySettings>(memoryKeys.settings)?.capture ?? 'auto_confident',
+        passive,
+      }),
+    onError: (e) => {
+      void queryClient.invalidateQueries({ queryKey: memoryKeys.settings });
+      failed(e, 'Changing what memory notices');
+    },
+  });
+}
+
+/** Compare a message's work with a standard learned from an example. */
+export function useCompare() {
+  return useMutation({
+    mutationFn: (messageId: string) =>
+      api.post<CompareResponse>('/memory/compare', { message_id: messageId }),
+    onError: (e) => failed(e, 'Comparing with a standard'),
+  });
+}
+
+/**
+ * Memory heard what sounded like a reversal and changed nothing: say so quietly, and offer
+ * to save what the message said.
+ */
+export function onMemoryUnchanged(e: { message_id: string }) {
+  notify({
+    id: `memory-unchanged-${e.message_id}`,
+    level: 'info',
+    title: 'Nothing changed in memory',
+    body: 'That sounded like a change, but nothing was clear enough to save.',
+    action: {
+      label: 'Update memory',
+      run: () => {
+        api
+          .post<MemoryProposal>('/memory/update-from', { message_id: e.message_id })
+          .then((p) => {
+            void refreshMemory();
+            notify({ level: 'success', title: 'Remembered', body: p.text });
+          })
+          .catch((err) => failed(err, 'Updating memory'));
+      },
+    },
+  });
+}
+
 export function useSetCapture() {
   return useMutation({
     mutationFn: (capture: MemorySettings['capture']) =>
       api.put<MemorySettings>('/memory/settings', { capture }),
-    onMutate: (capture) => queryClient.setQueryData(memoryKeys.settings, { capture }),
+    onMutate: (capture) =>
+      queryClient.setQueryData(memoryKeys.settings, {
+        ...queryClient.getQueryData<MemorySettings>(memoryKeys.settings),
+        capture,
+      }),
     onError: (e) => {
       void queryClient.invalidateQueries({ queryKey: memoryKeys.settings });
       failed(e, 'Changing how memory learns');

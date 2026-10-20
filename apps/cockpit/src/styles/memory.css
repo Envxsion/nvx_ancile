@@ -25,6 +25,13 @@
   align-items: center;
   gap: 12px;
 }
+.mem__passive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--t-small);
+}
 .mem__capture-desc {
   font-size: var(--t-small);
   transition: opacity var(--d-short) var(--ease-out);

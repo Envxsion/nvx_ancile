@@ -118,6 +118,39 @@ export function LinksUsed({ links }: { links: Explain['links'] }) {
   );
 }
 
+/**
+ * "Used: ..." in words: the memory entries that shaped this answer, each linking to its file
+ * (and the commit it was read at). Quiet: it lives in the Why panel, not under the answer.
+ */
+export function MemoryUsed({ used }: { used: NonNullable<Explain['memory_used']> }) {
+  const shown = used.slice(0, 3);
+  const clip = (t: string) => {
+    const s = t.replace(/\*\*/g, '').replace(/\.$/, '');
+    return s.length > 70 ? `${s.slice(0, 67).trimEnd()}…` : s;
+  };
+  return (
+    <p className="rc-used" dir="auto">
+      <span className="mute">Used: </span>
+      {shown.map((u, i) => (
+        <span key={`${u.path}-${u.key}`}>
+          {i ? '; ' : ''}
+          <Link
+            to="/admin/$section"
+            params={{ section: 'memory' }}
+            search={{ file: u.path } as never}
+            title={`${u.path} · ${u.key} · commit ${u.commit.slice(0, 7)}`}
+          >
+            {clip(u.text)}
+          </Link>
+        </span>
+      ))}
+      {used.length > shown.length ? (
+        <span className="mute"> and {used.length - shown.length} more</span>
+      ) : null}
+    </p>
+  );
+}
+
 /** The memory files an answer was given, each with the entries read from it. */
 export function MemoryFiles({ memory }: { memory: NonNullable<Explain['memory']> }) {
   return (

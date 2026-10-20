@@ -688,6 +688,7 @@ export function demoExplain(m: { id: string; modelId: string | null }): Explain 
     run_id: null,
     model: { id: m.modelId, name: null, requested: null, chain: m.modelId ? [m.modelId] : [] },
     attempts: [],
+    memory_used: [],
     memory: null,
     retrieval: null,
     retrieval_error: null,
