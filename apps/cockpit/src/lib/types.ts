@@ -60,6 +60,10 @@ export interface ModelView {
   aliasOf?: string;
   /** The line this model belongs to (`<provider>/<line>`). */
   lineId?: string;
+  /** The company pickers group it under, for OpenRouter's lineup (Meta, Mistral…); absent for a provider's own models. */
+  company?: string;
+  /** A previous generation of its line: pickers fold it under "Older". */
+  older?: boolean;
   /** Retired models are not offered in pickers (MD5). */
   lifecycle?: 'active' | 'deprecated' | 'retired';
 }

@@ -33,6 +33,7 @@ import { canAnswer, useModels, useThread } from '../lib/data';
 import type { Hue, ModelView } from '../lib/types';
 import { billingTitle, displayName, modelBadge, sameModelBothWays } from '../models/billing';
 import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
+import { groupLabel } from '../models/lineup';
 import { checkModel, type ModelKind, useThreadScope } from '../scopes/api';
 import { useUi } from '../state/ui';
 
@@ -74,6 +75,10 @@ export interface ModelEntry {
   /** The badge in words, for its tooltip and accessible label; null when not known. */
   badgeTitle: string | null;
   note: string | null;
+  /** The heading the menu groups a cloud model under: its provider, or "OpenRouter · Meta". */
+  group?: string | undefined;
+  /** A previous generation of its line: the menu folds it under "Older". */
+  older?: boolean | undefined;
   /** A small tag after the name: "Latest" on a line that follows its newest model. */
   tag?: string | null;
   /** Why it cannot be chosen here, in a sentence; null when it can. */
@@ -138,6 +143,8 @@ export function modelGroups(input: GroupInput): ModelGroup[] {
       badgeTitle: m.billing ? billingTitle(m.billing, m.price) : null,
       note: retiredNote(m, input.models) ?? nowNote(m, input.models) ?? m.note ?? null,
       ...(m.aliasOf && { tag: LATEST_TAG }),
+      ...(kind === 'cloud' && { group: groupLabel(m.provider, m.company) }),
+      ...(m.older && { older: true }),
       disabled: (kind === 'claude_code' ? ccOff : null) ?? checkModel(input.scope, kind, m.id),
       current: m.id === input.currentId,
       model: m,

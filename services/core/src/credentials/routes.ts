@@ -343,7 +343,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
         // Models its own list does not offer to this key stay off, and the answer says which.
         const split = offeredBy(candidates, tested.offered);
         notOffered = split.missing.map((m) => ({ id: m.id, display_name: m.display_name }));
-        const on = switchedOnByKey(split.offered);
+        const on = switchedOnByKey(registry, provider, split.offered);
         if (!wasSet && on.length) await registry.setEnabled(Object.fromEntries(on.map((m) => [m.id, true])));
       } else if (d.check === 'controller') {
         if (!deps.runpod)

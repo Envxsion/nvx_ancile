@@ -488,3 +488,11 @@
   margin: 0;
   color: var(--fg-2);
 }
+
+/* A company heading inside the cloud group, and the quiet row that opens the previous generations. */
+.model-menu__company {
+  padding-top: 8px;
+}
+.model-menu__older {
+  color: var(--fg-3);
+}

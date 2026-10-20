@@ -30,6 +30,7 @@ import { hueVar, usd } from '../../lib/format';
 import type { ModelView } from '../../lib/types';
 import { billingTitle, billingWords, modelBadge } from '../../models/billing';
 import { ModelMenu } from '../../models/EditModel';
+import { groupedBy, OLDER_LABEL, splitOlder } from '../../models/lineup';
 import { OffPeakTag } from '../../models/OffPeakTag';
 import { notify } from '../../state/notify';
 import { Icon } from '../../ui/Icon';
@@ -234,6 +235,42 @@ function Subscriptions({ models }: { models: ModelView[] }) {
   );
 }
 
+/**
+ * A key's models: the current ones first, under a heading per company when the key reaches several
+ * (OpenRouter), then the previous generations folded under one quiet "Older" row.
+ */
+function LineupRows({ models }: { models: ModelView[] }) {
+  const { current, older } = splitOlder(models);
+  const parts = groupedBy(current, (m) => m.company);
+  const headed = parts.length > 1 || parts.some((p) => p.label);
+  return (
+    <>
+      {parts.map((p) => (
+        <div key={p.label ?? ''} className="model-company">
+          {headed && p.label ? <h4 className="model-company__name">{p.label}</h4> : null}
+          <ul className="rows">
+            {p.items.map((m) => (
+              <ModelRow key={m.id} m={m} />
+            ))}
+          </ul>
+        </div>
+      ))}
+      {older.length ? (
+        <details className="model-older">
+          <summary className="model-older__summary">
+            {OLDER_LABEL} <span className="mute">({older.length})</span>
+          </summary>
+          <ul className="rows">
+            {older.map((m) => (
+              <ModelRow key={m.id} m={m} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
 function KeysBlock({ b, i }: { b: KeyBlock; i: number }) {
   const navigate = useNavigate();
   const creds = useCredentials().data;
@@ -264,11 +301,7 @@ function KeysBlock({ b, i }: { b: KeyBlock; i: number }) {
         )
       }
     >
-      <ul className="rows">
-        {b.models.map((m) => (
-          <ModelRow key={m.id} m={m} />
-        ))}
-      </ul>
+      <LineupRows models={b.models} />
     </Block>
   );
 }

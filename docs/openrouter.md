@@ -6,7 +6,9 @@ Code: `services/core/src/openrouter/` (Core), `apps/cockpit/src/openrouter/` (Co
 
 ## Adding OpenRouter models
 
-OpenRouter models are added one at a time, from **Admin → Models → Add a model → OpenRouter** (see [models](models.md#adding-a-model)). `config/models.yaml` ships three small starters (Llama 3.3 70B Instruct, gpt-oss-20b and Gemma 3 27B, switched on by your first key), and the rest of the catalogue is only ever browsed there, never listed in a picker. A model you add needs your OpenRouter key: until it is saved the model shows as **Needs its key** in Admin → Models and no picker offers it. Saving your first OpenRouter key (in that dialog, in setup or in Settings → API keys) switches on the starters and the OpenRouter models you added, and only those.
+`config/models.yaml` ships an OpenRouter **lineup**: a curated list from each major company (Anthropic, OpenAI, Google including Gemma, Meta Llama 3 and 4, Mistral, DeepSeek, Qwen, xAI, Moonshot, Z.ai, MiniMax, Cohere and NVIDIA), each line with its current model and the one before it (see [the lineup](models.md#the-lineup)). Ids, context windows, prices, input types and abilities come from OpenRouter's public catalogue, `https://openrouter.ai/api/v1/models`, read on 2026-10-20 and noted in the file; the daily check overlays live prices. Saving your first OpenRouter key (in the add dialog, in setup or in Settings → API keys) switches the lineup on, and the model pickers show each company's current models with the earlier ones under **Older**. Models whose id ends in `:free` are never in the lineup: free endpoints may log your prompts, so add one yourself only if you accept that.
+
+The rest of the catalogue is browsed, never listed in a picker. Add a model from **Admin → Models → Add a model → OpenRouter** (see [models](models.md#adding-a-model)); it needs your OpenRouter key, and until that is saved it shows as **Needs its key** in Admin → Models and no picker offers it. A model you add whose id the lineup ships too is replaced by the shipped one, and your on or off choice is kept.
 
 ## Why the same model can feel worse
 

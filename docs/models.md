@@ -17,6 +17,8 @@ NVX Ancile talks to models through APIs. There are four ways to connect one, and
 - **Your server.** Give the base URL (for example `http://192.168.1.20:11434/v1` for Ollama, or `https://<pod-id>-8000.proxy.runpod.net/v1` for vLLM on RunPod) and a key if the server wants one. Press **List its models**, then add the ones you want, or type a model id yourself.
 - **A provider.** Pick Anthropic, OpenAI or Google and type a model id the provider publishes (for example `claude-opus-5-5`) when it is newer than the built-in list.
 
+A model you add whose id `config/models.yaml` also ships (a release adds a starter you had already added) is not lost and does not crash anything: the shipped model wins, your on or off choice for it is kept in the on/off store, and the redundant copy is dropped from what is saved. A colour you gave it stays; a name or window you edited gives way to the shipped one.
+
 Keys are encrypted at rest with `ANCILE_SECRET_KEY` and never shown again. Add, replace or remove any of them in **Settings → API keys** (see [configuration](configuration.md#api-keys)). Once it can answer (its key is saved), an added model appears everywhere a model can be chosen: the model picker (`m`), `@model` in the composer, and every Model, Router and Manager node in a flow.
 
 OpenRouter models are added one by one: nothing lists OpenRouter's catalogue in a picker, and a first OpenRouter key switches on only the models you added (see [OpenRouter](openrouter.md#adding-openrouter-models)).
@@ -34,7 +36,7 @@ The [test models](#test-models) leave the pickers once a real model can answer, 
 
 A model that cannot answer is never offered: one that needs its key, is switched off, or is not in Ollama. **Admin → Models** lists only what is real (MD2):
 
-- a provider appears once its key is saved, and then starts with **three current models of different tiers**: a fast one, a balanced one and the best one (Haiku, Sonnet and Opus for Anthropic; ranked by price for a provider whose models are not in lines). They come from the provider's live model list when the daily check has read it, and from the list that ships with NVX Ancile (dated by `prices_as_of` in `config/models.yaml`) when it has not or the call failed; a model the provider retired, or that is only a preview, steps aside;
+- a provider appears once its key is saved, and then starts with its **lineup** (see [The lineup](#the-lineup)): every line's current model and the generation before it. They come from the provider's live model list when the daily check has read it, and from the list that ships with NVX Ancile (dated by `prices_as_of` in `config/models.yaml`) when it has not or the call failed; a model the provider retired steps aside;
 - **Add more models** shows the rest of what the provider offers, one **Show** at a time (`POST /models/shown`); a model you showed stays, and one you hide goes back;
 - Claude Code's models show only while Claude Code is signed in; node models only when a node serves them; Ollama's only once pulled; any you added always show;
 - a key you remove later hides the provider again, and a flow that used one of its models shows a warning on that step.
@@ -149,15 +151,44 @@ Once a day, 60 seconds after NVX Ancile starts, and when the computer wakes from
 
 **The first check.** Saving a provider's key (in setup or Settings → API keys) reads that provider's list straight away, in the background, instead of waiting for the next daily run. Two saves close together make one check, and a provider read in the last minute is not read again. A failure is logged and tried again by the daily schedule; it never stops the save.
 
-**Starter models.** A first key switches on the provider's stable models and leaves a preview off when a stable one sits beside it, so a free-tier Google key starts on Gemini 3.5 Flash-Lite and 3.8 Flash and not on the dearer Pro preview (one switch away in Admin → Models). Google ships those two; OpenRouter ships three small models (Llama 3.3 70B Instruct, gpt-oss-20b, Gemma 3 27B), so a first OpenRouter key answers at once. Their ids write the model's `/` as `__`, the same as a model you add (`openrouter/meta-llama__llama-3.3-70b-instruct`).
+**The lineup.** See [The lineup](#the-lineup).
 
-**A model that cannot answer.** Right after a key is saved, each cheap starter is tried with one token, and so is any cheap model you add from the check's list. If the provider refuses it for good (for example "no longer available to new users"), the model shows **Not available** with the provider's reason, and no picker offers it. A rate limit, an outage or a bad key says nothing about the model and changes nothing. Saving the key again forgets the refusal and tries once more. A model priced above $1 in or $5 out per million tokens is never tried on its own.
+**A model that cannot answer.** Right after a key is saved, one cheap model of each line is tried with one token (at most six for a provider, three for OpenRouter), and so is any cheap model you add from the check's list. A dear model (above $1 in or $5 out per million tokens) is never tried on its own, so a lineup with Opus-class and Pro-class tiers costs a few fractions of a cent to check. If the provider refuses a model for good (for example "no longer available to new users"), the model shows **Not available** with the provider's reason, and no picker offers it; a line that was answering with it moves to the newest model of the line that can. A rate limit, an outage or a bad key says nothing about the model and changes nothing. Saving the key again forgets the refusal and tries once more.
 
 **Abilities.** Where a list carries them (Anthropic, OpenRouter) they are used. Google's carries none, so a table by model family fills in what is known (Gemini 2.5 and later: tools, images, reasoning, JSON; Gemma 3: images only). A model of an unknown family is added with no abilities claimed, not with tools by default.
 
 **When.** Each provider is checked when its last good check is over 24 hours old. A failed check is tried again after 1 hour, then 2, 4, 8 and so on, up to 24 hours. **Check now** asks a provider at most once a minute. Only one check runs at a time.
 
 **A key that cannot list models** is not a rejected key. Some keys are allowed to answer but not to list. The page says "This key can't list models" (`models.list_forbidden`), your answers carry on as before, and prices and lists for that provider stay as shipped.
+
+### The lineup
+
+Every provider ships each of its **lines** (a tier family such as Claude Opus, GPT Sol, Gemini Flash or Llama large) with its **current** model and the generation **before** it. Saving a key switches both on, in every tier, dear ones included: you chose to have the whole range. The current generation is a line's newest stable version (a size or variant beside it, such as Gemma 4 31B and 26B, comes with it); the previous is the next version down. A preview joins only a line that has no stable model (Gemini Pro exists only as a preview, so it comes on; Mistral Large 4, in public preview beside the stable Large 3, stays off).
+
+What ships, checked on each provider's own pages on 2026-10-20 (the page is named beside each provider in `config/models.yaml`):
+
+| Provider | Line: current, previous |
+|---|---|
+| Anthropic | Fable: 5.1, 5. Opus: 5.5, 5. Sonnet: 5.5, 5. Haiku: 5.5, 4.5 |
+| OpenAI | Astra: 6 (new, so no earlier model). Sol: 6.1, 6. Luna: 6, 5.6 |
+| Google | Argon: 4 (new). Pro: 3.1 preview (the only Pro). Flash: 3.8, 3.6. Flash-Lite: 3.5, 3.1 |
+| xAI | Grok: 4.7, 4.6 |
+| Mistral | Large: 3 (4 is a preview). Medium: 3.5. Small: 4 (the earlier ones are retired by Mistral) |
+| DeepSeek | Pro: V4. Flash: V4.1 (the API serves one generation of each) |
+| Moonshot | Kimi: K3, K2.6 |
+| MiniMax | MiniMax: M3, M2.7. Fast: M3.1 Flash, M2.7 Highspeed |
+| Qwen | Max: 3.8, 3.7. Plus: 3.7. Flash: 3.8, 3.7 |
+| Z.ai | GLM: 5.3, 5.2. Flash: 5.3, 4.7. FlashX: 5.3 |
+
+Where a line has one model, the provider's own pages list no earlier one that still answers; none is invented. Names from memory may not exist: there is no Llama 4 Behemoth (Meta announced it and has not released it), no Llama 3.1 405B or Llama 3.2 11B and 90B in OpenRouter's catalogue now, and Gemini 3.7 Flash is deprecated by Google.
+
+**OpenRouter.** One key reaches every company, so OpenRouter's lineup is the same idea across Anthropic, OpenAI, Google (including Gemma), Meta (Llama 4 Maverick and Scout, Llama 3.3 70B and 3.2 3B), Mistral, DeepSeek, Qwen, xAI, Moonshot, Z.ai, MiniMax, Cohere and NVIDIA. Each model in `config/models.yaml` carries a `line:` block (id, name, tier, version, company) because OpenRouter ids carry a vendor and their own spellings. Models whose id ends in `:free` are never shipped: free endpoints may log prompts.
+
+**What the pickers show.** The model picker (`m`), the palette and the flow editor's pickers list each line's current model once ("Latest"), under a heading for its provider (and, inside OpenRouter, its company: "OpenRouter · Meta"). The previous generation waits behind one quiet **Older** row (a submenu in the model picker, a row in the flow picker; typing a search shows older models at once). The model a thread already uses is never folded away. Admin → Models lists each key's models by company with the previous generations under a closed **Older**. `GET /models` marks them `older`, and OpenRouter's lineup models carry `company`.
+
+**What stays quiet.** A saved key does not change where a message goes. `config/routing.yaml` names the models for each task class (`chat.default` starts on `anthropic/sonnet:latest`, `utility` on `anthropic/haiku:latest`), and a model added to the lineup is never put in a chain by being added. A dear tier is never a fallback for a cheaper model you pinned: the [price rule](#pinned-models-and-fallbacks) allows only models no dearer than the pinned one.
+
+**Installs that saved keys earlier.** A lineup is switched on when a key is saved, so an install that saved its keys before a release shipped a lineup would never get it. Once per lineup version (the setting `models.lineup_version`), an hour or so after start, NVX Ancile: switches on the lineup of every provider with a saved key, leaving alone anything you turned off and turning nothing off; tries with one token each cheap model that is on and has never been tried (a few per provider, never a dear one), so a model its provider refuses (an old Gemini, a blocked Gemma) says so; and moves a line that was pinned to a model that turned out unavailable onto the newest model of the line that can answer. A try that could not be read (offline, a limit) is repeated on the next hourly check, up to three times.
 
 ### Where prices come from
 
@@ -179,9 +210,9 @@ A **line** is one family of a provider's models that gets newer versions, such a
 
 | Tier | Examples |
 |---|---|
-| Best | Claude Fable and Opus, GPT, Gemini Pro, DeepSeek Pro, Kimi, Grok, Mistral Large |
-| Balanced | Claude Sonnet, GPT mini, Gemini Flash, Mistral Medium |
-| Fast | Claude Haiku, GPT nano, Gemini Flash-Lite, DeepSeek Flash, Grok mini, Mistral Small |
+| Best | Claude Fable and Opus, GPT Astra, Gemini Argon and Pro, DeepSeek Pro, Kimi, Grok, GLM, Qwen Max, Mistral Large |
+| Balanced | Claude Sonnet, GPT Sol, Gemini Flash, Qwen Plus, Mistral Medium |
+| Fast | Claude Haiku, GPT Luna, Gemini Flash-Lite, DeepSeek Flash, GLM Flash, Qwen Flash, Mistral Small |
 
 A line's id is `<provider>/<line>`, for example `anthropic/opus`, and its alias is `anthropic/opus:latest`. The alias works anywhere a model id does: in routing chains, a thread's model, a flow step, an automation or a persona. It answers with the line's **current model**. Before any check, that is the newest stable model in your model list. A dated snapshot such as `gpt-5.5-2026-08-01` is the same version as `gpt-5.5`, never newer, and the undated id is preferred. A preview, experimental or beta model is never the newest stable one.
 

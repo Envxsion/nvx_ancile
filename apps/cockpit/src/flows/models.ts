@@ -49,6 +49,10 @@ export interface FlowModel {
   /** A line's "latest" entry: the concrete model it answers with now (MD4). */
   aliasOf?: string;
   lineId?: string;
+  /** OpenRouter's lineup: the company it is grouped under. */
+  company?: string;
+  /** A previous generation of its line: the picker folds it under "Older". */
+  older?: boolean;
   lifecycle?: 'active' | 'deprecated' | 'retired';
 }
 
@@ -90,6 +94,8 @@ export function useFlowModels(): { list: FlowModel[]; byId: Map<string, FlowMode
         ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
         ...(m.alias_of && { aliasOf: m.alias_of }),
         ...(m.line_id && { lineId: m.line_id }),
+        ...(m.company && { company: m.company }),
+        ...(m.older && { older: true }),
         ...(m.lifecycle && { lifecycle: m.lifecycle }),
       };
     });

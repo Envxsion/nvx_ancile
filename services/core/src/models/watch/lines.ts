@@ -20,7 +20,7 @@
  *           |  line id.
  * ------------------------------------------------------------------
  */
-import type { ModelTier } from '@nvx/contracts';
+import type { ModelConfig, ModelTier } from '@nvx/contracts';
 import { knownProfile } from '../../gateway/profiles';
 
 export interface LineInfo {
@@ -32,6 +32,8 @@ export interface LineInfo {
   /** "5.5", or null when the id carries none. */
   version: string | null;
   preview: boolean;
+  /** Set by a line declared in models.yaml (OpenRouter's lineup): the name pickers group under. */
+  company?: string;
 }
 
 /** exp/preview/beta/alpha/rc as a word of the id. */
@@ -71,6 +73,17 @@ const ANTHROPIC_TIER: Record<string, { name: string; tier: ModelTier }> = {
   haiku: { name: 'Claude Haiku', tier: 'fast' },
 };
 
+/** Mistral stamps some ids with a year and month (mistral-large-2512): the version they are. */
+const MISTRAL_STAMP: Record<string, string> = {
+  '2402': '1',
+  '2407': '2',
+  '2411': '2.1',
+  '2506': '3.2',
+  '2508': '3.1',
+  '2512': '3',
+  '2603': '4',
+};
+
 const OPENAI_SKIP =
   /(audio|realtime|search|transcribe|tts|image|embedding|moderation|chat-latest|codex|instruct)/;
 
@@ -101,6 +114,19 @@ export function lineOf(provider: string, providerModel: string): LineInfo | null
     }
     case 'openai': {
       if (OPENAI_SKIP.test(id)) return null;
+      // GPT-5.6 and later name their tiers: astra (best), sol (balanced), luna (efficient), terra (5.6 only).
+      // A -pro variant is the same model asked to think longer; it is not a line of its own.
+      const named = /^gpt-(\d+(?:\.\d+)?)-(astra|sol|luna|terra)$/.exec(id);
+      if (named) {
+        const t: Record<string, { name: string; tier: ModelTier }> = {
+          astra: { name: 'GPT Astra', tier: 'best' },
+          sol: { name: 'GPT Sol', tier: 'balanced' },
+          terra: { name: 'GPT Terra', tier: 'balanced' },
+          luna: { name: 'GPT Luna', tier: 'fast' },
+        };
+        const x = t[named[2] as string] as { name: string; tier: ModelTier };
+        return mk('openai', named[2] as string, x.name, x.tier, named[1] as string, id);
+      }
       const m = /^gpt-(\d+(?:\.\d+)?)(-mini|-nano)?(?:-(\d{4}-\d{2}-\d{2}|preview))?$/.exec(id);
       if (!m) return null;
       const v = m[1] as string;
@@ -111,11 +137,12 @@ export function lineOf(provider: string, providerModel: string): LineInfo | null
     case 'google': {
       if (/(tts|image|live|audio|embedding|native|computer)/.test(id)) return null;
       const m =
-        /^gemini-(\d+(?:\.\d+)?)-(pro|flash-lite|flash)((?:-(?:preview|exp|experimental)[-\w.]*)?|-\d{3})$/.exec(
+        /^gemini-(\d+(?:\.\d+)?)-(argon|pro|flash-lite|flash)((?:-(?:preview|exp|experimental)[-\w.]*)?|-\d{3})$/.exec(
           id,
         );
       if (!m) return null;
       const v = m[1] as string;
+      if (m[2] === 'argon') return mk('google', 'gemini-argon', 'Gemini Argon', 'best', v, id);
       if (m[2] === 'pro') return mk('google', 'gemini-pro', 'Gemini Pro', 'best', v, id);
       if (m[2] === 'flash') return mk('google', 'gemini-flash', 'Gemini Flash', 'balanced', v, id);
       return mk('google', 'gemini-flash-lite', 'Gemini Flash-Lite', 'fast', v, id);
@@ -156,6 +183,7 @@ export function lineOf(provider: string, providerModel: string): LineInfo | null
       // glm-5.3, glm-5.3-flash, glm-5.3-flashx. Display names such as GLM-5.3-FlashX are lower-cased ids.
       const m = /^glm-(\d+(?:\.\d+)?)(?:-(flashx|flash))?$/.exec(id);
       if (!m) return null;
+      if (m[2] === 'flashx') return mk('zai', 'glm-flashx', 'GLM FlashX', 'fast', m[1] as string, id);
       return m[2]
         ? mk('zai', 'glm-flash', 'GLM Flash', 'fast', m[1] as string, id)
         : mk('zai', 'glm', 'GLM', 'best', m[1] as string, id);
@@ -169,15 +197,17 @@ export function lineOf(provider: string, providerModel: string): LineInfo | null
         : mk('minimax', 'm', 'MiniMax', 'best', m[1] as string, id);
     }
     case 'mistral': {
-      const m = /^mistral-(large|medium|small)-(\d{4}|\d+(?:\.\d+)?)$/.exec(id);
+      // mistral-large-2512 (a year-month stamp), mistral-medium-3-5, mistral-large-4-0, or a plain 3.1.
+      const m = /^mistral-(large|medium|small)-(\d{4}|\d+-\d+|\d+(?:\.\d+)?)$/.exec(id);
       if (!m) return null;
+      const version = MISTRAL_STAMP[m[2] as string] ?? (m[2] as string).replace('-', '.');
       const t: Record<string, { name: string; tier: ModelTier }> = {
         large: { name: 'Mistral Large', tier: 'best' },
         medium: { name: 'Mistral Medium', tier: 'balanced' },
         small: { name: 'Mistral Small', tier: 'fast' },
       };
       const x = t[m[1] as string] as { name: string; tier: ModelTier };
-      return mk('mistral', m[1] as string, x.name, x.tier, m[2] as string, id);
+      return mk('mistral', m[1] as string, x.name, x.tier, version, id);
     }
     default:
       return null;
@@ -224,6 +254,25 @@ export function lineFor(
   const l = lineOf(vendor, providerModel);
   if (!l) return null;
   return vendor === provider ? l : { ...l, line_id: `${provider}/${l.line_id.slice(vendor.length + 1)}` };
+}
+
+/**
+ * The line a configured model belongs to: the one models.yaml declares for it (OpenRouter's lineup,
+ * whose ids carry a vendor and their own spellings), else the one its id says (lineFor).
+ */
+export function lineOfModel(
+  m: Pick<ModelConfig, 'provider' | 'base_url' | 'provider_model'> & { line?: ModelConfig['line'] },
+): LineInfo | null {
+  if (m.line)
+    return {
+      line_id: `${m.provider}/${m.line.id}`,
+      name: m.line.name,
+      tier: m.line.tier,
+      version: m.line.version,
+      preview: m.line.preview ?? false,
+      company: m.line.company,
+    };
+  return lineFor(m.provider, m.base_url, m.provider_model);
 }
 
 /** Numeric segment compare of "5.5" against "5.10"; a missing version is the oldest. */

@@ -20,7 +20,7 @@
  */
 
 import type { ModelConfig } from '@nvx/contracts';
-import { lineFor } from '../models/watch/lines';
+import { lineOfModel } from '../models/watch/lines';
 import { normaliseForMatch } from '../models/watch/listers';
 
 export interface KeyCheckPlan {
@@ -84,13 +84,19 @@ export function offeredBy<T extends Pick<ModelConfig, 'provider_model'>>(
 }
 
 /**
- * Which of a provider's models a first key switches on. A preview stays off while the provider has a
- * stable model beside it: a preview is dearer and less settled (Gemini 3.1 Pro preview next to the
- * Flash models), and it is one switch away in Admin → Models. With nothing but previews, they all stay.
+ * Which of a provider's models a first key switches on: its lineup (the registry's, MD2), narrowed to
+ * what the key is offered. A line's preview stays off while another model of that line is stable.
+ * With no lineup to go by (an endpoint you made up), every stable model, or all of them when only
+ * previews are left.
  */
-export function switchedOnByKey<T extends Pick<ModelConfig, 'provider' | 'provider_model' | 'base_url'>>(
-  models: readonly T[],
-): T[] {
-  const stable = models.filter((m) => !lineFor(m.provider, m.base_url, m.provider_model)?.preview);
+export function switchedOnByKey<
+  T extends Pick<ModelConfig, 'id' | 'provider' | 'provider_model' | 'base_url'> & {
+    line?: ModelConfig['line'];
+  },
+>(lineup: { lineup(provider: string): { id: string }[] }, provider: string, models: readonly T[]): T[] {
+  const ids = new Set(lineup.lineup(provider).map((m) => m.id));
+  const chosen = models.filter((m) => ids.has(m.id));
+  if (chosen.length) return chosen;
+  const stable = models.filter((m) => !lineOfModel(m)?.preview);
   return stable.length ? stable : [...models];
 }

@@ -83,6 +83,7 @@ describe('starter models (MD2)', () => {
     model({ id: 'anthropic/claude-haiku-4-5', provider: 'anthropic', provider_model: 'claude-haiku-4-5' }),
     model({ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic', provider_model: 'claude-sonnet-4-5' }),
     model({ id: 'anthropic/claude-opus-4-1', provider: 'anthropic', provider_model: 'claude-opus-4-1' }),
+    model({ id: 'anthropic/claude-sonnet-4-0', provider: 'anthropic', provider_model: 'claude-sonnet-4-0' }),
   ];
   const price = (i: number) => ({ input_per_mtok: i, output_per_mtok: i * 4 });
   const unlined = [1, 2, 3, 4, 5].map((i) =>
@@ -111,19 +112,55 @@ describe('starter models (MD2)', () => {
     return { registry, info };
   }
 
-  it('lists one current model of each tier, and says the others are "more"', async () => {
+  it("lists each line's current model and the one before it, and says the rest are more", async () => {
     const w = await setup(['ANTHROPIC_API_KEY'], cloud);
     const info = w.info();
     const listed = [...info.values()].filter((m) => m.listed && !m.alias_of).map((m) => m.id);
-    expect(listed.length).toBe(3);
-    expect(listed).toEqual(
-      expect.arrayContaining([
-        'anthropic/claude-opus-5-5',
-        'anthropic/claude-sonnet-5-5',
+    expect(listed.sort()).toEqual(
+      [
         'anthropic/claude-haiku-4-5',
-      ]),
+        'anthropic/claude-opus-4-1',
+        'anthropic/claude-opus-5-5',
+        'anthropic/claude-sonnet-4-5',
+        'anthropic/claude-sonnet-5-5',
+      ].sort(),
     );
-    expect(info.get('anthropic/claude-sonnet-4-5')?.unlisted_reason).toBe('more');
+    expect(info.get('anthropic/claude-sonnet-4-0')?.unlisted_reason).toBe('more');
+    // The previous generation is flagged so a picker can fold it; the current one is not.
+    expect(info.get('anthropic/claude-sonnet-4-5')?.older).toBe(true);
+    expect(info.get('anthropic/claude-opus-4-1')?.older).toBe(true);
+    expect(info.get('anthropic/claude-sonnet-5-5')?.older).toBeUndefined();
+    expect(info.get('anthropic/claude-haiku-4-5')?.older).toBeUndefined();
+  });
+
+  it('a line with only a preview ships the preview; a preview beside a stable model stays off', async () => {
+    const w = await setup(
+      ['GOOGLE_GENERATIVE_AI_API_KEY'],
+      [
+        model({
+          id: 'google/pro',
+          provider: 'google',
+          provider_model: 'gemini-3.1-pro-preview',
+          secret: 'GOOGLE_GENERATIVE_AI_API_KEY',
+        }),
+        model({
+          id: 'google/flash',
+          provider: 'google',
+          provider_model: 'gemini-3.8-flash',
+          secret: 'GOOGLE_GENERATIVE_AI_API_KEY',
+        }),
+        model({
+          id: 'google/flash-p',
+          provider: 'google',
+          provider_model: 'gemini-4.0-flash-preview-0901',
+          secret: 'GOOGLE_GENERATIVE_AI_API_KEY',
+        }),
+      ],
+    );
+    const info = w.info();
+    expect(info.get('google/pro')?.listed).toBe(true);
+    expect(info.get('google/flash')?.listed).toBe(true);
+    expect(info.get('google/flash-p')?.unlisted_reason).toBe('more');
   });
 
   it('with no key, nothing of the provider is listed and the reason is the key', async () => {

@@ -10,12 +10,12 @@ task_classes:
   # <provider>/<line>:latest means the line's current model (docs/models.md, Lines and tiers).
   chat.default:                     # ordinary chat turns
     - anthropic/sonnet:latest
-    - openai/gpt:latest
+    - openai/sol:latest
     - controller/qwen3-72b
     - ollama/qwen3-14b
   chat.deep:                        # "think harder" turns and research synthesis
     - anthropic/opus:latest
-    - openai/gpt:latest
+    - openai/astra:latest
     - anthropic/sonnet:latest
   utility:                          # titles, tags, memory capture, summaries
     - anthropic/haiku:latest
@@ -27,7 +27,7 @@ task_classes:
   factcheck.verify:                 # the verifier must be independent of the generator
     prefer_different_family: true   # skip the generator's family when another is available
     chain:
-      - openai/gpt:latest
+      - openai/sol:latest
       - google/gemini-pro:latest
       - anthropic/sonnet:latest
 

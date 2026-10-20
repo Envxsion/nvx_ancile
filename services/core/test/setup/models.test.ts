@@ -241,19 +241,49 @@ describe('models found in Ollama', () => {
 });
 
 describe('OpenRouter models are added one by one', () => {
-  it('ships only three cheap starters, off until a key is saved (F3b), never the catalogue', async () => {
+  it('ships a lineup per company (current and previous of each line), off until a key is saved, never the catalogue', async () => {
     const cfg = await loadConfig(fileURLToPath(new URL('../../../../config', import.meta.url)));
     const shipped = cfg.models?.models.filter((m) => m.provider === 'openrouter') ?? [];
-    expect(shipped.map((m) => m.id)).toEqual([
-      'openrouter/meta-llama__llama-3.3-70b-instruct',
-      'openrouter/openai__gpt-oss-20b',
-      'openrouter/google__gemma-3-27b-it',
-    ]);
+    const ids = shipped.map((m) => m.id);
+    // The three starters earlier releases shipped are still there under the same ids.
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'openrouter/meta-llama__llama-3.3-70b-instruct',
+        'openrouter/openai__gpt-oss-20b',
+        'openrouter/google__gemma-3-27b-it',
+      ]),
+    );
+    const companies = new Set(shipped.map((m) => m.line?.company));
+    for (const c of [
+      'Anthropic',
+      'OpenAI',
+      'Google',
+      'Meta',
+      'Mistral',
+      'DeepSeek',
+      'Qwen',
+      'xAI',
+      'Moonshot',
+      'Z.ai',
+      'MiniMax',
+      'Cohere',
+      'NVIDIA',
+    ])
+      expect(companies).toContain(c);
     // The id scheme is the one models you add use: the provider's id with "/" as "__".
+    const lines = new Map<string, Set<string>>();
     for (const m of shipped) {
       expect(m.id).toBe(`openrouter/${m.provider_model.replace('/', '__')}`);
       expect(m.enabled).toBe(false);
+      // Free endpoints may log prompts: never a default.
+      expect(m.provider_model.endsWith(':free')).toBe(false);
+      expect(m.line).toBeDefined();
+      const v = lines.get(m.line?.id ?? '') ?? new Set<string>();
+      v.add(m.line?.version ?? '');
+      lines.set(m.line?.id ?? '', v);
     }
+    // At most a current and a previous generation per line.
+    for (const [line, versions] of lines) expect(versions.size, line).toBeLessThanOrEqual(2);
   });
 
   it('a first OpenRouter key switches on only the models you added, never the catalogue', async () => {

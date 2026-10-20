@@ -84,6 +84,10 @@ export const SETTING = {
   watchAdded: 'models.watch_added',
   /** { [modelId]: { reason, at } }: models a provider refused for good on a test call (F3c). */
   modelUnavailable: 'models.unavailable',
+  /** { [modelId]: iso }: models tried with one token, whatever the answer, so none is tried twice (F3c, lineup upgrade). */
+  modelTested: 'models.tested',
+  /** The lineup version the upgrade step last ran for (models/watch/service.ts upgradeLineup). */
+  lineupVersion: 'models.lineup_version',
   /** { [provider]: ProviderCheckState }: how the last check of each provider went. */
   watchChecks: 'models.watch.checks',
   /** { openrouter_prices: boolean }: the model watch's own settings. */

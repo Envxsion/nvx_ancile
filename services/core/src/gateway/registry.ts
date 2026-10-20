@@ -41,7 +41,6 @@ import {
   type ModelHue,
   type ModelInfo,
   type ModelLine,
-  type ModelTier,
   type Part,
 } from '@nvx/contracts';
 import {
@@ -54,7 +53,7 @@ import {
   type Member,
   newestStable,
 } from '../models/watch/linebook';
-import { dateOf, lineFor } from '../models/watch/lines';
+import { compareModels, compareVersions, dateOf, lineOfModel } from '../models/watch/lines';
 import type { StoredModel } from '../models/watch/store';
 import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
@@ -161,6 +160,8 @@ export class ModelRegistry {
   private hues: Record<string, ModelHue> = {};
   /** Chains saved in Admin → Routing, held here so chain() never reads the database. */
   private savedChains: Record<string, string[]> = {};
+  /** Ids that models.yaml (and the offline set) ship: a model you added under one of these ids is shadowed by it. */
+  private readonly configIds: Set<string>;
   /** Ids of the models you added (Settings → Models), merged in on refresh. */
   private customIds = new Set<string>();
   /** Every id this process has listed, so a later "not found" can tell removed from never existed. */
@@ -187,16 +188,19 @@ export class ModelRegistry {
   constructor(private readonly opts: RegistryOptions) {
     // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
     this.models = [...opts.models, ...(opts.offline ? OFFLINE_MODELS : [])].map((m) => autoLimits(m));
+    this.configIds = new Set(this.models.map((m) => m.id));
   }
 
   /** Re-read which keys exist and which models were switched on. Cheap; call after any change. */
   async refresh(): Promise<void> {
     this.noteSeen();
     const secretNames = new Set(await this.opts.secrets.names());
-    const overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
+    let overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
     const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
     const shown = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelShown)) ?? {};
-    const custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
+    let custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
+    const absorbed = await this.absorbShadowed(custom, overrides);
+    if (absorbed) ({ custom, overrides } = absorbed);
     const chains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
     const lineStates = (await this.opts.settings.get<Record<string, LineState>>(SETTING.modelLines)) ?? {};
     const watchAdded = (await this.opts.settings.get<string[]>(SETTING.watchAdded)) ?? [];
@@ -217,6 +221,41 @@ export class ModelRegistry {
     this.mergeCustom(custom);
     this.syncDiscovered();
     this.recompute();
+  }
+
+  /**
+   * A model you added whose id models.yaml now ships too (the starters a release adds): the shipped one
+   * wins, so the added copy would vanish along with the on/off choice stored in it. Carry that choice
+   * over to the on/off store (a choice already there stands), then drop the copy, so nothing you decided
+   * is lost and the copy never comes back. Returns the lists to use now, or null when nothing was shadowed.
+   * Its colour is kept under the id already; a name or window you edited gives way to the shipped one.
+   */
+  private async absorbShadowed(
+    raw: unknown[],
+    overrides: Record<string, boolean>,
+  ): Promise<{ custom: unknown[]; overrides: Record<string, boolean> } | null> {
+    const shadowed: { id: string; enabled: boolean }[] = [];
+    const keep: unknown[] = [];
+    for (const r of raw) {
+      const id = (r as { id?: unknown } | null)?.id;
+      if (typeof id === 'string' && this.configIds.has(id)) {
+        const enabled = (r as { enabled?: unknown }).enabled;
+        shadowed.push({ id, enabled: typeof enabled === 'boolean' ? enabled : true });
+      } else keep.push(r);
+    }
+    if (!shadowed.length) return null;
+    const next = { ...overrides };
+    for (const x of shadowed) if (!(x.id in next)) next[x.id] = x.enabled;
+    await this.opts.settings.set(SETTING.modelEnabled, next);
+    await this.opts.settings.set(SETTING.customModels, keep);
+    const gone = new Set(shadowed.map((x) => x.id));
+    const added = (await this.opts.settings.get<string[]>(SETTING.watchAdded)) ?? [];
+    if (added.some((id) => gone.has(id)))
+      await this.opts.settings.set(
+        SETTING.watchAdded,
+        added.filter((id) => !gone.has(id)),
+      );
+    return { custom: keep, overrides: next };
   }
 
   /** Ask Ollama what it has pulled (and about anything new), at most every OLLAMA_TAGS_TTL_MS. */
@@ -493,7 +532,7 @@ export class ModelRegistry {
     const members: Member[] = [];
     this.lineByModel = new Map();
     for (const m of this.models) {
-      const l = lineFor(m.provider, m.base_url, m.provider_model);
+      const l = lineOfModel(m);
       if (!l) continue;
       this.lineByModel.set(m.id, l.line_id);
       members.push({
@@ -599,6 +638,11 @@ export class ModelRegistry {
     return this.overrides[m.id] ?? m.enabled;
   }
 
+  /** You switched this model off yourself (an on/off choice of false, not just a file that ships it off). */
+  turnedOff(id: string): boolean {
+    return this.overrides[id] === false;
+  }
+
   status(m: ModelConfig): ModelInfo['status'] {
     if (!this.enabled(m)) return 'disabled';
     // CR1: the monthly-credit variants exist only while the key is marked as drawing on it.
@@ -682,11 +726,14 @@ export class ModelRegistry {
   }
 
   /**
-   * One current model of each tier for every keyed provider. The tier is its line's (Opus is best,
-   * Sonnet balanced, Haiku fast); a provider with no lines is ranked by price (dearest best, cheapest
-   * fast). Retired and deprecated models and previews step aside, so a provider whose live list
-   * has been read starts from what it still serves; with no live list yet, this is the bundled
-   * list (config/models.yaml, dated by prices_as_of).
+   * The lineup of every keyed provider: each line's current model and the generation before it. The
+   * current generation is the newest stable version in the line (every model of it, so a size or a
+   * variant beside it comes too); the previous is the next version down. A preview joins only a line
+   * that has no stable model. Retired and deprecated models step aside, so a provider whose live list
+   * has been read starts from what it still serves; with no live list yet, this is the bundled list
+   * (config/models.yaml, dated by prices_as_of). A provider none of whose models belong to a line is
+   * ranked by price instead: the dearest, the cheapest and the one between. Models beyond the lineup
+   * wait behind "Add more models".
    */
   private pickStarters(): void {
     const byProvider = new Map<string, ModelConfig[]>();
@@ -699,15 +746,26 @@ export class ModelRegistry {
     }
     const out = new Set<string>();
     for (const list of byProvider.values()) {
-      const info = list.map((m) => ({ m, line: lineFor(m.provider, m.base_url, m.provider_model) }));
-      const withLines = info.filter((x) => x.line && !x.line.preview);
-      const tiers = new Map<ModelTier, ModelConfig>();
+      const info = list.map((m) => ({ m, line: lineOfModel(m) }));
+      const withLines = info.filter((x) => x.line);
       if (withLines.length) {
-        // Prefer the model its line answers with now, then the order of the config.
-        const now = (x: (typeof withLines)[number]) =>
-          Number(this.currentOfLine(x.line?.line_id ?? '') === x.m.id);
-        const ranked = [...withLines].sort((a, b) => now(b) - now(a));
-        for (const x of ranked) if (x.line && !tiers.has(x.line.tier)) tiers.set(x.line.tier, x.m);
+        const byLine = new Map<string, typeof withLines>();
+        for (const x of withLines) {
+          const id = x.line?.line_id ?? '';
+          byLine.set(id, [...(byLine.get(id) ?? []), x]);
+        }
+        for (const members of byLine.values()) {
+          const stable = members.filter((x) => !x.line?.preview);
+          const pool = stable.length ? stable : members;
+          const versions: (string | null)[] = [];
+          for (const x of [...pool].sort((a, b) => compareVersions(b.line?.version, a.line?.version))) {
+            const v = x.line?.version ?? null;
+            if (!versions.some((seen) => compareVersions(seen, v) === 0)) versions.push(v);
+          }
+          const keep = versions.slice(0, 2);
+          for (const x of pool)
+            if (keep.some((v) => compareVersions(v, x.line?.version) === 0)) out.add(x.m.id);
+        }
       } else {
         const byPrice = [...list].sort(
           (a, b) =>
@@ -717,16 +775,51 @@ export class ModelRegistry {
         const best = byPrice[0];
         const fast = byPrice[byPrice.length - 1];
         const mid = byPrice[Math.floor((byPrice.length - 1) / 2)];
-        if (byPrice.length === 1 && best) tiers.set('balanced', best);
-        else {
-          if (best) tiers.set('best', best);
-          if (fast && fast !== best) tiers.set('fast', fast);
-          if (mid && mid !== best && mid !== fast) tiers.set('balanced', mid);
-        }
+        const tiers = new Set<ModelConfig>();
+        if (best) tiers.add(best);
+        if (fast) tiers.add(fast);
+        if (mid) tiers.add(mid);
+        for (const m of tiers) out.add(m.id);
       }
-      for (const m of tiers.values()) out.add(m.id);
     }
     this.starters = out;
+  }
+
+  /** A provider's lineup (MD2): the models its key switches on and Settings lists, in config order. */
+  lineup(provider: string): ModelConfig[] {
+    return this.models.filter((m) => m.provider === provider && this.starters.has(m.id));
+  }
+
+  /**
+   * The few lineup models worth one token each when a key is saved: one cheap model per line (the one
+   * its line answers with, else the first), never a dear one, and at most `cap` for the provider. A
+   * provider with no lines is tried the same way, one model at a time up to the cap.
+   */
+  testPicks(provider: string, isCheap: (m: ModelConfig) => boolean, cap: number): ModelConfig[] {
+    const isCurrent = (m: ModelConfig) =>
+      Number(this.currentOfLine(this.lineByModel.get(m.id) ?? '') === m.id);
+    const ranked = [...this.lineup(provider)].sort((a, b) => isCurrent(b) - isCurrent(a));
+    const picks: ModelConfig[] = [];
+    const seen = new Set<string>();
+    for (const m of ranked) {
+      if (!isCheap(m)) continue;
+      const key = this.lineByModel.get(m.id) ?? `model:${m.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picks.push(m);
+    }
+    return picks.slice(0, cap);
+  }
+
+  /** A previous generation: its line answers with a newer version, so pickers fold it. */
+  private isOlder(id: string, lineId: string | undefined): boolean {
+    const g = lineId ? this.groups.get(lineId) : undefined;
+    if (!g) return false;
+    const curId = currentOf(g, this.lineStates[g.id]);
+    if (!curId || curId === id) return false;
+    const mine = g.members.find((x) => x.id === id);
+    const cur = g.members.find((x) => x.id === curId);
+    return !!mine && !!cur && compareModels(mine, cur) < 0;
   }
 
   info(): ModelInfo[] {
@@ -778,6 +871,8 @@ export class ModelRegistry {
       ...(this.customIds.has(m.id) && { custom: true, base_url: m.base_url ?? null }),
       ...((this.hues[m.id] ?? m.hue) && { hue: this.hues[m.id] ?? m.hue }),
       ...(lineId && { line_id: lineId }),
+      ...(m.line?.company && { company: m.line.company }),
+      ...(this.isOlder(m.id, lineId) && { older: true }),
       lifecycle: this.lifecycleOf(m.id),
       // EN1: the efforts the provider's profile lets this model take; absent when none.
       ...(effortLevels(m).length > 0 && { effort_levels: [...effortLevels(m)] }),

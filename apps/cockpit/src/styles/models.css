@@ -807,3 +807,20 @@
   gap: 12px;
   padding: 4px 0;
 }
+
+/* The lineup in Admin → Models: a heading per company, and the previous generations folded away. */
+.model-company__name {
+  margin: 12px 0 2px;
+  color: var(--fg-3);
+  font-size: var(--t-meta);
+  font-weight: 500;
+}
+.model-older {
+  margin-top: 8px;
+}
+.model-older__summary {
+  cursor: pointer;
+  color: var(--fg-3);
+  font-size: var(--t-small);
+  list-style-position: inside;
+}

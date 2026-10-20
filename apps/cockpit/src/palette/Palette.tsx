@@ -957,61 +957,63 @@ export function Palette() {
                   {show('models') && (scope === 'models' || typed)
                     ? modelGroups.map((g) => (
                         <Command.Group key={g.kind} heading={g.label}>
-                          {g.items.map((e) => (
-                            <Command.Item
-                              key={e.id}
-                              value={`model ${e.id} ${e.name} ${e.badge}`}
-                              disabled={!!e.disabled}
-                              data-unavailable={
-                                e.disabled || (e.model?.status && e.model.status !== 'ready')
-                                  ? true
-                                  : undefined
-                              }
-                              onSelect={() =>
-                                run(() => {
-                                  if (!e.model) {
-                                    if (threadId) chooseInClaudeCodeThread(threadId, e);
-                                    return;
-                                  }
-                                  const m = e.model;
-                                  if (threadId) void chooseModel(m, threadId);
-                                  else {
-                                    void chooseModel(m);
-                                    if (!m.status || m.status === 'ready')
-                                      notify({
-                                        level: 'success',
-                                        title: `New threads use ${m.name}`,
-                                        body: 'Change it any time with M.',
-                                      });
-                                  }
-                                })
-                              }
-                            >
-                              <span
-                                className="palette__swatch"
-                                style={{ '--hue': hueVar(e.hue) } as CSSProperties}
-                              />
-                              <span className="palette__label">{e.name}</span>
-                              <span className="mute palette__meta">
-                                {e.disabled ??
-                                  (e.model?.offline
-                                    ? 'Test model · no AI'
-                                    : (e.note ?? e.model?.provider ?? ''))}
-                              </span>
-                              {(() => {
-                                const w = warmOf(e);
-                                return w ? <WarmMark warm={w} /> : null;
-                              })()}
-                              <span
-                                className="model-badge"
-                                data-kind={e.kind}
-                                {...(e.badgeTitle && { title: e.badgeTitle })}
+                          {g.items
+                            .filter((e) => typed || !e.older || e.current)
+                            .map((e) => (
+                              <Command.Item
+                                key={e.id}
+                                value={`model ${e.id} ${e.name} ${e.badge}`}
+                                disabled={!!e.disabled}
+                                data-unavailable={
+                                  e.disabled || (e.model?.status && e.model.status !== 'ready')
+                                    ? true
+                                    : undefined
+                                }
+                                onSelect={() =>
+                                  run(() => {
+                                    if (!e.model) {
+                                      if (threadId) chooseInClaudeCodeThread(threadId, e);
+                                      return;
+                                    }
+                                    const m = e.model;
+                                    if (threadId) void chooseModel(m, threadId);
+                                    else {
+                                      void chooseModel(m);
+                                      if (!m.status || m.status === 'ready')
+                                        notify({
+                                          level: 'success',
+                                          title: `New threads use ${m.name}`,
+                                          body: 'Change it any time with M.',
+                                        });
+                                    }
+                                  })
+                                }
                               >
-                                {e.badge}
-                              </span>
-                              {e.current ? <span className="palette__current">Current</span> : null}
-                            </Command.Item>
-                          ))}
+                                <span
+                                  className="palette__swatch"
+                                  style={{ '--hue': hueVar(e.hue) } as CSSProperties}
+                                />
+                                <span className="palette__label">{e.name}</span>
+                                <span className="mute palette__meta">
+                                  {e.disabled ??
+                                    (e.model?.offline
+                                      ? 'Test model · no AI'
+                                      : (e.note ?? e.model?.provider ?? ''))}
+                                </span>
+                                {(() => {
+                                  const w = warmOf(e);
+                                  return w ? <WarmMark warm={w} /> : null;
+                                })()}
+                                <span
+                                  className="model-badge"
+                                  data-kind={e.kind}
+                                  {...(e.badgeTitle && { title: e.badgeTitle })}
+                                >
+                                  {e.badge}
+                                </span>
+                                {e.current ? <span className="palette__current">Current</span> : null}
+                              </Command.Item>
+                            ))}
                         </Command.Group>
                       ))
                     : null}

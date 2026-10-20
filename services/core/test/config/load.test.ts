@@ -78,7 +78,7 @@ describe('loadConfig', () => {
       task_classes: Record<string, string[] | { chain: string[] }>;
     };
     expect(JSON.stringify(routing)).toContain('anthropic/sonnet:latest');
-    routing.task_classes['chat.default'] = ['anthropic/opus:latest', 'anthropic/fable:latest'];
+    routing.task_classes['chat.default'] = ['anthropic/opus:latest', 'anthropic/mythos:latest'];
     await writeFile(join(dir, 'routing.yaml'), stringify(routing));
     await mkdir(join(dir, 'policies'));
     const problems = await problemsOf(dir);
@@ -86,7 +86,7 @@ describe('loadConfig', () => {
       {
         file: 'routing.yaml',
         key: 'task_classes.chat.default',
-        message: '"anthropic/fable:latest" points at a line that no model in models.yaml belongs to',
+        message: '"anthropic/mythos:latest" points at a line that no model in models.yaml belongs to',
       },
     ]);
   });

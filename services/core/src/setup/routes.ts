@@ -372,7 +372,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
           (!pulled || pulled.has(ollamaName(m.provider_model))) &&
           !missing.has(m.id),
       );
-      const ready = req.provider === 'ollama' ? fits : switchedOnByKey(fits);
+      const ready = req.provider === 'ollama' ? fits : switchedOnByKey(registry, req.provider, fits);
       enabled = ready.map((m) => m.id);
       await registry.setEnabled(Object.fromEntries(enabled.map((id) => [id, true])));
       // The first model check and the starters' one-token tests run now, not tomorrow (F3a, F3c).

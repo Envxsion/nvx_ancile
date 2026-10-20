@@ -204,11 +204,15 @@ describe('a saved key starts the first model check (F3a) and leaves a preview of
   });
   const KEY = 'AIzaSy-test-key-0000000000000000001';
 
-  it('setup calls onKeySaved only when the key is saved, and switches on the stable models', async () => {
+  it("setup calls onKeySaved only when the key is saved, and switches on each line's stable model", async () => {
     const saved: string[] = [];
     h = await harness({
       offline: false,
-      models: [gmodel('flash', 'gemini-3.8-flash'), gmodel('pro', 'gemini-3.1-pro-preview')],
+      models: [
+        gmodel('flash', 'gemini-3.8-flash'),
+        gmodel('flash-next', 'gemini-4.0-flash-preview-1001'),
+        gmodel('pro', 'gemini-3.1-pro-preview'),
+      ],
       onKeySaved: (p) => saved.push(p),
     });
     await h.call('POST', '/setup/providers/test', { provider: 'google', key: KEY, save: false });
@@ -219,6 +223,7 @@ describe('a saved key starts the first model check (F3a) and leaves a preview of
       save: true,
     });
     expect(saved).toEqual(['google']);
-    expect(r.body.enabled).toEqual(['google/flash']);
+    // Flash has a stable model, so its preview stays off; Pro has only a preview, so that comes on.
+    expect(r.body.enabled).toEqual(['google/flash', 'google/pro']);
   });
 });

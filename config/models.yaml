@@ -3,23 +3,55 @@
 #  Schema: packages/contracts/src/config.ts → ModelsFile
 #  The onboarding wizard and Settings → Models write this file. Editing by
 #  hand is fine; boot tests validate it and name the exact key that is wrong.
+#
+#  THE LINEUP (MD2). Every provider ships each of its lines (a tier family such as
+#  Claude Opus, GPT Sol or Gemini Flash) with its CURRENT model and the generation
+#  BEFORE it. A saved key switches both on (a line that has only a preview, such as
+#  Gemini Pro, gets the preview); the picker shows the current one and folds the
+#  older one under "Older". Anything else a provider offers waits behind "Add more
+#  models". Where a provider has no earlier generation (GPT Astra, Gemini Argon, the
+#  DeepSeek and Mistral aliases), the line ships one model; none is invented.
+#  Every id, limit and price below was read on the provider's own page on 2026-10-20;
+#  the page is named in the comment above each provider. Prices are USD per million
+#  tokens at the provider's list; live checks overlay them (docs/models.md).
 # =============================================================================
 version: 1                       # file format version; always 1 for now
-prices_as_of: 2026-10-19         # when the prices below were last checked by hand; live checks overlay them (docs/models.md)
+prices_as_of: 2026-10-20         # when the prices below were last checked by hand; live checks overlay them (docs/models.md)
 
 models:
-  - id: anthropic/claude-sonnet-5-5        # provider/model, unique; referenced by routing.yaml
+  # ---------------------------------------------------------------------------
+  #  Anthropic. Ids, limits, thinking: platform.claude.com/docs/en/about-claude/models/overview and
+  #  each model's page (/docs/en/models/<name>/overview); prices: platform.claude.com/docs/en/about-claude/pricing;
+  #  checked 2026-10-20. Lines: Fable (5.1, 5), Opus (5.5, 5), Sonnet (5.5, 5), Haiku (5.5, 4.5; there is no Haiku 5).
+  #  Claude Mythos is offered only to verified security organisations, so it is not listed.
+  #  cache_write is the 5-minute rate. Haiku 5.5 is priced for prompts up to 100,000 tokens (a longer prompt is
+  #  $0.50 in, $2.50 out; that tier is not modelled).
+  # ---------------------------------------------------------------------------
+  - id: anthropic/claude-fable-5-1
     provider: anthropic                    # which Gateway adapter is used
-    provider_model: claude-sonnet-5-5      # the id the provider's API expects
-    display_name: Claude Sonnet 5.5        # shown in the model switcher
+    provider_model: claude-fable-5-1       # the id the provider's API expects
+    display_name: Claude Fable 5.1         # shown in the model switcher
     via: direct                            # direct = call the provider; controller = through the Controller
     family: anthropic                      # fact-check verifiers prefer a different family
-    context_window: 200000                 # tokens; drives the context budget meter
-    max_output: 64000                      # tokens reserved for the reply
+    context_window: 1000000                # tokens; drives the context budget meter
+    max_output: 128000                     # tokens reserved for the reply
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.2, cache_write_per_mtok: 2.5 }  # USD per million tokens
+    price: { input_per_mtok: 10.0, output_per_mtok: 50.0, cached_per_mtok: 0.25, cache_write_per_mtok: 12.5 }  # USD per million tokens
     enabled: true                          # disabled models stay configured but are never routed to
     secret: ANTHROPIC_API_KEY              # name of the secret in the encrypted store
+
+  - id: anthropic/claude-fable-5
+    provider: anthropic
+    provider_model: claude-fable-5
+    display_name: Claude Fable 5
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 10.0, output_per_mtok: 50.0, cached_per_mtok: 1.0, cache_write_per_mtok: 12.5 }
+    enabled: true
+    secret: ANTHROPIC_API_KEY
 
   - id: anthropic/claude-opus-5-5
     provider: anthropic
@@ -27,66 +59,183 @@ models:
     display_name: Claude Opus 5.5
     via: direct
     family: anthropic
-    context_window: 200000
-    max_output: 64000
+    context_window: 1000000
+    max_output: 128000
     capabilities: [tools, vision, reasoning, json]
     price: { input_per_mtok: 4.0, output_per_mtok: 20.0, cached_per_mtok: 0.2, cache_write_per_mtok: 5.0 }
     enabled: true
     secret: ANTHROPIC_API_KEY
 
+  - id: anthropic/claude-opus-5
+    provider: anthropic
+    provider_model: claude-opus-5
+    display_name: Claude Opus 5
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 5.0, output_per_mtok: 25.0, cached_per_mtok: 0.5, cache_write_per_mtok: 6.25 }
+    enabled: true
+    secret: ANTHROPIC_API_KEY
+
+  - id: anthropic/claude-sonnet-5-5
+    provider: anthropic
+    provider_model: claude-sonnet-5-5
+    display_name: Claude Sonnet 5.5
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.1, cache_write_per_mtok: 2.5 }
+    enabled: true
+    secret: ANTHROPIC_API_KEY
+
+  - id: anthropic/claude-sonnet-5
+    provider: anthropic
+    provider_model: claude-sonnet-5
+    display_name: Claude Sonnet 5
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.2, cache_write_per_mtok: 2.5 }
+    enabled: true
+    secret: ANTHROPIC_API_KEY
+
+  - id: anthropic/claude-haiku-5-5
+    provider: anthropic
+    provider_model: claude-haiku-5-5
+    display_name: Claude Haiku 5.5
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.5, cached_per_mtok: 0.01, cache_write_per_mtok: 0.125 }
+    enabled: true
+    secret: ANTHROPIC_API_KEY
+
   - id: anthropic/claude-haiku-4-5
     provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
+    provider_model: claude-haiku-4-5-20251001   # the alias claude-haiku-4-5 resolves to this snapshot
     display_name: Claude Haiku 4.5
     via: direct
     family: anthropic
     context_window: 200000
     max_output: 64000
-    capabilities: [tools, vision, json]
+    capabilities: [tools, vision, reasoning, json]
     price: { input_per_mtok: 1.0, output_per_mtok: 5.0, cached_per_mtok: 0.1, cache_write_per_mtok: 1.25 }
     enabled: true
     secret: ANTHROPIC_API_KEY
 
-  - id: openai/gpt-5.5
+  # ---------------------------------------------------------------------------
+  #  OpenAI. Ids, limits, modalities: developers.openai.com/api/docs/models and each model's page
+  #  (/api/docs/models/<id>); prices: developers.openai.com/api/docs/pricing; checked 2026-10-20.
+  #  GPT-6 names its tiers: Astra (most capable), Sol (near-Astra for less), Luna (most efficient).
+  #  Astra is new in GPT-6, so it has no earlier model; Sol's earlier model is GPT-6 Sol, Luna's is
+  #  GPT-5.6 Luna. GPT-5.6 Terra has no GPT-6 successor and the -pro variants of each are the same model
+  #  asked to think longer, so none of them is listed (add them with "Add more models" from the live list).
+  #  A prompt over 272,000 tokens costs more (Sol: $4 in, $15 out; Astra: $20 in, $75 out); not modelled.
+  # ---------------------------------------------------------------------------
+  - id: openai/gpt-6-astra
     provider: openai
-    provider_model: gpt-5.5
-    display_name: GPT-5.5
+    provider_model: gpt-6-astra
+    display_name: GPT-6 Astra
     via: direct
     family: openai
-    context_window: 400000
+    context_window: 1050000
     max_output: 128000
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 1.25, output_per_mtok: 10.0 }
+    price: { input_per_mtok: 10.0, output_per_mtok: 50.0, cached_per_mtok: 1.0, cache_write_per_mtok: 12.5 }
     enabled: false                         # enabled by onboarding once a key passes its test
     secret: OPENAI_API_KEY
 
-  - id: google/gemini-3-pro
+  - id: openai/gpt-6.1-sol
+    provider: openai
+    provider_model: gpt-6.1-sol
+    display_name: GPT-6.1 Sol
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.1 }
+    enabled: false
+    secret: OPENAI_API_KEY
+
+  - id: openai/gpt-6-sol
+    provider: openai
+    provider_model: gpt-6-sol
+    display_name: GPT-6 Sol
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0, cached_per_mtok: 0.2, cache_write_per_mtok: 2.5 }
+    enabled: false
+    secret: OPENAI_API_KEY
+
+  - id: openai/gpt-6-luna
+    provider: openai
+    provider_model: gpt-6-luna
+    display_name: GPT-6 Luna
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.5, cached_per_mtok: 0.01 }
+    enabled: false
+    secret: OPENAI_API_KEY
+
+  - id: openai/gpt-5.6-luna
+    provider: openai
+    provider_model: gpt-5.6-luna
+    display_name: GPT-5.6 Luna
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.2, output_per_mtok: 1.2, cached_per_mtok: 0.02 }
+    enabled: false
+    secret: OPENAI_API_KEY
+
+  # ---------------------------------------------------------------------------
+  #  Google. Ids, limits, abilities: ai.google.dev/gemini-api/docs/models and /models/<id>; prices:
+  #  ai.google.dev/gemini-api/docs/pricing; checked 2026-10-20. Lines: Argon (Gemini 4's flagship; new, so no
+  #  earlier model), Pro (only a preview exists: 3.1, so a key switches it on), Flash (3.8, 3.6; 3.7 is deprecated and
+  #  is answered by 3.8), Flash-Lite (3.5, 3.1). Gemini 2.5 is "limited to past active users": a new key
+  #  cannot use it, so it is not listed. Argon's price is the introductory one through 2026-11-30 ($4 in, $20 out
+  #  after); 3.8 Flash and 3.6 Flash are $0.75/$3.75 through 2026-12-31 ($1.50/$7.50 after). The daily check overlays the live price.
+  # ---------------------------------------------------------------------------
+  - id: google/gemini-4-argon
     provider: google
-    provider_model: gemini-3.1-pro-preview   # ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview, checked 2026-10-20. "gemini-3-pro" is not offered (404)
-    display_name: Gemini 3.1 Pro (preview)
+    provider_model: gemini-4-argon
+    display_name: Gemini 4 Argon
     via: direct
     family: google
-    context_window: 1000000
-    max_output: 65536
+    context_window: 1048576
+    max_output: 65536                      # up to 1,048,576 with long decode; the standard limit is used
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 1.25, output_per_mtok: 10.0 }
+    price: { input_per_mtok: 2.0, output_per_mtok: 10.0 }
     enabled: false
     secret: GOOGLE_GENERATIVE_AI_API_KEY
 
-  # Google's cheap starters (F3b). Ids, limits and abilities: ai.google.dev/gemini-api/docs/models/<id>;
-  # prices: ai.google.dev/gemini-api/docs/pricing; both checked 2026-10-20. Both have a free tier, which
-  # the Pro preview above does not. The 2.5 models are "limited to past active users", so a new key
-  # cannot use them and they are not listed here.
-  - id: google/gemini-3.5-flash-lite
+  - id: google/gemini-3-pro
     provider: google
-    provider_model: gemini-3.5-flash-lite
-    display_name: Gemini 3.5 Flash-Lite
+    provider_model: gemini-3.1-pro-preview   # "gemini-3-pro" is not offered (404); this is the preview that exists
+    display_name: Gemini 3.1 Pro (preview)
     via: direct
     family: google
     context_window: 1048576
     max_output: 65536
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 0.30, output_per_mtok: 2.50 }
+    price: { input_per_mtok: 2.0, output_per_mtok: 12.0 }   # prompts up to 200k tokens; $4 / $18 above
     enabled: false
     secret: GOOGLE_GENERATIVE_AI_API_KEY
 
@@ -99,26 +248,256 @@ models:
     context_window: 1048576
     max_output: 65536
     capabilities: [tools, vision, reasoning, json]
-    price: { input_per_mtok: 0.75, output_per_mtok: 3.75 }   # Google's price "through December 31, 2026"; the daily check overlays the live one
+    price: { input_per_mtok: 0.75, output_per_mtok: 3.75, cached_per_mtok: 0.075 }   # through 2026-12-31
+    enabled: false
+    secret: GOOGLE_GENERATIVE_AI_API_KEY
+
+  - id: google/gemini-3.6-flash
+    provider: google
+    provider_model: gemini-3.6-flash
+    display_name: Gemini 3.6 Flash
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.75, output_per_mtok: 3.75, cached_per_mtok: 0.075 }   # through 2026-12-31
+    enabled: false
+    secret: GOOGLE_GENERATIVE_AI_API_KEY
+
+  - id: google/gemini-3.5-flash-lite
+    provider: google
+    provider_model: gemini-3.5-flash-lite
+    display_name: Gemini 3.5 Flash-Lite
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.30, output_per_mtok: 2.50, cached_per_mtok: 0.03 }
+    enabled: false
+    secret: GOOGLE_GENERATIVE_AI_API_KEY
+
+  - id: google/gemini-3.1-flash-lite
+    provider: google
+    provider_model: gemini-3.1-flash-lite
+    display_name: Gemini 3.1 Flash-Lite
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.25, output_per_mtok: 1.50, cached_per_mtok: 0.025 }
     enabled: false
     secret: GOOGLE_GENERATIVE_AI_API_KEY
 
   # ---------------------------------------------------------------------------
-  #  OpenRouter's starters (F3b): three small, cheap models, so a first key answers
-  #  at once. An id writes the model's `/` as `__`, as for models you add there.
-  #  Limits, abilities and the cheapest endpoint's price: openrouter.ai/<id>
-  #  (endpoints list), checked 2026-10-20. OpenRouter's own list overlays the price daily.
+  #  OpenRouter's lineup. One key reaches every company below, so each company ships its lines (a line is a
+  #  tier family; its `line:` block names it, its generation and its company), each with its current model
+  #  and the one before it. An id writes the model's `/` as `__`, as for models you add there. Ids, limits,
+  #  prices (the cheapest endpoint's), inputs and abilities come from OpenRouter's public catalogue,
+  #  openrouter.ai/api/v1/models, checked 2026-10-20; OpenRouter's own list overlays the price daily.
+  #  Models whose id ends in :free are left out on purpose: free endpoints may log prompts (see docs/openrouter.md).
+  #  Not offered, so not listed: Llama 4 Behemoth (announced by Meta, never released), Llama 3.1 405B and Llama 3.2
+  #  11B and 90B (no longer in OpenRouter's catalogue). Gemini 3.7 Flash is deprecated by Google. Google's Gemma and
+  #  Meta's Llama are open-weight families that Google and Meta do not sell by API, so they are OpenRouter-only here.
   # ---------------------------------------------------------------------------
-  - id: openrouter/meta-llama__llama-3.3-70b-instruct
+
+  # Anthropic
+  - id: openrouter/anthropic__claude-fable-5.1
     provider: openrouter
-    provider_model: meta-llama/llama-3.3-70b-instruct
-    display_name: "Meta: Llama 3.3 70B Instruct"
+    provider_model: anthropic/claude-fable-5.1
+    display_name: "Anthropic: Claude Fable 5.1"
     via: direct
-    family: meta-llama
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 10, output_per_mtok: 50, cached_per_mtok: 0.25 }
+    line: { id: anthropic-fable, name: "Claude Fable", tier: best, version: "5.1", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-fable-5
+    provider: openrouter
+    provider_model: anthropic/claude-fable-5
+    display_name: "Anthropic: Claude Fable 5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 10, output_per_mtok: 50, cached_per_mtok: 1 }
+    line: { id: anthropic-fable, name: "Claude Fable", tier: best, version: "5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-opus-5.5
+    provider: openrouter
+    provider_model: anthropic/claude-opus-5.5
+    display_name: "Anthropic: Claude Opus 5.5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 4, output_per_mtok: 20, cached_per_mtok: 0.2 }
+    line: { id: anthropic-opus, name: "Claude Opus", tier: best, version: "5.5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-opus-5
+    provider: openrouter
+    provider_model: anthropic/claude-opus-5
+    display_name: "Anthropic: Claude Opus 5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 5, output_per_mtok: 25, cached_per_mtok: 0.5 }
+    line: { id: anthropic-opus, name: "Claude Opus", tier: best, version: "5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-sonnet-5.5
+    provider: openrouter
+    provider_model: anthropic/claude-sonnet-5.5
+    display_name: "Anthropic: Claude Sonnet 5.5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 10, cached_per_mtok: 0.1 }
+    line: { id: anthropic-sonnet, name: "Claude Sonnet", tier: balanced, version: "5.5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-sonnet-5
+    provider: openrouter
+    provider_model: anthropic/claude-sonnet-5
+    display_name: "Anthropic: Claude Sonnet 5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 10, cached_per_mtok: 0.2 }
+    line: { id: anthropic-sonnet, name: "Claude Sonnet", tier: balanced, version: "5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-haiku-5.5
+    provider: openrouter
+    provider_model: anthropic/claude-haiku-5.5
+    display_name: "Anthropic: Claude Haiku 5.5"
+    via: direct
+    family: anthropic
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.5, cached_per_mtok: 0.01 }
+    line: { id: anthropic-haiku, name: "Claude Haiku", tier: fast, version: "5.5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/anthropic__claude-haiku-4.5
+    provider: openrouter
+    provider_model: anthropic/claude-haiku-4.5
+    display_name: "Anthropic: Claude Haiku 4.5"
+    via: direct
+    family: anthropic
+    context_window: 200000
+    max_output: 64000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 1, output_per_mtok: 5, cached_per_mtok: 0.1 }
+    line: { id: anthropic-haiku, name: "Claude Haiku", tier: fast, version: "4.5", company: "Anthropic" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # OpenAI
+  - id: openrouter/openai__gpt-6-astra
+    provider: openrouter
+    provider_model: openai/gpt-6-astra
+    display_name: "OpenAI: GPT-6 Astra"
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 10, output_per_mtok: 50, cached_per_mtok: 1 }
+    line: { id: openai-astra, name: "GPT Astra", tier: best, version: "6", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/openai__gpt-6.1-sol
+    provider: openrouter
+    provider_model: openai/gpt-6.1-sol
+    display_name: "OpenAI: GPT-6.1 Sol"
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 10, cached_per_mtok: 0.1 }
+    line: { id: openai-sol, name: "GPT Sol", tier: balanced, version: "6.1", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/openai__gpt-6-sol
+    provider: openrouter
+    provider_model: openai/gpt-6-sol
+    display_name: "OpenAI: GPT-6 Sol"
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 10, cached_per_mtok: 0.2 }
+    line: { id: openai-sol, name: "GPT Sol", tier: balanced, version: "6", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/openai__gpt-6-luna
+    provider: openrouter
+    provider_model: openai/gpt-6-luna
+    display_name: "OpenAI: GPT-6 Luna"
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.5, cached_per_mtok: 0.01 }
+    line: { id: openai-luna, name: "GPT Luna", tier: fast, version: "6", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/openai__gpt-5.6-luna
+    provider: openrouter
+    provider_model: openai/gpt-5.6-luna
+    display_name: "OpenAI: GPT-5.6 Luna"
+    via: direct
+    family: openai
+    context_window: 1050000
+    max_output: 128000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.2, output_per_mtok: 1.2, cached_per_mtok: 0.02 }
+    line: { id: openai-luna, name: "GPT Luna", tier: fast, version: "5.6", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/openai__gpt-oss-120b
+    provider: openrouter
+    provider_model: openai/gpt-oss-120b
+    display_name: "OpenAI: gpt-oss-120b"
+    via: direct
+    family: openai
     context_window: 131072
-    max_output: 16384
-    capabilities: [tools, json]
-    price: { input_per_mtok: 0.10, output_per_mtok: 0.32 }
+    max_output: 65536
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.6, cached_per_mtok: 0.075 }
+    line: { id: openai-oss-120b, name: "gpt-oss 120b", tier: balanced, version: "1", company: "OpenAI" }
     enabled: false
     secret: OPENROUTER_API_KEY
 
@@ -130,8 +509,108 @@ models:
     family: openai
     context_window: 131072
     max_output: 32768
-    capabilities: [tools, json]
-    price: { input_per_mtok: 0.03, output_per_mtok: 0.14 }
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.018, output_per_mtok: 0.09, cached_per_mtok: 0.009 }
+    line: { id: openai-oss-20b, name: "gpt-oss 20b", tier: fast, version: "1", company: "OpenAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Google
+  - id: openrouter/google__gemini-4-argon
+    provider: openrouter
+    provider_model: google/gemini-4-argon
+    display_name: "Google: Gemini 4 Argon"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 10, cached_per_mtok: 0.1 }
+    line: { id: google-argon, name: "Gemini Argon", tier: best, version: "4", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemini-3.1-pro-preview
+    provider: openrouter
+    provider_model: google/gemini-3.1-pro-preview
+    display_name: "Google: Gemini 3.1 Pro Preview"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 12, cached_per_mtok: 0.2 }
+    line: { id: google-pro, name: "Gemini Pro", tier: best, version: "3.1", company: "Google", preview: true }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemini-3.8-flash
+    provider: openrouter
+    provider_model: google/gemini-3.8-flash
+    display_name: "Google: Gemini 3.8 Flash"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.825, output_per_mtok: 4.125, cached_per_mtok: 0.0825 }
+    line: { id: google-flash, name: "Gemini Flash", tier: balanced, version: "3.8", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemini-3.6-flash
+    provider: openrouter
+    provider_model: google/gemini-3.6-flash
+    display_name: "Google: Gemini 3.6 Flash"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.75, output_per_mtok: 3.75, cached_per_mtok: 0.075 }
+    line: { id: google-flash, name: "Gemini Flash", tier: balanced, version: "3.6", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemini-3.5-flash-lite
+    provider: openrouter
+    provider_model: google/gemini-3.5-flash-lite
+    display_name: "Google: Gemini 3.5 Flash Lite"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.3, output_per_mtok: 2.5, cached_per_mtok: 0.03 }
+    line: { id: google-flash-lite, name: "Gemini Flash-Lite", tier: fast, version: "3.5", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemini-3.1-flash-lite
+    provider: openrouter
+    provider_model: google/gemini-3.1-flash-lite
+    display_name: "Google: Gemini 3.1 Flash Lite"
+    via: direct
+    family: google
+    context_window: 1048576
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.25, output_per_mtok: 1.5, cached_per_mtok: 0.025 }
+    line: { id: google-flash-lite, name: "Gemini Flash-Lite", tier: fast, version: "3.1", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemma-4-31b-it
+    provider: openrouter
+    provider_model: google/gemma-4-31b-it
+    display_name: "Google: Gemma 4 31B"
+    via: direct
+    family: google
+    context_window: 262144
+    max_output: 16384
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.2, output_per_mtok: 0.4 }
+    line: { id: google-gemma-large, name: "Gemma large", tier: balanced, version: "4", company: "Google" }
     enabled: false
     secret: OPENROUTER_API_KEY
 
@@ -142,25 +621,584 @@ models:
     via: direct
     family: google
     context_window: 131072
+    max_output: 117964
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.08, output_per_mtok: 0.35, cached_per_mtok: 0.04 }
+    line: { id: google-gemma-large, name: "Gemma large", tier: balanced, version: "3", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemma-4-26b-a4b-it
+    provider: openrouter
+    provider_model: google/gemma-4-26b-a4b-it
+    display_name: "Google: Gemma 4 26B A4B "
+    via: direct
+    family: google
+    context_window: 262144
+    max_output: 235929
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.0765, output_per_mtok: 0.255, cached_per_mtok: 0.0425 }
+    line: { id: google-gemma-small, name: "Gemma small", tier: fast, version: "4", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/google__gemma-3-12b-it
+    provider: openrouter
+    provider_model: google/gemma-3-12b-it
+    display_name: "Google: Gemma 3 12B"
+    via: direct
+    family: google
+    context_window: 131072
     max_output: 16384
     capabilities: [tools, vision, json]
-    price: { input_per_mtok: 0.08, output_per_mtok: 0.16 }
+    price: { input_per_mtok: 0.05, output_per_mtok: 0.15 }
+    line: { id: google-gemma-small, name: "Gemma small", tier: fast, version: "3", company: "Google" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Meta
+  - id: openrouter/meta-llama__llama-4-maverick
+    provider: openrouter
+    provider_model: meta-llama/llama-4-maverick
+    display_name: "Meta: Llama 4 Maverick"
+    via: direct
+    family: meta-llama
+    context_window: 524288
+    max_output: 16384
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.1875, output_per_mtok: 0.6525, cached_per_mtok: 0.05 }
+    line: { id: meta-llama-large, name: "Llama large", tier: balanced, version: "4", company: "Meta" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/meta-llama__llama-3.3-70b-instruct
+    provider: openrouter
+    provider_model: meta-llama/llama-3.3-70b-instruct
+    display_name: "Meta: Llama 3.3 70B Instruct"
+    via: direct
+    family: meta-llama
+    context_window: 131072
+    max_output: 16384
+    capabilities: [tools, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.32 }
+    line: { id: meta-llama-large, name: "Llama large", tier: balanced, version: "3.3", company: "Meta" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/meta-llama__llama-4-scout
+    provider: openrouter
+    provider_model: meta-llama/llama-4-scout
+    display_name: "Meta: Llama 4 Scout"
+    via: direct
+    family: meta-llama
+    context_window: 1310720
+    max_output: 16384
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.1, output_per_mtok: 0.3 }
+    line: { id: meta-llama-small, name: "Llama small", tier: fast, version: "4", company: "Meta" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/meta-llama__llama-3.2-3b-instruct
+    provider: openrouter
+    provider_model: meta-llama/llama-3.2-3b-instruct
+    display_name: "Meta: Llama 3.2 3B Instruct"
+    via: direct
+    family: meta-llama
+    context_window: 131072
+    max_output: 72000
+    capabilities: [json]
+    price: { input_per_mtok: 0.0509, output_per_mtok: 0.335 }
+    line: { id: meta-llama-small, name: "Llama small", tier: fast, version: "3.2", company: "Meta" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Mistral
+  - id: openrouter/mistralai__mistral-large-4-0
+    provider: openrouter
+    provider_model: mistralai/mistral-large-4-0
+    display_name: "Mistral: Mistral Large 4"
+    via: direct
+    family: mistralai
+    context_window: 1048576
+    max_output: 262144
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.68, output_per_mtok: 2.09, cached_per_mtok: 0.07 }
+    line: { id: mistral-large, name: "Mistral Large", tier: best, version: "4", company: "Mistral", preview: true }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/mistralai__mistral-large-2512
+    provider: openrouter
+    provider_model: mistralai/mistral-large-2512
+    display_name: "Mistral: Mistral Large 3 2512"
+    via: direct
+    family: mistralai
+    context_window: 262144
+    max_output: 209715
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.5, output_per_mtok: 1.5, cached_per_mtok: 0.05 }
+    line: { id: mistral-large, name: "Mistral Large", tier: best, version: "3", company: "Mistral" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/mistralai__mistral-medium-3-5
+    provider: openrouter
+    provider_model: mistralai/mistral-medium-3-5
+    display_name: "Mistral: Mistral Medium 3.5"
+    via: direct
+    family: mistralai
+    context_window: 262144
+    max_output: 209715
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 1.5, output_per_mtok: 7.5 }
+    line: { id: mistral-medium, name: "Mistral Medium", tier: balanced, version: "3.5", company: "Mistral" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/mistralai__mistral-medium-3.1
+    provider: openrouter
+    provider_model: mistralai/mistral-medium-3.1
+    display_name: "Mistral: Mistral Medium 3.1"
+    via: direct
+    family: mistralai
+    context_window: 131072
+    max_output: 104857
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.4, output_per_mtok: 2, cached_per_mtok: 0.04 }
+    line: { id: mistral-medium, name: "Mistral Medium", tier: balanced, version: "3.1", company: "Mistral" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/mistralai__mistral-small-2603
+    provider: openrouter
+    provider_model: mistralai/mistral-small-2603
+    display_name: "Mistral: Mistral Small 4"
+    via: direct
+    family: mistralai
+    context_window: 262144
+    max_output: 209715
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.6, cached_per_mtok: 0.015 }
+    line: { id: mistral-small, name: "Mistral Small", tier: fast, version: "4", company: "Mistral" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/mistralai__mistral-small-3.2-24b-instruct
+    provider: openrouter
+    provider_model: mistralai/mistral-small-3.2-24b-instruct
+    display_name: "Mistral: Mistral Small 3.2 24B"
+    via: direct
+    family: mistralai
+    context_window: 256000
+    max_output: 16384
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.0938, output_per_mtok: 0.25 }
+    line: { id: mistral-small, name: "Mistral Small", tier: fast, version: "3.2", company: "Mistral" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # DeepSeek
+  - id: openrouter/deepseek__deepseek-v4-pro
+    provider: openrouter
+    provider_model: deepseek/deepseek-v4-pro
+    display_name: "DeepSeek: DeepSeek V4 Pro 0423"
+    via: direct
+    family: deepseek
+    context_window: 1048576
+    max_output: 384000
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.9553, output_per_mtok: 1.9105, cached_per_mtok: 0.0796 }
+    line: { id: deepseek-pro, name: "DeepSeek Pro", tier: best, version: "4", company: "DeepSeek" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/deepseek__deepseek-v3.2
+    provider: openrouter
+    provider_model: deepseek/deepseek-v3.2
+    display_name: "DeepSeek: DeepSeek V3.2"
+    via: direct
+    family: deepseek
+    context_window: 163840
+    max_output: 65536
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.28, output_per_mtok: 0.42, cached_per_mtok: 0.028 }
+    line: { id: deepseek-pro, name: "DeepSeek Pro", tier: best, version: "3.2", company: "DeepSeek" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/deepseek__deepseek-v4.1-flash
+    provider: openrouter
+    provider_model: deepseek/deepseek-v4.1-flash
+    display_name: "DeepSeek: DeepSeek V4.1 Flash"
+    via: direct
+    family: deepseek
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.0352, output_per_mtok: 0.0112, cached_per_mtok: 0.0016 }
+    line: { id: deepseek-flash, name: "DeepSeek Flash", tier: fast, version: "4.1", company: "DeepSeek" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/deepseek__deepseek-v4-flash
+    provider: openrouter
+    provider_model: deepseek/deepseek-v4-flash
+    display_name: "DeepSeek: DeepSeek V4 Flash 0423"
+    via: direct
+    family: deepseek
+    context_window: 1048576
+    max_output: 943717
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.091, output_per_mtok: 0.182, cached_per_mtok: 0.0182 }
+    line: { id: deepseek-flash, name: "DeepSeek Flash", tier: fast, version: "4", company: "DeepSeek" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Qwen
+  - id: openrouter/qwen__qwen3.8-max-0902
+    provider: openrouter
+    provider_model: qwen/qwen3.8-max-0902
+    display_name: "Qwen: Qwen3.8 Max (0902)"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 131072
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 6, cached_per_mtok: 0.25 }
+    line: { id: qwen-max, name: "Qwen Max", tier: best, version: "3.8", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/qwen__qwen3.7-max
+    provider: openrouter
+    provider_model: qwen/qwen3.7-max
+    display_name: "Qwen: Qwen3.7 Max"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 131072
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 1.475, output_per_mtok: 4.425, cached_per_mtok: 0.295 }
+    line: { id: qwen-max, name: "Qwen Max", tier: best, version: "3.7", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/qwen__qwen3.7-plus
+    provider: openrouter
+    provider_model: qwen/qwen3.7-plus
+    display_name: "Qwen: Qwen3.7 Plus"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 131072
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.32, output_per_mtok: 1.28, cached_per_mtok: 0.064 }
+    line: { id: qwen-plus, name: "Qwen Plus", tier: balanced, version: "3.7", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/qwen__qwen3.6-plus
+    provider: openrouter
+    provider_model: qwen/qwen3.6-plus
+    display_name: "Qwen: Qwen3.6 Plus"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.325, output_per_mtok: 1.95 }
+    line: { id: qwen-plus, name: "Qwen Plus", tier: balanced, version: "3.6", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/qwen__qwen3.8-flash
+    provider: openrouter
+    provider_model: qwen/qwen3.8-flash
+    display_name: "Qwen: Qwen3.8 Flash"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 131072
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.47, cached_per_mtok: 0.016 }
+    line: { id: qwen-flash, name: "Qwen Flash", tier: fast, version: "3.8", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/qwen__qwen3.7-flash
+    provider: openrouter
+    provider_model: qwen/qwen3.7-flash
+    display_name: "Qwen: Qwen3.7 Flash"
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 65536
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.03, output_per_mtok: 0.13, cached_per_mtok: 0.006 }
+    line: { id: qwen-flash, name: "Qwen Flash", tier: fast, version: "3.7", company: "Qwen" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # xAI
+  - id: openrouter/x-ai__grok-4.7
+    provider: openrouter
+    provider_model: x-ai/grok-4.7
+    display_name: "SpaceXAI: Grok 4.7"
+    via: direct
+    family: x-ai
+    context_window: 500000
+    max_output: 450000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 6, cached_per_mtok: 0.5 }
+    line: { id: xai-grok, name: "Grok", tier: best, version: "4.7", company: "xAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/x-ai__grok-4.6
+    provider: openrouter
+    provider_model: x-ai/grok-4.6
+    display_name: "SpaceXAI: Grok 4.6"
+    via: direct
+    family: x-ai
+    context_window: 500000
+    max_output: 450000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2, output_per_mtok: 6, cached_per_mtok: 0.5 }
+    line: { id: xai-grok, name: "Grok", tier: best, version: "4.6", company: "xAI" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Moonshot
+  - id: openrouter/moonshotai__kimi-k3
+    provider: openrouter
+    provider_model: moonshotai/kimi-k3
+    display_name: "MoonshotAI: Kimi K3"
+    via: direct
+    family: moonshotai
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.239, output_per_mtok: 11.936, cached_per_mtok: 0.21 }
+    line: { id: moonshot-kimi, name: "Kimi", tier: best, version: "3", company: "Moonshot" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/moonshotai__kimi-k2.6
+    provider: openrouter
+    provider_model: moonshotai/kimi-k2.6
+    display_name: "MoonshotAI: Kimi K2.6"
+    via: direct
+    family: moonshotai
+    context_window: 262144
+    max_output: 235929
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.65, output_per_mtok: 3.41, cached_per_mtok: 0.15 }
+    line: { id: moonshot-kimi, name: "Kimi", tier: best, version: "2.6", company: "Moonshot" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Z.ai
+  - id: openrouter/z-ai__glm-5.3
+    provider: openrouter
+    provider_model: z-ai/glm-5.3
+    display_name: "Z.ai: GLM 5.3"
+    via: direct
+    family: z-ai
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.079, output_per_mtok: 1.4, cached_per_mtok: 0.078 }
+    line: { id: zai-glm, name: "GLM", tier: best, version: "5.3", company: "Z.ai" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/z-ai__glm-5.2
+    provider: openrouter
+    provider_model: z-ai/glm-5.2
+    display_name: "Z.ai: GLM 5.2"
+    via: direct
+    family: z-ai
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.62, output_per_mtok: 2.42, cached_per_mtok: 0.14 }
+    line: { id: zai-glm, name: "GLM", tier: best, version: "5.2", company: "Z.ai" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/z-ai__glm-5.3-flash
+    provider: openrouter
+    provider_model: z-ai/glm-5.3-flash
+    display_name: "Z.ai: GLM 5.3 Flash"
+    via: direct
+    family: z-ai
+    context_window: 1048576
+    max_output: 943718
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.048, output_per_mtok: 0.16, cached_per_mtok: 0.006 }
+    line: { id: zai-glm-flash, name: "GLM Flash", tier: fast, version: "5.3", company: "Z.ai" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/z-ai__glm-4.7-flash
+    provider: openrouter
+    provider_model: z-ai/glm-4.7-flash
+    display_name: "Z.ai: GLM 4.7 Flash"
+    via: direct
+    family: z-ai
+    context_window: 200000
+    max_output: 117964
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.0605, output_per_mtok: 0.4 }
+    line: { id: zai-glm-flash, name: "GLM Flash", tier: fast, version: "4.7", company: "Z.ai" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # MiniMax
+  - id: openrouter/minimax__minimax-m3
+    provider: openrouter
+    provider_model: minimax/minimax-m3
+    display_name: "MiniMax: MiniMax M3"
+    via: direct
+    family: minimax
+    context_window: 1048576
+    max_output: 512000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.3, output_per_mtok: 1.2, cached_per_mtok: 0.06 }
+    line: { id: minimax-m, name: "MiniMax", tier: best, version: "3", company: "MiniMax" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/minimax__minimax-m2.7
+    provider: openrouter
+    provider_model: minimax/minimax-m2.7
+    display_name: "MiniMax: MiniMax M2.7"
+    via: direct
+    family: minimax
+    context_window: 204800
+    max_output: 131072
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.3, output_per_mtok: 1.2, cached_per_mtok: 0.06 }
+    line: { id: minimax-m, name: "MiniMax", tier: best, version: "2.7", company: "MiniMax" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # Cohere
+  - id: openrouter/cohere__command-a-plus
+    provider: openrouter
+    provider_model: cohere/command-a-plus
+    display_name: "Cohere: Command A+"
+    via: direct
+    family: cohere
+    context_window: 192000
+    max_output: 64000
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.3, output_per_mtok: 1.5, cached_per_mtok: 0.15 }
+    line: { id: cohere-command, name: "Command A", tier: best, version: "2", company: "Cohere" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/cohere__command-a
+    provider: openrouter
+    provider_model: cohere/command-a
+    display_name: "Cohere: Command A"
+    via: direct
+    family: cohere
+    context_window: 256000
+    max_output: 8192
+    capabilities: [json]
+    price: { input_per_mtok: 2.5, output_per_mtok: 10 }
+    line: { id: cohere-command, name: "Command A", tier: best, version: "1", company: "Cohere" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  # NVIDIA
+  - id: openrouter/nvidia__nemotron-3-ultra-550b-a55b
+    provider: openrouter
+    provider_model: nvidia/nemotron-3-ultra-550b-a55b
+    display_name: "NVIDIA: Nemotron 3 Ultra"
+    via: direct
+    family: nvidia
+    context_window: 262144
+    max_output: 182520
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.6, output_per_mtok: 2.4, cached_per_mtok: 0.12 }
+    line: { id: nvidia-ultra, name: "Nemotron Ultra", tier: best, version: "3", company: "NVIDIA" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/nvidia__nemotron-3.5-super-vl
+    provider: openrouter
+    provider_model: nvidia/nemotron-3.5-super-vl
+    display_name: "NVIDIA: Nemotron 3.5 Super VL"
+    via: direct
+    family: nvidia
+    context_window: 1048576
+    max_output: 235929
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.5, cached_per_mtok: 0.02 }
+    line: { id: nvidia-super, name: "Nemotron Super", tier: balanced, version: "3.5", company: "NVIDIA" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/nvidia__nemotron-3-super-120b-a12b
+    provider: openrouter
+    provider_model: nvidia/nemotron-3-super-120b-a12b
+    display_name: "NVIDIA: Nemotron 3 Super"
+    via: direct
+    family: nvidia
+    context_window: 262144
+    max_output: 235929
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.08, output_per_mtok: 0.45 }
+    line: { id: nvidia-super, name: "Nemotron Super", tier: balanced, version: "3", company: "NVIDIA" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/nvidia__nemotron-3.5-lightning
+    provider: openrouter
+    provider_model: nvidia/nemotron-3.5-lightning
+    display_name: "NVIDIA: Nemotron 3.5 Lightning"
+    via: direct
+    family: nvidia
+    context_window: 262144
+    max_output: 235929
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.07, output_per_mtok: 0.2, cached_per_mtok: 0.04 }
+    line: { id: nvidia-lightning, name: "Nemotron Lightning", tier: fast, version: "3.5", company: "NVIDIA" }
+    enabled: false
+    secret: OPENROUTER_API_KEY
+
+  - id: openrouter/nvidia__nemotron-3-nano-30b-a3b
+    provider: openrouter
+    provider_model: nvidia/nemotron-3-nano-30b-a3b
+    display_name: "NVIDIA: Nemotron 3 Nano 30B A3B"
+    via: direct
+    family: nvidia
+    context_window: 262144
+    max_output: 235929
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.06, output_per_mtok: 0.24 }
+    line: { id: nvidia-lightning, name: "Nemotron Lightning", tier: fast, version: "3", company: "NVIDIA" }
     enabled: false
     secret: OPENROUTER_API_KEY
 
   # ---------------------------------------------------------------------------
-  #  Key-billed providers added in PV1. No base_url: the address comes from the
+  #  Key-billed providers added in PV1 (DeepSeek, Moonshot, MiniMax, Qwen, Z.ai, xAI, Mistral). No base_url: the address comes from the
   #  provider's profile (services/core/src/gateway/profiles.ts) and the region
   #  saved beside its key, so a China or international key just works. Switched
   #  on when a key passes its test. Prices are USD per million tokens at the
-  #  provider's own list, checked 16-19 Oct 2026. Ids and figures marked
+  #  provider's own list, checked 16-20 Oct 2026. Ids and figures marked
   #  UNCONFIRMED were not on the provider's own pages; the daily model check
   #  (MD5) overlays OpenRouter's public prices where it can, and a wrong id
   #  shows up on the first test call. max_output values are working limits, not
   #  the provider's published maximum, unless the comment says so.
   # ---------------------------------------------------------------------------
 
-  # DeepSeek. Half price off peak: peak is 01:00-04:00 and 06:00-10:00 UTC on
+  # DeepSeek. Ids: api-docs.deepseek.com (quick start), checked 2026-10-20: deepseek-v4-pro and deepseek-flash are the
+  # current API names; deepseek-v4-flash is a retired name that is still accepted and answered by deepseek-flash, so
+  # DeepSeek exposes no earlier generation and both lines ship one model. Half price off peak: peak is 01:00-04:00 and 06:00-10:00 UTC on
   # Monday to Friday, so off-peak is every other hour, plus all of Saturday and
   # Sunday (the windows below, UTC). price is the peak rate. Chinese public
   # holidays are also off-peak; they are not modelled, so those days cost less than shown.
@@ -210,7 +1248,8 @@ models:
     enabled: false
     secret: DEEPSEEK_API_KEY
 
-  # Moonshot (Kimi). Global and China keys are not interchangeable: the region saved
+  # Moonshot (Kimi). Ids, windows, prices: platform.kimi.ai/docs/pricing/chat, checked 2026-10-20. Line Kimi: K3, then K2.6
+  # (K2.7 Code is a coding model, not a line step, so it waits behind "Add more models"). Global and China keys are not interchangeable: the region saved
   # beside the key picks api.moonshot.ai or api.moonshot.cn. Kimi K2 models have no
   # cache write fee; K3 bills writes (shown at the 5-minute rate; 1 hour is $6).
   # Not listed: kimi-k2.7-code-highspeed ($1.90 in, $0.38 cached, $8 out).
@@ -253,10 +1292,10 @@ models:
     enabled: false
     secret: MOONSHOT_API_KEY
 
-  # MiniMax. Global and China accounts are separate (saved region). M3 prices are
-  # for prompts up to 512k tokens (double above that; not modelled) and already carry
-  # MiniMax's permanent 50% discount. The M2.x models are being retired by MiniMax:
-  # from 2026-10-19 plan users are routed to M3.1 Flash Preview (price UNCONFIRMED, not listed).
+  # MiniMax. Prices: platform.minimax.io/docs/guides/pricing-paygo, checked 2026-10-20. Global and China accounts are
+  # separate (saved region). M3 prices are for prompts up to 512k tokens (double above that; not modelled). Lines: MiniMax
+  # (M3, M2.7) and MiniMax fast (M3.1 Flash, M2.7 Highspeed). No page states a model's output limit or M3.1 Flash's window, so
+  # those are working figures. MiniMax is retiring the M2.x models for plan users; M2.7 stays listed while its API answers.
   - id: minimax/minimax-m3
     provider: minimax
     provider_model: MiniMax-M3
@@ -283,6 +1322,19 @@ models:
     enabled: false
     secret: MINIMAX_API_KEY
 
+  - id: minimax/minimax-m3.1-flash
+    provider: minimax
+    provider_model: MiniMax-M3.1-Flash
+    display_name: MiniMax M3.1 Flash
+    via: direct
+    family: minimax
+    context_window: 1000000                # UNCONFIRMED: the pricing page gives no window
+    max_output: 32768                      # UNCONFIRMED: working limit
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.60, cached_per_mtok: 0.015 }
+    enabled: false
+    secret: MINIMAX_API_KEY
+
   - id: minimax/minimax-m2.7-highspeed
     provider: minimax
     provider_model: MiniMax-M2.7-highspeed
@@ -296,30 +1348,44 @@ models:
     enabled: false
     secret: MINIMAX_API_KEY
 
-  # Qwen (Alibaba Model Studio), international (Singapore) USD prices, for the
-  # stable aliases qwen-max, qwen-plus and qwen-flash. Newer numbered models exist
-  # (qwen3.8-max, qwen3.7-plus, qwen3.8-flash) with UNCONFIRMED prices; add them from
-  # Settings -> Models once priced. Plus and Flash are priced in length tiers; the
-  # first tier is shown (Plus up to 256K prompt, Flash up to 32K). Cached figures are 20%
-  # of input, the implicit-cache hit rate in the docs ("varies by model"): UNCONFIRMED.
-  # A key only works in the region it was made in (saved region: singapore, beijing, us).
-  - id: qwen/qwen-max
+  # Qwen (Alibaba Model Studio), international (Singapore) USD prices: alibabacloud.com/help/en/model-studio/model-pricing,
+  # checked 2026-10-20. The numbered models are the ones the page lists (qwen3.8-max, qwen3.7-max, qwen3.7-plus, qwen3.8-flash,
+  # qwen3.7-flash); the older qwen-max, qwen-plus and qwen-flash aliases are gone from this list. Windows are 1M tokens
+  # (Model Studio's Qwen3.8 and 3.7 models); no page states output limits, so those are working figures. Plus and Flash 3.7 are
+  # priced in length tiers: the first tier is shown (Plus up to 256K prompt, Flash up to 32K). Cached figures are 20% of input,
+  # the implicit-cache hit rate in the docs ("varies by model"): UNCONFIRMED, except Max 3.8 ($0.25, from a pricing roundup).
+  # Qwen Plus has no earlier model that the page still lists. A key only works in the region it was made in (saved region:
+  # singapore, beijing, us).
+  - id: qwen/qwen3.8-max
     provider: qwen
-    provider_model: qwen-max
-    display_name: Qwen Max
+    provider_model: qwen3.8-max
+    display_name: Qwen3.8 Max
     via: direct
     family: qwen
-    context_window: 262144                 # UNCONFIRMED
+    context_window: 1000000
     max_output: 32768                      # UNCONFIRMED: working limit
-    capabilities: [tools, json]
-    price: { input_per_mtok: 2.0, output_per_mtok: 6.0, cached_per_mtok: 0.40 }
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 6.0, cached_per_mtok: 0.25 }
     enabled: false
     secret: DASHSCOPE_API_KEY
 
-  - id: qwen/qwen-plus
+  - id: qwen/qwen3.7-max
     provider: qwen
-    provider_model: qwen-plus
-    display_name: Qwen Plus
+    provider_model: qwen3.7-max
+    display_name: Qwen3.7 Max
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 32768                      # UNCONFIRMED: working limit
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 2.5, output_per_mtok: 7.5, cached_per_mtok: 0.5 }
+    enabled: false
+    secret: DASHSCOPE_API_KEY
+
+  - id: qwen/qwen3.7-plus
+    provider: qwen
+    provider_model: qwen3.7-plus
+    display_name: Qwen3.7 Plus
     via: direct
     family: qwen
     context_window: 1000000
@@ -329,10 +1395,23 @@ models:
     enabled: false
     secret: DASHSCOPE_API_KEY
 
-  - id: qwen/qwen-flash
+  - id: qwen/qwen3.8-flash
     provider: qwen
-    provider_model: qwen-flash
-    display_name: Qwen Flash
+    provider_model: qwen3.8-flash
+    display_name: Qwen3.8 Flash
+    via: direct
+    family: qwen
+    context_window: 1000000
+    max_output: 32768                      # UNCONFIRMED: working limit
+    capabilities: [tools, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.47, cached_per_mtok: 0.03 }
+    enabled: false
+    secret: DASHSCOPE_API_KEY
+
+  - id: qwen/qwen3.7-flash
+    provider: qwen
+    provider_model: qwen3.7-flash
+    display_name: Qwen3.7 Flash
     via: direct
     family: qwen
     context_window: 1000000
@@ -342,11 +1421,12 @@ models:
     enabled: false
     secret: DASHSCOPE_API_KEY
 
-  # Z.ai (GLM). International (z.ai) and China (bigmodel.cn) accounts are separate
-  # (saved region). Z.ai has no model list, so the daily model check skips it. Only
-  # glm-5.3 is a confirmed id; the Flash ids and their context windows are UNCONFIRMED
-  # (the pricing page shows display names). The Coding Plan's quota only works on
-  # https://api.z.ai/api/coding/paas/v4: add a model with that base_url to use it.
+  # Z.ai (GLM). Ids, windows and output limits: docs.z.ai/guides/llm/glm-5.3, /glm-5.2 and /glm-4.7; prices:
+  # docs.z.ai/guides/overview/pricing; checked 2026-10-20. International (z.ai) and China (bigmodel.cn) accounts are
+  # separate (saved region). Z.ai has no model list, so the daily model check skips it. Lines: GLM (5.3, 5.2), GLM Flash
+  # (5.3, 4.7; GLM-4.7-Flash is free) and GLM FlashX (5.3 only: the page still lists no earlier FlashX price). The Flash
+  # 5.3 prices are the page's; its window and output limit are those of the GLM-5.3 page, which lists all three codes. The
+  # Coding Plan's quota only works on https://api.z.ai/api/coding/paas/v4: add a model with that base_url to use it.
   - id: zai/glm-5.3
     provider: zai
     provider_model: glm-5.3
@@ -360,35 +1440,62 @@ models:
     enabled: false
     secret: ZAI_API_KEY
 
-  - id: zai/glm-5.3-flashx
+  - id: zai/glm-5.2
     provider: zai
-    provider_model: glm-5.3-flashx         # UNCONFIRMED id
-    display_name: GLM-5.3 FlashX
+    provider_model: glm-5.2
+    display_name: GLM-5.2
     via: direct
     family: zai
-    context_window: 200000                 # UNCONFIRMED
-    max_output: 32768                      # UNCONFIRMED: working limit
+    context_window: 1000000
+    max_output: 128000
     capabilities: [tools, reasoning, json]
-    price: { input_per_mtok: 0.37, output_per_mtok: 1.25, cached_per_mtok: 0.075 }
+    price: { input_per_mtok: 1.40, output_per_mtok: 4.40 }
     enabled: false
     secret: ZAI_API_KEY
 
   - id: zai/glm-5.3-flash
     provider: zai
-    provider_model: glm-5.3-flash          # UNCONFIRMED id
+    provider_model: glm-5.3-flash
     display_name: GLM-5.3 Flash
     via: direct
     family: zai
-    context_window: 200000                 # UNCONFIRMED
-    max_output: 32768                      # UNCONFIRMED: working limit
+    context_window: 1000000
+    max_output: 128000
     capabilities: [tools, reasoning, json]
     price: { input_per_mtok: 0.15, output_per_mtok: 0.50, cached_per_mtok: 0.03 }
     enabled: false
     secret: ZAI_API_KEY
 
-  # xAI. A prompt of 200k tokens or more bills every token at double the rate
-  # ($4 in, $1 cached, $12 out); that tier is not modelled. Grok 4.5, 4.3 and
-  # Build 0.1 are not listed: their ids and prices were not on xAI's pages (UNCONFIRMED).
+  - id: zai/glm-4.7-flash
+    provider: zai
+    provider_model: glm-4.7-flash
+    display_name: GLM-4.7 Flash
+    via: direct
+    family: zai
+    context_window: 200000
+    max_output: 128000
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0, output_per_mtok: 0 }   # free on Z.ai's pricing page
+    enabled: false
+    secret: ZAI_API_KEY
+
+  - id: zai/glm-5.3-flashx
+    provider: zai
+    provider_model: glm-5.3-flashx
+    display_name: GLM-5.3 FlashX
+    via: direct
+    family: zai
+    context_window: 1000000
+    max_output: 128000
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.37, output_per_mtok: 1.25, cached_per_mtok: 0.075 }
+    enabled: false
+    secret: ZAI_API_KEY
+
+  # xAI. Ids, windows and prices: docs.x.ai/docs/models, checked 2026-10-20. One line, Grok (4.7, 4.6); xAI lists no
+  # mini or fast variant now. A prompt of 200k tokens or more bills every token at double the rate ($4 in, $1 cached,
+  # $12 out); that tier is not modelled. Output limits are not on the page (working limit). Not listed: Grok 4.5, 4.3,
+  # 4.20 and Build 0.1 (older, or built for coding agents).
   - id: xai/grok-4.7
     provider: xai
     provider_model: grok-4.7
@@ -397,52 +1504,66 @@ models:
     family: xai
     context_window: 500000
     max_output: 32768                      # UNCONFIRMED: working limit
-    capabilities: [tools, reasoning, json]
+    capabilities: [tools, vision, reasoning, json]
     price: { input_per_mtok: 2.0, output_per_mtok: 6.0, cached_per_mtok: 0.50 }
     enabled: false
     secret: XAI_API_KEY
 
-  # Mistral, by its "latest" aliases (they follow the current Large, Medium and Small).
-  # UNCONFIRMED: Mistral's pages disagree on Large's price (the pricing page says $0.5 in and
-  # $1.5 out, used here; Large 4's model card lists other figures), and Medium and Small
-  # prices and context windows were not on a page we could read. MD5 overlays OpenRouter's
-  # prices daily; check mistral.ai/pricing before relying on a figure.
-  - id: mistral/mistral-large-latest
+  - id: xai/grok-4.6
+    provider: xai
+    provider_model: grok-4.6
+    display_name: Grok 4.6
+    via: direct
+    family: xai
+    context_window: 500000
+    max_output: 32768                      # UNCONFIRMED: working limit
+    capabilities: [tools, vision, reasoning, json]
+    price: { input_per_mtok: 2.0, output_per_mtok: 6.0, cached_per_mtok: 0.50 }
+    enabled: false
+    secret: XAI_API_KEY
+
+  # Mistral. Ids, windows and prices: docs.mistral.ai/models/model-cards/<name> and mistral.ai/pricing, checked 2026-10-20.
+  # Lines: Large (3 = mistral-large-2512, generally available; Mistral Large 4 is in public preview, so it is not listed:
+  # add it from the live list), Medium (3.5), Small (4 = mistral-small-2603). Medium 3.1 and Small 3.2 are deprecated by Mistral
+  # (retired August and July 2026), so these lines ship one model each. The card for Medium 3.5 gives $1.50 in and no output
+  # price; the output price is OpenRouter's. Small 4's card reads "$0.15 / €0.6": the output price is taken as $0.60.
+  # Output limits are not on the cards (working limit).
+  - id: mistral/mistral-large-2512
     provider: mistral
-    provider_model: mistral-large-latest
-    display_name: Mistral Large
+    provider_model: mistral-large-2512
+    display_name: Mistral Large 3
     via: direct
     family: mistral
-    context_window: 1000000
+    context_window: 256000
     max_output: 32768                      # UNCONFIRMED: working limit
-    capabilities: [tools, json]
-    price: { input_per_mtok: 0.5, output_per_mtok: 1.5, cached_per_mtok: 0.05 }
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 0.5, output_per_mtok: 1.5 }
     enabled: false
     secret: MISTRAL_API_KEY
 
-  - id: mistral/mistral-medium-latest
+  - id: mistral/mistral-medium-3-5
     provider: mistral
-    provider_model: mistral-medium-latest
-    display_name: Mistral Medium
+    provider_model: mistral-medium-3-5
+    display_name: Mistral Medium 3.5
     via: direct
     family: mistral
-    context_window: 128000                 # UNCONFIRMED
+    context_window: 256000
     max_output: 32768                      # UNCONFIRMED: working limit
-    capabilities: [tools, json]
-    price: { input_per_mtok: 0.4, output_per_mtok: 2.0 }   # UNCONFIRMED
+    capabilities: [tools, vision, json]
+    price: { input_per_mtok: 1.5, output_per_mtok: 7.5 }
     enabled: false
     secret: MISTRAL_API_KEY
 
-  - id: mistral/mistral-small-latest
+  - id: mistral/mistral-small-2603
     provider: mistral
-    provider_model: mistral-small-latest
-    display_name: Mistral Small
+    provider_model: mistral-small-2603
+    display_name: Mistral Small 4
     via: direct
     family: mistral
-    context_window: 128000                 # UNCONFIRMED
+    context_window: 256000
     max_output: 32768                      # UNCONFIRMED: working limit
-    capabilities: [tools, json]
-    price: { input_per_mtok: 0.1, output_per_mtok: 0.3 }   # UNCONFIRMED
+    capabilities: [tools, reasoning, json]
+    price: { input_per_mtok: 0.15, output_per_mtok: 0.6 }
     enabled: false
     secret: MISTRAL_API_KEY
 

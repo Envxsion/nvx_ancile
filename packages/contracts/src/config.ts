@@ -43,6 +43,23 @@ export const OffPeakPrice = z.object({
 });
 export type OffPeakPrice = z.infer<typeof OffPeakPrice>;
 
+/**
+ * A line a model belongs to when its id alone cannot say (OpenRouter's, which carries a vendor and uses
+ * its own spellings). `id` is the line inside its provider (`openrouter/<id>`), `version` orders the
+ * generations of one line (the newest is current, the one before it previous), and `company` is the
+ * name pickers group by. Direct providers need none: their ids are read by services/core/src/models/watch/lines.ts.
+ */
+export const ModelLineSpec = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'a lower-case slug such as anthropic-opus'),
+  name: z.string(),
+  tier: z.enum(['best', 'balanced', 'fast']),
+  version: z.string().regex(/^\d+(\.\d+)*$/, 'a version such as 5.5'),
+  company: z.string(),
+  /** A preview stays off while another model of its line is stable. */
+  preview: z.boolean().optional(),
+});
+export type ModelLineSpec = z.infer<typeof ModelLineSpec>;
+
 export const ModelConfig = z.object({
   id: z.string().regex(/^[a-z0-9-]+\/[A-Za-z0-9._:-]+$/, 'provider/model'),
   provider: z.string(),
@@ -76,6 +93,8 @@ export const ModelConfig = z.object({
    * prompts leave this machine. Unset for every other model.
    */
   runs_on: z.enum(['your_network', 'rented']).optional(),
+  /** The line this model belongs to, when its id cannot say (see ModelLineSpec). */
+  line: ModelLineSpec.optional(),
 });
 export type ModelConfig = z.infer<typeof ModelConfig>;
 
@@ -86,7 +105,15 @@ export const ModelsFile = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  models: z.array(ModelConfig),
+  models: z.array(ModelConfig).superRefine((models, ctx) => {
+    // One id, one model: a repeat would shadow the first silently.
+    const seen = new Set<string>();
+    models.forEach((m, i) => {
+      if (seen.has(m.id))
+        ctx.addIssue({ code: 'custom', path: [i, 'id'], message: `"${m.id}" is listed twice` });
+      seen.add(m.id);
+    });
+  }),
 });
 
 export const TaskClass = z.string().regex(/^[a-z]+(\.[a-z_]+)*$/);

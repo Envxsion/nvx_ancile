@@ -38,7 +38,7 @@ import {
 import { ulid } from 'ulid';
 import { baseUrlFor, knownProfile } from '../../gateway/profiles';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../../gateway/providers';
-import type { ModelRegistry } from '../../gateway/registry';
+import { type ModelRegistry, secretFor } from '../../gateway/registry';
 import { notFound } from '../../obs/errors';
 import { logFor } from '../../obs/logger';
 import type { SecretStore } from '../../secrets';
@@ -67,6 +67,14 @@ export const FIRST_RUN_DELAY_MS = 60_000;
 export const TICK_EVERY_MS = HOUR;
 export const MANUAL_MIN_GAP_MS = 60_000;
 export const TEST_CALL_TIMEOUT_MS = 30_000;
+/**
+ * The shipped lineup this code ships (every line's current model and the one before it). Raising it
+ * runs the upgrade step once more on installs that already hold keys (upgradeLineup).
+ */
+export const LINEUP_VERSION = 1;
+/** Most one-token tests a key save, or the upgrade, makes for one provider. OpenRouter has the most lines, so fewer. */
+export const TEST_CAP = 6;
+export const TEST_CAP_OPENROUTER = 3;
 /** Saves in quick succession (setup, then Settings) become one check. */
 export const KEY_SAVED_DELAY_MS = 2_000;
 
@@ -305,6 +313,7 @@ export class ModelWatch {
       await this.load();
       const targets = (await this.targets()).filter((t) => this.due(t));
       await this.runTargets(targets);
+      await this.upgradeLineup();
     } catch (err) {
       log.warn({ err }, 'the model check did not finish');
     } finally {
@@ -835,9 +844,94 @@ export class ModelWatch {
       this.queue = run.catch(() => undefined);
       await run;
     }
-    for (const m of reg.all()) {
-      if (m.provider === provider && reg.isStarter(m.id)) await this.verify(m);
+    // One cheap model per line, never a dear one, and no more than a few: the lineup is large.
+    const cap = provider === 'openrouter' ? TEST_CAP_OPENROUTER : TEST_CAP;
+    for (const m of reg.testPicks(provider, isCheap, cap)) await this.verify(m);
+  }
+
+  // ---- Upgrading an install that already holds keys (once per lineup version) ----
+
+  private upgradeTries = 0;
+
+  /**
+   * Installs that saved a key before a lineup shipped never got it (a lineup is switched on when a key is
+   * saved). Once per LINEUP_VERSION: for every provider with a saved key, switch on its lineup, leaving
+   * alone anything you turned off and turning nothing off; then try with one token each cheap model that
+   * is on and was never tried (a few per provider, never a dear one), so a model the provider refuses
+   * says so; then move a line off a model that turned out unavailable. A try that could not be read
+   * (offline, a limit) is repeated on the next hourly check, up to three times.
+   */
+  async upgradeLineup(): Promise<void> {
+    const done = await this.deps.settings.get<number>(SETTING.lineupVersion);
+    if (typeof done === 'number' && done >= LINEUP_VERSION) return;
+    const reg = this.deps.registry;
+    await reg.refresh();
+    const names = new Set(await this.deps.secrets.names());
+    const providers = [
+      ...new Set(
+        reg
+          .all()
+          .filter((m) => {
+            const need = m.via === 'direct' ? secretFor(m) : null;
+            return need !== null && names.has(need);
+          })
+          .map((m) => m.provider),
+      ),
+    ];
+    const on: Record<string, boolean> = {};
+    for (const p of providers)
+      for (const m of reg.lineup(p)) if (!reg.enabled(m) && !reg.turnedOff(m.id)) on[m.id] = true;
+    if (Object.keys(on).length) await reg.setEnabled(on);
+    const tested = await this.testedIds();
+    let inconclusive = false;
+    for (const p of providers) {
+      const cap = p === 'openrouter' ? TEST_CAP_OPENROUTER : TEST_CAP;
+      const picks = new Map<string, ModelConfig>();
+      for (const m of reg.testPicks(p, isCheap, cap)) picks.set(m.id, m);
+      // Models you had on that the lineup does not pick (an older Gemini, a model you added).
+      for (const m of reg.all())
+        if (m.provider === p && reg.enabled(m) && isCheap(m) && m.via === 'direct') picks.set(m.id, m);
+      const todo = [...picks.values()].filter((m) => !tested.has(m.id)).slice(0, cap + 2);
+      for (const m of todo) {
+        if (this.abort.signal.aborted) return;
+        if ((await this.verify(m)) === 'unknown') inconclusive = true;
+      }
     }
+    await this.repointDeadLines();
+    this.upgradeTries++;
+    if (!inconclusive || this.upgradeTries >= 3)
+      await this.deps.settings.set(SETTING.lineupVersion, LINEUP_VERSION);
+    await this.announce('watch');
+  }
+
+  /** A line whose answering model the provider refused moves to the newest stable model of the line that can answer. */
+  private async repointDeadLines(): Promise<void> {
+    const reg = this.deps.registry;
+    for (const line of reg.lines()) {
+      const g = reg.lineGroup(line.id);
+      const curId = line.current_id;
+      const cur = curId ? reg.getExact(curId) : undefined;
+      if (!g || !curId || !cur || reg.status(cur) !== 'unavailable') continue;
+      const ready = (id: string) => {
+        const c = reg.getExact(id);
+        return !!c && reg.status(c) === 'ready';
+      };
+      const next = newestStable(g.members.filter((m) => m.have && m.id !== curId && ready(m.id)));
+      if (next) await this.moveLine(line.id, next.id, 'retired');
+    }
+  }
+
+  private testedCache: Record<string, string> | null = null;
+
+  private async testedIds(): Promise<Set<string>> {
+    this.testedCache ??= (await this.deps.settings.get<Record<string, string>>(SETTING.modelTested)) ?? {};
+    return new Set(Object.keys(this.testedCache));
+  }
+
+  private async noteTested(id: string): Promise<void> {
+    await this.testedIds();
+    this.testedCache = { ...this.testedCache, [id]: this.iso() };
+    await this.deps.settings.set(SETTING.modelTested, this.testedCache);
   }
 
   /**
@@ -846,18 +940,21 @@ export class ModelWatch {
    * with the provider's words, so no picker offers a model that cannot answer. Anything else (a rate
    * limit, an outage, a bad key) says nothing about the model and changes nothing.
    */
-  async verify(model: ModelConfig): Promise<void> {
-    if (!isCheap(model)) return;
+  async verify(model: ModelConfig): Promise<'ok' | 'refused' | 'unknown' | 'skipped'> {
+    if (!isCheap(model)) return 'skipped';
     const res = await this.test(model);
     const reg = this.deps.registry;
     if (res.ok) {
       await reg.clearUnavailable([model.id]);
-      return;
+      await this.noteTested(model.id);
+      return 'ok';
     }
-    if (!res.refused) return;
+    if (!res.refused) return 'unknown';
     log.warn({ model: model.id }, 'a provider refused a model for good');
     await reg.markUnavailable(model.id, res.refused, this.iso());
+    await this.noteTested(model.id);
     await this.announce('watch');
+    return 'refused';
   }
 
   // ---- Changes and adding ----

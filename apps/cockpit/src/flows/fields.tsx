@@ -18,6 +18,7 @@ import { hueVar } from '../lib/format';
 import { useAddModel } from '../models/AddModel';
 import { billingTitle, modelBadge } from '../models/billing';
 import { LATEST_TAG, nowNote, offerable, retiredNote } from '../models/lines';
+import { groupLabel, OLDER_LABEL, splitOlder } from '../models/lineup';
 import { OffPeakTag } from '../models/OffPeakTag';
 import { Icon } from '../ui/Icon';
 import { rank } from './AddNode';
@@ -294,13 +295,20 @@ export function ModelPicker({
   allowNone?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [olderOpen, setOlderOpen] = useState(false);
   const id = useId();
   // The current choice shows whatever its state ("needs a key", "off"); the list offers only models that can answer now.
   const current = models.find((m) => m.id === value);
   const groups = new Map<string, FlowModel[]>();
   // A line shows once, not the model it answers with now; retired models go. The selected one stays.
-  for (const m of offerable(models, [value]).filter((x) => x.chat && x.status === 'ready')) {
-    const g = m.via === 'controller' ? 'GPU nodes' : (PROVIDER_NAMES[m.provider] ?? m.provider);
+  // The previous generation of a line waits under "Older" (shown at once while you type a search).
+  const offered = offerable(models, [value]).filter((x) => x.chat && x.status === 'ready');
+  const { current: head, older } = splitOlder(offered, [value]);
+  const showOlder = olderOpen || query.trim() !== '';
+  for (const m of showOlder ? [...head, ...older] : head) {
+    const g =
+      m.via === 'controller' ? 'GPU nodes' : groupLabel(PROVIDER_NAMES[m.provider] ?? m.provider, m.company);
     groups.set(g, [...(groups.get(g) ?? []), m]);
   }
   return (
@@ -342,7 +350,12 @@ export function ModelPicker({
           <Command label={label} loop filter={rank}>
             <div className="fadd__search">
               <Icon name="search" size={13} />
-              <Command.Input autoFocus placeholder="Name, provider, node…" />
+              <Command.Input
+                autoFocus
+                placeholder="Name, provider, node…"
+                value={query}
+                onValueChange={setQuery}
+              />
             </div>
             <Command.List className="fp-pop__list">
               <Command.Empty className="fadd__empty">No model matches.</Command.Empty>
@@ -376,6 +389,18 @@ export function ModelPicker({
                   ))}
                 </Command.Group>
               ))}
+              {older.length && !showOlder ? (
+                <Command.Item
+                  value="older models previous generation"
+                  className="fadd__item fadd__item--older"
+                  forceMount
+                  onSelect={() => setOlderOpen(true)}
+                >
+                  <span className="mute">
+                    {OLDER_LABEL} ({older.length})
+                  </span>
+                </Command.Item>
+              ) : null}
               <Command.Item
                 value="add a model openrouter server endpoint runpod vllm new"
                 className="fadd__item fadd__item--add"

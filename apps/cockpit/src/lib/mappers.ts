@@ -136,6 +136,8 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.provider === 'openrouter' && m.provider_model && { openrouter: m.provider_model }),
     ...(m.alias_of && { aliasOf: m.alias_of }),
     ...(m.line_id && { lineId: m.line_id }),
+    ...(m.company && { company: m.company }),
+    ...(m.older && { older: true }),
     ...(m.lifecycle && { lifecycle: m.lifecycle }),
   };
 }

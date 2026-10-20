@@ -1097,6 +1097,7 @@ If \`ANTHROPIC_API_KEY\` is set, Claude Code uses it instead of the Claude subsc
 
 ### What NVX Ancile does about it
 
+- A saved key switches on four lines, each with its current and previous model: Fable (5.1, 5), Opus (5.5, 5), Sonnet (5.5, 5) and Haiku (5.5, 4.5; there is no Haiku 5). Pickers show the current ones and fold the earlier ones under Older. Only Haiku is tried with one token when the key is saved; the dearer tiers never are.
 - Every Claude model is labelled by how it is paid: Plan, Key or Included credit. The three balances are never merged.
 - With "Spends my included monthly credit first" on, Settings shows a meter for this cycle (spent, left, and when it renews) and a notification warns at 80%. It is NVX Ancile's own count of spend made through the key.
 - When Anthropic says the credit is gone, models paid from it are skipped until the cycle ends, and nothing is retried or charged to your plan.
@@ -1171,6 +1172,7 @@ On GPT-5.6 and later the minimum is 1,024 visible input tokens, caching can be i
 
 ### What NVX Ancile does about it
 
+- A saved key switches on GPT Astra (6), GPT Sol (6.1, 6) and GPT Luna (6, 5.6). Astra is new in GPT-6, so it has no earlier model. GPT-5.6 Terra and the -pro variants are not in the list; add them from Add more models.
 - OpenAI is used with an API key only. A ChatGPT login is not an API credential, so there is no ChatGPT route. See "Using your subscriptions in NVX Ancile".
 - \`insufficient_quota\` and the other out-of-credit codes are read as out of credit and not retried. Other 429s are rate limits and are retried with backoff. A 503 \`server_is_overloaded\` is retried.
 - A \`prompt_cache_key\` is sent on every call so caching works from the first turn. OpenAI's 30m option and explicit breakpoints are planned (CA11).
@@ -1259,6 +1261,7 @@ Gemini on Vertex caches customer data in memory by default and deletes it within
 
 ### What NVX Ancile does about it
 
+- A saved key switches on Gemini Argon (4), Pro (3.1, a preview and the only Pro), Flash (3.8, 3.6) and Flash-Lite (3.5, 3.1). Gemini 3.7 Flash is deprecated by Google, and the 2.5 models are not open to new keys.
 - Google is used with an API key. A Google AI Pro or Ultra subscription does not pay for it.
 - A key is checked by asking Google for its model list with the key, which spends no tokens. Both \`AQ.\` and \`AIza\` keys are accepted. Models in NVX Ancile's list that Google does not offer to that key stay off, and the key is still saved.
 - Cache hits are read from the response usage. A 402 (prepaid credits ran out) is read as out of credit. A 429 \`RESOURCE_EXHAUSTED\` is treated as a rate limit and retried, so a spent daily quota is retried rather than explained. Telling the two 429s apart is planned.
@@ -1305,6 +1308,7 @@ Requests that share an identical start are cached automatically and cached token
 
 ### What NVX Ancile does about it
 
+- A saved key switches on Grok 4.7 and Grok 4.6. xAI lists no mini or fast variant now.
 - It sends a stable \`x-grok-conv-id\` for each conversation branch and reads \`cached_tokens\` from the usage.
 - It does not rely on rate-limit headers for xAI. A 429 is a rate limit and is retried with backoff.
 - A 403 saying the team has no credits is read as out of credit. That wording was observed, not documented, so it is not treated as proof of anything else.
@@ -1368,6 +1372,7 @@ Set \`prompt_cache_key\` on requests that share a prefix. Cached prompt tokens a
 
 ### What NVX Ancile does about it
 
+- A saved key switches on Mistral Large 3, Medium 3.5 and Small 4. Mistral has retired the earlier Medium and Small, so those lines have one model each. Large 4 is a public preview, so it stays off until you show it.
 - It asks for an API key. A Le Chat login does not work in NVX Ancile.
 - It sends a stable \`prompt_cache_key\` and treats a hit as best effort.
 - A free Mistral key is not marked as free in NVX Ancile today. Expect 429 under load on a free key. A warning about free-plan data use is planned.`,
@@ -1527,6 +1532,7 @@ The API base URL is https://api.deepseek.com, with an Anthropic-compatible path 
 
 ### What NVX Ancile does about it
 
+- A saved key switches on DeepSeek V4 Pro and the Flash model. The API serves one generation of each: the older Flash name is still accepted and answered by the current one.
 - DeepSeek has one payment kind in NVX Ancile: an API key on a prepaid balance.
 - Prices follow the UTC off-peak windows. Every call is priced at the rate in force when it began, and the receipt shows the rate that applied. Chinese public holidays are also off-peak and are not modelled.
 - It reads both \`prompt_cache_hit_tokens\` and \`prompt_cache_miss_tokens\`.
@@ -1621,6 +1627,7 @@ Its default directory is \`~/.kimi-code\` (\`C:\\Users\\<name>\\.kimi-code\` on 
 
 ### What NVX Ancile does about it
 
+- A saved key switches on Kimi K3 and Kimi K2.6. Kimi K2.7 Code waits behind Add more models.
 - NVX Ancile has one Moonshot provider, for Open Platform keys. Kimi Code membership keys are not a separate provider yet, and a Kimi Code key sent to api.moonshot.ai will fail.
 - The region (International or China) is saved with the key and picks the base URL. A 401 on a Kimi key suggests trying the other region.
 - It reads the error type. \`exceeded_current_quota_error\` is read as out of credit and not retried; \`rate_limit_reached_error\` is a rate limit and is retried with backoff.
@@ -1706,6 +1713,7 @@ Search results describe \`~/.mmx/config.json\` and \`~/.mmx/credentials.json\` f
 
 ### What NVX Ancile does about it
 
+- A saved key switches on MiniMax M3 and M2.7, and M3.1 Flash and M2.7 Highspeed as the fast line.
 - The region (Global or China) is saved with the key and picks the base URL.
 - It reads MiniMax's numeric code from the response body, even when the HTTP status is 200. 1008 is read as out of credit; 1002 as a rate limit; 1004 and 2049 as a key problem with a region hint.
 - Code 2056 says to wait for the plan's next window, not to top up, and is not retried.
@@ -1804,6 +1812,7 @@ Settings live at \`~/.qwen/settings.json\`. Keys are referenced by environment v
 
 ### What NVX Ancile does about it
 
+- A saved key switches on Qwen3.8 Max and 3.7 Max, Qwen3.7 Plus, and Qwen3.8 Flash and 3.7 Flash.
 - The region (Singapore, Beijing or US Virginia) is saved with the key and picks the base URL. Frankfurt, Hong Kong, Tokyo and workspace hosts need a custom base URL on the model.
 - Arrearage and AllocationQuota.FreeTierOnly are read as out of credit. Throttling codes are rate limits. InvalidApiKey is a key problem with a region hint.
 - Qwen's implicit cache is left on. NVX Ancile does not turn on explicit caching.
@@ -1883,6 +1892,7 @@ Z.ai serves overseas users at api.z.ai and BigModel serves the mainland at open.
 
 ### What NVX Ancile does about it
 
+- A saved key switches on GLM-5.3 and 5.2, GLM Flash (5.3, and the free 4.7) and GLM-5.3 FlashX.
 - The platform (International or China) is saved with the key and picks the base URL. NVX Ancile does not read other tools' files for a Z.ai key.
 - Codes 1302 and 1305 are retried. 1113, 1310, 1316 and 1317 are not retried: 1310, 1316 and 1317 say to wait for the plan's window, and 1113 says it may be a Coding Plan key used from a tool the plan does not cover. 1311 is read as a model this key cannot use.
 - The pay-as-you-go endpoint is the default. A Coding Plan key needs the coding endpoint as the model's own base URL.
@@ -1956,6 +1966,7 @@ Platform rate limits return 429 with \`X-RateLimit-*\` headers. The 402 body can
 
 ### What NVX Ancile does about it
 
+- A saved key switches on a lineup from each major company (Anthropic, OpenAI, Google with Gemma, Meta Llama 3 and 4, Mistral, DeepSeek, Qwen, xAI, Moonshot, Z.ai, MiniMax, Cohere and NVIDIA), each with its current and previous model, read from OpenRouter's public catalogue. Pickers group them by company and fold the earlier ones under Older. Free endpoints (ids ending in :free) are left out of the lineup because they may log prompts; add one yourself only if you accept that.
 - A key is checked with OpenRouter's key endpoint (\`GET /api/v1/key\`), which answers 401 for a bad key and spends no tokens. The model list is not used for this, because OpenRouter's list is public and answers without any key.
 - Routing presets (Recommended, Best quality, Lowest real cost, Fastest, Pinned, Advanced) build the \`provider\` object for each call. Every preset takes "Do not allow data collection", and Advanced can send \`zdr\`. Both can shrink the model list.
 - After a call has used the cache, the next calls go to the same upstream. The pin lapses after ten quiet minutes.

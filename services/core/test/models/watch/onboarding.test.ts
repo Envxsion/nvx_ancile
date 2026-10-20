@@ -221,11 +221,26 @@ describe('abilities (F3d)', () => {
 });
 
 describe('what a first key switches on', () => {
-  it('leaves a preview off beside a stable sibling, and keeps previews when there is nothing else', () => {
-    expect(switchedOnByKey(GOOGLE).map((m) => m.id)).toEqual([
+  it("switches on each line's models; a preview comes on only when its line has nothing stable", async () => {
+    const w = await googleWorld();
+    // Pro exists only as a preview, so it is its line's lineup; the two stable Flash models come with it.
+    expect(switchedOnByKey(w.registry, 'google', GOOGLE).map((m) => m.id)).toEqual([
       'google/gemini-3.5-flash-lite',
       'google/gemini-3.8-flash',
+      'google/gemini-3-pro',
     ]);
-    expect(switchedOnByKey([GOOGLE[2] as ModelConfig]).map((m) => m.id)).toEqual(['google/gemini-3-pro']);
+    // Offered only a preview, it still comes on.
+    expect(switchedOnByKey(w.registry, 'google', [GOOGLE[2] as ModelConfig]).map((m) => m.id)).toEqual([
+      'google/gemini-3-pro',
+    ]);
+  });
+
+  it('a preview beside a stable model of its own line stays off', async () => {
+    const models = [
+      gemini('flash', 'gemini-3.8-flash', [0.75, 3.75]),
+      gemini('flash-next', 'gemini-4.0-flash-preview-1001', [0.75, 3.75]),
+    ];
+    const w = await world({ models, keys: [KEY] });
+    expect(switchedOnByKey(w.registry, 'google', models).map((m) => m.id)).toEqual(['google/flash']);
   });
 });

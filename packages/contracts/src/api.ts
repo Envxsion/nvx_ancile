@@ -331,6 +331,10 @@ export const ModelInfo = z.object({
   alias_of: z.string().nullable().optional(),
   /** The line this model belongs to (`<provider>/<line>`), when it has one. */
   line_id: z.string().nullable().optional(),
+  /** The company pickers group this model under, when it is not simply its provider (OpenRouter's lineup: Meta, Mistral…). */
+  company: z.string().optional(),
+  /** A previous generation of its line: pickers fold it under "Older" and show the current one. */
+  older: z.boolean().optional(),
   /** Retired or deprecated by its provider (MD5); calls to a retired model go to its line's current model. */
   lifecycle: z.enum(['active', 'deprecated', 'retired']).optional(),
   /**
