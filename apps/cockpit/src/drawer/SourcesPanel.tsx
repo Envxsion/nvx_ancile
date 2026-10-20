@@ -21,7 +21,7 @@ import { useMemo, useState } from 'react';
 import { Hint } from '../help/Hint';
 import { api } from '../lib/api';
 import { useNotebooks, useSources, useThread } from '../lib/data';
-import { setCheckOnWeb, setGrounded } from '../lib/factcheck';
+import { setCheckOnWeb, setCritical, setGrounded, setShareChecks, useVerdictCache } from '../lib/factcheck';
 import { tagSources } from '../lib/notebooks';
 import { moveThread } from '../lib/threads';
 import { AddSources } from '../sources/AddSources';
@@ -180,6 +180,68 @@ function WebRow({ notebookId }: { notebookId: string }) {
   );
 }
 
+/** Mission-critical checks: two standard or frontier models per claim (TR3). Off unless you turn it on. */
+function CriticalRow({ notebookId }: { notebookId: string }) {
+  const notebooks = useNotebooks();
+  const on = notebooks.data?.find((n) => n.id === notebookId)?.critical === true;
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="grounded-row" data-on={on || undefined}>
+      <Icon name="seal" size={14} />
+      <div className="grounded-row__text">
+        <span className="grounded-row__title">
+          Mission-critical checks
+          <Hint id="critical-checks" title="Mission-critical checks">
+            Every claim is checked by two standard or frontier models, never a small one. If two are not
+            ready, you choose which to use. Slower and dearer.
+          </Hint>
+        </span>
+      </div>
+      <Switch
+        checked={on}
+        disabled={busy}
+        label="Check every claim in this notebook with two standard or frontier models"
+        onChange={async (next) => {
+          setBusy(true);
+          await setCritical(notebookId, next);
+          setBusy(false);
+        }}
+      />
+    </div>
+  );
+}
+
+/** Share this notebook's checked claims with the others, and take theirs (SI1). */
+function ShareChecksRow({ notebookId }: { notebookId: string }) {
+  const cache = useVerdictCache(notebookId);
+  const on = cache.data?.scope === 'global';
+  const [busy, setBusy] = useState(false);
+  if (!cache.data) return null;
+  return (
+    <div className="grounded-row" data-on={on || undefined}>
+      <Icon name="link" size={14} />
+      <div className="grounded-row__text">
+        <span className="grounded-row__title">
+          Share checks with other notebooks
+          <Hint id="share-checks" title="Share checks">
+            {`${cache.data.entries === 1 ? '1 checked claim is' : `${cache.data.entries} checked claims are`} kept here. Shared, a claim checked here answers the same claim elsewhere, and the other way round. Checks against your own sources never leave this notebook.${cache.data.share_note ? ` ${cache.data.share_note}` : ''}`}
+          </Hint>
+        </span>
+      </div>
+      <Switch
+        checked={on}
+        disabled={busy || (!on && !cache.data.can_share)}
+        label="Share this notebook's checked claims with your other notebooks"
+        onChange={async (next) => {
+          setBusy(true);
+          await setShareChecks(notebookId, next);
+          setBusy(false);
+        }}
+      />
+    </div>
+  );
+}
+
 const languageNames = (() => {
   try {
     return new Intl.DisplayNames(['en-GB'], { type: 'language' });
@@ -318,6 +380,8 @@ export function SourcesPanel() {
       <UploadQueue notebookId={notebookId} />
       {items.length ? <GroundedRow notebookId={notebookId} /> : null}
       {items.length ? <WebRow notebookId={notebookId} /> : null}
+      {items.length ? <CriticalRow notebookId={notebookId} /> : null}
+      {items.length ? <ShareChecksRow notebookId={notebookId} /> : null}
       {items.length > 1 ? <LanguageHint notebookId={notebookId} /> : null}
       {items.length === 0 ? (
         <EmptyState

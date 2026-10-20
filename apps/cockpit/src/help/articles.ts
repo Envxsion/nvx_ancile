@@ -282,7 +282,11 @@ Hover or focus a claim to see the passage behind its verdict, and open it in the
 
 **Grounded mode** fact-checks every answer in a notebook as soon as it finishes. Turn it on from the Sources panel.
 
-**Just one claim.** Highlight any words in any message, an answer or your own, and choose **Fact-check** on the bar beside them (or press **F**). A card gives a one-line verdict, the corrected claim when it does not hold, three to five evidence lines each with its source, and one line on what would change. **Use the corrected claim** writes a follow-up in your message box and never sends it. A check always has a judge from a different model family than the one that wrote the words; if none is ready, it says so and does not run. A check costs money only when you ask for it, and the card shows the cost.
+**Which model checks.** You never list models for this. Obvious claims ("the sky is blue") go to a tiny model, claims with numbers, dates, citations or legal, medical or financial wording to a standard one or better, and the rest to a small one, from any company whose key you have. A claim is sent up a tier when the model is unsure or disagrees, twice at most. Hover a claim's score to see which model checked it. A claim checked before, against the same sources, is answered from memory: the card says "Checked earlier" and offers **Re-check**. **Share checks with other notebooks** (Sources panel) lets other notebooks reuse claims checked without your own sources, and switching it off takes them back.
+
+**Mission-critical.** Turn on **Mission-critical checks** in the Sources panel and every claim is checked by two standard or frontier models. If two are not both ready, nothing runs: you see every ready model, the writer's company included, and choose. Sonnet writing and Opus checking is fine.
+
+**Just one claim.** Highlight any words in any message, an answer or your own, and choose **Fact-check** on the bar beside them (or press **F**). A card gives a one-line verdict, the corrected claim when it does not hold, three to five evidence lines each with its source, and one line on what would change. **Use the corrected claim** writes a follow-up in your message box and never sends it. A check uses a model from a different company than the one that wrote the words when one is ready, and checks anyway when only the writer's is. A check costs money only when you ask for it, and the card shows the cost.
 
 **On the web.** Turn on **Check on the web** in the Sources panel, or choose **Check again with the web** for one check, and claims your sources do not cover are looked up on the web and marked **Web**. A private notebook never uses the web.`,
       },
@@ -1091,8 +1095,9 @@ export const ERROR_ARTICLES: Record<string, string> = {
   'decisions.local_url_invalid': 'spend-less-on-decisions',
   'openrouter.endpoints_unavailable': 'openrouter-quality',
   'openrouter.model_invalid': 'openrouter-quality',
-  'factcheck.no_model': 'fact-checking',
-  'factcheck.no_other_family': 'fact-checking',
+  'routing.no_chat_model': 'fact-checking',
+  'factcheck.needs_choice': 'fact-checking',
+  'factcheck.model_not_ready': 'fact-checking',
   'factcheck.judge_not_allowed': 'fact-checking',
   'factcheck.bad_output': 'fact-checking',
   'factcheck.evidence_unavailable': 'fact-checking',

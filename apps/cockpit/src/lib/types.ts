@@ -64,6 +64,9 @@ export interface ModelView {
   company?: string;
   /** A previous generation of its line: pickers fold it under "Older". */
   older?: boolean;
+  /** How capable it is, for routing by need, and where that came from (TR2). */
+  tier?: import('@nvx/contracts').ModelTier;
+  tierSource?: import('@nvx/contracts').TierSource;
   /** Retired models are not offered in pickers (MD5). */
   lifecycle?: 'active' | 'deprecated' | 'retired';
 }
@@ -85,6 +88,10 @@ export interface NotebookView {
   grounded?: boolean;
   /** Fact-checks here may also look claims up on the web (FC4). */
   check_on_web?: boolean;
+  /** Mission-critical checks: standard tier or better, two checkers (TR3). */
+  critical?: boolean;
+  /** Its checks are shared with your other notebooks (SI1). */
+  share_checks?: boolean;
 }
 
 export interface ThreadSummary {

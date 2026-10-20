@@ -415,14 +415,14 @@ describe('the card', () => {
     expect(screen.queryByRole('button', { name: 'Check again with the web' })).toBeNull();
   });
 
-  it('says plainly that no second opinion is available, with the way to fix it (GR24)', async () => {
+  it('says plainly that no model is ready, with the way to fix it', async () => {
     post.mockRejectedValue(
       new ApiCallError(422, {
         error: {
           ...localError(
-            'factcheck.no_other_family',
-            'No second opinion is available',
-            'This was written by a claude model, and a fact-check is always judged by a model from a different family.',
+            'routing.no_chat_model',
+            'No model is ready yet',
+            'Add a key in Settings → Keys, set up Claude Code in Settings → Claude Code, or pull a model with Ollama.',
             'e'.repeat(32),
           ).error,
           retryable: false,
@@ -431,8 +431,8 @@ describe('the card', () => {
     );
     useSelectionCheck.getState().openCard(highlight);
     render(<FactcheckCard messageId="m_1" />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('No second opinion is available');
-    expect(screen.getByText(/a different family/)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('No model is ready yet');
+    expect(screen.getByText(/Add a key in Settings/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open Models' }));
     await waitFor(() =>
       expect(nav.navigate).toHaveBeenCalledWith({ to: '/admin/$section', params: { section: 'models' } }),

@@ -53,6 +53,7 @@ const fc = (over: Partial<Factcheck>): Factcheck => ({
   message_id: 'msg_1',
   run_id: 'run_1',
   status: 'done',
+  critical: false,
   confidence: 0.84,
   verifier_model_id: 'offline/echo',
   claims: [],

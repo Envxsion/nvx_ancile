@@ -17,8 +17,9 @@
  *           |  Copy, Open in Evidence and Use the corrected claim are
  *           |  buttons; the last one writes a follow-up in the message
  *           |  box and never sends it. Escape closes it and puts focus
- *           |  back where it was. When no model of another family can
- *           |  check (GR24), it says so and nothing runs.
+ *           |  back where it was. With only the writer's family ready, it
+ *           |  still checks (a note says so); with no model ready it sends
+ *           |  you to add a key.
  *  Note     |  Loads on first use (Message.tsx lazyHost).
  * ------------------------------------------------------------------
  */
@@ -90,8 +91,7 @@ function toModels() {
 }
 
 const NEEDS_MODELS = new Set([
-  'factcheck.no_other_family',
-  'factcheck.no_model',
+  'routing.no_chat_model',
   'factcheck.judge_not_allowed',
   'model.chain_exhausted',
 ]);

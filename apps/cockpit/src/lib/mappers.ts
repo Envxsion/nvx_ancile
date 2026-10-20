@@ -140,6 +140,8 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.company && { company: m.company }),
     ...(m.older && { older: true }),
     ...(m.lifecycle && { lifecycle: m.lifecycle }),
+    ...(m.tier && { tier: m.tier }),
+    ...(m.tier_source && { tierSource: m.tier_source }),
   };
 }
 
@@ -184,6 +186,8 @@ export function toNotebookView(n: Notebook): NotebookView {
     archived: !!n.archived_at,
     grounded: n.grounded,
     check_on_web: n.check_on_web,
+    critical: n.critical,
+    share_checks: n.share_checks,
     sources: n.counts.sources,
     threads: n.counts.threads,
     notes: n.counts.notes,

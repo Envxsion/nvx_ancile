@@ -19,6 +19,11 @@
  *           |  error. An answer's citations are checked against their
  *           |  sources now (removed, changed since cited), once per
  *           |  answer and again when sources change.
+ *           |  A mission-critical check that cannot pick two independent
+ *           |  checkers answers `needs_choice` instead of starting: the
+ *           |  panel lists the ready models and runs the check on the ones
+ *           |  you pick (TR3). A notebook's checks can be shared with the
+ *           |  others, and unshared, in one click (SI1).
  * ------------------------------------------------------------------
  */
 
@@ -27,9 +32,11 @@ import type {
   ClaimVerdict,
   Explain,
   Factcheck,
+  FactcheckNeedsChoice,
   SelectionCheck,
   StartFactcheckResponse,
   StartSelectionCheckResponse,
+  VerdictCacheState,
 } from '@nvx/contracts';
 import { RunEvent } from '@nvx/contracts/events';
 import { useQuery } from '@tanstack/react-query';
@@ -163,14 +170,52 @@ export function resumeFactcheck(messageId: string, runId: string): void {
   follow(messageId, runId);
 }
 
-/** Start (or join) a fact-check of one answer. `web: true` allows the web for this check (FC4). */
-export async function startFactcheck(messageId: string, opts: { web?: boolean } = {}): Promise<void> {
+/** The models a critical check asks you to choose between, per answer (TR3). */
+type Choice = FactcheckNeedsChoice['needs_choice'];
+export const useCheckChoice = create<{
+  byMessage: Record<string, Choice>;
+  set: (messageId: string, c: Choice | null) => void;
+}>((set) => ({
+  byMessage: {},
+  set: (messageId, c) =>
+    set((s) => {
+      if (c) return { byMessage: { ...s.byMessage, [messageId]: c } };
+      const { [messageId]: _gone, ...rest } = s.byMessage;
+      return { byMessage: rest };
+    }),
+}));
+
+export interface StartOptions {
+  /** Allow the web for this check (FC4). */
+  web?: boolean;
+  /** Check in mission-critical mode for this one answer (TR3). */
+  critical?: boolean;
+  /** The models you chose when asked (TR3). */
+  models?: string[];
+  /** Check again even when an earlier verdict is kept (SI1). */
+  again?: boolean;
+}
+
+/** Start (or join) a fact-check of one answer. */
+export async function startFactcheck(messageId: string, opts: StartOptions = {}): Promise<void> {
   useFactcheckProgress.getState().set(messageId, { stage: 'starting', done: 0, total: 0 });
   try {
-    const r = await api.post<StartFactcheckResponse>(
+    const body = {
+      ...(opts.web && { web: true }),
+      ...(opts.critical && { critical: true }),
+      ...(opts.models?.length && { models: opts.models }),
+      ...(opts.again && { again: true }),
+    };
+    const r = await api.post<StartFactcheckResponse | FactcheckNeedsChoice>(
       `/messages/${messageId}/factcheck`,
-      opts.web ? { web: true } : undefined,
+      Object.keys(body).length ? body : undefined,
     );
+    if ('needs_choice' in r) {
+      useFactcheckProgress.getState().set(messageId, null);
+      useCheckChoice.getState().set(messageId, r.needs_choice);
+      return;
+    }
+    useCheckChoice.getState().set(messageId, null);
     if (opts.web && r.web && !r.web.used && r.web.note)
       notify({ level: 'info', title: 'Checked against your sources only', body: r.web.note });
     void queryClient.invalidateQueries({ queryKey: fcKeys.factcheck(messageId) });
@@ -264,6 +309,61 @@ export async function setCheckOnWeb(notebookId: string, on: boolean): Promise<bo
   } catch (err) {
     const e = err instanceof ApiCallError ? err.body.error : null;
     notify({ level: 'warn', title: e?.title ?? 'That setting could not be changed', body: e?.hint });
+    return false;
+  }
+}
+
+/** Mission-critical checks in a notebook: standard tier or better, two independent checkers. */
+export async function setCritical(notebookId: string, on: boolean): Promise<boolean> {
+  try {
+    await api.patch(`/notebooks/${notebookId}`, { critical: on });
+    await queryClient.invalidateQueries({ queryKey: ['notebooks'] });
+    notify({
+      level: 'success',
+      title: on ? 'Fact-checks here are mission-critical' : 'Fact-checks here are ordinary again',
+      body: on
+        ? 'Each claim is checked by two standard or frontier models. If two are not ready, you choose.'
+        : 'Each claim goes to the smallest model that suits it.',
+    });
+    return true;
+  } catch (err) {
+    const e = err instanceof ApiCallError ? err.body.error : null;
+    notify({ level: 'warn', title: e?.title ?? 'That setting could not be changed', body: e?.hint });
+    return false;
+  }
+}
+
+/** Where a notebook's checked claims are kept, and how many (SI1). */
+export function useVerdictCache(notebookId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['verdict-cache', notebookId ?? 'none'],
+    enabled: Boolean(notebookId),
+    staleTime: 30_000,
+    retry: false,
+    queryFn: () => api.get<VerdictCacheState>(`/notebooks/${notebookId}/verdict-cache`),
+  });
+}
+
+/** Share a notebook's checks with every notebook, or keep them here again. One click each way (SI1). */
+export async function setShareChecks(notebookId: string, shared: boolean): Promise<boolean> {
+  try {
+    await api.post(`/notebooks/${notebookId}/verdict-cache`, { shared });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['notebooks'] }),
+      queryClient.invalidateQueries({ queryKey: ['verdict-cache', notebookId] }),
+    ]);
+    notify({
+      level: 'success',
+      title: shared ? 'Checks here are shared' : 'Checks here stay in this notebook',
+      body: shared
+        ? 'Claims already checked can answer the same claim in your other notebooks. Checks against your own sources never leave.'
+        : 'Your other notebooks no longer reuse these checks.',
+      ...(shared && { undo: () => void setShareChecks(notebookId, false) }),
+    });
+    return true;
+  } catch (err) {
+    const e = err instanceof ApiCallError ? err.body.error : null;
+    notify({ level: 'warn', title: e?.title ?? 'That could not be changed', body: e?.hint });
     return false;
   }
 }

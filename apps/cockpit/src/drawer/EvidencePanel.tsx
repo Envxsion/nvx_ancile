@@ -23,13 +23,14 @@
 import type { ClaimVerdict, FactcheckClaim, SelectionCheck } from '@nvx/contracts';
 import { isClaudeCodeModel } from '@nvx/contracts/engines';
 import { useParams } from '@tanstack/react-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as demo from '../fixtures/demo';
 import { useThread } from '../lib/data';
 import {
   type LiveClaim,
   resumeFactcheck,
   startFactcheck,
+  useCheckChoice,
   useFactcheck,
   useLiveClaims,
   useProgress,
@@ -37,6 +38,7 @@ import {
 import { modelName, percent } from '../lib/format';
 import { scrollBehavior } from '../lib/motion';
 import { copyText, costLine, followUpDraft, insertIntoComposer } from '../lib/selectionWords';
+import { TIER_WORDS } from '../models/tier';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
@@ -93,13 +95,40 @@ function DemoEvidence() {
   );
 }
 
-function ClaimCard({ c, focused }: { c: FactcheckClaim; focused: boolean }) {
+/** How a claim was checked, for its tooltip: the tier, the model, a step up, and where routing settled for less. */
+function checkWords(c: FactcheckClaim): string {
+  const k = c.check;
+  if (!k) return c.explanation;
+  const parts = [c.explanation];
+  if (k.cached) parts.push('Checked earlier; no model was asked now.');
+  else if (k.tier_used)
+    parts.push(
+      `Checked by ${k.model_id ? modelName(k.model_id) : 'a model'} (${TIER_WORDS[k.tier_used].toLowerCase()} tier).`,
+    );
+  if (k.escalated_from)
+    parts.push(`It started at ${TIER_WORDS[k.escalated_from].toLowerCase()} tier and was sent up.`);
+  parts.push(...k.degraded);
+  return parts.join(' ');
+}
+
+const dateWords = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+function ClaimCard({
+  c,
+  focused,
+  onRecheck,
+}: {
+  c: FactcheckClaim;
+  focused: boolean;
+  onRecheck?: () => void;
+}) {
   return (
     <li className="claim-card" data-verdict={c.verdict} data-claim={c.id} data-focused={focused || undefined}>
       <div className="claim-card__head">
         <VerdictMark verdict={c.verdict} />
         {c.verdict !== 'not_checkable' ? (
-          <span data-num className="claim-card__conf" title={c.explanation}>
+          <span data-num className="claim-card__conf" title={checkWords(c)}>
             <ScoreRing value={c.confidence} size={14} /> {percent(c.confidence)}
           </span>
         ) : null}
@@ -108,6 +137,17 @@ function ClaimCard({ c, focused }: { c: FactcheckClaim; focused: boolean }) {
       {c.verdict !== 'not_checkable' ? <EvidenceList claim={c} /> : null}
       {c.rationale ? <p className="claim-card__why">{c.rationale}</p> : null}
       {c.verdict !== 'not_checkable' ? <p className="claim-card__score">{c.explanation}</p> : null}
+      {c.check?.cached ? (
+        <p className="claim-card__score">
+          Checked earlier ({dateWords(c.check.cached.at)}
+          {c.check.cached.model_id ? `, ${modelName(c.check.cached.model_id)}` : ''}).{' '}
+          {onRecheck ? (
+            <button type="button" className="link-btn" onClick={onRecheck}>
+              Re-check
+            </button>
+          ) : null}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -169,6 +209,56 @@ const STAGE_WORDS: Record<string, string> = {
 };
 
 /** The check as it runs: claims appear as they are found and fill in as each verdict lands. */
+/**
+ * A mission-critical check could not pick two independent checkers, so nothing ran. Every ready chat model
+ * is listed, the writer's provider included; the ones it would pick are ticked (TR3, DESIGN D30).
+ */
+export function CheckChoice({ messageId }: { messageId: string }) {
+  const choice = useCheckChoice((s) => s.byMessage[messageId]);
+  const [picked, setPicked] = useState<string[] | null>(null);
+  if (!choice) return null;
+  const chosen = picked ?? choice.suggested;
+  const toggle = (id: string) =>
+    setPicked(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id].slice(-4));
+  return (
+    <div className="check-choice">
+      <h2 className="check-choice__title">{choice.title}</h2>
+      <p className="check-choice__hint">{choice.hint}</p>
+      <ul className="check-choice__list">
+        {choice.models.map((m) => (
+          <li key={m.id}>
+            <label className="check-choice__row" data-low={!m.suitable || undefined}>
+              <input type="checkbox" checked={chosen.includes(m.id)} onChange={() => toggle(m.id)} />
+              <span className="check-choice__name">{m.name}</span>
+              <span className="mute">
+                {TIER_WORDS[m.tier]}
+                {m.same_family_as_writer ? ' · same provider as the writer' : ''}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="check-choice__actions">
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={chosen.length === 0}
+          onClick={() => void startFactcheck(messageId, { critical: true, models: chosen })}
+        >
+          Check with these
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => useCheckChoice.getState().set(messageId, null)}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Checking({
   messageId,
   f,
@@ -337,6 +427,7 @@ export function EvidencePanel() {
       </>
     ) : (
       <>
+        <CheckChoice messageId={m.id} />
         <EmptyState
           icon="factcheck"
           title="Not fact-checked yet"
@@ -357,6 +448,7 @@ export function EvidencePanel() {
   );
   return (
     <div className="panel evidence-panel">
+      <CheckChoice messageId={m.id} />
       <header className="evidence-head" data-sealed={f.sealed || undefined}>
         <div className="evidence-head__score">
           {f.sealed ? (
@@ -372,6 +464,7 @@ export function EvidencePanel() {
         </div>
         <p className="evidence-head__summary">{f.summary}</p>
         <p className="mute evidence-head__by">
+          {f.critical ? 'Mission-critical. ' : ''}
           {f.verifier_model_id ? (
             <>
               Judged by <strong>{modelName(f.verifier_model_id)}</strong>
@@ -414,7 +507,12 @@ export function EvidencePanel() {
       ) : null}
       <ul className="evidence" ref={ref}>
         {claims.map((c) => (
-          <ClaimCard key={c.id} c={c} focused={focused === c.id} />
+          <ClaimCard
+            key={c.id}
+            c={c}
+            focused={focused === c.id}
+            onRecheck={() => void startFactcheck(m.id, { again: true })}
+          />
         ))}
       </ul>
       {highlighted}
