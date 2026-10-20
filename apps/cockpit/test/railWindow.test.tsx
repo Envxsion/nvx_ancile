@@ -137,6 +137,11 @@ function scrollTo(container: HTMLElement, top: number) {
 const flush = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
 
 beforeEach(() => {
+  // A fixed midday clock: the fixtures space threads hours apart, so the date
+  // headings (and the rows drawn under them) otherwise change with the hour the
+  // suite runs. Only Date is faked; timers stay real.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-15T12:00:00'));
   for (const k of Object.keys(params)) delete params[k];
   useUi.setState({ demo: false, railOpen: true });
   Element.prototype.scrollIntoView = vi.fn();
@@ -149,6 +154,7 @@ beforeEach(() => {
   })) as never;
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   queryClient.clear();
 });
