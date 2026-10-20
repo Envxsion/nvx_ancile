@@ -15,3 +15,8 @@ thresholds:
                         # one passage that states it outright (score ~0.95) is enough
 web_search: false       # look claims up on the web in every notebook (needs SEARXNG_URL). Off by default; a notebook turns it on with "Check on the web"
 web_daily_cap_usd: 0.25 # most web lookups through a model may cost in a day (USD). SearXNG is free and not counted. 0: no model lookups
+limits:                 # hard limits on one fact-check. A claim that hits one reads "Not checked: <reason>"
+  calls_per_claim: 3    # model calls for one claim: the check, a stronger second look, a repair of a bad reply
+  calls_per_check: 20   # model calls for the whole answer, finding the claims included
+  minutes: 6            # how long the whole check may take
+  spend_usd: 0.5        # most one check may spend on models (Claude Code plan use is not counted)

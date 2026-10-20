@@ -34,6 +34,19 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
 
 **When no model is set up for a step.** Nothing needs listing: fact-checking asks for a tier, and any ready chat model in any provider can serve (`want` in `config/routing.yaml`). Claude Code's models and Ollama models you pulled count like any other, so a machine with only Claude Code signed in checks facts too. Only when no chat model is ready at all does it stop, with `routing.no_chat_model` ("Add a key in Settings → Keys").
 
+**Reading a model's reply.** Every prompt that asks for JSON names each field with its type and gives an example, and the call asks the provider for its JSON mode with the schema where it has one. A reply is read tolerantly first (`services/core/src/factcheck/tolerant.ts`): one wrapper key such as `{"claimVerdict": {...}}` is unwrapped, `SUPPORTED` and `true` read as supported, a confidence of `85` or `"85%"` as 0.85. A reply that still does not fit is asked again **once**, on the same model, saying what was wrong. If that fails too, that model counts as failed and the next is tried.
+
+**Hard limits.** A check cannot run away (`limits` in `config/factcheck.yaml`; `services/core/src/factcheck/budget.ts`). Every model call counts, including a stronger second look, a repair of a bad reply and a model the gateway fell back to:
+
+| Limit | Default | When it is reached |
+|---|---|---|
+| Calls per claim | 3 | the claim reads "Not checked: 3 model calls did not settle it" |
+| Calls per answer (claims found included) | 20 | the claims left read "Not checked: the check reached its limit of 20 model calls" |
+| Time | 6 minutes | "Not checked: the check ran out of time" |
+| Spend | $0.50 | "Not checked: the check reached its spending limit"; Claude Code's plan use is not counted |
+
+A "Not checked" claim shows as without enough evidence and the others go on; the run is never a crash. A claim that was already judged keeps its verdict when only the stronger second look was cut. Stopping a check ends it as cancelled. Every call a check makes is counted in Settings → Usage under **Fact-checks** (see [api.md](api.md), Usage).
+
 **Claude Code judges at once.** Claims are checked four at a time, but every Claude Code judge call (the fallback above, or a `claude-code/<model>` you set for a step) is a Claude Code session on your Claude plan, so at most **Fact-check judges at once** of them run together across every fact-check (Settings → Claude Code, 1 to 4, default 1); the rest wait their turn. Each is asked on its own, never inside another model's fallback, and its 90-second limit starts when its turn comes. Stopping a fact-check gives up its place in the queue. The Evidence panel says "Claude Code judges run on your Claude plan" when one judged.
 
 ## The confidence score

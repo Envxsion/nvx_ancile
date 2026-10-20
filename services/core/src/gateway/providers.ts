@@ -40,6 +40,7 @@ import {
   type JSONValue,
   jsonSchema,
   type LanguageModel,
+  Output,
   type ModelMessage as SdkMessage,
   streamText,
   type ToolSet,
@@ -627,6 +628,13 @@ export class AiSdkClient implements ModelClient {
         ) as ToolSet,
       }),
       ...(toolsOffered && req.toolChoice && { toolChoice: req.toolChoice }),
+      // JSON mode: the provider's own structured output where it has one; the text still streams as usual.
+      ...(req.json &&
+        !toolsOffered && {
+          experimental_output: Output.object({
+            schema: jsonSchema(req.json.schema as Parameters<typeof jsonSchema>[0]),
+          }),
+        }),
       abortSignal: signal,
       maxRetries: 0, // retries are the gateway's job, with its own policy
       ...(maxOutputTokens !== undefined && { maxOutputTokens }),

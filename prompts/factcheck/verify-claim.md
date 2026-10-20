@@ -26,4 +26,12 @@ Claim:
 Evidence:
 {{evidence}}
 
+Reply with one JSON object and nothing else, with exactly these fields:
+- "stance": a string, one of "supported", "contradicted", "insufficient"
+- "evidence": a list; each item is { "ref": the evidence number such as "E1", "quote": the exact words, "stance": "supports" or "contradicts" }. An empty list when none.
+- "rationale": a string, one or two sentences
+- "confidence": a number from 0 to 1
+Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}
+Do not put the object inside another key.
+
 Return JSON matching ClaimVerdict.

@@ -24,6 +24,12 @@
  *           |  same claim and sources answers first (cache.ts, SI1).
  *           |  Mission-critical mode (the notebook's setting, or one
  *           |  check) uses two checkers at standard tier or better.
+ *  Limits   |  Hard limits per check (budget.ts, config/factcheck.yaml):
+ *           |  model calls per claim and per answer, minutes, and spend.
+ *           |  A claim that meets one reads "Not checked: <reason>" and
+ *           |  the rest go on; so does a claim no checker could answer
+ *           |  in the format asked for. A stop ends the run as cancelled,
+ *           |  never as a crash.
  *  Guards   |  The judges are held to the thread's scope (keep-local), and
  *           |  the web is searched only when the check may (web.ts), each
  *           |  search through the permission gate (FC4).
@@ -58,6 +64,14 @@ import {
 import type { RunEventInput } from '../runs/events';
 import { type ThreadRepo, textOf } from '../threads/repo';
 import { scopeAllow } from './allow';
+import {
+  type BudgetState,
+  CheckBudget,
+  CheckLimit,
+  type CheckLimits,
+  DEFAULT_LIMITS,
+  notChecked,
+} from './budget';
 import type { VerdictCache } from './cache';
 import {
   type ClaimOutcome,
@@ -119,6 +133,8 @@ export interface FactcheckCheckpoint {
   triage?: Triage[];
   /** What the web lookups did and cost, kept so a resumed run adds to it. */
   webTally?: WebTally;
+  /** Model calls, spend and start time so far (budget.ts), kept so a resumed run honours the same limits. */
+  budget?: BudgetState;
 }
 
 export interface FactcheckDeps extends StepDeps {
@@ -134,6 +150,19 @@ export interface FactcheckDeps extends StepDeps {
   /** The permission gate: every web search is decided on its real query before it leaves. */
   gate?: Gate;
   userId?: string;
+}
+
+/** The limits on one check, from config/factcheck.yaml (limits), else the defaults. */
+export function checkLimits(cfg: z.infer<typeof FactcheckFile> | undefined): CheckLimits {
+  const l = cfg?.limits;
+  return l
+    ? {
+        callsPerClaim: l.calls_per_claim,
+        callsPerCheck: l.calls_per_check,
+        minutes: l.minutes,
+        spendUsd: l.spend_usd,
+      }
+    : DEFAULT_LIMITS;
 }
 
 export function scoreConfig(cfg: z.infer<typeof FactcheckFile> | undefined): ScoreConfig {
@@ -165,6 +194,12 @@ function failure(err: unknown): { code: string; title: string; hint: string } | 
       code: 'factcheck.needs_choice',
       title: 'Choose the models to check with',
       hint: 'Start the check again from the answer and pick the models that should check it.',
+    };
+  if (err instanceof CheckLimit)
+    return {
+      code: 'factcheck.limit',
+      title: 'The fact-check reached its limit',
+      hint: `${err.words.charAt(0).toUpperCase()}${err.words.slice(1)} before the claims could be found. Try again, or raise the limits in config/factcheck.yaml.`,
     };
   if (err instanceof ChainFailedError) return chainFailure(err);
   if (err instanceof AncileError) return { code: err.code, title: err.title, hint: err.hint };
@@ -216,6 +251,17 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           total,
         });
 
+      const budget = new CheckBudget(checkLimits(deps.config), cp.budget);
+      cp.budget = budget.state;
+      const stopped = async (): Promise<RunOutcome> => {
+        await fail(input.factcheckId, input.messageId, {
+          code: 'run.cancelled',
+          title: 'The fact-check was stopped',
+          hint: 'Start it again from the answer when you want it.',
+        });
+        return { kind: 'cancelled' };
+      };
+
       try {
         const scope = (await deps.scopeOf?.({ threadId: input.threadId }).catch(() => null)) ?? null;
         const allow = scopeAllow(scope);
@@ -251,7 +297,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           const parent = message.parent_id ? await deps.repo.getMessage(message.parent_id) : undefined;
           const { claims } = await extractClaims(
             deps,
-            { answer, question: parent ? textOf(parent.parts) : '', allow },
+            { answer, question: parent ? textOf(parent.parts) : '', allow, budget: budget.forCheck() },
             ctx.signal,
           );
           cp.claims = claims;
@@ -317,23 +363,44 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
               if (!claim.checkable)
                 return { claim, evidence: [], coverage: 0, verdict: 'insufficient', rationale: '' };
               const t = triage[i] as Triage;
-              const v = await checkClaim(
-                deps,
-                {
-                  claim: claim.text,
-                  evidence: g.evidence,
-                  triage: t,
-                  critical: input.critical === true,
-                  generatorFamily: input.generatorFamily,
-                  generatorModelId: input.generatorModelId ?? null,
-                  allow,
-                  chosen,
-                  notebookId: input.notebookId,
-                  sharing: input.sharing === true,
-                  again: input.again,
-                },
-                ctx.signal,
-              );
+              let v: Awaited<ReturnType<typeof checkClaim>>;
+              try {
+                v = await checkClaim(
+                  deps,
+                  {
+                    claim: claim.text,
+                    evidence: g.evidence,
+                    triage: t,
+                    critical: input.critical === true,
+                    generatorFamily: input.generatorFamily,
+                    generatorModelId: input.generatorModelId ?? null,
+                    allow,
+                    chosen,
+                    notebookId: input.notebookId,
+                    sharing: input.sharing === true,
+                    again: input.again,
+                    budget: budget.forClaim(i),
+                  },
+                  ctx.signal,
+                );
+              } catch (err) {
+                // A limit, or a claim no checker could answer in the format asked for: said plainly, and the
+                // rest of the answer is still checked. Anything else (every model down) fails the run.
+                const why =
+                  err instanceof CheckLimit
+                    ? err.words
+                    : err instanceof AncileError && err.code === 'factcheck.bad_output'
+                      ? 'no checker gave a reply that could be read'
+                      : null;
+                if (why === null || ctx.signal.aborted) throw err;
+                return {
+                  claim,
+                  evidence: [],
+                  coverage: g.coverage,
+                  verdict: 'insufficient',
+                  rationale: notChecked(why),
+                };
+              }
               if (v.modelId) cp.verifier = v.modelId;
               const check: ClaimCheckInfo | undefined =
                 v.modelId || v.cached
@@ -392,12 +459,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
 
         if (ctx.signal.aborted) {
           if (ctx.signal.reason instanceof RunOwnershipLost) throw ctx.signal.reason;
-          await fail(input.factcheckId, input.messageId, {
-            code: 'run.cancelled',
-            title: 'The fact-check was stopped',
-            hint: 'Start it again from the answer when you want it.',
-          });
-          return { kind: 'cancelled' };
+          return await stopped();
         }
 
         const checked = cp.outcomes.map((o) => scoreOutcome(o as ClaimOutcome, cfg));
@@ -428,6 +490,8 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
         return { kind: 'done' };
       } catch (err) {
         if (err instanceof RunOwnershipLost || ctx.signal.reason instanceof RunOwnershipLost) throw err;
+        // A stop in the middle of a model call is a stop, not a crash.
+        if (ctx.signal.aborted) return await stopped();
         const f = failure(err) ?? {
           code: 'run.crashed',
           title: 'The fact-check stopped unexpectedly',

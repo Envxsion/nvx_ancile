@@ -28,6 +28,14 @@ export const TIER_WORDS: Record<string, ModelTier> = {
   fast: 'fast',
 };
 
+/** The plain word for each stored tier: what the docs, Admin and `tier_label` in GET /models say. */
+export const TIER_LABEL: Record<ModelTier, 'frontier' | 'standard' | 'small' | 'tiny'> = {
+  best: 'frontier',
+  balanced: 'standard',
+  fast: 'small',
+  tiny: 'tiny',
+};
+
 /** A tier by either name; the plain words are what people write. */
 export const TierName = z.preprocess(
   (v) => (typeof v === 'string' ? (TIER_WORDS[v.toLowerCase()] ?? v) : v),
@@ -292,6 +300,22 @@ export const FactcheckFile = z.object({
   web_search: z.boolean().default(false),
   /** The most web lookups through a model may cost in a day, in USD. SearXNG is not counted. 0 turns them off. */
   web_daily_cap_usd: z.number().min(0).default(0.25),
+  /**
+   * Hard limits on one fact-check. A claim that hits one reads "Not checked: <reason>" and the check
+   * goes on; the run never crashes and never walks the whole list of models.
+   */
+  limits: z
+    .object({
+      /** Model calls for one claim, escalation and repair retries included. */
+      calls_per_claim: z.number().int().min(1).max(10).default(3),
+      /** Model calls for the whole answer, extraction included (never more than 3 per claim plus 2). */
+      calls_per_check: z.number().int().min(1).max(100).default(20),
+      /** Minutes the whole check may take. */
+      minutes: z.number().min(0.5).max(60).default(6),
+      /** Most one check may spend on models, in USD. Claude Code's plan use is not counted. */
+      spend_usd: z.number().min(0).default(0.5),
+    })
+    .default({ calls_per_claim: 3, calls_per_check: 20, minutes: 6, spend_usd: 0.5 }),
 });
 
 /** config/retrieval.yaml: how many passages a turn is given, and how many one source may give. */

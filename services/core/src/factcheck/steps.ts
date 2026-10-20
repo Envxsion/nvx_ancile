@@ -17,8 +17,14 @@
  *           |            family moved to the back, so the second opinion
  *           |            is independent when it can be. Evidence goes in
  *           |            inside the untrusted wrapper with a fresh nonce.
- *           |  A model whose output is not the JSON asked for is
- *           |  skipped for the next one in its chain.
+ *           |  A reply is read tolerantly first (tolerant.ts: a wrapper
+ *           |  key, "SUPPORTED", 85 for 0.85). One that still fails the
+ *           |  schema is asked again once, on the same model, saying what
+ *           |  was wrong; if that fails too, the model counts as failed
+ *           |  and the next one in the chain is asked.
+ *           |  limits    every model call is counted against the claim and
+ *           |            the check (budget.ts), so a bad day at a provider
+ *           |            ends as "Not checked: <reason>", never as 54 calls.
  *           |  judges    when no model is set for a step (no provider
  *           |            key), Claude Code's quickest model answers
  *           |            (one lean call: no tools, none of your settings,
@@ -49,11 +55,13 @@ import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/g
 import type { ModelRegistry } from '../gateway/registry';
 import { canonicalFamily, sameFamily, type WantResolution } from '../gateway/tiers';
 import type { ModelRequest } from '../gateway/types';
-import type { CallUsage } from '../gateway/usage';
+import { type CallUsage, priceOf } from '../gateway/usage';
 import type { KnowledgeClient } from '../knowledge/client';
+import { CheckLimit, type ClaimBudget } from './budget';
 import type { VerdictCache } from './cache';
 import type { ClaimEvidence, ExtractedClaim } from './pipeline';
 import type { Stance, VerifierVerdict } from './score';
+import { parseJsonValue, REPAIR_LEAD, tolerantClaims, tolerantVerdict } from './tolerant';
 import { escalateTo, type Triage } from './triage';
 import { hostName, type WebHit } from './web';
 
@@ -244,19 +252,24 @@ export interface Completion {
   costUsd?: number | undefined;
 }
 
-/** Stream one request through the gateway and collect the text. */
+/** One model call (or a gateway chain of them) gets this long before it counts as failed. */
+export const CALL_TIMEOUT_MS = 60_000;
+
+/** Stream one request through the gateway and collect the text. `fallbacks` counts the models it fell through. */
 async function complete(
   gateway: Gateway,
   chain: ModelConfig[],
   req: ModelRequest,
   signal: AbortSignal,
-): Promise<Completion> {
+): Promise<Completion & { fallbacks: number }> {
   let text = '';
   let modelId = chain[0]?.id ?? '';
   let usage: CallUsage | undefined;
   let costUsd: number | undefined;
-  for await (const ev of gateway.stream(chain, req, signal)) {
-    if (ev.type === 'model') {
+  let fallbacks = 0;
+  for await (const ev of gateway.stream(chain, req, signal, { purpose: 'factcheck' })) {
+    if (ev.type === 'fallback') fallbacks += 1;
+    else if (ev.type === 'model') {
       modelId = ev.modelId;
       text = '';
       usage = undefined;
@@ -267,7 +280,7 @@ async function complete(
       costUsd = ev.chunk.costUsd;
     }
   }
-  return { text, modelId, usage, costUsd };
+  return { text, modelId, usage, costUsd, fallbacks };
 }
 
 /** The first JSON object in a reply, fences and chatter around it ignored. */
@@ -283,28 +296,50 @@ export function parseJsonObject(text: string): unknown {
   }
 }
 
+/** What was wrong with a reply, in words a model can act on. */
+function problemWith(error: z.ZodError, raw: unknown): string {
+  if (raw === undefined) return 'it was not a JSON object';
+  const fields = [...new Set(error.issues.map((i) => String(i.path[0] ?? '')).filter(Boolean))];
+  return fields.length
+    ? `these fields were missing or had the wrong type: ${fields.join(', ')}`
+    : 'it did not have the fields asked for';
+}
+
+export interface StructuredOpts<T> {
+  system?: string;
+  maxOutputTokens?: number;
+  /** Looks at what a reply says beyond its shape; a message means this model's reply is not usable. */
+  accept?: (value: T) => string | null;
+  /** Reads a reply that is dressed differently before the schema sees it (tolerant.ts). */
+  normalize?: (raw: unknown) => unknown;
+  /** The reply's shape as JSON Schema, for the provider's own JSON mode. */
+  jsonSchema?: Record<string, unknown>;
+  /** The reply's shape as an example, shown when a bad reply is asked for again. */
+  shape?: string;
+  /** Calls this may make (budget.ts); absent: only the chain bounds it. */
+  budget?: ClaimBudget | undefined;
+}
+
 /**
- * Ask models down the chain until one returns JSON matching the schema.
- * Errors from the gateway (every model failed) propagate.
+ * Ask models down the chain until one returns JSON matching the schema. A reply that does not match is
+ * asked again once on the same model; then that model has failed and the next is asked. Every call is
+ * counted against the budget, and CheckLimit is thrown before one that would go over. Errors from the
+ * gateway (every model failed) propagate.
  */
 export async function structured<T>(
-  deps: { gateway: Gateway; judges?: JudgeSlots | undefined },
+  deps: { gateway: Gateway; judges?: JudgeSlots | undefined; registry?: Pick<ModelRegistry, 'get'> },
   chain: ModelConfig[],
   prompt: string,
   schema: z.ZodType<T>,
   signal: AbortSignal,
-  opts: {
-    system?: string;
-    maxOutputTokens?: number;
-    /** Looks at what a reply says beyond its shape; a message means this model's reply is not usable. */
-    accept?: (value: T) => string | null;
-  } = {},
+  opts: StructuredOpts<T> = {},
 ): Promise<{ value: T; modelId: string; usage: CallUsage | undefined; costUsd: number | undefined }> {
   const req: ModelRequest = {
     system: opts.system ?? SYSTEM,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0,
     ...(opts.maxOutputTokens && { maxOutputTokens: opts.maxOutputTokens }),
+    ...(opts.jsonSchema && { json: { schema: opts.jsonSchema } }),
   };
   const isCc = (m: ModelConfig | undefined) => m?.provider === CLAUDE_CODE_PROVIDER;
   // Every attempt that failed on the way, so the error can say what each one did (FC2).
@@ -318,46 +353,104 @@ export async function structured<T>(
         detail: err instanceof Error ? err.message : String(err),
       });
   };
+  const read = (text: string): { value: T } | { problem: string } => {
+    const raw = parseJsonValue(text);
+    const parsed = schema.safeParse(opts.normalize ? opts.normalize(raw) : raw);
+    if (!parsed.success) return { problem: problemWith(parsed.error, raw) };
+    const why = opts.accept?.(parsed.data);
+    return why ? { problem: why } : { value: parsed.data };
+  };
+  /** Count a finished call: its fallbacks as calls, its cost as spend (a Claude Code call costs no bill). */
+  const settle = (out: Completion & { fallbacks: number }, fallback: ModelConfig) => {
+    opts.budget?.charge(out.fallbacks);
+    const m = chain.find((c) => c.id === out.modelId) ?? deps.registry?.get(out.modelId) ?? fallback;
+    if (isCc(m)) return;
+    opts.budget?.spend(out.costUsd ?? (out.usage ? priceOf(m, out.usage) : 0));
+  };
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as ModelConfig;
     // Claude Code as a judge is asked on its own, through a slot, with a short time limit (started once
     // the slot is free); the next judge is tried if it fails or runs over. Other models fall through the
     // gateway together, up to the next Claude Code one, so that one is never reached without its limit.
     const cc = isCc(model);
-    let out: Completion;
+    opts.budget?.take();
+    const stop = chain.findIndex((m, k) => k > i && isCc(m));
+    // The gateway may fall through at most as many models as the budget has calls left.
+    const room = opts.budget ? opts.budget.remaining() + 1 : chain.length;
+    const end = cc ? i + 1 : Math.min(stop < 0 ? chain.length : stop, i + Math.max(1, room));
+    const ask = async (
+      models: ModelConfig[],
+      r: ModelRequest,
+    ): Promise<Completion & { fallbacks: number }> => {
+      if (!cc)
+        return complete(
+          deps.gateway,
+          models,
+          r,
+          AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]),
+        );
+      const go = () =>
+        complete(
+          deps.gateway,
+          models,
+          r,
+          AbortSignal.any([signal, AbortSignal.timeout(CLAUDE_CODE_JUDGE_TIMEOUT_MS)]),
+        );
+      return deps.judges ? deps.judges.run(go, signal) : go();
+    };
+    let out: Completion & { fallbacks: number };
     try {
-      if (cc) {
-        const ask = () =>
-          complete(
-            deps.gateway,
-            [model],
-            req,
-            AbortSignal.any([signal, AbortSignal.timeout(CLAUDE_CODE_JUDGE_TIMEOUT_MS)]),
-          );
-        out = deps.judges ? await deps.judges.run(ask, signal) : await ask();
-      } else {
-        const stop = chain.findIndex((m, k) => k > i && isCc(m));
-        out = await complete(deps.gateway, chain.slice(i, stop < 0 ? undefined : stop), req, signal);
-      }
+      out = await ask(chain.slice(i, end), req);
     } catch (err) {
       if (signal.aborted) throw err;
       note(model, err);
-      if (i === chain.length - 1)
-        throw failures.length > 1 || !(err instanceof ChainFailedError)
-          ? new ChainFailedError(failures)
-          : err;
-      if (!cc) {
-        // Every model up to the next Claude Code one failed: go on from there.
-        const stop = chain.findIndex((m, k) => k > i && isCc(m));
-        if (stop < 0) throw err;
-        i = stop - 1;
+      if (err instanceof ChainFailedError) opts.budget?.charge(Math.max(0, err.attempts.length - 1));
+      if (end >= chain.length) {
+        if (cc || i === chain.length - 1 || stop < 0)
+          throw failures.length > 1 || !(err instanceof ChainFailedError)
+            ? new ChainFailedError(failures)
+            : err;
       }
+      i = end - 1;
       continue;
     }
-    const parsed = schema.safeParse(parseJsonObject(out.text));
-    if (parsed.success && !opts.accept?.(parsed.data))
-      return { value: parsed.data, modelId: out.modelId, usage: out.usage, costUsd: out.costUsd };
-    // The model that answered gave the wrong shape: try the one after it.
+    settle(out, model);
+    let result = read(out.text);
+    let answered = out;
+    if ('problem' in result) {
+      // One more try on the model that answered, saying what was wrong. Then it has failed.
+      const asked = chain.find((m) => m.id === out.modelId) ?? model;
+      try {
+        opts.budget?.take();
+        const again = await ask([asked], {
+          ...req,
+          messages: [
+            ...req.messages,
+            { role: 'assistant', content: out.text.slice(0, 2_000) || '(no reply)' },
+            {
+              role: 'user',
+              content: `${REPAIR_LEAD}: ${result.problem}. Reply again with only one JSON object${
+                opts.shape ? ` shaped exactly like this: ${opts.shape}` : ' with the fields asked for'
+              }. No other text, no code fence, no wrapper key.`,
+            },
+          ],
+        });
+        settle(again, asked);
+        answered = again;
+        result = read(again.text);
+      } catch (err) {
+        if (err instanceof CheckLimit || signal.aborted) throw err;
+        note(asked, err);
+      }
+    }
+    if ('value' in result)
+      return {
+        value: result.value,
+        modelId: answered.modelId,
+        usage: answered.usage,
+        costUsd: answered.costUsd,
+      };
+    // The model that answered gave the wrong shape twice: try the one after it.
     const at = chain.findIndex((m) => m.id === out.modelId);
     if (at > i) i = at;
   }
@@ -372,7 +465,33 @@ export async function structured<T>(
 
 /* ---- Extract ---------------------------------------------------------------- */
 
-const RawClaims = z.object({
+/** The JSON the claim prompt asks for, as an example and as JSON Schema (for the provider's JSON mode). */
+export const CLAIMS_SHAPE =
+  '{"claims":[{"text":"Mount Everest is 8,849 metres tall.","char_start":0,"char_end":35,"importance":1,"checkable":true}]}';
+export const CLAIMS_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    claims: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          char_start: { type: 'integer' },
+          char_end: { type: 'integer' },
+          importance: { type: 'number' },
+          checkable: { type: 'boolean' },
+        },
+        required: ['text', 'char_start', 'char_end', 'importance', 'checkable'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['claims'],
+  additionalProperties: false,
+};
+
+export const RawClaims = z.object({
   claims: z
     .array(
       z.object({
@@ -472,11 +591,12 @@ Question:
 Answer:
 {{message_text}}
 
-Return JSON matching ClaimList: { "claims": [{ "text", "char_start", "char_end", "importance", "checkable" }] }`;
+Reply with one JSON object and nothing else: { "claims": [{ "text": string, "char_start": integer, "char_end": integer, "importance": 1 or 0.5 or 0.2, "checkable": true or false }] }
+Return JSON matching ClaimList.`;
 
 export async function extractClaims(
   deps: StepDeps,
-  input: { answer: string; question: string; allow?: JudgeOpts['allow'] },
+  input: { answer: string; question: string; allow?: JudgeOpts['allow']; budget?: ClaimBudget | undefined },
   signal: AbortSignal,
 ): Promise<{ claims: ExtractedClaim[]; modelId: string }> {
   const template = await loadPrompt(deps.promptsDir, 'factcheck.extract-claims', EXTRACT_FALLBACK);
@@ -487,7 +607,12 @@ export async function extractClaims(
     () => input.answer,
   );
   const chain = judgeChain(deps.registry, 'utility', { allow: input.allow });
-  const { value, modelId } = await structured(deps, chain, prompt, RawClaims, signal);
+  const { value, modelId } = await structured(deps, chain, prompt, RawClaims, signal, {
+    normalize: tolerantClaims,
+    jsonSchema: CLAIMS_JSON_SCHEMA,
+    shape: CLAIMS_SHAPE,
+    budget: input.budget,
+  });
   return { claims: validateClaims(input.answer, value.claims), modelId };
 }
 
@@ -601,7 +726,34 @@ export async function gatherEvidence(
 
 /* ---- Verify ----------------------------------------------------------------- */
 
-const RawVerdict = z.object({
+/** The JSON the verify prompts ask for, as an example and as JSON Schema (for the provider's JSON mode). */
+export const VERDICT_SHAPE =
+  '{"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}';
+export const VERDICT_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    stance: { type: 'string', enum: ['supported', 'contradicted', 'insufficient'] },
+    evidence: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          quote: { type: 'string' },
+          stance: { type: 'string', enum: ['supports', 'contradicts', 'neutral'] },
+        },
+        required: ['ref', 'quote', 'stance'],
+        additionalProperties: false,
+      },
+    },
+    rationale: { type: 'string' },
+    confidence: { type: 'number' },
+  },
+  required: ['stance', 'evidence', 'rationale', 'confidence'],
+  additionalProperties: false,
+};
+
+export const RawVerdict = z.object({
   stance: z.enum(['supported', 'contradicted', 'insufficient']),
   evidence: z
     .array(
@@ -625,7 +777,14 @@ Claim:
 Evidence:
 {{evidence}}
 
-Return JSON matching ClaimVerdict: { "stance", "evidence": [{ "ref", "quote", "stance" }], "rationale", "confidence" }`;
+Reply with one JSON object and nothing else, with exactly these fields:
+- "stance": a string, one of "supported", "contradicted", "insufficient"
+- "evidence": a list; each item is { "ref": the evidence number such as "E1", "quote": the exact words, "stance": "supports" or "contradicts" }. An empty list when none.
+- "rationale": a string, one or two sentences
+- "confidence": a number from 0 to 1
+Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}
+Do not put the object inside another key.
+Return JSON matching ClaimVerdict.`;
 
 const WRAPPER_FALLBACK = `<untrusted kind="{{kind}}" origin="{{origin}}" id="{{marker}}">
 {{content}}
@@ -695,7 +854,14 @@ const GENERAL_FALLBACK = `This claim is obvious and widely known. Say whether it
 Claim:
 {{claim}}
 
-Return JSON matching ClaimVerdict: { "stance", "evidence": [], "rationale", "confidence" }`;
+Reply with one JSON object and nothing else, with exactly these fields:
+- "stance": a string, one of "supported", "contradicted", "insufficient"
+- "evidence": a list; each item is { "ref": the evidence number such as "E1", "quote": the exact words, "stance": "supports" or "contradicts" }. Always an empty list here.
+- "rationale": a string, one or two sentences
+- "confidence": a number from 0 to 1
+Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}
+Do not put the object inside another key.
+Return JSON matching ClaimVerdict.`;
 
 /** Ask a model for one claim at a tier (TR3). With no evidence and not \`general\`, nothing is asked. */
 export async function verifyClaim(
@@ -714,6 +880,8 @@ export async function verifyClaim(
     exclude?: ReadonlySet<string> | undefined;
     /** Ask exactly these models, in order (the person chose them). */
     only?: ModelConfig[] | undefined;
+    /** The calls this claim may still make (budget.ts). */
+    budget?: ClaimBudget | undefined;
   },
   signal: AbortSignal,
 ): Promise<Verified> {
@@ -759,7 +927,12 @@ export async function verifyClaim(
     chain = plan.chain;
     degraded = plan.degraded;
   }
-  const { value, modelId } = await structured(deps, chain, prompt, RawVerdict, signal);
+  const { value, modelId } = await structured(deps, chain, prompt, RawVerdict, signal, {
+    normalize: tolerantVerdict,
+    jsonSchema: VERDICT_JSON_SCHEMA,
+    shape: VERDICT_SHAPE,
+    budget: input.budget,
+  });
   const answered = chain.find((m) => m.id === modelId) ?? deps.registry.get(modelId);
   const tier = answered ? deps.registry.tierOf(answered) : null;
 
@@ -840,6 +1013,8 @@ export async function checkClaim(
     notebookId: string | null;
     sharing: boolean;
     again?: boolean | undefined;
+    /** The calls this claim may make (budget.ts); absent: only the chain bounds it. */
+    budget?: ClaimBudget | undefined;
   },
   signal: AbortSignal,
 ): Promise<Checked> {
@@ -874,6 +1049,7 @@ export async function checkClaim(
     evidence: input.evidence,
     generatorFamily: input.generatorFamily,
     allow: input.allow,
+    budget: input.budget,
   };
   let out: Checked;
   if (input.critical) {
@@ -904,10 +1080,8 @@ export async function checkClaim(
           ),
         ]),
       ],
-      rationale: all
-        .map((v) => v.rationale)
-        .filter(Boolean)
-        .join(' '),
+      // Two checkers often say the same thing (and "nothing in your sources" twice is noise): once is enough.
+      rationale: [...new Set(all.map((v) => v.rationale).filter(Boolean))].join(' '),
       escalatedFrom: null,
       cached: null,
     };
@@ -937,9 +1111,21 @@ export async function checkClaim(
         exclude: used,
       });
       if (!better.chain.length) break;
+      // A stronger look is a bonus: if a limit is reached first, the answer already in hand stands.
+      let stronger: Verified;
+      try {
+        stronger = await verifyClaim(
+          deps,
+          { ...ask, tier: next, floor: next, general, exclude: used },
+          signal,
+        );
+      } catch (err) {
+        if (err instanceof CheckLimit) break;
+        throw err;
+      }
       tier = next;
       hops++;
-      v = await verifyClaim(deps, { ...ask, tier, floor: next, general, exclude: used }, signal);
+      v = stronger;
     }
     out = {
       ...v,

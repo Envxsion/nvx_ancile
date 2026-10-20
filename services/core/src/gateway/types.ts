@@ -83,6 +83,12 @@ export interface ModelRequest {
    * keep-alive and context-length preset). Request parameters only, never in the prompt.
    */
   local?: LocalModelOptions;
+  /**
+   * Ask for a JSON object of this shape, through the provider's own structured-output or JSON mode
+   * where it has one (JSON Schema, every property required). A provider without one ignores it,
+   * so the prompt must still name every field: a model is never trusted to guess them.
+   */
+  json?: { schema: Record<string, unknown> };
 }
 
 export interface LocalModelOptions {

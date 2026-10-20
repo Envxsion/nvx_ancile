@@ -26,4 +26,9 @@ Question that was asked:
 Answer:
 {{message_text}}
 
+Reply with one JSON object and nothing else, with exactly this field:
+- "claims": a list; each item is { "text": the claim as a sentence, "char_start": integer, "char_end": integer (the claim's exact span in the answer, counted in characters from 0), "importance": 1, 0.5 or 0.2, "checkable": true or false }
+Example: {"claims":[{"text":"Mount Everest is 8,849 metres tall.","char_start":0,"char_end":35,"importance":1,"checkable":true}]}
+Do not put the object inside another key. With no claims, reply {"claims":[]}.
+
 Return JSON matching ClaimList.

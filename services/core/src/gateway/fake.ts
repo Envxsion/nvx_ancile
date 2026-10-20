@@ -42,6 +42,7 @@
 import type { ModelConfig, Part } from '@nvx/contracts';
 import { ClassifiedError, classifyStatus } from '@nvx/resilience';
 import { LATEST_QUESTION } from '../conductor/context';
+import { REPAIR_LEAD } from '../factcheck/tolerant';
 import { structuredReply } from './fake-structured';
 import { offlineUtility, utilityTask } from './offline-utility';
 import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from './types';
@@ -134,7 +135,9 @@ export class FakeProvider implements ModelClient {
     if (this.calls.length > 200) this.calls.splice(0, this.calls.length - 200);
     let b = model.provider_model;
     let delay = this.delay;
-    const lastUser = [...req.messages].reverse().find((m) => m.role === 'user' && !isNote(m));
+    const users = req.messages.filter((m) => m.role === 'user' && !isNote(m));
+    // Asked again after a bad reply (fact-check): the task is still the first message.
+    const lastUser = textOf(users.at(-1)).startsWith(REPAIR_LEAD) ? users[0] : users.at(-1);
     // `/ttft <ms>` on a line of its own: the provider's own wait before its
     // first word (the load test measures NVX Ancile's overhead above it).
     // The turn's passages ride ahead of the question (conductor/context withTurnContext).

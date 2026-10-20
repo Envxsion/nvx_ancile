@@ -277,9 +277,10 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 | `factcheck.still_writing` | 409 | "The answer is still being written." / Wait until it is done, then highlight the claim again. |
 | `factcheck.selection_too_long` | 413 | "That is too much to check at once." / Highlight up to 2,000 characters, one passage at a time. |
 | `factcheck.web_unavailable` | 503 | "The web search did not answer." / The check went on with your sources only. Check the key you use for web search in Settings → Models, or the SearXNG address (`SEARXNG_URL`) and that it is running. |
+| `factcheck.limit` | 200 | "The fact-check reached its limit." / Not shown as an error on a claim: that claim reads "Not checked: <reason>" and the others go on. It fails the run only when the limit (model calls, minutes or spend, `limits` in `config/factcheck.yaml`) is reached before the claims were found. Try again, or raise the limits. |
 | `factcheck.web_budget` | 429 | "The daily web budget is reached." / The check went on without the web. Raise `web_daily_cap_usd` in `config/factcheck.yaml`, or try again tomorrow. |
 | `factcheck.unavailable` | 503 | "Highlighted claims cannot be checked here." / Core was started without the fact-check service. Restart NVX Ancile. |
-| `factcheck.bad_output` | 502 | "No model returned a usable fact-check." / Try again, or add a stronger model for the utility and fact-check tasks. Every model in the chain answered, but not in the shape asked for. |
+| `factcheck.bad_output` | 502 | "No model returned a usable fact-check." / Try again, or add a stronger model for the utility and fact-check tasks. Every model in the chain answered, but not in the shape asked for, even after being asked again once. In a whole-answer check the claim reads "Not checked: no checker gave a reply that could be read" and the run goes on; it is an error only for a highlighted claim. |
 | `factcheck.evidence_unavailable` | 503 | "Your sources could not be searched." / Knowledge did not answer; check it in Admin → Health, then fact-check again. |
 | `factcheck.message_gone` | 404 | "The answer was deleted." / There is nothing left to check. |
 

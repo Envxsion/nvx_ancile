@@ -54,6 +54,7 @@ import type { Gate } from '../permissions/gate';
 import { allowedSources } from '../scopes';
 import { type MessageRecord, type ThreadRepo, textOf } from '../threads/repo';
 import { scopeAllow } from './allow';
+import { CheckBudget, CheckLimit, DEFAULT_LIMITS } from './budget';
 import { evidenceBlock, gatherEvidence, judgeChain, type StepDeps, structured } from './steps';
 import {
   gatedWeb,
@@ -579,26 +580,32 @@ export async function checkSelection(
       : '(No evidence was found in the notebook sources, and nothing was looked up on the web.)',
   });
 
-  let shaped: Shaped | null = null;
-  const res = await structured(deps, chain, prompt, RawSelection, signal, {
-    system: SELECTION_SYSTEM,
-    maxOutputTokens: SELECTION_LIMITS.maxOutputTokens,
-    accept: (v) => {
-      const s = shapeSelection(v, pool);
-      if ('reject' in s) return s.reject;
-      shaped = s;
-      return null;
-    },
-  });
-  const done = shaped as Shaped | null;
-  if (!done)
-    throw new AncileError({
+  const noCard = () =>
+    new AncileError({
       code: 'factcheck.bad_output',
       title: 'No model returned a usable fact-check',
       hint: 'Try again, or add a stronger model for fact-checking in Settings → Models.',
       status: 502,
       errorClass: 'transient',
     });
+  let shaped: Shaped | null = null;
+  const res = await structured(deps, chain, prompt, RawSelection, signal, {
+    system: SELECTION_SYSTEM,
+    maxOutputTokens: SELECTION_LIMITS.maxOutputTokens,
+    // A highlighted claim is one claim: the same three calls at most (budget.ts).
+    budget: new CheckBudget(DEFAULT_LIMITS).forClaim(0),
+    accept: (v) => {
+      const s = shapeSelection(v, pool);
+      if ('reject' in s) return s.reject;
+      shaped = s;
+      return null;
+    },
+  }).catch((err) => {
+    // The calls ran out before any model gave a usable card: said as it always was.
+    throw err instanceof CheckLimit ? noCard() : err;
+  });
+  const done = shaped as Shaped | null;
+  if (!done) throw noCard();
   const model: ModelConfig | undefined = deps.registry.get(res.modelId);
   const billing = model ? deps.registry.billingFor(res.modelId) : null;
   const billed: SelectionCheck['billed'] =

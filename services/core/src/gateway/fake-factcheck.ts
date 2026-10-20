@@ -159,13 +159,36 @@ export function fakeVerdict(claim: string, evidence: { ref: string; text: string
 
 /* ---- Dispatch -------------------------------------------------------------- */
 
+/**
+ * Like a real model, the offline one only knows the fields the prompt names. A prompt that says "Return
+ * JSON matching ClaimVerdict" and never names stance, evidence, rationale and confidence gets a reply
+ * no reader can use: that is how a live check once failed on every model while the tests passed.
+ */
+export const FIELDS = {
+  ClaimList: ['claims', 'text', 'char_start', 'char_end', 'importance', 'checkable'],
+  ClaimVerdict: [
+    'stance',
+    'evidence',
+    'rationale',
+    'confidence',
+    'supported',
+    'contradicted',
+    'insufficient',
+  ],
+  SelectionCheck: ['verdict', 'headline', 'corrected', 'evidence', 'closing'],
+} as const;
+const named = (prompt: string, fields: readonly string[]) => fields.every((f) => prompt.includes(f));
+const UNTOLD = JSON.stringify({ result: 'done', note: 'The prompt did not say which fields to fill.' });
+
 /** A structured reply for a fact-check prompt, or undefined when the prompt is something else. */
 export function factcheckReply(prompt: string): string | undefined {
   if (/Return JSON matching ClaimList/.test(prompt)) {
+    if (!named(prompt, FIELDS.ClaimList)) return UNTOLD;
     const answer = /\nAnswer:\n([\s\S]*?)\n+Return JSON matching ClaimList/.exec(prompt)?.[1] ?? '';
     return JSON.stringify({ claims: fakeClaims(answer) });
   }
   if (/Return JSON matching ClaimVerdict/.test(prompt)) {
+    if (!named(prompt, FIELDS.ClaimVerdict)) return UNTOLD;
     const claim = /Claim:\n([\s\S]*?)\n+Evidence:\n/.exec(prompt)?.[1]?.trim() ?? '';
     const evidence = [...prompt.matchAll(/\[(E\d+)\][^\n]*\n"""\n([\s\S]*?)\n"""/g)].map((m) => ({
       ref: m[1] ?? '',
@@ -173,7 +196,8 @@ export function factcheckReply(prompt: string): string | undefined {
     }));
     return JSON.stringify(fakeVerdict(claim, evidence));
   }
-  if (/Return JSON matching SelectionCheck/.test(prompt)) return selectionReply(prompt);
+  if (/Return JSON matching SelectionCheck/.test(prompt))
+    return named(prompt, FIELDS.SelectionCheck) ? selectionReply(prompt) : UNTOLD;
   return undefined;
 }
 
