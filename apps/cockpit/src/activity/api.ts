@@ -61,7 +61,12 @@ export function useActivity(opts: { enabled?: boolean } = {}) {
       return r;
     },
     staleTime: 5_000,
-    refetchInterval: (q) => (open && (q.state.data?.running ?? 0) > 0 ? LIVE_POLL_MS : false),
+    // While anything is counted as running, ask again, panel open or not: an event that never came (a
+    // reconnect, a run that ended while the stream was down) would otherwise leave "1 running" on the bar.
+    refetchInterval: (q) =>
+      (open && (q.state.data?.running ?? 0) > 0) || useActivityPanel.getState().running > 0
+        ? LIVE_POLL_MS
+        : false,
   });
 }
 
