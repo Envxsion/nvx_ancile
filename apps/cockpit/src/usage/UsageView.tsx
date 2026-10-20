@@ -148,6 +148,21 @@ function Breakdown({
   );
 }
 
+/** What a model call was for, in plain words. */
+const PURPOSE_WORDS: Record<string, string> = {
+  chat: 'Chat answers',
+  factcheck: 'Fact-checks',
+  memory: 'Memory',
+  decision: 'Decisions',
+  permission: 'Permission checks',
+  title: 'Titles',
+  compare: 'Comparisons',
+  thread: 'Thread tools',
+  web: 'Web lookups',
+  knowledge: 'Sources',
+  other: 'Other',
+};
+
 export function AncileUsage({ report, provider = '' }: { report: UsageReport; provider?: string }) {
   const t = report.totals;
   const billed = useClaudeBilling(report.estimated_cost_usd > 0);
@@ -169,6 +184,16 @@ export function AncileUsage({ report, provider = '' }: { report: UsageReport; pr
     tokens: m.input_tokens + m.output_tokens,
     cost: m.cost_usd,
     answers: m.answers,
+  }));
+  // Shown only once something besides chat answers has spent tokens: until then it would say nothing.
+  const purposes = report.by_purpose ?? [];
+  const purposeRows = purposes.map((p) => ({
+    key: p.purpose,
+    label: PURPOSE_WORDS[p.purpose] ?? p.purpose,
+    engine: 'gateway',
+    tokens: p.input_tokens + p.output_tokens,
+    cost: p.cost_usd,
+    answers: p.calls,
   }));
   return (
     <div className="u-ancile">
@@ -202,6 +227,9 @@ export function AncileUsage({ report, provider = '' }: { report: UsageReport; pr
         <div className="u-breaks">
           <Breakdown title="By engine" rows={engines} total={tokens} />
           <Breakdown title="By model" rows={models} total={tokens} />
+          {purposes.some((p) => p.purpose !== 'chat') ? (
+            <Breakdown title="By purpose" rows={purposeRows} total={tokens} />
+          ) : null}
           {report.by_provider.length ? (
             <Breakdown
               title="By OpenRouter provider"

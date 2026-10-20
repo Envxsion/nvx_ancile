@@ -18,13 +18,15 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type ErrorClass, type ModelConfig } from '@nvx/contracts';
+import { AncileError, CLAUDE_CODE_PROVIDER, type ErrorClass, type ModelConfig } from '@nvx/contracts';
 import { CircuitBreaker, ClassifiedError, classify, FALLBACKABLE, isConnectionError } from '@nvx/resilience';
 import { currentContext } from '../context';
 import { startSpan } from '../obs/spans';
+import { type CallLedger, COUNTED_ON_MESSAGE } from '../usage/ledger';
 import { type NodeWaking, nodeWakingFrom, waitOrSkip } from './compute';
 import { cannotBeRefusal, isRefusalFinish, looksLikeRefusal } from './refusal';
 import type { GatewayEvent, ModelClient, ModelRequest, StreamChunk } from './types';
+import { priceOf } from './usage';
 
 export interface GatewayOptions {
   client: ModelClient;
@@ -41,6 +43,11 @@ export interface GatewayOptions {
    * loading a large model can take longer than the usual wait (ms).
    */
   computeEtaMarginMs?: number;
+  /**
+   * Where a finished call that is not a chat answer is counted (usage/ledger.ts), with the
+   * purpose it was made for. Absent: nothing is recorded (tests that do not look).
+   */
+  ledger?: CallLedger;
   /** Wait before asking the same model again after a short Retry-After (tests replace it). */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -106,8 +113,12 @@ export class Gateway {
   private readonly computePollMs: number;
   private readonly computeEtaMarginMs: number | null;
   private readonly sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+  private readonly ledger: CallLedger | undefined;
+  /** What a call is for when its caller does not say (see `as`). */
+  private purpose = 'other';
 
   constructor(opts: GatewayOptions) {
+    this.ledger = opts.ledger;
     this.client = opts.client;
     this.breaker = opts.breaker ?? new CircuitBreaker();
     this.probeChars = opts.refusalProbeChars ?? 160;
@@ -115,6 +126,38 @@ export class Gateway {
     this.computePollMs = opts.computePollMs ?? 2_000;
     this.computeEtaMarginMs = opts.computeEtaMarginMs ?? null;
     this.sleep = opts.sleep ?? abortableSleep;
+  }
+
+  /**
+   * This gateway, with every call it makes counted under `purpose` unless the call says otherwise.
+   * Hand a part of Ancile (memory, the permission reviewer, Knowledge's calls) its own view, and
+   * nothing it asks can go uncounted or be counted as something else.
+   */
+  as(purpose: string): Gateway {
+    const view = Object.create(this) as Gateway;
+    view.purpose = purpose;
+    return view;
+  }
+
+  /** One finished call goes into the ledger (a chat answer is counted on its message, not here). */
+  private note(model: ModelConfig, chunk: Extract<StreamChunk, { type: 'finish' }>, purpose: string) {
+    if (!this.ledger || COUNTED_ON_MESSAGE.has(purpose)) return;
+    const ctx = currentContext();
+    void this.ledger
+      .record({
+        purpose,
+        engine: model.provider === CLAUDE_CODE_PROVIDER ? 'claude_code' : 'gateway',
+        modelId: model.id,
+        provider: chunk.served?.provider ?? null,
+        inputTokens: chunk.usage.inputTokens,
+        outputTokens: chunk.usage.outputTokens,
+        cachedTokens: chunk.usage.cachedTokens ?? 0,
+        costUsd: chunk.costUsd ?? priceOf(model, chunk.usage),
+        at: new Date(),
+        traceId: ctx?.traceId ?? null,
+        runId: ctx?.runId ?? null,
+      })
+      .catch(() => undefined);
   }
 
   /**
@@ -183,8 +226,9 @@ export class Gateway {
     chain: ModelConfig[],
     req: ModelRequest,
     signal: AbortSignal,
-    opts: { computeWaitMs?: number } = {},
+    opts: { computeWaitMs?: number; purpose?: string } = {},
   ): AsyncGenerator<GatewayEvent> {
+    const purpose = opts.purpose ?? this.purpose;
     const attempts: FailedAttempt[] = [];
     let shown = ''; // text the user has already seen, across models
     let shownBy: string | null = null;
@@ -244,6 +288,7 @@ export class Gateway {
 
         while (!step.done) {
           const chunk = step.value;
+          if (chunk.type === 'finish') this.note(model, chunk, purpose);
           if (!state.committed) {
             if (chunk.type === 'finish' && isRefusalFinish(chunk.finishReason)) {
               throw new ClassifiedError('refusal', `${model.display_name} declined (${chunk.finishReason})`);

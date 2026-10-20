@@ -69,6 +69,7 @@ import { MemorySendLocks } from '../../src/threads/send-lock';
 import { branchSuggester } from '../../src/threads/suggest';
 import { fsTools, Workspace } from '../../src/tools/builtin/fs';
 import { ToolRegistry } from '../../src/tools/registry';
+import { MemoryCallLedger } from '../../src/usage/ledger';
 import { MemoryUsageSource } from '../../src/usage/report';
 import { usageRoutes } from '../../src/usage/routes';
 
@@ -184,7 +185,8 @@ export async function harness(opts: HarnessOptions = {}) {
     ...(opts.ollamaTags && { ollamaTags: opts.ollamaTags }),
   });
   await registry.refresh();
-  const gateway = new Gateway({ client: provider, breaker: new CircuitBreaker() });
+  const ledger = new MemoryCallLedger(WORKSPACE_ID);
+  const gateway = new Gateway({ client: provider, breaker: new CircuitBreaker(), ledger });
   // Flows (Phase 5b)
   const flowStore = new MemoryFlowStore();
   const flows = new FlowsService({
@@ -509,6 +511,7 @@ export async function harness(opts: HarnessOptions = {}) {
           runKind: (id) => runs.runs.get(id)?.kind ?? null,
           titleOf: (id) => repo.threads.get(id)?.title ?? null,
           threadDeleted: (id) => !!repo.threads.get(id)?.deleted_at,
+          calls: () => ledger.calls,
         }),
         ...(opts.now && { now: opts.now }),
       }),
@@ -618,6 +621,7 @@ export async function harness(opts: HarnessOptions = {}) {
     secrets,
     registry,
     provider,
+    ledger,
     workspace,
     memory,
     branches,

@@ -253,6 +253,7 @@ import { PgSendLocks } from './threads/send-lock';
 import { branchSuggester } from './threads/suggest';
 import { fsTools, Workspace } from './tools/builtin/fs';
 import { overrideFor, ToolRegistry } from './tools/registry';
+import { PgCallLedger } from './usage/ledger';
 import { PgUsageSource, spendUsd, usageHistory } from './usage/report';
 import { usageRoutes } from './usage/routes';
 
@@ -553,8 +554,11 @@ async function main() {
   sdkClient.planCredit = (m) => paidFromCredit(m, creditLedger.enabled);
   sdkClient.onCreditExhausted = () => void creditLedger.markExhausted().catch(() => undefined);
   const routingClient = new RoutingClient(sdkClient, new FakeProvider({ wordDelayMs: 25 }));
+  // Every model call that is not a chat answer is counted in Usage with its purpose (usage/ledger.ts).
+  const callLedger = new PgCallLedger(sql, owner.workspaceId);
   const gateway = new Gateway({
     client: routingClient,
+    ledger: callLedger,
     breaker: new CircuitBreaker(),
     // A cold node says how long it needs; wait that long plus two minutes.
     computeEtaMarginMs: 120_000,
@@ -637,6 +641,7 @@ async function main() {
     allowances: new Allowances(freeCounters, ALLOWANCES),
     secrets,
     privacy,
+    ledger: callLedger,
   });
   // A private notebook may use hosted decisions only when allowed, but a decision server on this machine always counts.
   privacy.setLocalAvailable((capability) =>
@@ -646,7 +651,7 @@ async function main() {
   let presetNow = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
   const gateAuto = {
     review: new AutoReview({
-      reviewers: coreReviewers({ decisions, gateway, registry }),
+      reviewers: coreReviewers({ decisions, gateway: gateway.as('permission'), registry }),
       plans: autoPlans,
       emit: (runId, event) => runEvents.append(runId, event),
       // Reviewer offline: once per outage, quietly (no toast); the Cockpit shows one line.
@@ -803,7 +808,11 @@ async function main() {
     user: { name: ownerName, email: `${owner.userId}@ancile.local` },
     settings,
     bus: events,
-    utility: utilityFrom({ gateway, registry, promptsDir: resolve(env.ANCILE_PROMPTS_DIR) }),
+    utility: utilityFrom({
+      gateway: gateway.as('memory'),
+      registry,
+      promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
+    }),
     privacy,
     threads,
     notebook: async (id) => {
@@ -1172,6 +1181,7 @@ async function main() {
     secret: (name) => secrets.get(name),
     settings,
     capUsd: () => config.factcheck?.web_daily_cap_usd ?? 0.25,
+    ledger: callLedger,
     searxng: env.SEARXNG_URL ? searxngSearch({ baseUrl: env.SEARXNG_URL }) : null,
   });
   const webFor: NonNullable<Parameters<typeof startFactcheck>[0]['webFor']> = async (a) =>
@@ -1833,7 +1843,7 @@ async function main() {
       const db = await database.sql`select 1`.then(() => true).catch(() => false);
       return { ok: db, checks: { database: db } };
     },
-    internal: { registry, gateway },
+    internal: { registry, gateway: gateway.as('knowledge') },
     runs: runStore,
     allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
     routes: [
@@ -1974,7 +1984,9 @@ async function main() {
         plans: autoPlans,
         events: runEvents,
         reviewer: () => gateAuto.review.reviewerStatus(),
-        check: new ReviewerCheck({ reviewers: () => coreReviewers({ decisions, gateway, registry }) }),
+        check: new ReviewerCheck({
+          reviewers: () => coreReviewers({ decisions, gateway: gateway.as('permission'), registry }),
+        }),
       }),
       memoryRoutes({ service: memory, threads, registry, transfer: memoryTransfer }),
       localModelRoutes({ models: localModels, loaded: loadedModels }),

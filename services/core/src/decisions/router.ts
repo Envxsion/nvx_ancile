@@ -50,6 +50,7 @@ import { liveGuardActive } from '../gateway/e2e-guard';
 import { logFor } from '../obs/logger';
 import type { PrivacyAnswer, PrivacyContext } from '../privacy/policy';
 import type { SettingsStore } from '../settings';
+import type { CallLedger } from '../usage/ledger';
 import { ALLOWANCE_GONE, approxTokens, callRoute, NO_CREDIT, NOT_ENABLED, probeLocal } from './adapters';
 import { ROUTES, type RouteDef, SECRETS, TASK_PROFILES } from './catalogue';
 
@@ -83,6 +84,8 @@ export interface DecisionRouterDeps {
   settings: SettingsStore;
   counters: Counters;
   allowances: Allowances;
+  /** Each finished call is counted in Usage as a 'decision' (usage/ledger.ts). */
+  ledger?: CallLedger;
   secrets: { get(name: string): Promise<string | undefined> };
   privacy: { resolve(capability: PrivacyCapability, ctx?: PrivacyContext): Promise<PrivacyAnswer> };
   fetch?: typeof fetch;
@@ -362,6 +365,19 @@ export class DecisionRouter {
           ])
             await this.deps.counters.add(cap, cost);
         }
+        await this.deps.ledger
+          ?.record({
+            purpose: 'decision',
+            engine: 'gateway',
+            modelId: out.model,
+            provider: def.provider,
+            inputTokens: tokens,
+            outputTokens: out.output_tokens ?? 0,
+            cachedTokens: 0,
+            costUsd: cost,
+            at: new Date(this.now()),
+          })
+          .catch(() => undefined);
         const receipt: DecisionReceipt = {
           route: def.id,
           provider: def.provider,

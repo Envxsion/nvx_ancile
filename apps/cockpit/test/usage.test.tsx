@@ -147,6 +147,7 @@ const REPORT: UsageReport = {
     },
   ],
   by_provider: [],
+  by_purpose: [],
   estimated_cost_usd: 0.3,
 };
 

@@ -41,6 +41,7 @@ import {
 import type { Sql } from 'postgres';
 import type { MessageRecord } from '../threads/repo';
 import type { UsageArchiveRow } from './archive';
+import type { StoredCall } from './ledger';
 
 /** One group: a local bucket ("2026-10-12" or "2026-10-12T14:00"), an engine and a model. */
 export interface UsageRow {
@@ -49,6 +50,8 @@ export interface UsageRow {
   model_id: string | null;
   /** OpenRouter's provider that served it (usage.served.provider); null elsewhere. */
   provider?: string | null;
+  /** What the call was for: 'chat' for answers kept on a message, else the ledger's purpose. */
+  purpose?: string;
   input_tokens: number;
   output_tokens: number;
   cached_tokens: number;
@@ -56,6 +59,8 @@ export interface UsageRow {
   /** Of cost_usd, Claude Code's estimate. */
   estimated_usd: number;
   answers: number;
+  /** Model calls in the group; absent counts as `answers` (a message is one call). */
+  calls?: number;
 }
 
 export interface UsageQuery {
@@ -206,6 +211,7 @@ export function buildReport(
   const engines = new Map<UsageEngine, UsageTotals>();
   const models = new Map<string, UsageTotals & { model_id: string | null; engine: UsageEngine }>();
   const providers = new Map<string, UsageTotals>();
+  const purposes = new Map<string, UsageTotals & { calls: number }>();
   for (const r of rows) {
     add(totals, r);
     estimated += r.estimated_usd;
@@ -222,6 +228,11 @@ export function buildReport(
     const m = models.get(key) ?? { ...zero(), model_id: r.model_id, engine: r.engine };
     add(m, r);
     models.set(key, m);
+    const purpose = r.purpose ?? 'chat';
+    const pu = purposes.get(purpose) ?? { ...zero(), calls: 0 };
+    add(pu, r);
+    pu.calls += r.calls ?? r.answers;
+    purposes.set(purpose, pu);
     if (r.provider) {
       const p = providers.get(r.provider) ?? zero();
       add(p, r);
@@ -249,6 +260,9 @@ export function buildReport(
       round({ ...(engines.get(engine) as UsageTotals), engine }),
     ),
     by_model: top.map(round),
+    by_purpose: [...purposes.entries()]
+      .sort((a, b) => tokens(b[1]) - tokens(a[1]) || b[1].cost_usd - a[1].cost_usd)
+      .map(([purpose, t]) => round({ ...t, purpose })),
     by_provider: [...providers.entries()]
       .sort((a, b) => tokens(b[1]) - tokens(a[1]))
       .map(([provider, t]) => round({ ...t, provider })),
@@ -294,6 +308,8 @@ export class PgUsageSource implements UsageSource {
         cost_usd: string | number;
         estimated_usd: string | number;
         answers: number;
+        purpose: string;
+        calls: number;
       }[]
     >`
       with u as (
@@ -312,7 +328,9 @@ export class PgUsageSource implements UsageSource {
           coalesce((m.usage->>'output_tokens')::bigint, 0) as o,
           coalesce((m.usage->>'cached_tokens')::bigint, 0) as c,
           coalesce((m.usage->>'cost_usd')::numeric, 0) as cost,
-          1 as n
+          1 as n,
+          'chat' as purpose,
+          1 as calls
         from core.messages m
         join core.threads t on t.id = m.thread_id
         left join core.runs r on r.id = m.run_id
@@ -328,20 +346,31 @@ export class PgUsageSource implements UsageSource {
         select
           to_char(a.bucket_at at time zone ${q.tz}, ${fmt}),
           a.engine, a.model_id, a.provider,
-          a.input_tokens, a.output_tokens, a.cached_tokens, a.cost_usd, a.answers
+          a.input_tokens, a.output_tokens, a.cached_tokens, a.cost_usd, a.answers, 'chat', a.answers
         from core.usage_archive a
         where a.workspace_id = ${q.workspaceId}
           and a.bucket_at >= ${q.from}
           and a.bucket_at < ${q.to}
           and (${q.provider ?? null}::text is null or a.provider = ${q.provider ?? null})
+        union all
+        -- Every model call that is not a chat answer (usage/ledger.ts), with what it was for.
+        select
+          to_char(k.at at time zone ${q.tz}, ${fmt}),
+          k.engine, k.model_id, k.provider,
+          k.input_tokens, k.output_tokens, k.cached_tokens, k.cost_usd, 0, k.purpose, 1
+        from core.model_calls k
+        where k.workspace_id = ${q.workspaceId}
+          and k.at >= ${q.from}
+          and k.at < ${q.to}
+          and (${q.provider ?? null}::text is null or k.provider = ${q.provider ?? null})
       )
       select bucket, engine, model_id, provider,
         sum(i)::text as input_tokens, sum(o)::text as output_tokens, sum(c)::text as cached_tokens,
         sum(cost)::float8 as cost_usd,
         sum(case when engine = 'claude_code' then cost else 0 end)::float8 as estimated_usd,
-        sum(n)::int as answers
+        sum(n)::int as answers, purpose, sum(calls)::int as calls
       from u
-      group by bucket, engine, model_id, provider`;
+      group by bucket, engine, model_id, provider, purpose`;
     return rows.map((r) => ({
       bucket: r.bucket,
       engine: r.engine,
@@ -353,6 +382,8 @@ export class PgUsageSource implements UsageSource {
       cost_usd: Number(r.cost_usd),
       estimated_usd: Number(r.estimated_usd),
       answers: r.answers,
+      purpose: r.purpose,
+      calls: r.calls,
     }));
   }
 
@@ -457,7 +488,10 @@ export async function spendUsd(sql: Sql, since: Date): Promise<number> {
           and not coalesce(m.provenance ? 'claude_code' or r.kind = 'claude_code' or m.model_id like ${CC_LIKE}, false)
       ), 0)
       -- plus the answers of purged threads (usage/archive.ts), which are never Claude Code
-      + coalesce((select sum(a.cost_usd)::float8 from core.usage_archive a where a.bucket_at >= ${since}), 0) as usd`;
+      + coalesce((select sum(a.cost_usd)::float8 from core.usage_archive a where a.bucket_at >= ${since}), 0)
+      -- plus every other model call (fact-checks, memory, titles; usage/ledger.ts), never Claude Code's
+      + coalesce((select sum(k.cost_usd)::float8 from core.model_calls k
+          where k.at >= ${since} and k.engine <> 'claude_code'), 0) as usd`;
   return Number(r?.usd ?? 0);
 }
 
@@ -473,6 +507,8 @@ export class MemoryUsageSource implements UsageSource {
       threadDeleted?(threadId: string): boolean;
       /** Rows rolled up from purged threads (MemoryThreadRepo.usageArchive); none by default. */
       archive?(): Iterable<UsageArchiveRow>;
+      /** Calls the ledger kept (MemoryCallLedger.calls); none by default. */
+      calls?(): Iterable<StoredCall>;
     },
   ) {}
 
@@ -552,6 +588,8 @@ export class MemoryUsageSource implements UsageSource {
         cost_usd: 0,
         estimated_usd: 0,
         answers: 0,
+        purpose: 'chat',
+        calls: 0,
       };
       r.input_tokens += m.usage.input_tokens;
       r.output_tokens += m.usage.output_tokens;
@@ -559,6 +597,7 @@ export class MemoryUsageSource implements UsageSource {
       r.cost_usd += m.usage.cost_usd;
       if (engine === 'claude_code') r.estimated_usd += m.usage.cost_usd;
       r.answers += 1;
+      r.calls = (r.calls ?? 0) + 1;
       by.set(key, r);
     }
     for (const a of this.deps.archive?.() ?? []) {
@@ -579,6 +618,8 @@ export class MemoryUsageSource implements UsageSource {
         cost_usd: 0,
         estimated_usd: 0,
         answers: 0,
+        purpose: 'chat',
+        calls: 0,
       };
       r.input_tokens += a.input_tokens;
       r.output_tokens += a.output_tokens;
@@ -586,6 +627,36 @@ export class MemoryUsageSource implements UsageSource {
       r.cost_usd += a.cost_usd;
       r.estimated_usd += a.estimated_usd;
       r.answers += a.answers;
+      r.calls = (r.calls ?? 0) + a.answers;
+      by.set(key, r);
+    }
+    for (const c of this.deps.calls?.() ?? []) {
+      if (c.workspaceId !== q.workspaceId) continue;
+      const at = c.at.getTime();
+      if (at < q.from.getTime() || at >= q.to.getTime()) continue;
+      if (q.provider && c.provider !== q.provider) continue;
+      const bucket = bucketOf(q.tz, at, q.bucket);
+      const key = `${bucket}|${c.engine}|${c.modelId ?? ''}|${c.provider ?? ''}|${c.purpose}`;
+      const r = by.get(key) ?? {
+        bucket,
+        engine: c.engine,
+        model_id: c.modelId,
+        provider: c.provider,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_tokens: 0,
+        cost_usd: 0,
+        estimated_usd: 0,
+        answers: 0,
+        purpose: c.purpose,
+        calls: 0,
+      };
+      r.input_tokens += c.inputTokens;
+      r.output_tokens += c.outputTokens;
+      r.cached_tokens += c.cachedTokens;
+      r.cost_usd += c.costUsd;
+      if (c.engine === 'claude_code') r.estimated_usd += c.costUsd;
+      r.calls = (r.calls ?? 0) + 1;
       by.set(key, r);
     }
     return [...by.values()];

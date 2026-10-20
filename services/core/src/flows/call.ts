@@ -38,7 +38,7 @@ export async function streamCall(
     costUsd: 0,
   };
   let current: ModelConfig | undefined = chain[0];
-  for await (const ev of deps.gateway.stream(chain, req, signal, opts)) {
+  for await (const ev of deps.gateway.stream(chain, req, signal, { ...opts, purpose: 'flow' })) {
     if (ev.type === 'fallback') {
       // Name the step's own model (the first that could not answer) and the one that did.
       out.fellBack = {

@@ -32,7 +32,7 @@ export const UsageTotals = z.object({
   cached_tokens: z.number().int().nonnegative(),
   /** Recorded cost in US dollars (Claude Code's part is an estimate at API list prices). */
   cost_usd: z.number().nonnegative(),
-  /** Answers counted. */
+  /** Chat answers counted; other model calls (a fact-check, a title…) are counted under by_purpose.calls. */
   answers: z.number().int().nonnegative(),
 });
 export type UsageTotals = z.infer<typeof UsageTotals>;
@@ -58,6 +58,14 @@ export const UsageReport = z.object({
   by_engine: z.array(UsageTotals.extend({ engine: UsageEngine })),
   /** The busiest models by tokens; the rest fold into one "other models" row (model_id null). */
   by_model: z.array(UsageTotals.extend({ model_id: z.string().nullable(), engine: UsageEngine })),
+  /**
+   * What the spend was for: chat answers, and every other model call Ancile made (factcheck, memory,
+   * decision, permission, title, compare, thread, web, knowledge, other). `calls` counts model calls
+   * (a chat answer is one call); `answers` stays the chat answers only.
+   */
+  by_purpose: z
+    .array(UsageTotals.extend({ purpose: z.string(), calls: z.number().int().nonnegative() }))
+    .default([]),
   /** OpenRouter answers by the provider that served them (GET /usage?provider= narrows the report to one). */
   by_provider: z.array(UsageTotals.extend({ provider: z.string() })).default([]),
   /** Part of cost_usd that is Claude Code's own estimate at API list prices. */

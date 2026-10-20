@@ -24,6 +24,7 @@ import { loadPrompt, render } from '../conductor/prompt';
 import type { Gateway } from '../gateway/gateway';
 import { TASK_LINE } from '../gateway/offline-utility';
 import type { ModelRegistry } from '../gateway/registry';
+import { purposeOfPrompt } from '../usage/ledger';
 
 export interface UtilityDeps {
   gateway: Gateway;
@@ -64,6 +65,7 @@ export async function runUtility(
       temperature: 0.2,
     },
     signal,
+    { purpose: purposeOfPrompt(opts.promptId) },
   )) {
     if (ev.type === 'model') modelId = ev.modelId;
     else if (ev.type === 'chunk') {

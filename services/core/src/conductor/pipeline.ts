@@ -1251,7 +1251,7 @@ ${noted.stop.forModel}`,
         };
         cp.roundOpen = open;
         for await (const ev of watched(
-          deps.gateway.stream(chain, req, ctx.signal, opts),
+          deps.gateway.stream(chain, req, ctx.signal, { ...opts, purpose: 'chat' }),
           recorder('model'),
         )) {
           if (ev.type === 'model') {
@@ -1869,7 +1869,10 @@ ${noted.stop.forModel}`,
           startedAt: callStarted,
         };
         cp.stop = null;
-        for await (const ev of watched(deps.gateway.stream(chain, req, ctx.signal), recorder('model'))) {
+        for await (const ev of watched(
+          deps.gateway.stream(chain, req, ctx.signal, { purpose: 'chat' }),
+          recorder('model'),
+        )) {
           switch (ev.type) {
             case 'model':
               current = deps.registry.get(ev.modelId);

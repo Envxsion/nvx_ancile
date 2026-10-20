@@ -226,6 +226,13 @@ export const PURGE_PLAN: readonly PurgeEntry[] = [
     why: 'The permission decision audit; run_id is plain text.',
   },
   {
+    table: 'core.model_calls',
+    action: 'keep',
+    by: 'run',
+    column: 'run_id',
+    why: 'Model calls that are not chat answers (fact-checks, memory, titles) and what they cost; run_id is plain text. They are the spend record, so a purge never removes them.',
+  },
+  {
     table: 'core.notes',
     action: 'keep',
     by: 'message',

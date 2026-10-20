@@ -33,6 +33,7 @@ import { assertSendAllowed } from '../gateway/e2e-guard';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET, profileFor } from '../gateway/profiles';
 import { type CallUsage, priceOf } from '../gateway/usage';
 import type { SettingsStore } from '../settings';
+import type { CallLedger } from '../usage/ledger';
 import type { WebHit, WebSearch, WebStatus, WebTally } from './web';
 
 /** core.settings key for the daily ledger of what model lookups cost. */
@@ -388,6 +389,8 @@ export interface WebChainDeps {
   settings: SettingsStore;
   /** The daily cap in USD; 0 turns model lookups off. */
   capUsd: () => number;
+  /** Each search is counted in Usage as 'web' (usage/ledger.ts). */
+  ledger?: CallLedger | undefined;
   /** SearXNG, when SEARXNG_URL is set: used alone, free, never capped. */
   searxng?: WebSearch | null | undefined;
   fetch?: typeof fetch;
@@ -483,6 +486,19 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
             await deps.settings.set(WEB_SPEND_SETTING, ledger);
           });
           if (tally) tally.costUsd += r.costUsd;
+          void deps.ledger
+            ?.record({
+              purpose: 'web',
+              engine: 'gateway',
+              modelId: model.id,
+              provider: model.provider,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedTokens: 0,
+              costUsd: r.costUsd,
+              at: new Date(),
+            })
+            .catch(() => undefined);
           return r.hits;
         } catch (err) {
           reserved -= est;

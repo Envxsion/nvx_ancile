@@ -111,6 +111,8 @@ eachBackend('usage source', (backend) => {
         cost_usd: 1,
         estimated_usd: 1,
         answers: 1,
+        purpose: 'chat',
+        calls: 1,
       },
       {
         bucket: '2099-10-12',
@@ -122,6 +124,8 @@ eachBackend('usage source', (backend) => {
         cost_usd: 0.75,
         estimated_usd: 0,
         answers: 2,
+        purpose: 'chat',
+        calls: 2,
       },
       {
         bucket: '2099-10-12',
@@ -133,6 +137,8 @@ eachBackend('usage source', (backend) => {
         cost_usd: 0,
         estimated_usd: 0,
         answers: 1,
+        purpose: 'chat',
+        calls: 1,
       },
     ]);
   });

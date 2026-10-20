@@ -261,6 +261,7 @@ const report = (over: Partial<UsageReport> = {}): UsageReport =>
     ],
     by_model: [],
     by_provider: [],
+    by_purpose: [],
     ...over,
   }) as UsageReport;
 
@@ -294,6 +295,26 @@ describe('NVX Ancile usage', () => {
     await waitFor(() =>
       expect(screen.getByRole('region', { name: 'By engine' })).not.toHaveTextContent('In plan'),
     );
+  });
+
+  it('splits spend by purpose once something besides chat answers has spent tokens, and not before', () => {
+    mocked.get.mockResolvedValue(status('api_key'));
+    const purpose = (p: string, calls: number) => ({
+      purpose: p,
+      calls,
+      input_tokens: 500,
+      output_tokens: 50,
+      cached_tokens: 0,
+      cost_usd: 0.01,
+      answers: 0,
+    });
+    const quiet = wrap(<AncileUsage report={report({ by_purpose: [purpose('chat', 3)] })} />);
+    expect(screen.queryByRole('region', { name: 'By purpose' })).toBeNull();
+    quiet.unmount();
+    wrap(<AncileUsage report={report({ by_purpose: [purpose('chat', 3), purpose('factcheck', 7)] })} />);
+    const by = screen.getByRole('region', { name: 'By purpose' });
+    expect(by).toHaveTextContent('Chat answers');
+    expect(by).toHaveTextContent('Fact-checks');
   });
 
   it('says what the breakdowns will show before anything answered, and when a provider served nothing', () => {
