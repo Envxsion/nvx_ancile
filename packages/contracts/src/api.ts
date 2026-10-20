@@ -369,6 +369,8 @@ export const ModelInfo = z.object({
   effort_levels: z.array(Effort).optional(),
   /** How capable the model is, for routing by need (TR2). Every model has one. */
   tier: ModelTier.optional(),
+  /** The same tier in plain words: frontier, standard, small or tiny (best, balanced, fast, tiny stored). */
+  tier_label: z.enum(['frontier', 'standard', 'small', 'tiny']).optional(),
   /** Where that tier came from: you, its line, its size, its price, or nothing (then small). */
   tier_source: TierSource.optional(),
 });

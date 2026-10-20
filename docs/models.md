@@ -233,7 +233,7 @@ Every model has a tier, so a task can say what it needs ("a small model", "a sta
 | Small | Titles, summaries, memory, ordinary claims | Claude Haiku, GPT Luna, Qwen3 14B |
 | Tiny | Obvious claims and quick sorting | GPT nano, Gemini Flash-Lite, a 3B local model |
 
-Core stores them as `best`, `balanced`, `fast` and `tiny`; `models.yaml` and `routing.yaml` accept either set of names. A model's tier is worked out in this order, and Admin → Models shows it quietly beside the model with where it came from:
+Core stores them as `best`, `balanced`, `fast` and `tiny`; `models.yaml` and `routing.yaml` accept either set of names. The mapping is `best` = Frontier, `balanced` = Standard, `fast` = Small, `tiny` = Tiny. `GET /models` returns the stored word in `tier` and the plain word in `tier_label` (`frontier`, `standard`, `small`, `tiny`) on every model. A model's tier is worked out in this order, and Admin → Models shows it quietly beside the model with where it came from:
 
 1. **Set by you.** `tier:` in `models.yaml`, or the model's menu in Admin → Models (Tier). "Work it out again" removes it.
 2. **Its line.** Opus is frontier, Sonnet standard, Haiku small; nano and Flash-Lite are tiny. An OpenRouter id such as `anthropic/claude-sonnet-4.5` is read through its company's rules, and a `line:` block in `models.yaml` wins.

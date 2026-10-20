@@ -20,6 +20,7 @@ import {
   AncileError,
   isPersonalAnthropicKey,
   ModelConfig,
+  type ModelInfo,
   type ProviderId,
   ProviderTestRequest,
   type ProviderTestResponse,
@@ -29,6 +30,7 @@ import {
   SetupCompleteRequest,
   type SetupStatus,
   ShowModelRequest,
+  TIER_LABEL,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -46,6 +48,10 @@ import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { keyCheckFor, offeredBy, switchedOnByKey } from './key-check';
 import { registerModelRoutes } from './models';
+
+/** The tier in plain words beside the stored one (docs/models.md, Tiers). */
+export const withTierLabel = (m: ModelInfo): ModelInfo =>
+  m.tier ? { ...m, tier_label: TIER_LABEL[m.tier] } : m;
 
 const PROVIDERS: { id: ProviderId; display_name: string; needs_key: boolean }[] = [
   { id: 'anthropic', display_name: 'Anthropic', needs_key: true },
@@ -408,7 +414,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
 
   r.get('/models', async (c) => {
     await registry.refresh();
-    return c.json({ items: registry.info(), next_cursor: null });
+    return c.json({ items: registry.info().map(withTierLabel), next_cursor: null });
   });
 
   /** MD2: "Add more models" shows a model beyond a provider's starter three; the same call hides it again. */
@@ -418,7 +424,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
     if (!m) throw notFound('That model');
     await registry.setShown(m.id, req.shown);
     await registry.refresh();
-    return c.json(registry.info().find((x) => x.id === m.id));
+    return c.json(
+      registry
+        .info()
+        .map(withTierLabel)
+        .find((x) => x.id === m.id),
+    );
   });
 
   r.put('/models/:id{.+}', async (c) => {
@@ -427,7 +438,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
     if (!m) throw notFound('That model');
     const req = await body(c, PutModel);
     await registry.setEnabled({ [id]: req.enabled });
-    return c.json(registry.info().find((x) => x.id === id));
+    return c.json(
+      registry
+        .info()
+        .map(withTierLabel)
+        .find((x) => x.id === id),
+    );
   });
 
   registerModelRoutes(r, { registry, secrets, ...(deps.catalogue && { catalogue: deps.catalogue }) });
