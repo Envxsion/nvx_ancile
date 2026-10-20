@@ -38,6 +38,7 @@ import { searchHelp } from '../help/articles';
 import { loadGuide, useGuideLoaded } from '../help/lazyGuide';
 import { filterQuery, type SearchFilter } from '../lib/searchFilter';
 import { lazyHost } from '../ui/lazyHost';
+import { modelSections } from './modelSections';
 
 const SearchFilters = lazyHost(() => import('./SearchFilters'), 'SearchFilters');
 
@@ -240,6 +241,7 @@ export function Palette() {
   const currentModel = useCurrentModel(threadId)?.id;
   // Claude Code, cloud and local models, with what this thread's scope rules out (docs/engines.md).
   const modelGroups = useModelGroups(threadId, currentModel ?? null);
+  const [olderOpen, setOlderOpen] = useState<ReadonlySet<string>>(() => new Set());
   const warmOf = useWarmMarks(threadId, open);
   // Why Claude Code cannot answer here, for its separate "Set up Claude Code" row.
   const ccSetup = useClaudeCodeSetup(threadId);
@@ -282,6 +284,10 @@ export function Palette() {
   const query = scope === 'all' ? value : value.slice(1).trimStart();
   const show = (s: PaletteScope) => scope === 'all' || scope === s;
   const typed = query.trim().length > 0;
+  const modelRows = useMemo(
+    () => modelSections(modelGroups, { typed, olderOpen }),
+    [modelGroups, typed, olderOpen],
+  );
   const [filters, setFilters] = useState<SearchFilter>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { hits, busy } = useMessageSearch(query, open && scope === 'all', filters);
@@ -955,65 +961,79 @@ export function Palette() {
                   ) : null}
 
                   {show('models') && (scope === 'models' || typed)
-                    ? modelGroups.map((g) => (
-                        <Command.Group key={g.kind} heading={g.label}>
-                          {g.items
-                            .filter((e) => typed || !e.older || e.current)
-                            .map((e) => (
-                              <Command.Item
-                                key={e.id}
-                                value={`model ${e.id} ${e.name} ${e.badge}`}
-                                disabled={!!e.disabled}
-                                data-unavailable={
-                                  e.disabled || (e.model?.status && e.model.status !== 'ready')
-                                    ? true
-                                    : undefined
-                                }
-                                onSelect={() =>
-                                  run(() => {
-                                    if (!e.model) {
-                                      if (threadId) chooseInClaudeCodeThread(threadId, e);
-                                      return;
-                                    }
-                                    const m = e.model;
-                                    if (threadId) void chooseModel(m, threadId);
-                                    else {
-                                      void chooseModel(m);
-                                      if (!m.status || m.status === 'ready')
-                                        notify({
-                                          level: 'success',
-                                          title: `New threads use ${m.name}`,
-                                          body: 'Change it any time with M.',
-                                        });
-                                    }
-                                  })
-                                }
+                    ? modelRows.sections.map((sec) => (
+                        <Command.Group key={sec.key} heading={sec.heading}>
+                          {sec.items.map((e) => (
+                            <Command.Item
+                              key={e.id}
+                              value={`model ${e.id} ${e.name} ${e.badge}`}
+                              disabled={!!e.disabled}
+                              data-unavailable={
+                                e.disabled || (e.model?.status && e.model.status !== 'ready')
+                                  ? true
+                                  : undefined
+                              }
+                              onSelect={() =>
+                                run(() => {
+                                  if (!e.model) {
+                                    if (threadId) chooseInClaudeCodeThread(threadId, e);
+                                    return;
+                                  }
+                                  const m = e.model;
+                                  if (threadId) void chooseModel(m, threadId);
+                                  else {
+                                    void chooseModel(m);
+                                    if (!m.status || m.status === 'ready')
+                                      notify({
+                                        level: 'success',
+                                        title: `New threads use ${m.name}`,
+                                        body: 'Change it any time with M.',
+                                      });
+                                  }
+                                })
+                              }
+                            >
+                              <span
+                                className="palette__swatch"
+                                style={{ '--hue': hueVar(e.hue) } as CSSProperties}
+                              />
+                              <span className="palette__label">{e.name}</span>
+                              <span className="mute palette__meta">
+                                {e.disabled ??
+                                  (e.model?.offline
+                                    ? 'Test model · no AI'
+                                    : [
+                                        e.note ?? e.model?.provider ?? '',
+                                        modelRows.also.has(e.id) ? 'also via OpenRouter' : '',
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' · '))}
+                              </span>
+                              {(() => {
+                                const w = warmOf(e);
+                                return w ? <WarmMark warm={w} /> : null;
+                              })()}
+                              <span
+                                className="model-badge"
+                                data-kind={e.kind}
+                                {...(e.badgeTitle && { title: e.badgeTitle })}
                               >
-                                <span
-                                  className="palette__swatch"
-                                  style={{ '--hue': hueVar(e.hue) } as CSSProperties}
-                                />
-                                <span className="palette__label">{e.name}</span>
-                                <span className="mute palette__meta">
-                                  {e.disabled ??
-                                    (e.model?.offline
-                                      ? 'Test model · no AI'
-                                      : (e.note ?? e.model?.provider ?? ''))}
-                                </span>
-                                {(() => {
-                                  const w = warmOf(e);
-                                  return w ? <WarmMark warm={w} /> : null;
-                                })()}
-                                <span
-                                  className="model-badge"
-                                  data-kind={e.kind}
-                                  {...(e.badgeTitle && { title: e.badgeTitle })}
-                                >
-                                  {e.badge}
-                                </span>
-                                {e.current ? <span className="palette__current">Current</span> : null}
-                              </Command.Item>
-                            ))}
+                                {e.badge}
+                              </span>
+                              {e.current ? <span className="palette__current">Current</span> : null}
+                            </Command.Item>
+                          ))}
+                          {sec.older ? (
+                            <Command.Item
+                              value={`models older ${sec.kind}`}
+                              onSelect={() => setOlderOpen((o) => new Set(o).add(sec.kind))}
+                            >
+                              <span className="palette__swatch" />
+                              <span className="palette__label">
+                                Older <span className="mute">({sec.older})</span>
+                              </span>
+                            </Command.Item>
+                          ) : null}
                         </Command.Group>
                       ))
                     : null}
