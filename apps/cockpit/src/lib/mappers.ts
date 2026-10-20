@@ -437,6 +437,8 @@ export function toMessageView(m: Message): MessageView | null {
     blocks: [],
     parts: m.parts,
     modelId: m.model_id,
+    // What Core called the model when it answered: shown if the model list has no entry for it now.
+    ...(prov.model_name && { modelName: prov.model_name }),
     ...(first &&
       m.model_id &&
       first.model !== m.model_id && { fallback: { from: first.model, reason: first.reason } }),

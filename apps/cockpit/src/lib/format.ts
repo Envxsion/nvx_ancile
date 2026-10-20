@@ -13,8 +13,23 @@ export function modelById(id: string | null | undefined): ModelView | undefined 
   return live?.find((m) => m.id === id) ?? loadedDemo()?.models.find((m) => m.id === id);
 }
 
+/**
+ * A model id as a name, for when the model list has no entry for it:
+ * "google/gemini-3.5-flash-lite" reads "Gemini 3.5 Flash Lite", never the raw id.
+ */
+export function prettyModelId(id: string): string {
+  const tail = (id.split('/').at(-1) ?? id).split('__').at(-1) ?? id;
+  const words = tail
+    .replace(/:latest$/, '')
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => (/^[a-z]+$/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w));
+  return words.join(' ') || id;
+}
+
 export function modelName(id: string | null | undefined): string {
-  return modelById(id)?.name ?? id ?? 'Unknown model';
+  if (!id) return 'Unknown model';
+  return modelById(id)?.name ?? prettyModelId(id);
 }
 
 export function usd(n: number, digits = 2): string {
