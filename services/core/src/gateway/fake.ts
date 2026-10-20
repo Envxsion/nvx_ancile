@@ -236,6 +236,8 @@ export class FakeProvider implements ModelClient {
           : prompt;
       else if (b === 'refusal') text = "I'm sorry, but I can't help with that request.";
       else if (b.startsWith('say:')) text = b.slice(4);
+      // Stops at the output limit: the text, then a `length` finish.
+      else if (b.startsWith('length:')) text = b.slice(7);
       else if (b.startsWith('break:')) {
         const [, n, ...rest] = b.split(':');
         breakAfter = Number(n);
@@ -264,6 +266,6 @@ export class FakeProvider implements ModelClient {
       usage.outputTokens += 1;
       yield { type: 'text', delta: w };
     }
-    yield finish();
+    yield finish(b.startsWith('length:') ? 'length' : 'stop');
   }
 }

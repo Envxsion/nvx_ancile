@@ -50,7 +50,12 @@ export interface LiveTurn {
   approvalId: string | null;
   /** Every approval still open, by the tool call it is for: each step opens its own. */
   approvals: Record<string, string>;
-  error: { title: string; hint: string } | null;
+  error: {
+    title: string;
+    hint: string;
+    code?: string;
+    options?: { model_id: string; name: string; price?: string }[];
+  } | null;
   done: boolean;
   lastSeq: number;
   /** When the run's first event came (server time), for the live footer's clock. */
@@ -212,7 +217,16 @@ export function fold(t: LiveTurn, e: RunEvent): LiveTurn {
     case 'fallback':
       return { ...next, fallback: { from: e.from_model, to: e.to_model, reason: e.reason }, waking: null };
     case 'error':
-      return { ...next, error: { title: e.title, hint: e.hint }, waking: null };
+      return {
+        ...next,
+        error: {
+          title: e.title,
+          hint: e.hint,
+          code: e.code,
+          ...(e.options && { options: e.options }),
+        },
+        waking: null,
+      };
     case 'done':
       return { ...next, done: true, waking: null };
     default:

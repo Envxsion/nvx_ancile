@@ -42,6 +42,8 @@ export interface RunningUsage {
   billedUsd?: number;
   cacheReported?: boolean;
   calls?: UsageCall[];
+  /** The turn was stopped before the provider reported usage: the figures are an estimate. */
+  estimated?: boolean;
   served?: { provider: string | null; model: string | null; cut_off: boolean };
 }
 
@@ -154,6 +156,7 @@ export function usageOut(
     output_tokens: u.output,
     cached_tokens: u.cached,
     cost_usd: u.costUsd,
+    ...(u.estimated && { estimated: true }),
     ...(u.served && { served: u.served }),
     // Calls were counted by this version, so the cache figures are known to be this answer's.
     ...(u.calls?.length && {

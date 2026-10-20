@@ -135,7 +135,7 @@ export interface MessageView {
   siblings?: { index: number; count: number; ids?: string[] };
   citations?: CitationView[];
   confidence?: number;
-  usage?: { tokens: number; costUsd: number; ms?: number };
+  usage?: { tokens: number; costUsd: number; ms?: number; estimated?: boolean };
   /** The usage as Core recorded it (cache figures, rates, calls): the receipt reads this. */
   rawUsage?: import('@nvx/contracts').Usage;
   createdAt: string;
@@ -147,7 +147,13 @@ export interface MessageView {
   /** A lab answer: its run (for changes and undo) and whether it was undone. */
   lab?: { runId: string; undone: boolean } | null;
   /** Shown under a failed answer; `code` picks its action (Start node for compute.node_stopped). */
-  error?: { title: string; hint: string; code?: string } | null;
+  error?: {
+    title: string;
+    hint: string;
+    code?: string;
+    /** model.pinned_unavailable: dearer models to choose instead. */
+    options?: { model_id: string; name: string; price?: string }[];
+  } | null;
   /** What Core recorded about how this answer was made (models tried, sources found). */
   provenance?: import('./mappers').Provenance;
   /** Only tool results, already shown in the answer before it: kept for the branch, not drawn. */

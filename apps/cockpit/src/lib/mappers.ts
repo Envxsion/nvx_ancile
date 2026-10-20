@@ -239,7 +239,17 @@ export interface Provenance {
   lab_undone_at?: string;
   chain?: string[];
   attempts?: { model: string; reason: string; detail?: string }[];
-  error?: { code: string; title: string; hint: string };
+  error?: {
+    code: string;
+    title: string;
+    hint: string;
+    /** model.pinned_unavailable: dearer models to choose instead. */
+    options?: { model_id: string; name: string; price?: string }[];
+  };
+  /** The answer stopped at the output limit (finish reason length). */
+  cut_off?: boolean;
+  /** Images the answering model could not be shown, as one sentence each. */
+  images_not_shown?: string[];
   retrieval?: RetrievalTrace;
   retrieval_error?: { code: string; title: string };
   /** The latest fact-check of this answer, in short (Core notes it here). */
@@ -441,6 +451,7 @@ export function toMessageView(m: Message): MessageView | null {
         tokens: m.usage.input_tokens + m.usage.output_tokens,
         costUsd: m.usage.cost_usd,
         ...(m.usage.ms !== undefined && { ms: m.usage.ms }),
+        ...(m.usage.estimated && { estimated: true }),
       },
       rawUsage: m.usage,
     }),
@@ -448,7 +459,14 @@ export function toMessageView(m: Message): MessageView | null {
     provenance: prov,
     status: m.status === 'pending' || m.status === 'streaming' ? 'streaming' : m.status,
     runId: m.run_id,
-    ...(prov.error && { error: { title: prov.error.title, hint: prov.error.hint, code: prov.error.code } }),
+    ...(prov.error && {
+      error: {
+        title: prov.error.title,
+        hint: prov.error.hint,
+        code: prov.error.code,
+        ...(prov.error.options && { options: prov.error.options }),
+      },
+    }),
     ...(prov.lab &&
       m.run_id && {
         lab: { runId: m.run_id, undone: !!prov.lab_undone_at },

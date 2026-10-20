@@ -168,6 +168,12 @@ export function threadRoutes(deps: ThreadRouteDeps) {
   const run = async (id: string) => {
     const r = await runs.get(id);
     if (!r) throw notFound('That run');
+    // A flow try-out belongs to no thread: its checkpoint names the workspace it was started in.
+    if (r.kind === 'flow_try') {
+      if ((r.checkpoint as { workspaceId?: string } | null)?.workspaceId !== deps.workspaceId)
+        throw notFound('That run');
+      return r;
+    }
     const threadId =
       r.threadId ?? (r.messageId ? (await repo.getMessage(r.messageId))?.thread_id : undefined);
     const t = threadId ? await repo.getThread(threadId) : undefined;

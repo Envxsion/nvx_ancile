@@ -946,6 +946,11 @@
   margin-top: 2px;
   color: var(--fg-3);
 }
+.msg__cutoff,
+.msg__note {
+  margin: 6px 0 0;
+  font-size: var(--t-small);
+}
 .msg__error-actions {
   display: flex;
   flex-wrap: wrap;

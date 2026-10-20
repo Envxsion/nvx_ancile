@@ -120,12 +120,19 @@ export const CitationRefPart = z.object({
   notebook_id: z.string().optional(),
   notebook_title: z.string().optional(),
 });
-/** Where a fallback model continued a stream another model started. */
+/**
+ * Where one model took over from another. `continued` (the default, and all
+ * older seams): a fallback model carried on a stream the first had started.
+ * `answered_by`: the model asked for could not start, so another answered the
+ * whole turn; `detail` is the one short sentence saying why, shown on the message.
+ */
 export const SeamPart = z.object({
   type: z.literal('seam'),
   from_model: z.string(),
   to_model: z.string(),
   reason: z.string(),
+  kind: z.enum(['continued', 'answered_by']).optional(),
+  detail: z.string().optional(),
 });
 
 export const Part = z.discriminatedUnion('type', [
@@ -184,6 +191,11 @@ export const Usage = z.object({
   cached_tokens: z.number().int().nonnegative().default(0),
   /** The list-price cost (tokens times the model's rates). The receipt total uses `billed_usd` when it is set. */
   cost_usd: z.number().nonnegative(),
+  /**
+   * True when the provider reported nothing (the turn was stopped mid-stream)
+   * and the tokens and cost are Ancile's estimate from the request and the text so far.
+   */
+  estimated: z.boolean().optional(),
   /** OpenRouter only: which provider (and, under openrouter/auto, which model) answered. */
   served: ServedBy.optional(),
   /** Tokens written to the provider's cache. Absent on answers from before the receipt. */

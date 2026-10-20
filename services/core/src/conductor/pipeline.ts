@@ -65,8 +65,8 @@ import {
 } from '../flows/turn';
 import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
 import { effortLevels } from '../gateway/effort';
-import { ChainFailedError, type Gateway } from '../gateway/gateway';
-import type { ModelRegistry } from '../gateway/registry';
+import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
+import { canChat, type ModelRegistry } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { LocalModelOptions, ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
 import { summariesBlock, type TurnLinks } from '../links/service';
@@ -209,11 +209,19 @@ export interface TurnCheckpoint {
     calls?: UsageCall[];
     /** OpenRouter: who served the last call, and whether it hit the output cap. */
     served?: { provider: string | null; model: string | null; cut_off: boolean };
+    /** The turn was stopped before the provider reported usage: these figures are an estimate. */
+    estimated?: boolean;
   };
   /** When the turn began (epoch ms), so each call records its start as an offset (Usage.calls). */
   startedAt?: number;
   /** Retries that worked, for the receipt's "Worth knowing" (provenance.recovered). */
   recovered?: Recovered[];
+  /** A model round has been asked and has not reported its usage yet (stopped mid-stream = unbilled by us). */
+  roundOpen?: { inTokens: number; outChars: number; modelId: string; startedAt: number } | null;
+  /** Why the last model round stopped, when it was not a plain end ('length': cut off at the limit). */
+  stop?: string | null;
+  /** Images in the conversation that the answering model could not be shown (names). */
+  imagesNotShown?: string[];
   /** Retrieval ran for this turn (notebook threads only); absent on older checkpoints. */
   retrieved?: boolean;
   grounding?: Grounding | null;
@@ -552,6 +560,51 @@ class DeltaBatcher {
   }
 }
 
+/**
+ * A turn stopped (or failed) after a model round was asked but before the
+ * provider said what it used. The provider bills what it received, so count an
+ * estimate rather than nothing: the request's size in, the text so far out, marked
+ * as an estimate (usage.estimated) so meters read "about", not exact.
+ */
+function settleUnreported(
+  cp: TurnCheckpoint,
+  status: 'complete' | 'stopped' | 'error',
+  price?: (m: string) => ModelConfig | undefined,
+) {
+  const open = cp.roundOpen;
+  if (!open) return;
+  cp.roundOpen = null;
+  // A person's stop sent the request, so its input was billed; a failure that streamed nothing was not.
+  if (status !== 'stopped' && open.outChars === 0) return;
+  const now = Date.now();
+  noteCall(cp.usage, {
+    model: price?.(open.modelId),
+    modelId: open.modelId,
+    usage: { inputTokens: open.inTokens, outputTokens: Math.ceil(open.outChars / 4) },
+    startedMs: open.startedAt - (cp.startedAt ?? open.startedAt),
+    at: open.startedAt,
+    ms: now - open.startedAt,
+  });
+  cp.usage.estimated = true;
+}
+
+/** One short sentence for the seam: the provider's own words when they read as a sentence, else the class in words. */
+const CLASS_WORDS: Record<string, string> = {
+  transient: 'had a temporary problem',
+  capacity: 'was at capacity',
+  refusal: 'declined the request',
+  context_overflow: 'could not fit the conversation',
+  policy: 'was blocked',
+  permanent: 'is not available',
+  bug: 'failed',
+};
+export function whyShort(name: string, a: { reason: string; detail: string }): string {
+  const one = a.detail.replace(/\s+/g, ' ').trim();
+  const sentence = /^[^{}<>]{8,160}$/.test(one) && !/\b(?:https?:|sk-|key)\b/i.test(one) ? one : '';
+  if (sentence) return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+  return `${name} ${CLASS_WORDS[a.reason] ?? 'could not answer'}.`;
+}
+
 export function chatTurnHandler(deps: ConductorDeps): RunHandler {
   const maxRounds = deps.maxRounds ?? 8;
   const epochs = deps.epochs ?? new MemoryEpochStore();
@@ -560,10 +613,16 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
     cp: TurnCheckpoint,
     status: 'complete' | 'stopped' | 'error',
     ctx: { emit: (e: RunEventInput) => Promise<unknown> },
-    error?: { code: string; title: string; hint: string },
+    error?: {
+      code: string;
+      title: string;
+      hint: string;
+      options?: { model_id: string; name: string; price?: string }[];
+    },
   ) {
     // A note that had not been taken by now did not get in; the Cockpit sends it as a message.
     deps.steer?.end(cp.input.threadId, cp.input.assistantMessageId);
+    settleUnreported(cp, status, (id) => deps.registry.get(id));
     const model = cp.answeredBy ? deps.registry.get(cp.answeredBy) : undefined;
     // CA4: what the model was sent of this answer, as text, before citations are tidied.
     // Next turn starts with these bytes. A flow's answer is not built from its parts, so none.
@@ -609,6 +668,8 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
         model_name: model?.display_name ?? null,
         ...retrieval,
         ...(cp.memory && { memory: cp.memory }),
+        ...(cp.stop === 'length' && { stop: 'length', cut_off: true }),
+        ...(cp.imagesNotShown?.length && { images_not_shown: cp.imagesNotShown }),
         ...(cp.input.replay && {
           rerun_of: { run_id: cp.input.replay.fromRunId, from_step: cp.input.replay.fromStep },
         }),
@@ -1762,11 +1823,44 @@ ${noted.stop.forModel}`,
         }
         let current: ModelConfig | undefined;
         const callStarted = Date.now();
+        const attemptsBefore = cp.attempts.length;
+        // Until the provider reports usage, a stop leaves this to be estimated (settleUnreported).
+        cp.roundOpen = {
+          inTokens: approxTokens(
+            [req.system ?? '', ...req.messages.map((m) => m.content), JSON.stringify(req.tools ?? [])].join(
+              '
+',
+            ),
+          ),
+          outChars: 0,
+          modelId: chain[0]?.id ?? '',
+          startedAt: callStarted,
+        };
+        cp.stop = null;
         for await (const ev of watched(deps.gateway.stream(chain, req, ctx.signal), recorder('model'))) {
           switch (ev.type) {
             case 'model':
               current = deps.registry.get(ev.modelId);
+              if (cp.roundOpen) cp.roundOpen.modelId = ev.modelId;
               if (cp.answeredBy !== ev.modelId) {
+                // The model asked for could not start and another answers the whole turn:
+                // say so on the message itself, not only in the run's events. (A stream that
+                // broke part-way already has its own seam, from the gateway.)
+                const failed = cp.attempts.slice(attemptsBefore);
+                const last = cp.parts.at(-1);
+                const first = failed[0];
+                if (first && !(last?.type === 'seam' && last.to_model === ev.modelId)) {
+                  const name = deps.registry.get(first.model)?.display_name ?? first.model;
+                  cp.parts.push({
+                    type: 'seam',
+                    kind: 'answered_by',
+                    from_model: first.model,
+                    to_model: ev.modelId,
+                    reason: first.reason,
+                    detail: whyShort(name, first),
+                  });
+                  await emit({ type: 'message.snapshot', message_id: msgId, parts: cp.parts });
+                }
                 cp.answeredBy = ev.modelId;
                 await deltas.flush();
                 await emit({
@@ -1813,6 +1907,8 @@ ${noted.stop.forModel}`,
             // ---- end Phase 5 ----
             case 'chunk': {
               const c = ev.chunk;
+              if (cp.roundOpen && (c.type === 'text' || c.type === 'reasoning'))
+                cp.roundOpen.outChars += c.delta.length;
               if (c.type === 'text') {
                 appendText(cp.parts, 'text', c.delta);
                 deltas.push('text.delta', c.delta);
@@ -1846,7 +1942,11 @@ ${noted.stop.forModel}`,
               } else if (c.type === 'warning') {
                 await deltas.flush();
                 await emit({ type: 'warning', code: c.code, message: c.message });
+                if (c.code === 'image.not_shown')
+                  cp.imagesNotShown = [...new Set([...(cp.imagesNotShown ?? []), c.message])];
               } else if (c.type === 'finish') {
+                cp.roundOpen = null;
+                cp.stop = c.finishReason === 'length' ? 'length' : null;
                 countCall(current, cp.answeredBy ?? '', c, callStarted);
                 if (c.cacheReset) {
                   cp.cacheResets = [
@@ -2046,10 +2146,10 @@ ${cp.loopStop}`,
           await finalise(cp, 'stopped', { emit });
           return { kind: 'cancelled' };
         }
-        const failure = describeFailure(err);
+        const failure = pinnedUnavailable(err, cp, deps.registry) ?? describeFailure(err);
         if (!failure) throw err;
-        const { code, title, hint } = failure.event;
-        await finalise(cp, 'error', { emit }, { code, title, hint });
+        const { code, title, hint, options } = failure.event;
+        await finalise(cp, 'error', { emit }, { code, title, hint, ...(options && { options }) });
         await emit({ type: 'error', ...failure.event });
         return {
           kind: 'failed',
@@ -2069,12 +2169,70 @@ ${cp.loopStop}`,
       const cp = run.checkpoint as TurnCheckpoint;
       await deps.permissions.cancelApprovalsForRun(run.id);
       deps.steer?.end(cp.input.threadId, cp.input.assistantMessageId);
+      // finalise() already wrote this error with its choices (options); keep that fuller record.
+      const written = (await deps.repo.getMessage(cp.input.assistantMessageId))?.provenance?.error as
+        | { code?: string }
+        | undefined;
       await deps.repo.updateMessage(cp.input.assistantMessageId, {
         status: 'error',
         parts: cp.parts,
-        provenance: { chain: cp.chain, attempts: cp.attempts, error },
+        provenance: {
+          chain: cp.chain,
+          attempts: cp.attempts,
+          ...(written?.code !== error.code && { error }),
+        },
       });
       await deps.repo.patchThread(cp.input.threadId, {});
+    },
+  };
+}
+
+const perMtok = (n: number) => `$${Number(n.toFixed(n < 1 ? 3 : 2))}`;
+export const priceWords = (m: ModelConfig) =>
+  m.price.input_per_mtok === 0 && m.price.output_per_mtok === 0
+    ? 'no per-token price'
+    : `${perMtok(m.price.input_per_mtok)} in, ${perMtok(m.price.output_per_mtok)} out per million tokens`;
+
+/**
+ * "Same price or cheaper" (DESIGN.md §7.2): a model the person pinned fell back
+ * only to models no dearer than it. When it fails and none of those can answer,
+ * the turn stops here, naming the dearer models the unpinned route would have used,
+ * so the person chooses (the Cockpit shows each as a button) instead of paying more unasked.
+ */
+function pinnedUnavailable(
+  err: unknown,
+  cp: TurnCheckpoint,
+  registry: ModelRegistry,
+): { event: Omit<Extract<RunEvent, { type: 'error' }>, 'seq' | 'at' | 'type'> } | null {
+  const pinned = cp.input.explicitModel;
+  if (!(err instanceof ChainFailedError) || !pinned || err.attempts[0]?.model !== pinned) return null;
+  const tried = new Set(err.attempts.map((a) => a.model));
+  let route: ModelConfig[] = [];
+  try {
+    route = registry.chain(cp.input.taskClass, null);
+  } catch {
+    return null;
+  }
+  const options = route
+    .filter((m) => !tried.has(m.id) && m.id !== pinned && canChat(m))
+    .slice(0, 2)
+    .map((m) => ({ model_id: m.id, name: m.display_name, price: priceWords(m) }));
+  if (!options.length) return null;
+  const was = registry.get(pinned);
+  const name = was?.display_name ?? pinned;
+  const first = err.attempts[0] as FailedAttempt;
+  return {
+    event: {
+      code: 'model.pinned_unavailable',
+      title: `${name} could not answer`,
+      hint: `${whyShort(name, { reason: first.errorClass, detail: first.detail })} No cheaper model could take over, and NVX Ancile will not move a model you chose to a dearer one without asking.`,
+      attempts: err.attempts.map((a) => ({
+        target: a.model,
+        class: a.errorClass,
+        ms: 0,
+        note: a.detail.slice(0, 300),
+      })),
+      options,
     },
   };
 }

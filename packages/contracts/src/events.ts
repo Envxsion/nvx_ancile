@@ -206,6 +206,10 @@ export const RunEvent = z.discriminatedUnion('type', [
     attempts: z.array(Attempt),
     /** claude_code.plan_limit: when the plan's limit resets (ISO), so the Cockpit says it in local time. */
     resets_at: z.string().nullable().optional(),
+    /** model.pinned_unavailable: dearer models the person can choose instead, each one click. */
+    options: z
+      .array(z.object({ model_id: z.string(), name: z.string(), price: z.string().optional() }))
+      .optional(),
   }),
   z.object({ ...base, type: z.literal('done'), message_id: z.string().nullable() }),
   /** Flows (DESIGN.md §16.5): the teamwork, live. */

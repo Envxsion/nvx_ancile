@@ -134,6 +134,21 @@ export function modelGone(id: string, suggested: string | null): AncileError {
   });
 }
 
+/**
+ * The id names no model Ancile has ever listed: a typo, or a model from another install.
+ * Not `model.gone`, which says something was removed.
+ */
+export function modelUnknown(id: string, suggested: string | null): AncileError {
+  return new AncileError({
+    code: 'model.unknown',
+    title: `There is no model called ${id}`,
+    hint: 'Check the id in Settings → Models, or pick a model from the switcher.',
+    status: 404,
+    errorClass: 'permanent',
+    context: { model_id: id, suggested_model: suggested },
+  });
+}
+
 /** The model to offer in place of a gone one: the thread's, else the first the default route would use. */
 export function suggestedModel(registry: ModelRegistry, threadModel?: string | null): string | null {
   if (threadModel && usableChatModel(registry, threadModel)) return threadModel;
@@ -151,7 +166,10 @@ export function assertChatModel(
   threadModel?: string | null,
 ): ModelConfig {
   const m = registry.get(id);
-  if (!m) throw modelGone(id, suggestedModel(registry, threadModel));
+  if (!m) {
+    const suggested = suggestedModel(registry, threadModel);
+    throw registry.wasKnown(id) ? modelGone(id, suggested) : modelUnknown(id, suggested);
+  }
   if (!canChat(m)) throw modelNotChat(m);
   const status = registry.status(m);
   if (status !== 'ready') throw modelNotReady(m.display_name, status);

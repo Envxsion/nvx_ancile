@@ -36,8 +36,8 @@ export function ModelGoneNotice({ threadId }: { threadId: string }) {
       <Icon name="warn" size={14} className="cc-notice__icon" />
       <div className="cc-notice__text">
         <p>
-          <strong>{gone.modelId} is no longer available.</strong> It was removed or renamed. Pick another
-          model to send it again.
+          <strong>{gone.words?.heading ?? `${gone.modelId} is no longer available.`}</strong>{' '}
+          {gone.words?.body ?? 'It was removed or renamed. Pick another model to send it again.'}
         </p>
       </div>
       <div className="cc-notice__acts">
