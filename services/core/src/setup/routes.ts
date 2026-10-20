@@ -35,14 +35,16 @@ import { z } from 'zod';
 import type { AppEnv } from '../app';
 import { tracedFetch } from '../context';
 import type { CatalogueSource } from '../gateway/catalogue';
-import { isRegion, knownProfile, type ProviderProfile, profileFor } from '../gateway/profiles';
-import { classifyFailure, failureWords } from '../gateway/provider-errors';
+import { baseUrlFor, isRegion, knownProfile, type ProviderProfile, profileFor } from '../gateway/profiles';
+import { classifyFailure, failureParts, failureWords } from '../gateway/provider-errors';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET } from '../gateway/providers';
 import { canChat, type ModelRegistry, ollamaName } from '../gateway/registry';
 import { body } from '../http/body';
+import { type JsonGetter, type ListKind, list, liveJson } from '../models/watch/listers';
 import { notFound } from '../obs/errors';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
+import { keyCheckFor, offeredBy } from './key-check';
 import { registerModelRoutes } from './models';
 
 const PROVIDERS: { id: ProviderId; display_name: string; needs_key: boolean }[] = [
@@ -63,8 +65,16 @@ export type ProviderTester = (input: {
   region?: string;
   baseUrl?: string;
   model?: ModelConfig;
+  /** Every model configured for the provider, cheapest first: the tester may prefer one its list offers. */
+  models?: ModelConfig[];
   /** Ollama: the models it has pulled (its tag names). */
-}) => Promise<{ model: string; available?: string[] }>;
+}) => Promise<{
+  /** The model that answered; null when the key was checked without a call to a model. */
+  model: string | null;
+  available?: string[];
+  /** The provider's own model list, as read with this key (provider_model ids). Absent when none was read. */
+  offered?: string[];
+}>;
 
 export interface SetupRouteDeps {
   registry: ModelRegistry;
@@ -99,7 +109,9 @@ export function modelsOf(registry: ModelRegistry, provider: ProviderId): ModelCo
  * explanation before it is shown; `region` is the one the key was tried in.
  */
 export function testFailed(provider: string, err: unknown, hide?: string, region?: string): AncileError {
-  const raw = err instanceof Error ? err.message : String(err);
+  if (err instanceof AncileError) return err;
+  const said = providerSaid(err);
+  const raw = (err instanceof Error ? err.message : String(err)) + (said ? `: ${said}` : '');
   const msg = (hide ? raw.split(hide).join('[hidden]') : raw).slice(0, 300);
   const profile = profileFor(provider);
   const seen = classifyFailure(profile, err);
@@ -116,8 +128,10 @@ export function testFailed(provider: string, err: unknown, hide?: string, region
       errorClass: 'transient',
     });
   }
+  // Google answers a bad key with a 400 whose reason is API_KEY_INVALID; the profile calls that a suspicion, here it is the answer.
+  const kind = seen.suspectBadKey && /api_key_invalid|api key not valid/i.test(raw) ? 'bad_key' : seen.kind;
   // Out of credit, wrong region, a model this key may not use, a rejected key: each has a documented code.
-  const words = failureWords(seen.kind, profile, {
+  const words = failureWords(kind, profile, {
     region,
     regionHint: seen.regionHint === true,
     note: seen.note,
@@ -132,16 +146,96 @@ export function testFailed(provider: string, err: unknown, hide?: string, region
       errorClass: 'permanent',
     });
   const limited = seen.kind === 'rate_limited' || seen.status === 429;
+  if (limited)
+    return new AncileError({
+      code: 'provider.unavailable',
+      title: `${name} is limiting requests right now`,
+      hint: `The key may well be fine. Wait a minute, then test again; ${name}'s own explanation is below.`,
+      detail: msg,
+      status: 502,
+      errorClass: 'transient',
+    });
+  // The key got through and the model it was tried on is not one it can use: the key is not the problem.
+  const tried = (err as { triedModel?: string } | null)?.triedModel;
+  if (isModelNotOffered(seen.status, raw))
+    return new AncileError({
+      code: 'provider.model_not_offered',
+      title: `${name} accepted the key, but ${tried ?? 'the test model'} isn't offered to it`,
+      hint: `The key was not the problem, and nothing was saved. ${name} does not serve that model to this key, so check that your plan or project there includes it, or add another ${name} model in Admin → Models, then test again.`,
+      detail: msg,
+      status: 502,
+      errorClass: 'permanent',
+    });
+  if (isNetworkFailure(err))
+    return new AncileError({
+      code: 'provider.unavailable',
+      title: `${name} didn't answer the test`,
+      hint: `Check your connection, then test again. ${name}'s own explanation is below.`,
+      detail: msg,
+      status: 502,
+      errorClass: 'transient',
+    });
+  // It answered but refused, or said it had a problem of its own: say so without blaming the connection.
+  const theirs = seen.status >= 500 || seen.kind === 'server' || seen.kind === 'overloaded';
   return new AncileError({
     code: 'provider.unavailable',
-    title: limited ? `${name} is limiting requests right now` : `${name} didn't answer the test`,
-    hint: limited
-      ? `The key may well be fine. Wait a minute, then test again; ${name}'s own explanation is below.`
-      : `Check your connection, then test again${seen.suspectBadKey ? ' (and check the key)' : ''}. ${name}'s own explanation is below.`,
+    title: theirs ? `${name} had a problem answering the test` : `${name} turned the test down`,
+    hint: theirs
+      ? `The problem is on ${name}'s side. Wait a minute, then test again; its own explanation is below.`
+      : `${name}'s own explanation is below${seen.suspectBadKey ? '. It may mean the key is wrong, so check it too' : ''}. Nothing was saved.`,
     detail: msg,
     status: 502,
-    errorClass: 'transient',
+    errorClass: theirs ? 'transient' : 'permanent',
   });
+}
+
+/** The provider's own sentence from an error body ({error:{message}}), when the failure carried one. */
+function providerSaid(err: unknown): string {
+  const { body } = failureParts(err);
+  let parsed: unknown = body;
+  if (typeof body === 'string')
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return '';
+    }
+  const e = (parsed as { error?: unknown } | null)?.error;
+  const m = typeof e === 'string' ? e : (e as { message?: unknown } | null)?.message;
+  return typeof m === 'string' ? m.slice(0, 200) : '';
+}
+
+/** A model-not-found answer: a 404, or the words Google and others use when a model is not offered. */
+export function isModelNotOffered(status: number, raw: string): boolean {
+  if (status === 404) return true;
+  return /(models\/\S+ is not found|not supported for generatecontent|model .{0,80}(does not exist|not found|is not available)|no such model|unknown model)/i.test(
+    raw,
+  );
+}
+
+const NETWORK_RE =
+  /(fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR_(CONNECT|SOCKET|HEADERS_TIMEOUT)|socket hang up|network error|cannot connect to api|timed out|timeout)/i;
+
+/** A failure with no answer from the provider at all: DNS, refused or dropped connections, timeouts. */
+export function isNetworkFailure(err: unknown): boolean {
+  for (let e: unknown = err, i = 0; e && typeof e === 'object' && i < 4; i++) {
+    const x = e as {
+      name?: unknown;
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+      statusCode?: unknown;
+    };
+    if (typeof x.statusCode === 'number') return false;
+    if (x.name === 'AbortError' || x.name === 'TimeoutError') return true;
+    if (
+      NETWORK_RE.test(
+        `${typeof x.code === 'string' ? x.code : ''} ${typeof x.message === 'string' ? x.message : ''}`,
+      )
+    )
+      return true;
+    e = x.cause;
+  }
+  return false;
 }
 
 /**
@@ -235,9 +329,10 @@ export function setupRoutes(deps: SetupRouteDeps) {
     if (req.provider === 'anthropic' && isPersonalAnthropicKey(key) && !workspaceId) throw workspaceNeeded();
     const region = regionFrom(profile, req.region);
     const candidates = modelsOf(registry, req.provider);
-    const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
+    const byPrice = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok);
+    const cheapest = byPrice[0];
     const started = performance.now();
-    let tested: { model: string; available?: string[] };
+    let tested: Awaited<ReturnType<ProviderTester>>;
     try {
       tested = await deps.tester({
         provider: req.provider,
@@ -247,12 +342,15 @@ export function setupRoutes(deps: SetupRouteDeps) {
         ...((req.base_url ?? (req.provider === 'ollama' ? deps.ollamaUrl : undefined)) && {
           baseUrl: req.base_url ?? deps.ollamaUrl,
         }),
-        ...(cheapest && { model: cheapest }),
+        ...(cheapest && { model: cheapest, models: byPrice }),
       });
     } catch (err) {
       throw testFailed(req.provider, err, key, region);
     }
     const latency = Math.round(performance.now() - started);
+    // Models the provider's own list does not offer to this key stay off.
+    const split = offeredBy(candidates, tested.offered);
+    const missing = new Set(split.missing.map((m) => m.id));
     let enabled: string[] = [];
     if (req.save) {
       const secret = DEFAULT_SECRET[req.provider];
@@ -267,7 +365,10 @@ export function setupRoutes(deps: SetupRouteDeps) {
       // are on already, and one you turned off stays off.
       const pulled = tested.available ? new Set(tested.available.map(ollamaName)) : null;
       const ready = candidates.filter(
-        (m) => !registry.isDiscovered(m.id) && (!pulled || pulled.has(ollamaName(m.provider_model))),
+        (m) =>
+          !registry.isDiscovered(m.id) &&
+          (!pulled || pulled.has(ollamaName(m.provider_model))) &&
+          !missing.has(m.id),
       );
       enabled = ready.map((m) => m.id);
       await registry.setEnabled(Object.fromEntries(enabled.map((id) => [id, true])));
@@ -285,6 +386,7 @@ export function setupRoutes(deps: SetupRouteDeps) {
       model: tested.model,
       latency_ms: latency,
       enabled,
+      not_offered: split.missing.map((m) => ({ id: m.id, display_name: m.display_name })),
     };
     return c.json(out);
   });
@@ -407,14 +509,32 @@ export function setupRoutes(deps: SetupRouteDeps) {
   return r;
 }
 
-/** The real tester: one token through the AI SDK, or Ollama's tag list. */
+/** Nothing to test with: no list could be read and no model is configured for the provider. */
+export function noTestModel(provider: string): AncileError {
+  const name = knownProfile(provider)?.name ?? provider;
+  return new AncileError({
+    code: 'setup.no_test_model',
+    title: `NVX Ancile has no ${name} model to test the key with`,
+    hint: `${name} does not offer a way to check a key without a model. Add a ${name} model in Admin → Models, then test again. Nothing was saved.`,
+    status: 422,
+    errorClass: 'permanent',
+  });
+}
+
+/**
+ * The real tester. Ollama: its tag list. A provider whose own list needs the key
+ * (key-check.ts): read that list, which proves the key without spending a token
+ * and says which models it is offered. Anything else: one token on a configured
+ * model, one the provider's list (read if it answers) offers when there is one.
+ */
 export function liveTester(
   languageModel: (
     m: ModelConfig,
     secrets: { get(name: string): Promise<string | undefined> },
   ) => Promise<import('ai').LanguageModel>,
+  get: JsonGetter = liveJson,
 ): ProviderTester {
-  return async ({ provider, key, workspaceId, region, baseUrl, model }) => {
+  return async ({ provider, key, workspaceId, region, baseUrl, model, models }) => {
     if (provider === 'ollama') {
       const base = (baseUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '').replace(/\/$/, '');
       const res = await tracedFetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4_000) });
@@ -425,21 +545,64 @@ export function liveTester(
         available: (tags.models ?? []).map((m) => m.name).filter(Boolean),
       };
     }
-    if (!model) throw new Error(`No ${provider} model is configured in models.yaml to test with`);
+    const profile = profileFor(provider);
+    const plan = keyCheckFor(provider);
+    const root = baseUrl ?? baseUrlFor(profile, region);
+    // The getter's own error (with its status and body) is what testFailed reads, not the lister's summary.
+    let raw: unknown;
+    const spy: JsonGetter = async (...args) => {
+      try {
+        return await get(...args);
+      } catch (err) {
+        raw = err;
+        throw err;
+      }
+    };
+    const kind: ListKind = profile.sdk;
+    let offered: string[] | undefined;
+    if (root && plan.via === 'key') {
+      // OpenRouter: /key answers only for a good key (/models is public).
+      await spy(`${root.replace(/\/+$/, '')}${profile.check.path}`, { authorization: `Bearer ${key ?? ''}` });
+      return { model: null };
+    }
+    if (root && (plan.via === 'list' || profile.modelsPath)) {
+      try {
+        const target = {
+          kind,
+          baseUrl: root,
+          key: key ?? null,
+          workspaceId,
+          path: profile.modelsPath,
+        };
+        offered = (await list(target, spy)).map((m) => m.provider_model);
+      } catch (err) {
+        // A list we trust must accept the key. Any other list is only a help, so its failure is not the key's.
+        if (plan.via === 'list') throw raw ?? err;
+      }
+      if (plan.via === 'list') return { model: null, offered: offered ?? [] };
+    }
+    // Prefer a configured model the list offers; otherwise the cheapest configured one is tried as it stands.
+    const test = (offered?.length ? offeredBy(models ?? [], offered).offered[0] : undefined) ?? model;
+    if (!test) throw noTestModel(provider);
     const { generateText } = await import('ai');
     // Only the values under test: the key by any name, the workspace and region by their own.
-    const regionSecret = profileFor(provider).regionSecret;
-    const lm = await languageModel(ModelConfig.parse({ ...model, enabled: true }), {
+    const regionSecret = profile.regionSecret;
+    const lm = await languageModel(ModelConfig.parse({ ...test, enabled: true }), {
       get: async (name) =>
         name === ANTHROPIC_WORKSPACE_SECRET ? workspaceId : name === regionSecret ? region : key,
     });
-    await generateText({
-      model: lm,
-      prompt: 'Reply with OK.',
-      maxOutputTokens: 1,
-      maxRetries: 0,
-      abortSignal: AbortSignal.timeout(15_000),
-    });
-    return { model: model.id };
+    try {
+      await generateText({
+        model: lm,
+        prompt: 'Reply with OK.',
+        maxOutputTokens: 1,
+        maxRetries: 0,
+        abortSignal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      if (err && typeof err === 'object') (err as { triedModel?: string }).triedModel = test.display_name;
+      throw err;
+    }
+    return { model: test.id, ...(offered?.length && { offered }) };
   };
 }

@@ -320,12 +320,18 @@ export const liveJson: JsonGetter = (url, headers, signal) =>
           ? AbortSignal.any([signal, AbortSignal.timeout(LIST_TIMEOUT_MS)])
           : AbortSignal.timeout(LIST_TIMEOUT_MS),
       });
-      if (!res.ok)
+      if (!res.ok) {
+        // The body rides on `cause` only so a key test can tell a bad key from other trouble; it is never logged or shown.
+        const responseBody = await res.text().then(
+          (t) => t.slice(0, 1000),
+          () => '',
+        );
         throw new ClassifiedError(
           res.status >= 500 || res.status === 429 ? 'transient' : 'permanent',
           `${new URL(url).host} answered ${res.status}`,
-          { status: res.status },
+          { status: res.status, cause: { responseBody } },
         );
+      }
       return res.json();
     },
     { maxAttempts: 2, capMs: 1_500, ...(signal && { signal }) },

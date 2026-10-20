@@ -278,16 +278,34 @@ describe('Anthropic personal keys and honest test errors (AK1)', () => {
 
   it('hands the tester only the values under test, the workspace by its own name', async () => {
     const { liveTester } = await import('../../src/setup/routes');
+    // Anthropic's key is proved by its list: the key and workspace go in the headers, and no network is touched.
+    const sent: Record<string, string>[] = [];
+    const listed = liveTester(
+      async () => {
+        throw new Error('no model call expected');
+      },
+      async (_url, headers) => {
+        sent.push(headers);
+        return { data: [], has_more: false };
+      },
+    );
+    await listed({ provider: 'anthropic', key: PERSONAL, workspaceId: WS });
+    expect(sent[0]).toMatchObject({ 'x-api-key': PERSONAL, 'anthropic-workspace-id': WS });
+    // A provider tested with a token gets the key by its own secret name.
     const got: Record<string, string | undefined> = {};
-    const tester = liveTester(async (_m, secrets) => {
-      got.key = await secrets.get('ANTHROPIC_API_KEY');
-      got.workspace = await secrets.get('ANTHROPIC_WORKSPACE_ID');
-      throw new Error('stop before any network');
-    });
+    const tester = liveTester(
+      async (_m, secrets) => {
+        got.key = await secrets.get('XAI_API_KEY');
+        throw new Error('stop before any network');
+      },
+      async () => {
+        throw new Error('no list');
+      },
+    );
     await expect(
-      tester({ provider: 'anthropic', key: PERSONAL, workspaceId: WS, model: claude as never }),
+      tester({ provider: 'xai', key: 'xai-test-key', model: { ...claude, provider: 'xai' } as never }),
     ).rejects.toThrow('stop before any network');
-    expect(got).toEqual({ key: PERSONAL, workspace: WS });
+    expect(got).toEqual({ key: 'xai-test-key' });
   });
 });
 

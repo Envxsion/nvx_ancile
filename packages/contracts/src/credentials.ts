@@ -75,6 +75,11 @@ export const CredentialStatus = z.object({
   region: z.string().nullable().optional(),
   /** The environment variable that overrides the region (e.g. MOONSHOT_REGION), for providers with regions. */
   region_env_var: z.string().nullable().optional(),
+  /**
+   * Only on the answer to saving a provider key: configured models the provider's
+   * own list does not offer to this key. They stay off.
+   */
+  not_offered: z.array(z.object({ id: z.string(), display_name: z.string() })).optional(),
 });
 export type CredentialStatus = z.infer<typeof CredentialStatus>;
 

@@ -35,6 +35,7 @@ import {
   type FriendlyProblem,
   friendlyProblem,
   type KeyNeighbour,
+  notOfferedLine,
   type Problem,
   recogniseKey,
   regionLabel,
@@ -334,7 +335,7 @@ export function CredentialRow({
           : {
               level: 'success',
               title: `${meta.name} ${meta.noun} saved`,
-              body: 'It is encrypted on this computer.',
+              body: `It is encrypted on this computer.${notOfferedLine(s.not_offered) ? ` ${notOfferedLine(s.not_offered)}` : ''}`,
             },
       );
     },

@@ -1196,6 +1196,8 @@ On GPT-5.6 and later the minimum is 1,024 visible input tokens, caching can be i
         { title: 'Gemini context caching', url: 'https://ai.google.dev/gemini-api/docs/caching' },
         { title: 'Gemini API rate limits', url: 'https://ai.google.dev/gemini-api/docs/rate-limits' },
         { title: 'Gemini API errors', url: 'https://ai.google.dev/gemini-api/docs/api-errors' },
+        { title: 'Using Gemini API keys', url: 'https://ai.google.dev/gemini-api/docs/api-key' },
+        { title: 'Gemini models', url: 'https://ai.google.dev/gemini-api/docs/models' },
         {
           title: 'Gemini CLI quotas and pricing',
           url: 'https://geminicli.com/docs/resources/quota-and-pricing/',
@@ -1231,6 +1233,12 @@ A 429 means either a per-minute limit (\`rate_limit_exceeded\`, wait and retry) 
 
 The pricing page says the newest model is not available on the free tier while older Flash models are free of charge. It also lists a price increase for one Flash model from 1 January 2027.
 
+### Your key
+
+Keys made in Google AI Studio since 28 May 2026 are authorisation keys, not the older standard keys. Google says these are bound to a service account, and the Gemini API rejects requests from unrestricted standard keys. A new key starts with \`AQ.\` where older ones start with \`AIza\`. The key travels in the \`x-goog-api-key\` header.
+
+Google's models page lists the exact model codes, and they change: a preview model such as \`gemini-3.1-pro-preview\` carries its status in the code, and a code Google does not list answers 404.
+
 ### Free tier and your data
 
 For free services, Google uses submitted content and responses to improve its products, and human reviewers may read, annotate and process API input and output. For paid services Google says it does not use prompts or responses to improve its products. Both tiers log prompts for a limited period to detect misuse.
@@ -1252,6 +1260,7 @@ Gemini on Vertex caches customer data in memory by default and deletes it within
 ### What NVX Ancile does about it
 
 - Google is used with an API key. A Google AI Pro or Ultra subscription does not pay for it.
+- A key is checked by asking Google for its model list with the key, which spends no tokens. Both \`AQ.\` and \`AIza\` keys are accepted. Models in NVX Ancile's list that Google does not offer to that key stay off, and the key is still saved.
 - Cache hits are read from the response usage. A 402 (prepaid credits ran out) is read as out of credit. A 429 \`RESOURCE_EXHAUSTED\` is treated as a rate limit and retried, so a spent daily quota is retried rather than explained. Telling the two 429s apart is planned.
 - Showing the project's billing state, grouping keys by project, and showing the daily reset in local time are planned, not built.
 - Gemini CLI is not an engine in NVX Ancile. NVX Ancile never reads its sign-in or reuses its OAuth login.`,
@@ -1908,6 +1917,10 @@ Z.ai serves overseas users at api.z.ai and BigModel serves the mainland at open.
           title: 'OpenRouter: prompt caching and sticky routing',
           url: 'https://openrouter.ai/blog/tutorials/prompt-caching-sticky-routing/',
         },
+        {
+          title: 'OpenRouter: get current API key',
+          url: 'https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key',
+        },
       ],
       body: `OpenRouter is one account in front of many providers. That makes the question "who serves this?" as important as "who bills this?".
 
@@ -1943,6 +1956,7 @@ Platform rate limits return 429 with \`X-RateLimit-*\` headers. The 402 body can
 
 ### What NVX Ancile does about it
 
+- A key is checked with OpenRouter's key endpoint (\`GET /api/v1/key\`), which answers 401 for a bad key and spends no tokens. The model list is not used for this, because OpenRouter's list is public and answers without any key.
 - Routing presets (Recommended, Best quality, Lowest real cost, Fastest, Pinned, Advanced) build the \`provider\` object for each call. Every preset takes "Do not allow data collection", and Advanced can send \`zdr\`. Both can shrink the model list.
 - After a call has used the cache, the next calls go to the same upstream. The pin lapses after ten quiet minutes.
 - A stable \`session_id\` is sent on each call, with \`cache_control\` for Claude models.

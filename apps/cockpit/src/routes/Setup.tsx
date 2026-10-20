@@ -22,13 +22,20 @@
  */
 
 import { AncileMark } from '@nvx/aperture';
-import type { ProviderId, ProviderInfo, ProviderRegion, SetupStatus } from '@nvx/contracts';
+import type {
+  ProviderId,
+  ProviderInfo,
+  ProviderRegion,
+  ProviderTestResponse,
+  SetupStatus,
+} from '@nvx/contracts';
 import { isPersonalAnthropicKey } from '@nvx/contracts/credentials';
 import * as RadioGroup from '@radix-ui/react-radio-group';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   friendlyProblem,
+  notOfferedLine,
   recogniseKey,
   regionLabel,
   safeDocsUrl,
@@ -99,7 +106,7 @@ const CAPTURE = [
 
 type TestState =
   | { state: 'testing' }
-  | { state: 'ok'; detail: string }
+  | { state: 'ok'; detail: string; notOffered?: string }
   | {
       state: 'failed';
       title: string;
@@ -146,7 +153,7 @@ export function SetupScreen() {
     const info = providers.data?.find((i) => i.id === provider);
     const region = info?.regions ? (regionOverride ?? regionPick[provider] ?? info.default_region) : null;
     try {
-      const r = await api.post<{ latency_ms: number; enabled: string[] }>('/setup/providers/test', {
+      const r = await api.post<ProviderTestResponse>('/setup/providers/test', {
         provider,
         ...(keyText[provider] && { key: keyText[provider] }),
         ...(provider === 'anthropic' &&
@@ -159,6 +166,7 @@ export function SetupScreen() {
         [provider]: {
           state: 'ok',
           detail: `Connected in ${r.latency_ms} ms · ${r.enabled.length} ${r.enabled.length === 1 ? 'model' : 'models'} on`,
+          ...(notOfferedLine(r.not_offered) && { notOffered: notOfferedLine(r.not_offered) as string }),
         },
       }));
       setKeyText((k) => ({ ...k, [provider]: '' }));
@@ -737,6 +745,7 @@ function SetupKeyRow({
           <Icon name="check" size={12} /> {t.detail}
         </p>
       ) : null}
+      {t?.state === 'ok' && t.notOffered ? <p className="provider__note">{t.notOffered}</p> : null}
       {children}
       {t?.state === 'failed' ? (
         <div className="provider__note" data-tone="fail" role="alert">

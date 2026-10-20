@@ -551,11 +551,18 @@ export const ProviderTestRequest = z
 export const ProviderTestResponse = z.object({
   ok: z.literal(true),
   provider: ProviderId,
-  model: z.string(),
+  /** The model the test answered with; null when the key was checked without spending a token. */
+  model: z.string().nullable(),
   latency_ms: z.number(),
   /** Models switched on because this provider now works. */
   enabled: z.array(z.string()),
+  /**
+   * Configured models the provider's own list does not offer to this key. They
+   * stay off. Empty when the list was not read or offers them all.
+   */
+  not_offered: z.array(z.object({ id: z.string(), display_name: z.string() })),
 });
+export type ProviderTestResponse = z.infer<typeof ProviderTestResponse>;
 
 export const MemoryCapture = z.enum(['auto_confident', 'propose_all', 'off']);
 

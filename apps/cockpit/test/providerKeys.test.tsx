@@ -21,7 +21,7 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 vi.mock('../src/state/notify', () => ({ notify: vi.fn() }));
 
 import { ApiKeysGroup } from '../src/credentials/ApiKeys';
-import { friendlyProblem, recogniseKey } from '../src/credentials/providers';
+import { friendlyProblem, notOfferedLine, recogniseKey } from '../src/credentials/providers';
 import { ApiCallError, api, localError } from '../src/lib/api';
 import { queryClient } from '../src/lib/query';
 
@@ -390,5 +390,21 @@ describe('a key pasted into the wrong row', () => {
     expect(recogniseKey('xai-abcdefgh', 'anthropic', rows)?.name).toBe('xAI (Grok)');
     // A provider with no row here cannot be offered.
     expect(recogniseKey('gsk_abcdefgh', 'anthropic', rows)).toBeNull();
+  });
+});
+
+describe('models a key is not offered', () => {
+  it('says nothing when every model is offered', () => {
+    expect(notOfferedLine([])).toBeNull();
+    expect(notOfferedLine(undefined)).toBeNull();
+  });
+
+  it('says in one quiet line which models stay off', () => {
+    expect(notOfferedLine([{ display_name: 'Gemini 3 Pro' }])).toBe(
+      "Gemini 3 Pro isn't offered to this key, so it stays off.",
+    );
+    expect(notOfferedLine([{ display_name: 'A' }, { display_name: 'B' }, { display_name: 'C' }])).toBe(
+      "A, B and C aren't offered to this key, so they stay off.",
+    );
   });
 });

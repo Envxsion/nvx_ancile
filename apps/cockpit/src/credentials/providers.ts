@@ -98,6 +98,18 @@ export interface Problem {
   detail?: string;
 }
 
+/**
+ * The one quiet line for models a provider's own list does not offer to a key
+ * (they stay off). Null when there are none.
+ */
+export function notOfferedLine(items: readonly { display_name: string }[] | undefined): string | null {
+  const names = (items ?? []).map((i) => i.display_name);
+  if (names.length === 0) return null;
+  if (names.length === 1) return `${names[0]} isn't offered to this key, so it stays off.`;
+  const last = names[names.length - 1];
+  return `${names.slice(0, -1).join(', ')} and ${last} aren't offered to this key, so they stay off.`;
+}
+
 export interface FriendlyProblem extends Problem {
   /** Regions to offer as a one-click retry (wrong region only). */
   tryRegions: ProviderRegion[];

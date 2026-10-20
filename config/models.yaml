@@ -62,8 +62,8 @@ models:
 
   - id: google/gemini-3-pro
     provider: google
-    provider_model: gemini-3-pro
-    display_name: Gemini 3 Pro
+    provider_model: gemini-3.1-pro-preview   # ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview, checked 2026-10-20. "gemini-3-pro" is not offered (404)
+    display_name: Gemini 3.1 Pro (preview)
     via: direct
     family: google
     context_window: 1000000

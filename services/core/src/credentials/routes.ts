@@ -43,6 +43,7 @@ import { body } from '../http/body';
 import { TYPESAFE_KEY_SECRET } from '../permissions/auto/wire';
 import { GITHUB_TOKEN_SECRET } from '../repos/github';
 import type { SecretStore } from '../secrets';
+import { offeredBy } from '../setup/key-check';
 import {
   modelsOf,
   type ProviderTester,
@@ -287,6 +288,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     if (env[d.env]?.trim()) throw fromEnvironment(d);
     const { value, workspace_id, region: askedRegion } = await body(c, SaveCredentialRequest);
     const wasSet = (await secrets.names()).includes(d.secret);
+    let notOffered: { id: string; display_name: string }[] = [];
 
     try {
       if (d.check === 'provider') {
@@ -316,14 +318,16 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
         const workspaceId = personal ? workspace_id : undefined;
         if (personal && !workspaceId) throw workspaceNeeded();
         const candidates = modelsOf(registry, provider);
-        const cheapest = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok)[0];
+        const byPrice = [...candidates].sort((a, b) => a.price.input_per_mtok - b.price.input_per_mtok);
+        const cheapest = byPrice[0];
+        let tested: Awaited<ReturnType<typeof deps.tester>>;
         try {
-          await deps.tester({
+          tested = await deps.tester({
             provider,
             key: value,
             ...(workspaceId && { workspaceId }),
             ...(region && { region }),
-            ...(cheapest && { model: cheapest }),
+            ...(cheapest && { model: cheapest, models: byPrice }),
           });
         } catch (err) {
           throw testFailed(provider, err, value, region);
@@ -336,8 +340,11 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
         }
         // A first key switches its provider's models on, as setup does; a
         // replacement leaves your choices alone.
-        if (!wasSet && candidates.length)
-          await registry.setEnabled(Object.fromEntries(candidates.map((m) => [m.id, true])));
+        // Models its own list does not offer to this key stay off, and the answer says which.
+        const split = offeredBy(candidates, tested.offered);
+        notOffered = split.missing.map((m) => ({ id: m.id, display_name: m.display_name }));
+        if (!wasSet && split.offered.length)
+          await registry.setEnabled(Object.fromEntries(split.offered.map((m) => [m.id, true])));
       } else if (d.check === 'controller') {
         if (!deps.runpod)
           throw new AncileError({
@@ -387,7 +394,8 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     }
 
     await changed(id);
-    return c.json(await statusOf(id, new Set(await secrets.names())));
+    const saved = await statusOf(id, new Set(await secrets.names()));
+    return c.json(notOffered.length ? { ...saved, not_offered: notOffered } : saved);
   });
 
   r.delete('/credentials/:id', async (c) => {
