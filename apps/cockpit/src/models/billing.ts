@@ -63,7 +63,7 @@ export function billingBadge(b: ModelBilling): string {
   return {
     plan: 'Plan',
     key: 'Key',
-    credit: 'Monthly credit',
+    credit: 'Included credit',
     local: 'Local',
     rented: 'Rented',
     none: 'Test',
@@ -146,7 +146,7 @@ export function displayName(
   if (m.billing.kind === 'plan')
     return `${m.name} · ${m.billing.payer ? `${cap(m.billing.payer)} plan` : 'Plan'}`;
   if (m.billing.kind === 'key') return `${m.name} · API key`;
-  if (m.billing.kind === 'credit' && !isClaudeCodeModel(m.id)) return `${m.name} · Monthly credit`;
+  if (m.billing.kind === 'credit' && !isClaudeCodeModel(m.id)) return `${m.name} · Included credit`;
   return m.name;
 }
 

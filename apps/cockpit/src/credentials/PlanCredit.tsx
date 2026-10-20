@@ -84,7 +84,7 @@ function zone(): string | undefined {
   }
 }
 
-/** Settings → API keys → Anthropic: "Draws from my plan's monthly credit". */
+/** Settings → API keys → Anthropic: "Spends my included monthly credit first" (CR1). */
 export function PlanCreditSetting({ saved }: { saved: PlanCredit | null | undefined }) {
   const ids = { amount: useId(), day: useId(), note: useId() };
   const [enabled, setEnabled] = useState(saved?.enabled ?? false);
@@ -132,14 +132,15 @@ export function PlanCreditSetting({ saved }: { saved: PlanCredit | null | undefi
             save.reset();
             setEnabled(v);
           }}
-          label="Draws from my plan's monthly credit"
+          label="Spends my included monthly credit first"
           describedBy={ids.note}
         />
-        <span className="credit-setting__title">Draws from my plan's monthly credit</span>
+        <span className="credit-setting__title">Spends my included monthly credit first</span>
       </div>
       <p id={ids.note} className="setting__desc">
-        Max and Team plans include a monthly API credit in one Claude Console organisation. Any API key from
-        it spends the credit first, and requests stop, never charged to your plan, when it runs out.{' '}
+        Turn this on for a key from the Console organisation linked to your Max or Team plan. Those plans
+        include $100 to $200 of API credit a month, which such a key spends first, then your pay-as-you-go
+        balance. It is separate from your subscription's usage limits, which Claude Code uses.{' '}
         <a className="credential__get" href={PLAN_CREDIT_ARTICLE} target="_blank" rel="noreferrer">
           How the credit works
         </a>
@@ -148,7 +149,7 @@ export function PlanCreditSetting({ saved }: { saved: PlanCredit | null | undefi
         <div className="credit-setting__fields">
           <div>
             <label htmlFor={ids.amount} className="setting__label">
-              Monthly credit (US dollars)
+              Included credit a month (US dollars)
             </label>
             <input
               id={ids.amount}

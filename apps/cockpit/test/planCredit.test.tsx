@@ -4,7 +4,7 @@
  *  Ref      |  docs/models.md (Monthly API credit)
  *  ID       |  cockpit/test
  * ------------------------------------------------------------------
- *  Purpose  |  Models paid from the credit wear the "Monthly credit"
+ *  Purpose  |  Models paid from the credit wear the "Included credit"
  *           |  tag beside "Plan"; Settings marks the Anthropic key and
  *           |  shows the meter; the receipt says where the money came
  *           |  from. No call reaches Anthropic.
@@ -82,9 +82,9 @@ afterEach(cleanup);
 describe('who pays: the monthly credit', () => {
   it('has its own words and a tag distinct from the plan', () => {
     expect(billingWords(credit)).toBe("Your plan's monthly API credit");
-    expect(billingBadge(credit)).toBe('Monthly credit');
+    expect(billingBadge(credit)).toBe('Included credit');
     expect(billingBadge({ kind: 'plan', payer: 'max' })).toBe('Plan');
-    expect(modelBadge({ billing: credit, via: 'direct' })).toBe('Monthly credit');
+    expect(modelBadge({ billing: credit, via: 'direct' })).toBe('Included credit');
     expect(billingTitle(credit)).toBe("Your plan's monthly API credit, spent before anything is charged");
     expect(billingTitle(credit, { in: 5, out: 25 })).toContain('$5 in, $25 out per million tokens');
   });
@@ -102,7 +102,7 @@ describe('who pays: the monthly credit', () => {
     expect(dupes.has('claude-code/opus')).toBe(true);
     expect(dupes.has('anthropic/claude-opus-5-5')).toBe(true);
     expect(displayName(plan, dupes)).toBe('Claude Code: Opus · Max plan');
-    expect(displayName(api5, dupes)).toBe('Claude Opus 5.5 · Monthly credit');
+    expect(displayName(api5, dupes)).toBe('Claude Opus 5.5 · Included credit');
     // The Claude Code variant already says so in its name.
     expect(displayName(cc, dupes)).toBe('Claude Code: Opus (monthly credit)');
     expect(planTwinOf(api5, [plan, api5])?.id).toBe('claude-code/opus');
@@ -139,20 +139,20 @@ describe('Settings, Keys, Anthropic', () => {
 
   it('explains the credit with a link to the support article, and starts off', () => {
     wrap(null);
-    const toggle = screen.getByRole('switch', { name: "Draws from my plan's monthly credit" });
+    const toggle = screen.getByRole('switch', { name: 'Spends my included monthly credit first' });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('link', { name: 'How the credit works' })).toHaveAttribute(
       'href',
       'https://support.claude.com/en/articles/17154008',
     );
-    expect(screen.queryByLabelText('Monthly credit (US dollars)')).toBeNull();
+    expect(screen.queryByLabelText('Included credit a month (US dollars)')).toBeNull();
   });
 
   it('saves the amount and reset day with the browser’s time zone', async () => {
     mocked.put.mockResolvedValue(STATUS);
     wrap(null);
-    fireEvent.click(screen.getByRole('switch', { name: "Draws from my plan's monthly credit" }));
-    fireEvent.change(screen.getByLabelText('Monthly credit (US dollars)'), { target: { value: '200' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Spends my included monthly credit first' }));
+    fireEvent.change(screen.getByLabelText('Included credit a month (US dollars)'), { target: { value: '200' } });
     fireEvent.change(screen.getByLabelText('Resets on day of the month'), { target: { value: '15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save credit settings' }));
     await waitFor(() => expect(mocked.put).toHaveBeenCalled());
@@ -164,7 +164,7 @@ describe('Settings, Keys, Anthropic', () => {
 
   it('will not save a day outside 1 to 31', () => {
     wrap(null);
-    fireEvent.click(screen.getByRole('switch', { name: "Draws from my plan's monthly credit" }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Spends my included monthly credit first' }));
     fireEvent.change(screen.getByLabelText('Resets on day of the month'), { target: { value: '40' } });
     expect(screen.getByRole('button', { name: 'Save credit settings' })).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('a day from 1 to 31');
