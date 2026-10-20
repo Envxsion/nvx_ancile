@@ -152,7 +152,9 @@ describe('Settings, Keys, Anthropic', () => {
     mocked.put.mockResolvedValue(STATUS);
     wrap(null);
     fireEvent.click(screen.getByRole('switch', { name: 'Spends my included monthly credit first' }));
-    fireEvent.change(screen.getByLabelText('Included credit a month (US dollars)'), { target: { value: '200' } });
+    fireEvent.change(screen.getByLabelText('Included credit a month (US dollars)'), {
+      target: { value: '200' },
+    });
     fireEvent.change(screen.getByLabelText('Resets on day of the month'), { target: { value: '15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save credit settings' }));
     await waitFor(() => expect(mocked.put).toHaveBeenCalled());

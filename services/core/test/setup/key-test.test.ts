@@ -96,6 +96,38 @@ describe('liveTester reads the provider list instead of spending a token', () =>
     expect(testFailed('google', err, 'bad').code).toBe('provider.auth_failed');
   });
 
+  it('a key barred only from listing (403) is tested with one token, not called rejected', async () => {
+    const get: JsonGetter = async () => {
+      throw http(403, '{"error":{"message":"Missing scopes: api.model.read"}}');
+    };
+    const r = await liveTester(
+      lm(),
+      get,
+    )({
+      provider: 'openai',
+      key: 'sk-proj-fake',
+      model: cfg('openai', 'gpt-5.5'),
+      models: [cfg('openai', 'gpt-5.5')],
+    });
+    expect(r.model).toBe('openai/gpt-5.5');
+  });
+
+  it('a 401 from a trusted list is still a rejected key, with no token spent', async () => {
+    const get: JsonGetter = async () => {
+      throw http(401, '{"error":{"message":"Incorrect API key provided"}}');
+    };
+    const err = await liveTester(
+      lm(new Error('a token was spent')),
+      get,
+    )({
+      provider: 'openai',
+      key: 'sk-bad',
+      model: cfg('openai', 'gpt-5.5'),
+    }).catch((e) => e);
+    expect(err.message).not.toContain('a token was spent');
+    expect(testFailed('openai', err, 'sk-bad').code).toBe('provider.auth_failed');
+  });
+
   it('OpenRouter: a 401 from /key is a rejected key, and the public list is not used', async () => {
     const urls: string[] = [];
     const get: JsonGetter = async (url) => {

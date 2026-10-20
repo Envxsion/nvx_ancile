@@ -577,9 +577,12 @@ export function liveTester(
         offered = (await list(target, spy)).map((m) => m.provider_model);
       } catch (err) {
         // A list we trust must accept the key. Any other list is only a help, so its failure is not the key's.
-        if (plan.via === 'list') throw raw ?? err;
+        // A 403 is a scope, not a bad key: a restricted OpenAI key may answer without model.read, and
+        // a key may be barred from listing only. Those fall through to the one-token test.
+        const status = (raw as { status?: number } | undefined)?.status;
+        if (plan.via === 'list' && status !== 403) throw raw ?? err;
       }
-      if (plan.via === 'list') return { model: null, offered: offered ?? [] };
+      if (plan.via === 'list' && offered) return { model: null, offered };
     }
     // Prefer a configured model the list offers; otherwise the cheapest configured one is tried as it stands.
     const test = (offered?.length ? offeredBy(models ?? [], offered).offered[0] : undefined) ?? model;
