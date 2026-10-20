@@ -9,6 +9,7 @@ import {
   lessonText,
   ownWords,
   reconcileLocally,
+  scrubPaths,
   staleStatement,
 } from '../../src/memory/capture';
 import { similarity } from '../../src/memory/index';
@@ -186,6 +187,22 @@ describe('fail, then succeed', () => {
     ).toBe(
       '**Wrong case in a path.** Symptom: ENOENT. Cause: The file is A.txt. Fix: Listed the folder first. Recognise: ENOENT on a path that looks right.',
     );
+  });
+
+  it('never keeps where this computer stores things: workspace-relative, never a home path', () => {
+    const lesson = lessonText({
+      topic: 'files',
+      title: 'Wrong folder',
+      symptom: 'ENOENT: C:\\Users\\cyn0v\\Documents\\app\\data\\workspace\\notes\\a.txt not found',
+      cause: 'It read /Users/sam/projects/app/b.txt, outside the workspace',
+      fix: 'Used D:\\data\\workspace\\notes\\a.txt',
+      recognise: 'ENOENT under /home/sam/work',
+      confidence: 0.8,
+    });
+    expect(lesson).not.toMatch(/cyn0v|sam|Users|C:\\|D:\\|\/home/);
+    expect(lesson).toContain('notes\\a.txt not found');
+    expect(lesson).toContain('<path>/b.txt');
+    expect(scrubPaths('open C:\\Users\\me\\x.md')).toBe('open <path>/x.md');
   });
 });
 

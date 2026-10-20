@@ -58,6 +58,7 @@ import {
   ownWords,
   PROMPTS,
   ReconcileOutput,
+  scrubPaths,
   reconcileLocally,
   staleStatement,
   topicSlug,
@@ -965,9 +966,11 @@ export class MemoryService {
       const section = lesson ? 'Lessons' : nb ? 'Findings' : 'Environment';
       const text = asEntry(
         cleanEntry(
-          lesson && it.root_cause && !/^unclear/i.test(it.root_cause)
-            ? `${it.text.replace(/\.$/, '')}. Cause: ${it.root_cause.replace(/\.$/, '')}`
-            : it.text,
+          scrubPaths(
+            lesson && it.root_cause && !/^unclear/i.test(it.root_cause)
+              ? `${it.text.replace(/\.$/, '')}. Cause: ${it.root_cause.replace(/\.$/, '')}`
+              : it.text,
+          ),
         ),
       );
       const neighbours = this.deps.index
@@ -1164,14 +1167,17 @@ export class MemoryService {
 
     // 2. A tool that failed, then worked: a lesson.
     for (const e of failureEpisodes(turn.parts)) {
+      // Paths are scrubbed before a model sees them and again as the lesson is written (lessonText).
       const line = (a: { tool: string; args: unknown; result: string }) =>
-        `- ${a.tool}(${JSON.stringify(a.args).slice(0, 200)}): ${a.result.split('\n')[0]?.slice(0, 200)}`;
+        scrubPaths(
+          `- ${a.tool}(${JSON.stringify(a.args).slice(0, 200)}): ${a.result.split('\n')[0]?.slice(0, 200)}`,
+        );
       const lesson =
         (await this.deps.utility
           ?.json(
             PROMPTS.lesson,
             {
-              goal: userText.slice(0, 500),
+              goal: scrubPaths(userText.slice(0, 500)),
               failed_steps: e.failed.map(line).join('\n'),
               successful_steps: line(e.succeeded),
               user_remarks: '',
@@ -1179,6 +1185,8 @@ export class MemoryService {
             FailureLesson,
           )
           .catch(() => null)) ?? lessonLocally(e);
+      // The model found no cause worth keeping: an unexplained retry is not a lesson.
+      if (lesson.skip) continue;
       await this.consider({
         kind: 'failure_lesson',
         targetPath: `FAILURES/${topicSlug(lesson.topic)}.md`,

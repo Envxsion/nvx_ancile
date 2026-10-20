@@ -107,6 +107,8 @@ export const FailureLesson = z.object({
   fix: z.string().max(500),
   recognise: z.string().max(300),
   confidence: conf,
+  /** The evidence does not show why it failed or what fixed it: write no lesson. */
+  skip: z.boolean().optional(),
 });
 export type FailureLesson = z.infer<typeof FailureLesson>;
 
@@ -128,7 +130,7 @@ export const PROMPTS = {
     id: 'memory.failure-lesson',
     output: 'FailureLesson',
     fallback:
-      'A task failed, then succeeded. Write the lesson. Fields: topic (slug), title, symptom, cause ("Unclear" if not clear), fix, recognise, confidence.\n\nGoal: {{goal}}\n\nWhat failed:\n{{failed_steps}}\n\nWhat worked:\n{{successful_steps}}\n\nWhat the user said:\n{{user_remarks}}',
+      'A task failed, then succeeded. Write the lesson. Fields: topic (slug), title, symptom, cause, fix, recognise, confidence, skip. State the cause from the error text and the change that worked (a wrong name, a missing file, a bad argument). If the evidence does not show why it failed, set skip to true and write no lesson. Never include absolute paths or folder names from this computer: use paths relative to the workspace.\n\nGoal: {{goal}}\n\nWhat failed:\n{{failed_steps}}\n\nWhat worked:\n{{successful_steps}}\n\nWhat the user said:\n{{user_remarks}}',
   },
 } as const;
 
@@ -245,9 +247,26 @@ export function topicSlug(s: string): string {
   return slug || 'general';
 }
 
+const WORKSPACE_ROOT = /(?:[A-Za-z]:)?(?:[\\/][^\\/\s"'`]+)*?[\\/]data[\\/]workspace[\\/]/gi;
+const HOME_PATH = /(?:\b[A-Za-z]:[\\/]Users|\/Users|\/home)[\\/][^\\/\s"'`]+(?:[\\/][^\s"'`]*)?/g;
+const DRIVE_PATH = /\b[A-Za-z]:[\\/][^\s"'`]*/g;
+const lastName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
+
+/**
+ * A lesson is kept in memory that can sync to a remote, so it never carries where this computer
+ * keeps things. A path inside the workspace becomes relative to it; any other absolute path
+ * (a home folder, a drive) becomes "<path>/" and its last name.
+ */
+export function scrubPaths(text: string): string {
+  return text
+    .replace(WORKSPACE_ROOT, '')
+    .replace(HOME_PATH, (p) => `<path>/${lastName(p)}`)
+    .replace(DRIVE_PATH, (p) => `<path>/${lastName(p)}`);
+}
+
 /** One bullet, in the shape FAILURES/README.md describes. */
 export function lessonText(l: FailureLesson): string {
-  const clean = (s: string) => s.replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+  const clean = (s: string) => scrubPaths(s).replace(/\s+/g, ' ').trim().replace(/\.$/, '');
   return `**${clean(l.title)}.** Symptom: ${clean(l.symptom)}. Cause: ${clean(l.cause)}. Fix: ${clean(l.fix)}. Recognise: ${clean(l.recognise)}.`;
 }
 
