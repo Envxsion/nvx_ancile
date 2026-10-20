@@ -84,7 +84,7 @@ import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
 import { type Prepared, prepareDatabase } from './db/prepare';
 import { controllerMigrationsDir, knowledgeVersionsDir, schemaState } from './db/version';
-import { decideRoute } from './decisions/ask';
+import { decideRoute, decisionTriage } from './decisions/ask';
 import { ALLOWANCES } from './decisions/catalogue';
 import { DecisionRouter } from './decisions/router';
 import { decisionRoutes } from './decisions/routes';
@@ -109,6 +109,7 @@ import { trustRoutes } from './factcheck/routes';
 import { checkSelection } from './factcheck/selection';
 import { canonicalFamily, familyFromModelId, JudgeSlots } from './factcheck/steps';
 import { PgFactcheckStore } from './factcheck/store';
+import { DECISION_TRIAGE_TIERS, fromDecisions, setTriageProvider } from './factcheck/triage';
 import { searxngSearch, webPolicy } from './factcheck/web';
 import { nativeProbe as filesProbe, rootSource } from './files/roots';
 import { fileRoutes } from './files/routes';
@@ -1174,6 +1175,16 @@ async function main() {
       requested: a.requested,
       configured: !!factcheckWeb,
     });
+  // The decision layer sorts claims into obvious, ordinary and careful; a miss is `rules`, so the rules decide and nothing blocks.
+  setTriageProvider(
+    fromDecisions((ctx) =>
+      decisionTriage(decisions, {
+        tiers: DECISION_TRIAGE_TIERS,
+        fallbackTier: 'rules',
+        ctx: { notebookId: ctx.notebookId ?? null },
+      }),
+    ),
+  );
   // Mission-critical and verdict sharing are notebook settings (TR3, SI1).
   const verdictCache = new VerdictCache(new PgVerdictCacheStore(sql), privacy);
   const notebookFlags = async (id: string | null) => {
@@ -1932,12 +1943,17 @@ async function main() {
         flowStore,
         tombstones,
         merge: notebookMerge,
+        verdictCache,
       }),
       linkRoutes(contextLinks),
       privacyRoutes(privacy),
       decisionRoutes(decisions),
       scopeRoutes({
         store: scopeStore,
+        onPrivate: async (id) => {
+          await verdictCache.setShared(id, false);
+          await notebooks.patch(id, { share_checks: false });
+        },
         history: new SharedHistory({
           store: new PgSharedHistoryStore(sql),
           classify: classifier((id) => {

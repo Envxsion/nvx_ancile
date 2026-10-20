@@ -58,6 +58,8 @@ export interface NotebookRouteDeps {
   kn: KnowledgeClient;
   /** Deleting a notebook keeps its flows as inactive workspace drafts. */
   flowStore?: Pick<FlowStore, 'orphan'>;
+  /** Its checked claims go with the notebook, the ones it shared included (SI1). */
+  verdictCache?: Pick<import('../factcheck/cache').VerdictCache, 'clear'>;
   /** A deleted or merged source leaves its name behind, for answers that cited it (track G). */
   tombstones?: TombstoneStore;
   /** Merging one notebook into another (docs/notebooks.md); absent: the routes answer 404. */
@@ -168,6 +170,7 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     await notebooks.remove(n.id);
     // A flow is work: it outlives its notebook, as an inactive workspace draft.
     await deps.flowStore?.orphan('notebook', n.id);
+    await deps.verdictCache?.clear(n.id);
     return c.body(null, 204);
   });
 

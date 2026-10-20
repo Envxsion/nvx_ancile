@@ -50,6 +50,8 @@ export interface ScopeRouteDeps {
   onChange?: (ref: { notebookId?: string; threadId?: string }) => void;
   /** What had left the machine before a level became private or local only. */
   history?: SharedHistory;
+  /** A notebook just became private: take back what it shared (verdicts) and stop sharing. */
+  onPrivate?: (notebookId: string) => Promise<void>;
 }
 
 /** May data leave the machine under this effective scope? */
@@ -249,6 +251,7 @@ export function scopeRoutes(deps: ScopeRouteDeps) {
     }
     const before = deps.history ? await getEffectiveScope(store, { notebookId: id }) : null;
     if (priv !== undefined) await store.setPrivate(id, priv);
+    if (priv === true && !wasPrivate) await deps.onPrivate?.(id);
     if (Object.keys(patch).length) await store.mergePatch('notebook', id, patch);
     if (before && leaves(before) && !leaves(await getEffectiveScope(store, { notebookId: id })))
       await deps.history?.record('notebook', id, willBePrivate && !wasPrivate ? 'private' : 'local_only');

@@ -42,6 +42,8 @@ export interface Triage {
 export interface TriageContext {
   /** The notebook (or the message) is in mission-critical mode. */
   critical: boolean;
+  /** The notebook, so the decision layer applies its privacy rules. */
+  notebookId?: string | null;
 }
 
 /** What a decision model may be asked (DM1). It sees the claim text only. */
@@ -53,6 +55,38 @@ export interface TriageProvider {
 }
 
 let provider: TriageProvider | null = null;
+
+/** The labels the decision layer sorts claims into, and the tier each one asks for (tiers ascend). */
+export const DECISION_TRIAGE_TIERS: Record<string, string> = {
+  obvious: 'A short, widely known, stable fact that anyone would agree with, with no numbers or names.',
+  ordinary: 'An ordinary factual claim that one reliable source settles.',
+  careful:
+    'Specific, numerical, legal, medical, financial, recent or contested: a mistake would matter, so it needs a strong model.',
+};
+const LABEL_TIER: Record<string, Partial<Pick<Triage, 'tier' | 'critical'>>> = {
+  obvious: { tier: 'tiny' },
+  ordinary: { tier: 'fast' },
+  careful: { tier: 'balanced', critical: true },
+};
+
+/** What the decision layer's claim sorter offers (decisions/ask.ts decisionTriage, built per call). */
+export type ClaimSorter = (ctx: { notebookId?: string | null }) => {
+  classify(claims: string[]): Promise<string[]>;
+};
+
+/**
+ * A TriageProvider over the decision layer. A claim the decision layer did not sort (no decision model,
+ * a private notebook it may not reach, an answer that does not fit) comes back as the label `rules`,
+ * which maps to nothing, so the rules decide. It never blocks and, like every provider, only raises a tier.
+ */
+export function fromDecisions(sorter: ClaimSorter): TriageProvider {
+  return {
+    async triage(claims, ctx) {
+      const labels = await sorter({ notebookId: ctx.notebookId ?? null }).classify(claims);
+      return labels.map((l) => LABEL_TIER[l] ?? null);
+    },
+  };
+}
 
 /** Hand the decision layer in (or null to go back to rules only). */
 export function setTriageProvider(p: TriageProvider | null): void {

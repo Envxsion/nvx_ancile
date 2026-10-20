@@ -289,7 +289,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
         if (!cp.triage) {
           cp.triage = await triageClaims(
             claims.map((c) => c.text),
-            { critical: input.critical === true },
+            { critical: input.critical === true, notebookId: input.notebookId },
           );
           await ctx.checkpoint(cp);
         }
