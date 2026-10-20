@@ -80,9 +80,17 @@ export function buildMemoryPack(
     count(PACK_HEADER) + ordered.reduce((n, f) => n + count(`## ${f.title} (${f.path})`) + 2, 0);
   const budget = Math.max(0, budgetTokens - overhead);
 
+  // The same sentence twice (two seedings, a hand copy) is said once: the better-ranked one stays.
+  const said = new Set<string>();
+  const once = (e: InjectEntry) => {
+    const k = e.text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+    if (said.has(k)) return false;
+    said.add(k);
+    return true;
+  };
   const state = ordered.map((f) => ({
     f,
-    ranked: rankEntries(f.entries),
+    ranked: rankEntries(f.entries).filter(once),
     taken: [] as InjectEntry[],
     used: 0,
     next: 0,

@@ -36,6 +36,25 @@ describe('buildMemoryPack', () => {
     expect(pack.text).toMatch(/\(\+\d+ more entries not shown\)/);
   });
 
+  it('says the same sentence once, keeping the better-ranked entry', () => {
+    const user: InjectFile = {
+      path: 'USER.md',
+      commit: 'abc123',
+      title: 'About me',
+      priority: 90,
+      budgetShare: 1,
+      entries: [
+        { key: 'a', text: 'Prefers tables when comparing options.', confidence: 0.9 },
+        { key: 'b', text: 'Prefers tables when comparing options', confidence: 0.92 },
+        { key: 'c', text: 'Uses metric units.', confidence: 0.8 },
+      ],
+    };
+    const pack = buildMemoryPack([user], 500, words);
+    expect(pack.files[0]?.entries).toEqual(['b', 'c']);
+    expect(pack.text.match(/Prefers tables/g)).toHaveLength(1);
+    expect(pack.truncated).toBe(0);
+  });
+
   it('keeps rank order inside a file', () => {
     const pack = buildMemoryPack([file('USER.md', 90, 1, 10)], 60, words);
     const keys = pack.files[0]?.entries ?? [];

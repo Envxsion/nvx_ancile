@@ -803,7 +803,9 @@ async function seedMemory(ctx: Ctx): Promise<string> {
   let i = 0;
   for (const [section, entries] of Object.entries(M.user)) {
     if (section === 'Superseded') continue;
-    const bullets = entries.map(([text, conf, daysAgo, flag]) => {
+    // Seeding twice must not say the same thing twice: a line already in the file is left alone.
+    const fresh = entries.filter(([text]) => !content.includes(`- ${text} <!--`));
+    const bullets = fresh.map(([text, conf, daysAgo, flag]) => {
       const key = mkey();
       if (flag === 'supersedes') keys.set('supersedes', key);
       const [th, mk] = (sources[i++ % sources.length] as string).split(':') as [string, string];
@@ -812,6 +814,7 @@ async function seedMemory(ctx: Ctx): Promise<string> {
     content = addToSection(content, section, bullets);
   }
   for (const [text, daysAgo] of M.user.Superseded ?? []) {
+    if (content.includes(`~~${text}~~`)) continue;
     const by = keys.get('supersedes') ?? mkey();
     content = addToSection(content, 'Superseded', [
       `- ~~${text}~~ ${trailer(mkey(), { superseded_by: by, at: day(when(daysAgo as number, 12)) })}`,
