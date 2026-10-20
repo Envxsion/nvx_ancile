@@ -585,7 +585,7 @@ impl Supervisor {
     }
 
     fn pg_running(&self) -> bool {
-        Command::new(self.pg0())
+        quiet(Command::new(self.pg0()))
             .args(["info", "--name", &self.pg_instance, "-o", "json"])
             .envs(&self.env)
             .stdin(Stdio::null())
@@ -598,7 +598,7 @@ impl Supervisor {
     }
 
     fn stop_database(&self) {
-        let _ = Command::new(self.pg0())
+        let _ = quiet(Command::new(self.pg0()))
             .args(["stop", "--name", &self.pg_instance])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1270,4 +1270,16 @@ mod lab_tests {
         );
         assert_eq!(lab["OPENCODE_DISABLE_AUTOUPDATE"], "1");
     }
+}
+
+/// A short helper command (pg0 info, pg0 stop) runs with no console window on Windows: without
+/// this flag each call flashes a terminal on screen while NVX Ancile starts or quits.
+fn quiet(mut cmd: Command) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
 }
