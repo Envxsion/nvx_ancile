@@ -199,11 +199,18 @@ interface JevResponse {
   usage?: { cost?: number };
 }
 
-export const OPENROUTER_DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions';
-export const TYPESAFE_SYSTEMONE_URL = 'https://api.typesafe.ai/v1/systemone';
-export const JEV_OPENROUTER_MODELS = ['~typesafe/jev-latest', 'typesafe/jev-1.13'];
-export const JEV_DIRECT_MODELS = ['jev-latest'];
+// The addresses and model names live with the other decision routes (decisions/catalogue.ts).
+export {
+  JEV_DIRECT_MODELS,
+  JEV_OPENROUTER_MODELS,
+  OPENROUTER_DECISIONS_URL,
+  TYPESAFE_SYSTEMONE_URL,
+} from '../../decisions/catalogue';
 
+/**
+ * One Jev endpoint with its own key. Core's Auto mode no longer builds these (it asks the decision-model
+ * layer: DecisionReviewer); the live eval script (scripts/eval-auto-review.ts) and the tests still do.
+ */
 export class JevReviewer implements Reviewer {
   readonly local = false;
   readonly id: JevOptions['id'];

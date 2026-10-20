@@ -75,6 +75,8 @@ export interface FlowsDeps {
   }) => Promise<string>;
   /** Routes already known for a request (set once Pro has loaded; absent in the free build). */
   routeHint?: (q: RouteHintQuery) => Promise<RouteHint | null>;
+  /** Choose routes with a decision model (decisions/ask.ts decideRoute); absent: routers use their chat model. */
+  decideRoute?: NonNullable<FlowRuntime['decideRoute']>;
 }
 
 /** Answer through a flow version; optionally rerun from one step with another model. */
@@ -582,6 +584,7 @@ export function makeTurnRuntime(h: TurnHooks): FlowRuntime {
     ...(h.mock && { mock: h.mock }),
     // Read at call time: Pro, which provides it, loads after the flows service.
     routeHint: async (q) => (flows.deps.routeHint ? flows.deps.routeHint(q) : null),
+    ...(flows.deps.decideRoute && { decideRoute: flows.deps.decideRoute }),
   };
 }
 

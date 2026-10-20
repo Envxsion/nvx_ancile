@@ -163,6 +163,18 @@ export interface FlowRuntime {
   now?: () => number;
   /** A route already known for this request; null to ask the router's model as usual. */
   routeHint?(q: RouteHintQuery): Promise<RouteHint | null>;
+  /**
+   * Choose routes with a decision model (docs/decisions.md); null when none can answer or none is sure,
+   * and the router's own model decides as usual.
+   */
+  decideRoute?(q: {
+    text: string;
+    notebookId: string | null;
+    routes: { label: string; when?: string }[];
+    instructions: string;
+    multi: boolean;
+    context: string;
+  }): Promise<{ chose: string[]; confidence: number; scores: Record<string, number>; by: string } | null>;
 }
 
 /* ---- State (lives in the run checkpoint) ------------------------------------------- */
@@ -1073,6 +1085,23 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
         const model = rt.mock ? (rt.mock.models[0] as ModelConfig) : rt.model(n.params.model);
         const src = rt.contextFor(model);
         const recent = await src.conversation({ mode: 'last_n', n: 6 }).catch(() => [] as ModelMessage[]);
+        if (n.params.decider === 'decision' && !rt.mock && rt.decideRoute) {
+          const picked = await rt
+            .decideRoute({
+              text: rt.input.text,
+              notebookId: rt.input.notebookId,
+              routes: n.params.routes.map((r) => ({ label: r.label, ...(r.when && { when: r.when }) })),
+              instructions: n.params.instructions,
+              multi: n.params.multi,
+              context: recent.map((m) => `${m.role}: ${m.content.slice(0, 400)}`).join('\n'),
+            })
+            .catch(() => null);
+          if (picked && picked.confidence >= n.params.min_confidence) {
+            await decide(n, picked.chose, 'Chosen by a decision model.', picked.confidence, picked.scores);
+            return { kind: 'done', output: picked.chose.join(', '), fire: picked.chose };
+          }
+          // Not available or not sure: the router's own model decides, below.
+        }
         const prompt = [
           n.params.instructions || 'Choose which route should handle the request.',
           '',

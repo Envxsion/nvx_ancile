@@ -987,6 +987,21 @@ export function NodePanel({
                 placeholder="Ticket requests go to the Qwen node. Maths and physics go to the maths model. Otherwise, judge what I am trying to do."
               />
             </Field>
+            <Field
+              label="Pick with"
+              hint="A decision model answers in tens of milliseconds, free while an allowance lasts (Settings → Decisions). If none can answer, the router model above picks."
+            >
+              <Segmented
+                size="sm"
+                label="Who picks the route"
+                value={node.params.decider ?? 'model'}
+                onChange={(decider) => set({ decider })}
+                options={[
+                  { value: 'model', label: 'Router model' },
+                  { value: 'decision', label: 'Decision model' },
+                ]}
+              />
+            </Field>
             <Field label="Routes" wide hint="Each route is an output port. Describe when it fits.">
               <RoutesEditor node={node} />
             </Field>

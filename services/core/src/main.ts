@@ -84,6 +84,10 @@ import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
 import { type Prepared, prepareDatabase } from './db/prepare';
 import { controllerMigrationsDir, knowledgeVersionsDir, schemaState } from './db/version';
+import { decideRoute } from './decisions/ask';
+import { ALLOWANCES } from './decisions/catalogue';
+import { DecisionRouter } from './decisions/router';
+import { decisionRoutes } from './decisions/routes';
 import { buildChecks } from './diagnostics/checks';
 import { clientErrorRoutes } from './diagnostics/client-errors';
 import { diagnosticRoutes, PgDiagnosticStore } from './diagnostics/routes';
@@ -112,6 +116,7 @@ import { flowRoutes, memoryText } from './flows/routes';
 import { PgFlowStore } from './flows/store';
 import { flowTryHandler } from './flows/try';
 import { FlowsService } from './flows/turn';
+import { Allowances, Counters } from './free/allowances';
 import { paidFromCredit } from './gateway/billing';
 import { CreditLedger, PgCreditSpend } from './gateway/credit';
 import { creditRoutes } from './gateway/credit-routes';
@@ -621,11 +626,24 @@ async function main() {
   const scopes = scopeResolver(scopeStore);
   // What private notebooks may use beyond the floor (docs/privacy.md); every feature asks this one object.
   const privacy = new PrivacyPolicies({ settings, isPrivate: (id) => scopeStore.isPrivate(id) });
+  // Decision models (docs/decisions.md): one router for Auto review, flow routers, fact-check triage and the rest.
+  const freeCounters = new Counters(settings);
+  const decisions = new DecisionRouter({
+    settings,
+    counters: freeCounters,
+    allowances: new Allowances(freeCounters, ALLOWANCES),
+    secrets,
+    privacy,
+  });
+  // A private notebook may use hosted decisions only when allowed, but a decision server on this machine always counts.
+  privacy.setLocalAvailable((capability) =>
+    capability === 'decisions_off_machine' ? decisions.localAvailable() : false,
+  );
   const autoPlans = new PgPlanStore(sql);
   let presetNow = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
   const gateAuto = {
     review: new AutoReview({
-      reviewers: coreReviewers({ secrets, gateway, registry }),
+      reviewers: coreReviewers({ decisions, gateway, registry }),
       plans: autoPlans,
       emit: (runId, event) => runEvents.append(runId, event),
       // Reviewer offline: once per outage, quietly (no toast); the Cockpit shows one line.
@@ -1113,6 +1131,12 @@ async function main() {
     retriever: knowledgeRetriever(kn, retrievalLimits),
     kn,
     memory: memoryText((q) => memory.pack(q)),
+    decideRoute: (q) =>
+      decideRoute(
+        decisions,
+        { text: q.text, routes: q.routes, instructions: q.instructions, multi: q.multi, context: q.context },
+        { notebookId: q.notebookId },
+      ),
     monthSpendUsd: async () => {
       const now = new Date();
       // Billed model usage (not Claude Code: your Claude plan covers it), plus what GPU
@@ -1902,6 +1926,7 @@ async function main() {
       }),
       linkRoutes(contextLinks),
       privacyRoutes(privacy),
+      decisionRoutes(decisions),
       scopeRoutes({
         store: scopeStore,
         history: new SharedHistory({
@@ -1916,7 +1941,7 @@ async function main() {
         plans: autoPlans,
         events: runEvents,
         reviewer: () => gateAuto.review.reviewerStatus(),
-        check: new ReviewerCheck({ reviewers: () => coreReviewers({ secrets, gateway, registry }) }),
+        check: new ReviewerCheck({ reviewers: () => coreReviewers({ decisions, gateway, registry }) }),
       }),
       memoryRoutes({ service: memory, threads, registry, transfer: memoryTransfer }),
       localModelRoutes({ models: localModels, loaded: loadedModels }),

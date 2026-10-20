@@ -18,18 +18,11 @@
  */
 
 import type { ModelConfig } from '@nvx/contracts';
+import type { DecisionRouter } from '../../decisions/router';
 import type { Gateway } from '../../gateway/gateway';
 import { canChat, type ModelRegistry } from '../../gateway/registry';
-import type { SecretStore } from '../../secrets';
-import {
-  JEV_DIRECT_MODELS,
-  JEV_OPENROUTER_MODELS,
-  JevReviewer,
-  LocalModelReviewer,
-  OPENROUTER_DECISIONS_URL,
-  type Reviewer,
-  TYPESAFE_SYSTEMONE_URL,
-} from './reviewers';
+import { DecisionReviewer } from './decision-reviewer';
+import { LocalModelReviewer, type Reviewer } from './reviewers';
 
 /** The secret store name for the TypeSafe key (credentials/routes.ts uses it too). */
 export const TYPESAFE_KEY_SECRET = 'typesafe.api_key';
@@ -71,23 +64,14 @@ export function reviewerModel(registry: Pick<ModelRegistry, 'chain' | 'all' | 's
 }
 
 export function coreReviewers(deps: {
-  secrets: SecretStore;
+  decisions: DecisionRouter;
   gateway: Gateway;
   registry: ModelRegistry;
 }): Reviewer[] {
   return [
-    new JevReviewer({
-      id: 'jev_openrouter',
-      url: OPENROUTER_DECISIONS_URL,
-      models: JEV_OPENROUTER_MODELS,
-      key: () => deps.secrets.get(OPENROUTER_KEY_SECRET),
-    }),
-    new JevReviewer({
-      id: 'jev_direct',
-      url: TYPESAFE_SYSTEMONE_URL,
-      models: JEV_DIRECT_MODELS,
-      key: () => deps.secrets.get(TYPESAFE_KEY_SECRET),
-    }),
+    // Hosted decision models (Clef on a free allowance, Jev, Perplexity...), then one on this machine.
+    new DecisionReviewer(deps.decisions, 'hosted'),
+    new DecisionReviewer(deps.decisions, 'local'),
     new LocalModelReviewer({
       available: async () => reviewerModel(deps.registry) !== null,
       complete: async (prompt, signal) => {

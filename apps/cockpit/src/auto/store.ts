@@ -249,6 +249,8 @@ export function reviewerOfflineCopy(s: Pick<ReviewerStatus, 'reason' | 'local_on
 const REVIEWER: Record<AutoReviewerId, string> = {
   jev_openrouter: 'Jev',
   jev_direct: 'Jev',
+  decisions: 'a decision model',
+  decisions_local: 'a decision model on this computer',
   local_model: 'a local model',
   rules: 'the rules',
   fake: 'a test reviewer',

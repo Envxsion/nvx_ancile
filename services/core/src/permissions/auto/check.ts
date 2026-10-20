@@ -43,6 +43,8 @@ const WORKERS = 4;
 const LABELS: Record<AutoReviewerId, string> = {
   jev_openrouter: 'Jev through OpenRouter',
   jev_direct: 'Jev through TypeSafe',
+  decisions: 'A hosted decision model (free allowance first)',
+  decisions_local: 'A decision model on this computer',
   local_model: 'A local model',
   rules: 'Built-in rules',
   fake: 'Test reviewer',
