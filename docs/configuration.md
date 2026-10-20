@@ -197,9 +197,11 @@ You can change a chain without the file in **Admin → Routing**: drag models in
 |---|---|
 | `chat.default` | Normal turns |
 | `chat.deep` | "Think harder", research synthesis |
-| `utility` | Titles, tags, memory capture, summaries, claim extraction |
+| `utility` | Titles, tags, memory capture, summaries, claim extraction. Wants a small model (`want: { tier: small, floor: tiny }`), after the chain's own pins |
 | `embed` / `rerank` | Knowledge |
-| `factcheck.verify` | Claim verification. `prefer_different_family: true` keeps the verifier independent of the generator. |
+| `factcheck.verify` | Claim verification. `want: { tier: standard, distinct_family: generator }` with `escalate: true`: the best ready model of the tier a claim needs, from another family when one is ready, in any provider (docs/factcheck.md). |
+
+A class may say what it needs instead of (or as well as) listing models. `want` takes `tier` (`tiny`, `small`, `standard` or `frontier`), an optional `floor` it never goes below, `distinct_family: generator`, `needs` (`vision`, `tools`, `json`) and `ctx_tokens`. `chain` then holds pins, tried first. `escalate: true` lets fact-checking step up a tier on doubt. A model's tier is worked out for it, or pinned with `tier:` in `models.yaml` (docs/models.md, Tiers).
 
 `resilience` sets the retry (`base_ms`, `factor`, `cap_ms`, `max_attempts`) and breaker (`window_s`, `failure_rate`, `min_calls`, `consecutive`, `half_open_s`) defaults. `compute_wait_max_s` bounds waiting for a GPU node.
 

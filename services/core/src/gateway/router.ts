@@ -18,9 +18,11 @@
  * ------------------------------------------------------------------
  */
 
-import { CLAUDE_CODE_PROVIDER, type ModelConfig } from '@nvx/contracts';
+import { CLAUDE_CODE_PROVIDER, type ModelConfig, type Want } from '@nvx/contracts';
 
-export type ChainSpec = string[] | { chain: string[]; prefer_different_family?: boolean };
+export type ChainSpec =
+  | string[]
+  | { chain: string[]; prefer_different_family?: boolean; want?: Want; escalate?: boolean };
 
 export interface ResolveInput {
   taskClass: string;

@@ -75,7 +75,9 @@ describe('routing chains', () => {
     h = await harness(opts);
     const r = await h.call<RoutingChain>('PUT', '/routing/utility', { chain: ['controller/later', b.id] });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ configured: ['controller/later', b.id], chain: [b.id] });
+    // The pinned model comes first; utility also wants a small model, so ready ones follow behind it.
+    expect(r.body).toMatchObject({ configured: ['controller/later', b.id] });
+    expect(r.body.chain[0]).toBe(b.id);
   });
 
   it('refuses a task class that does not exist, and local ones', async () => {

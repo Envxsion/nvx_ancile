@@ -41,7 +41,9 @@ import {
   type ModelHue,
   type ModelInfo,
   type ModelLine,
+  type ModelTier,
   type Part,
+  type Want,
 } from '@nvx/contracts';
 import {
   currentOf,
@@ -80,7 +82,15 @@ import {
   servedByOllama,
 } from './ollama-discovery';
 import { DEFAULT_SECRET } from './providers';
-import { type ChainSpec, chainFor, NoRouteError, resolveChain } from './router';
+import { type ChainSpec, chainFor, NoRouteError, noDearerThan, resolveChain } from './router';
+import {
+  assignTier,
+  defaultWantFor,
+  resolveWant,
+  type TierAssignment,
+  type WantContext,
+  type WantResolution,
+} from './tiers';
 import type { ModelClient, ModelRequest, StreamChunk } from './types';
 import { priceOf } from './usage';
 
@@ -158,6 +168,8 @@ export class ModelRegistry {
   private starters = new Set<string>();
   /** Chip hues chosen for config models. */
   private hues: Record<string, ModelHue> = {};
+  /** Tiers you chose in Admin → Models (TR2). */
+  private tierPins: Record<string, ModelTier> = {};
   /** Chains saved in Admin → Routing, held here so chain() never reads the database. */
   private savedChains: Record<string, string[]> = {};
   /** Ids that models.yaml (and the offline set) ship: a model you added under one of these ids is shadowed by it. */
@@ -197,6 +209,7 @@ export class ModelRegistry {
     const secretNames = new Set(await this.opts.secrets.names());
     let overrides = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelEnabled)) ?? {};
     const hues = (await this.opts.settings.get<Record<string, ModelHue>>(SETTING.modelHue)) ?? {};
+    const tierPins = (await this.opts.settings.get<Record<string, ModelTier>>(SETTING.modelTier)) ?? {};
     const shown = (await this.opts.settings.get<Record<string, boolean>>(SETTING.modelShown)) ?? {};
     let custom = (await this.opts.settings.get<unknown[]>(SETTING.customModels)) ?? [];
     const absorbed = await this.absorbShadowed(custom, overrides);
@@ -215,6 +228,7 @@ export class ModelRegistry {
     this.shown = shown;
     this.unavailable = unavailable;
     this.hues = hues;
+    this.tierPins = tierPins;
     this.savedChains = chains;
     this.lineStates = lineStates;
     this.watchAdded = new Set(watchAdded);
@@ -874,9 +888,50 @@ export class ModelRegistry {
       ...(m.line?.company && { company: m.line.company }),
       ...(this.isOlder(m.id, lineId) && { older: true }),
       lifecycle: this.lifecycleOf(m.id),
+      ...this.tierAssignment(m),
       // EN1: the efforts the provider's profile lets this model take; absent when none.
       ...(effortLevels(m).length > 0 && { effort_levels: [...effortLevels(m)] }),
     };
+  }
+
+  /** The tier of a model and where it came from: your choice, its line, its size, its price, or nothing. */
+  tierAssignment(m: ModelConfig): { tier: ModelTier; tier_source: TierAssignment['source'] } {
+    const a = assignTier(m, this.tierPins[m.id]);
+    return { tier: a.tier, tier_source: a.source };
+  }
+
+  tierOf(m: ModelConfig): ModelTier {
+    return assignTier(m, this.tierPins[m.id]).tier;
+  }
+
+  /** Pin a model's tier (Admin → Models); null goes back to the one worked out for it. */
+  async setTier(id: string, tier: ModelTier | null): Promise<void> {
+    const next = { ...((await this.opts.settings.get<Record<string, ModelTier>>(SETTING.modelTier)) ?? {}) };
+    if (tier) next[id] = tier;
+    else delete next[id];
+    await this.opts.settings.set(SETTING.modelTier, next);
+    await this.refresh();
+  }
+
+  /**
+   * Every model that could answer a chat turn right now: ready and able to chat. The offline try-out
+   * models are here only while no real model can answer, the same rule chain() keeps.
+   */
+  readyChat(): ModelConfig[] {
+    const ready = this.models.filter((m) => this.status(m) === 'ready' && canChat(m));
+    const real = ready.filter(
+      (m) => m.provider !== 'fake' && !(testProfileActive() && modelAllowedInTestProfile(m)),
+    );
+    return (real.length ? real : ready).map((m) => ({ ...m, enabled: true }));
+  }
+
+  /**
+   * The best ready models for a need (TR1), in the order to try them. Never fails for lack of a
+   * listed model: it widens and says how (`degraded`); only when no chat model is ready does it throw
+   * routing.no_chat_model.
+   */
+  resolveWant(want: Want, ctx: Omit<WantContext, 'tierOf'> = {}): WantResolution {
+    return resolveWant(want, this.readyChat(), { ...ctx, tierOf: (m) => this.tierOf(m) });
   }
 
   /** Choose a config model's chip hue; null goes back to the family's. */
@@ -971,16 +1026,48 @@ export class ModelRegistry {
       tc = tc.slice(0, i);
     }
     for (const id of this.savedChains['chat.default'] ?? []) named.add(id);
-    const out = resolveChain(
-      {
-        taskClass,
-        explicit: usable ?? undefined,
+    // TR1: a class that says what it wants gets the best ready model for it, behind its pins. It fails
+    // only when no chat model is ready at all.
+    const spec = chainFor(classes, taskClass);
+    const want =
+      (spec && !Array.isArray(spec) ? spec.want : undefined) ?? defaultWantFor(taskClass) ?? undefined;
+    let out: ModelConfig[];
+    if (want) {
+      let pins: ModelConfig[] = [];
+      try {
+        pins = resolveChain(
+          {
+            taskClass,
+            explicit: usable ?? undefined,
+            generatorFamily: opts.generatorFamily,
+            namedByPerson: named,
+          },
+          classes,
+          ready,
+        );
+      } catch (err) {
+        if (!(err instanceof NoRouteError)) throw err;
+      }
+      const found = this.resolveWant(want, {
         generatorFamily: opts.generatorFamily,
-        namedByPerson: named,
-      },
-      classes,
-      ready,
-    );
+        pins,
+      }).chain;
+      const first = usable ? ready.get(usable) : undefined;
+      const rest = first ? found.filter((m) => m.id === first.id || noDearerThan(first, m, named)) : found;
+      out = [...pins, ...rest.filter((m) => !pins.some((p) => p.id === m.id))];
+      if (out.length === 0) throw new NoRouteError(taskClass);
+    } else {
+      out = resolveChain(
+        {
+          taskClass,
+          explicit: usable ?? undefined,
+          generatorFamily: opts.generatorFamily,
+          namedByPerson: named,
+        },
+        classes,
+        ready,
+      );
+    }
     // RT1: late in the cycle, with credit left, a model paid from the credit goes ahead of an equal one.
     return this.credit.first
       ? preferCreditFirst(out, (m) => paidFromCredit(m, this.credit.enabled), usable ? 1 : 0)

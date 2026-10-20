@@ -60,7 +60,12 @@ const abilityWords = (c: string) => ABILITY_NOW[c] ?? c.replace(/_/g, ' ');
 /** "pdf_input" to "pdf input". */
 const pretty = (c: string) => c.replace(/[_-]+/g, ' ').trim();
 
-const TIER_LABEL: Record<ModelTier, string> = { best: 'Best', balanced: 'Balanced', fast: 'Fast' };
+const TIER_LABEL: Record<ModelTier, string> = {
+  best: 'Best',
+  balanced: 'Balanced',
+  fast: 'Fast',
+  tiny: 'Tiny',
+};
 const TIERS: ModelTier[] = ['best', 'balanced', 'fast'];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

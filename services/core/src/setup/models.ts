@@ -248,14 +248,15 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
     if (!m) throw notFound('That model');
     const req = await body(c, PatchModelRequest);
     if (!registry.isCustom(id)) {
-      const { enabled, hue, ...rest } = req;
+      const { enabled, hue, tier, ...rest } = req;
       if (Object.keys(rest).length)
         throw registry.isDiscovered(id) ? fromOllama(m) : notCustom(m.display_name);
       if (enabled !== undefined) await registry.setEnabled({ [id]: enabled });
       if (hue !== undefined) await registry.setHue(id, hue);
+      if (tier !== undefined) await registry.setTier(id, tier);
       return c.json(registry.info().find((x) => x.id === id));
     }
-    const { api_key, secret: keyName, enabled, hue, ...fields } = req;
+    const { api_key, secret: keyName, enabled, hue, tier, ...fields } = req;
     const touchesEndpoint = api_key !== undefined || keyName !== undefined || fields.base_url !== undefined;
     if (touchesEndpoint && !m.base_url) throw notEndpoint(m.display_name);
     const before = m.secret;
@@ -290,6 +291,7 @@ export function registerModelRoutes(r: Hono<AppEnv>, deps: ModelRouteDeps): void
       await secrets.delete(before);
     // A switch you flipped earlier would override the stored value.
     if (enabled !== undefined) await registry.setEnabled({ [id]: enabled });
+    if (tier !== undefined) await registry.setTier(id, tier);
     return c.json(registry.info().find((x) => x.id === id));
   });
 

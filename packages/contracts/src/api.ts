@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { ModelBilling } from './billing';
 import { ClaudeCodeBinding, QUEUE_LIMIT, QueuedTurn } from './claudecode';
-import { ModelHue, OffPeakPrice } from './config';
+import { ModelHue, ModelTier, OffPeakPrice, TierSource } from './config';
 import { AnthropicWorkspaceId, ProviderRegionId } from './credentials';
 import { AncileInstructions } from './engines';
 import { RunStatus } from './events';
@@ -367,6 +367,10 @@ export const ModelInfo = z.object({
    * profile). Empty or absent: no effort chip, and a value sent anyway is dropped.
    */
   effort_levels: z.array(Effort).optional(),
+  /** How capable the model is, for routing by need (TR2). Every model has one. */
+  tier: ModelTier.optional(),
+  /** Where that tier came from: you, its line, its size, its price, or nothing (then small). */
+  tier_source: TierSource.optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
@@ -450,6 +454,8 @@ export const PatchModelRequest = z
       .optional(),
     /** The chip's hue; null goes back to the family's. */
     hue: ModelHue.nullable().optional(),
+    /** Pin the model's tier; null goes back to the one worked out for it (TR2). */
+    tier: ModelTier.nullable().optional(),
   })
   .strict();
 export type PatchModelRequest = z.infer<typeof PatchModelRequest>;

@@ -220,6 +220,27 @@ An answer records the model that actually answered. The message keeps the alias 
 
 A model that matches no line (an unknown name) can still be offered as new and added, but it is never followed.
 
+### Tiers
+
+Every model has a tier, so a task can say what it needs ("a small model", "a standard one from another company") and Core finds the best ready model for it in any provider. You never have to list models by hand for that to work.
+
+| Tier | Meant for | Examples |
+|---|---|---|
+| Frontier | Long, mission-critical or hard work | Claude Opus, GPT Astra, Gemini Pro |
+| Standard | Checking numbers, dates and citations; ordinary reasoning | Claude Sonnet, GPT Sol, Gemini Flash |
+| Small | Titles, summaries, memory, ordinary claims | Claude Haiku, GPT Luna, Qwen3 14B |
+| Tiny | Obvious claims and quick sorting | GPT nano, Gemini Flash-Lite, a 3B local model |
+
+Core stores them as `best`, `balanced`, `fast` and `tiny`; `models.yaml` and `routing.yaml` accept either set of names. A model's tier is worked out in this order, and Admin → Models shows it quietly beside the model with where it came from:
+
+1. **Set by you.** `tier:` in `models.yaml`, or the model's menu in Admin → Models (Tier). "Work it out again" removes it.
+2. **Its line.** Opus is frontier, Sonnet standard, Haiku small; nano and Flash-Lite are tiny. An OpenRouter id such as `anthropic/claude-sonnet-4.5` is read through its company's rules, and a `line:` block in `models.yaml` wins.
+3. **Its size**, when the name carries one: 10B or less is tiny, up to 40B small, above that standard. A mixture of experts counts its active size, so `qwen3-30b-a3b` is tiny. A name with `mini`, `nano` or `lite` and no size is tiny.
+4. **Its price**, per million output tokens: $15 or more frontier, $2 standard, $0.25 small, below that tiny. Free models have no price to read.
+5. **Not known**, which is small. A guess is never frontier except by price.
+
+A task asks for a tier with `want` in `config/routing.yaml` (`tier`, `floor`, `distinct_family`, `needs`). Core takes ready chat models that have what the task needs, orders them by how close their tier is, then by price (a Claude Code plan engine goes after paid keys at the same tier, because its limit is shared with your own work), and widens in a fixed order instead of failing: another family, then one tier up or down, then any ready chat model. It says where it settled for less. Models listed in `chain` are tried first. The only failure is no ready chat model at all, which says to add a key in Settings → Keys (`routing.no_chat_model`). A `floor` is never crossed.
+
 ### Follow latest
 
 Each line has **Follow latest**, off until you turn it on. When it is on and a newer stable model appears:

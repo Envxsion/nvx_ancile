@@ -6,6 +6,50 @@
 import { z } from 'zod';
 import { Tier } from './events';
 
+/**
+ * How capable a model is, for routing by need (docs/models.md, Tiers). Stored names are
+ * best (frontier: Opus, GPT, Gemini Pro), balanced (standard: Sonnet, GPT mini, Flash),
+ * fast (small: Haiku, nano, Flash-Lite) and tiny (quick checks on obvious things).
+ */
+export const ModelTier = z.enum(['best', 'balanced', 'fast', 'tiny']);
+export type ModelTier = z.infer<typeof ModelTier>;
+
+/** Order of capability: tiny 0, fast 1, balanced 2, best 3. */
+export const TIER_RANK: Record<ModelTier, number> = { tiny: 0, fast: 1, balanced: 2, best: 3 };
+
+/** The plain words the YAML and the docs use, mapped to the stored names. */
+export const TIER_WORDS: Record<string, ModelTier> = {
+  frontier: 'best',
+  standard: 'balanced',
+  small: 'fast',
+  tiny: 'tiny',
+  best: 'best',
+  balanced: 'balanced',
+  fast: 'fast',
+};
+
+/** A tier by either name; the plain words are what people write. */
+export const TierName = z.preprocess(
+  (v) => (typeof v === 'string' ? (TIER_WORDS[v.toLowerCase()] ?? v) : v),
+  ModelTier,
+);
+
+/** Where a model's tier came from (shown quietly in Admin → Models). */
+export const TierSource = z.enum(['override', 'line', 'size', 'price', 'unknown']);
+export type TierSource = z.infer<typeof TierSource>;
+
+/** What a task needs of the model behind it (TR1). The router picks the best ready match and widens, in a fixed order, rather than fail. */
+export const Want = z.object({
+  tier: TierName,
+  /** Never go below this tier, even when widening. */
+  floor: TierName.optional(),
+  /** `generator`: prefer a model from another family than the one that wrote the text. */
+  distinct_family: z.literal('generator').nullable().optional(),
+  needs: z.array(z.enum(['vision', 'tools', 'json'])).default([]),
+  ctx_tokens: z.number().int().positive().optional(),
+});
+export type Want = z.infer<typeof Want>;
+
 export const Capability = z.enum(['tools', 'vision', 'reasoning', 'json', 'audio', 'embeddings', 'rerank']);
 
 /** The identity-ramp hue a model's chip uses. Unset follows the model's family. */
@@ -95,6 +139,8 @@ export const ModelConfig = z.object({
   runs_on: z.enum(['your_network', 'rented']).optional(),
   /** The line this model belongs to, when its id cannot say (see ModelLineSpec). */
   line: ModelLineSpec.optional(),
+  /** Pin this model's tier; otherwise it is read from its line, its size or its price. */
+  tier: ModelTier.optional(),
 });
 export type ModelConfig = z.infer<typeof ModelConfig>;
 
@@ -120,7 +166,15 @@ export const TaskClass = z.string().regex(/^[a-z]+(\.[a-z_]+)*$/);
 
 export const ChainSpec = z.union([
   z.array(z.string()),
-  z.object({ chain: z.array(z.string()), prefer_different_family: z.boolean().default(false) }),
+  z.object({
+    /** Models tried first, in order (pins). With `want`, the router fills in behind them. */
+    chain: z.array(z.string()).default([]),
+    prefer_different_family: z.boolean().default(false),
+    /** What the task needs; the router finds the best ready model for it (TR1). */
+    want: Want.optional(),
+    /** Step up a tier on low confidence, disagreement or criticality (fact-check), at most twice. */
+    escalate: z.boolean().default(false),
+  }),
 ]);
 
 export const RoutingFile = z.object({

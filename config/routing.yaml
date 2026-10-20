@@ -3,6 +3,15 @@
 #  Schema: packages/contracts/src/config.ts → RoutingFile
 #  A user's explicit model choice is always the first link; the chain fills
 #  in behind it. Disabled or unconfigured models are skipped.
+#  A class may also say what it needs with `want` (docs/models.md, Tiers):
+#    tier   tiny | small | standard | frontier, the tier to aim at
+#    floor  never go below this tier (default: none)
+#    distinct_family  generator: prefer a model from another family than the writer
+#    needs  vision, tools or json, when the task has to have them
+#  The router then picks the best ready model for it in any provider, ordered by
+#  tier distance then price, and widens (other family, one tier either way, any
+#  ready model) rather than fail. Models in `chain` are tried first.
+#  `escalate: true` lets fact-checking step up a tier on doubt (at most twice).
 # =============================================================================
 version: 1
 
@@ -18,18 +27,20 @@ task_classes:
     - openai/astra:latest
     - anthropic/sonnet:latest
   utility:                          # titles, tags, memory capture, summaries
-    - anthropic/haiku:latest
-    - ollama/qwen3-14b
+    chain:
+      - anthropic/haiku:latest
+      - ollama/qwen3-14b
+    want: { tier: small, floor: tiny }   # any provider's small model when those are not ready
   embed:                            # chunk and memory embeddings
     - local/bge-small-en-v1.5
   rerank:                           # cross-encoder reranking of retrieved chunks
     - local/bge-reranker-v2-m3
-  factcheck.verify:                 # the verifier must be independent of the generator
-    prefer_different_family: true   # skip the generator's family when another is available
-    chain:
-      - openai/sol:latest
-      - google/gemini-pro:latest
-      - anthropic/sonnet:latest
+  factcheck.verify:                 # a second opinion, from another family when one is ready
+    prefer_different_family: true
+    # Standard tier by default; fact-checking picks tiny for obvious claims and standard or better for
+    # numbers, dates, citations and critical notebooks (docs/factcheck.md), and steps up a tier on doubt.
+    want: { tier: standard, distinct_family: generator }
+    escalate: true
 
 resilience:
   retry:

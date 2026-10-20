@@ -313,3 +313,48 @@ export function compareModels(a: Rankable, b: Rankable): number {
   const cb = b.created ?? '';
   return ca === cb ? 0 : ca < cb ? -1 : 1;
 }
+
+/** OpenRouter's vendor prefixes, as the naming rules above know them. */
+const OPENROUTER_VENDORS: Record<string, string> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  google: 'google',
+  deepseek: 'deepseek',
+  moonshotai: 'moonshot',
+  'x-ai': 'xai',
+  mistralai: 'mistral',
+  qwen: 'qwen',
+  'z-ai': 'zai',
+  minimax: 'minimax',
+};
+
+/** Lines smaller than anything the three-tier scale had room for: quick checks (TR2). */
+const TINY_LINE = /(^|-)(nano|flash-lite)$/;
+
+/**
+ * The tier a model's line gives it, or null when it is in no line (TR2). The line models.yaml declares
+ * wins (OpenRouter's lineup); else the id is read through its provider's rules, and OpenRouter's
+ * `vendor/name` ids (dots in versions, a `:free` tail) through the vendor's. Nano and Flash-Lite sit
+ * below small. Pure and additive: it never feeds line following.
+ */
+export function tierLineOf(
+  m: Pick<ModelConfig, 'provider' | 'base_url' | 'provider_model'> & { line?: ModelConfig['line'] },
+): ModelTier | null {
+  // "mistral-large-latest" names no number the patterns can read; its line is still plain.
+  const declared =
+    lineOfModel(m) ??
+    (m.provider !== 'openrouter' && /-latest$/.test(m.provider_model)
+      ? lineOfModel({ ...m, provider_model: m.provider_model.replace(/-latest$/, '-0') })
+      : null);
+  if (declared) return TINY_LINE.test(declared.line_id.split('/')[1] ?? '') ? 'tiny' : declared.tier;
+  if (m.provider !== 'openrouter') return null;
+  const [v, ...rest] = m.provider_model.trim().toLowerCase().split('/');
+  const vendor = OPENROUTER_VENDORS[v ?? ''];
+  if (!vendor) return null;
+  let name = rest.join('/').replace(/:(free|thinking|extended|nitro|floor|online)$/, '');
+  if (vendor === 'anthropic') name = name.replace(/(\d)\.(\d)/g, '$1-$2');
+  if (vendor === 'mistral') name = name.replace(/-latest$/, '-0');
+  const l = lineOf(vendor, name);
+  if (!l) return null;
+  return TINY_LINE.test(l.line_id.split('/')[1] ?? '') ? 'tiny' : l.tier;
+}

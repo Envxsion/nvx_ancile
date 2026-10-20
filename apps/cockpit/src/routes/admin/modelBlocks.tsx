@@ -32,6 +32,7 @@ import { billingTitle, billingWords, modelBadge } from '../../models/billing';
 import { ModelMenu } from '../../models/EditModel';
 import { groupedBy, OLDER_LABEL, splitOlder } from '../../models/lineup';
 import { OffPeakTag } from '../../models/OffPeakTag';
+import { TIER_WORDS, tierTitle } from '../../models/tier';
 import { notify } from '../../state/notify';
 import { Icon } from '../../ui/Icon';
 import { StatusDot } from '../../ui/primitives';
@@ -129,6 +130,12 @@ function ModelRow({ m }: { m: ModelView }) {
       </span>
       <span className="row__meta">
         {m.provider} · {STATUS_WORDS[m.status ?? 'ready']}
+        {m.tier && m.chat !== false && !m.aliasOf ? (
+          <>
+            {' · '}
+            <span title={tierTitle(m.tier, m.tierSource)}>{TIER_WORDS[m.tier]}</span>
+          </>
+        ) : null}
         {price ? ` · ${price}` : ''}
         {price && m.price?.offPeak ? (
           <>

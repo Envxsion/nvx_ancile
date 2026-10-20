@@ -62,6 +62,8 @@ export const SETTING = {
   modelShown: 'models.shown',
   /** { [modelId]: hue } chip colours chosen for config models (added models keep theirs inline). */
   modelHue: 'models.hue',
+  /** { [modelId]: tier } tiers chosen in Admin → Models; the rest are worked out (TR2). */
+  modelTier: 'models.tier',
   /**
    * { [family]: false } keeps what varies (date, ranked memory, notes, answer instructions) in the
    * system prompt for that model family, as before CA2. Absent or true: it goes at the end of the

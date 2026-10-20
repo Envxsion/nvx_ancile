@@ -77,7 +77,8 @@ describe('aliases before any check', () => {
       'anthropic/claude-sonnet-5-5',
       'anthropic/claude-opus-5-5',
     ]);
-    expect(w.registry.chain('utility').map((m) => m.id)).toEqual(['anthropic/claude-haiku-4-5']);
+    // The pin goes first; utility also wants a small model, so the other ready ones follow by closeness to it.
+    expect(w.registry.chain('utility').map((m) => m.id)[0]).toBe('anthropic/claude-haiku-4-5');
     // An explicit alias goes first and is recorded as the concrete model.
     expect(w.registry.chain('chat.default', 'anthropic/opus:latest').map((m) => m.id)).toEqual([
       'anthropic/claude-opus-5-5',

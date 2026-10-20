@@ -14,6 +14,7 @@
  * ------------------------------------------------------------------
  */
 
+import type { ModelTier } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation } from '@tanstack/react-query';
 import { type CSSProperties, useState } from 'react';
@@ -29,6 +30,7 @@ import { type ConfirmCopy, ConfirmDialog } from '../ui/Confirm';
 import { Switch } from '../ui/controls';
 import { Icon } from '../ui/Icon';
 import { DropMenu, type MenuEntry } from '../ui/Menu';
+import { TIER_ORDER, TIER_WORDS } from './tier';
 
 export const MODEL_HUES: Hue[] = ['azure', 'jade', 'amber', 'coral', 'magenta', 'cyan', 'chalk'];
 
@@ -266,11 +268,37 @@ export function ModelMenu({ model }: { model: ModelView }) {
     onError: (e) => failed(e, 'Removing the model'),
   });
   const [routing, setRouting] = useState(false);
+  const tier = useMutation({
+    mutationFn: (t: ModelTier | null) => api.patch(`/models/${model.id}`, { tier: t }),
+    onSuccess: () => refresh(),
+    onError: (e) => failed(e, 'Changing the tier'),
+  });
   const off = model.status === 'disabled';
   const items: MenuEntry[] = [
     { label: 'Edit', icon: 'edit', onSelect: () => setEditing(true) },
     ...(model.openrouter
       ? [{ label: 'Providers, routing and cost', icon: 'node' as const, onSelect: () => setRouting(true) }]
+      : []),
+    ...(model.chat !== false && !model.aliasOf && model.tier
+      ? [
+          {
+            kind: 'sub' as const,
+            label: `Tier: ${TIER_WORDS[model.tier]}`,
+            items: [
+              ...TIER_ORDER.map((t) => ({
+                label: model.tier === t ? `${TIER_WORDS[t]} (now)` : TIER_WORDS[t],
+                disabled: tier.isPending || model.tier === t,
+                onSelect: () => tier.mutate(t),
+              })),
+              { kind: 'separator' as const },
+              {
+                label: 'Work it out again',
+                disabled: tier.isPending || model.tierSource !== 'override',
+                onSelect: () => tier.mutate(null),
+              },
+            ],
+          },
+        ]
       : []),
     ...(model.offline
       ? []

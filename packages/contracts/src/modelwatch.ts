@@ -20,11 +20,7 @@
  * ------------------------------------------------------------------
  */
 import { z } from 'zod';
-import { Capability } from './config';
-
-/** Best (Fable, Opus, GPT, Gemini Pro), balanced (Sonnet, GPT mini, Gemini Flash), fast (Haiku, nano, Flash-Lite). */
-export const ModelTier = z.enum(['best', 'balanced', 'fast']);
-export type ModelTier = z.infer<typeof ModelTier>;
+import { Capability, ModelTier } from './config';
 
 /** `<provider>/<line>:latest`, e.g. anthropic/opus:latest. */
 export const LINE_ALIAS_SUFFIX = ':latest';
