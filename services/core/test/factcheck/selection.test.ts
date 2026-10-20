@@ -356,37 +356,31 @@ describe('guard rail GR24: a different family judges', () => {
     taskClasses: { 'chat.default': ['fake/writer'], 'factcheck.verify': ['fake/writer'] },
   });
 
-  it('refuses a check of an answer when only the writer family is ready, and runs no model', async () => {
+  it('still checks an answer when only the writer family is ready: no listed model is ever required', async () => {
     h = await harness({ kn, ...only('famA') });
     const { message } = await answered('Owls are nocturnal birds of prey.', { notebook_id: 'nbk_1' });
-    const before = h.provider.calls.length;
-    const res = await h.call<{ error: { code: string; title: string; hint: string } }>(
+    const res = await h.call<{ check: { written_by_family: string | null; checker_family: string | null } }>(
       'POST',
       `/messages/${message}/selection-checks`,
       { text: 'Owls are nocturnal birds of prey.' },
     );
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('factcheck.no_other_family');
-    expect(res.body.error.title).toBe('No second opinion is available');
-    expect(res.body.error.hint).toMatch(/famA/);
-    expect(res.body.error.hint).toMatch(/Settings → Models/);
-    // Nothing was asked of any model, and nothing was recorded.
-    expect(h.provider.calls.length).toBe(before);
-    expect(checksOf((await h.repo.getMessage(message)) as never)).toEqual([]);
+    expect(res.status).toBe(200);
+    expect(res.body.check.written_by_family).toBe('famA');
+    expect(res.body.check.checker_family).toBe('famA');
   });
 
-  it('refuses a whole-answer check the same way, before it starts', async () => {
+  it('starts a whole-answer check the same way', async () => {
     h = await harness({ kn, ...only('famA') });
     const { message } = await answered('Owls are nocturnal birds of prey.', { notebook_id: 'nbk_1' });
-    const res = await h.call<{ error: { code: string } }>('POST', `/messages/${message}/factcheck`);
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('factcheck.no_other_family');
-    expect(await h.factchecks.latestFor(message)).toBeUndefined();
+    const res = await h.call<{ run_id: string }>('POST', `/messages/${message}/factcheck`);
+    expect(res.status).toBe(202);
+    await h.settle(res.body.run_id);
+    expect((await h.factchecks.latestFor(message))?.status).toBe('done');
   });
 
-  it('stops a started whole-answer check (grounded mode) with the same words, never judging itself', async () => {
+  it('finishes a started whole-answer check (grounded mode) and says the writer family checked it', async () => {
     h = await harness({ kn, ...only('famA') });
-    const { message, thread } = await answered('Owls are nocturnal birds of prey.', { notebook_id: 'nbk_1' });
+    const { message } = await answered('Owls are nocturnal birds of prey.', { notebook_id: 'nbk_1' });
     const { startFactcheck } = await import('../../src/factcheck/handler');
     const started = await startFactcheck(
       {
@@ -401,9 +395,9 @@ describe('guard rail GR24: a different family judges', () => {
     );
     await h.settle(started.record.run_id as string);
     const f = await h.factchecks.latestFor(message);
-    expect(f?.status).toBe('failed');
-    expect(f?.error?.code).toBe('factcheck.no_other_family');
-    void thread;
+    expect(f?.status).toBe('done');
+    const notes = f?.claims.flatMap((c) => c.check?.degraded ?? []).join(' ');
+    expect(notes).toMatch(/writer's family/);
   });
 
   it('lets any family judge your own words', async () => {

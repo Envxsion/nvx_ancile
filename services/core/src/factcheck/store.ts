@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimEvidence, ClaimVerdict } from '@nvx/contracts';
+import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { pgSafe } from '../db/json';
 
@@ -32,6 +32,8 @@ export interface StoredClaim {
   retrieval: number;
   evidence: ClaimEvidence[];
   rationale: string;
+  /** Which model checked it, at what tier, and how it got there (TR3). Absent on checks from before tiers. */
+  check?: ClaimCheckInfo;
 }
 
 export interface FactcheckRecord {
@@ -41,7 +43,7 @@ export interface FactcheckRecord {
   status: 'running' | 'done' | 'failed';
   confidence: number | null;
   verifier_model_id: string | null;
-  scope: { notebook_id: string | null; web: boolean; web_note?: string | null };
+  scope: { notebook_id: string | null; web: boolean; web_note?: string | null; critical?: boolean };
   error: { code: string; title: string; hint: string } | null;
   claims: StoredClaim[];
   created_at: string;
@@ -95,6 +97,7 @@ interface ClaimRow {
   retrieval: number;
   evidence: ClaimEvidence[] | null;
   rationale: string | null;
+  check_info: ClaimCheckInfo | null;
 }
 
 const fromRow = (r: FactcheckRow, claims: StoredClaim[]): FactcheckRecord => ({
@@ -108,6 +111,7 @@ const fromRow = (r: FactcheckRow, claims: StoredClaim[]): FactcheckRecord => ({
     notebook_id: r.scope?.notebook_id ?? null,
     web: r.scope?.web === true,
     web_note: r.scope?.web_note ?? null,
+    critical: r.scope?.critical === true,
   },
   error: r.error,
   claims,
@@ -128,6 +132,7 @@ const claimFromRow = (r: ClaimRow): StoredClaim => ({
   retrieval: r.retrieval,
   evidence: r.evidence ?? [],
   rationale: r.rationale ?? '',
+  ...(r.check_info && { check: r.check_info }),
 });
 
 export class PgFactcheckStore implements FactcheckStore {
@@ -175,10 +180,11 @@ export class PgFactcheckStore implements FactcheckStore {
       for (const [seq, c] of r.claims.entries()) {
         await tx`
           insert into core.claims (id, factcheck_id, seq, text, char_start, char_end, importance, verdict,
-            confidence, support, agreement, retrieval, evidence, rationale)
+            confidence, support, agreement, retrieval, evidence, rationale, check_info)
           values (${c.id}, ${id}, ${seq}, ${c.text}, ${c.char_start}, ${c.char_end}, ${c.importance},
             ${c.verdict}, ${c.confidence}, ${c.support}, ${c.agreement}, ${c.retrieval},
-            ${tx.json(pgSafe(c.evidence) as never)}, ${c.rationale})`;
+            ${tx.json(pgSafe(c.evidence) as never)}, ${c.rationale},
+            ${c.check ? tx.json(pgSafe(c.check) as never) : null})`;
       }
       await tx`
         update core.factchecks set status = 'done', confidence = ${r.confidence},

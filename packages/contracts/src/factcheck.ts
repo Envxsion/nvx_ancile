@@ -16,6 +16,7 @@
  * ------------------------------------------------------------------
  */
 import { z } from 'zod';
+import { ModelTier } from './config';
 import { FlowProvenance } from './flows';
 import { RetrievalTrace } from './knowledge';
 import { Recovered, Usage } from './messages';
@@ -47,6 +48,24 @@ export const ClaimEvidence = z.object({
 });
 export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
 
+/** Which model checked a claim, at what tier, and how it got there (TR3, SI1). */
+export const ClaimCheckInfo = z.object({
+  tier_used: ModelTier.nullable(),
+  model_id: z.string().nullable(),
+  /** The tier the claim started at, when it was sent up a tier (low confidence, disagreement, criticality). */
+  escalated_from: ModelTier.nullable().default(null),
+  /** Answered from an earlier check of the same claim and sources: nothing was asked of a model. */
+  cached: z
+    .object({ at: z.string(), model_id: z.string().nullable(), scope: z.enum(['notebook', 'global']) })
+    .nullable()
+    .default(null),
+  /** Sentences saying where routing had to settle for less than it wanted. */
+  degraded: z.array(z.string()).default([]),
+  /** Judged from common knowledge by a small model, because the claim is obvious and no source covers it. */
+  general_knowledge: z.boolean().default(false),
+});
+export type ClaimCheckInfo = z.infer<typeof ClaimCheckInfo>;
+
 export const FactcheckClaim = z.object({
   id: z.string(),
   text: z.string(),
@@ -63,6 +82,8 @@ export const FactcheckClaim = z.object({
   rationale: z.string(),
   /** The confidence breakdown in words, for the tooltip. */
   explanation: z.string(),
+  /** TR3: how the claim was checked. Absent on checks from before tiers. */
+  check: ClaimCheckInfo.optional(),
 });
 export type FactcheckClaim = z.infer<typeof FactcheckClaim>;
 
@@ -96,6 +117,8 @@ export const Factcheck = z.object({
     web_note: z.string().nullable().optional(),
   }),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
+  /** The check ran in mission-critical mode: standard tier or better, two checkers (TR3). */
+  critical: z.boolean().default(false),
   created_at: z.string(),
   finished_at: z.string().nullable(),
   /**
@@ -119,8 +142,20 @@ export const Factcheck = z.object({
 });
 export type Factcheck = z.infer<typeof Factcheck>;
 
-/** POST /messages/:id/factcheck: the optional body. `web: true` allows the web for this one check (FC4). */
-export const StartFactcheckRequest = z.object({ web: z.boolean().optional() }).strict();
+/**
+ * POST /messages/:id/factcheck: the optional body. `web: true` allows the web for this one check (FC4).
+ * `critical` checks in mission-critical mode for this one answer; `models` is the person's choice of
+ * checkers when the last try answered `needs_choice` (any ready chat model, the same provider included).
+ */
+export const StartFactcheckRequest = z
+  .object({
+    web: z.boolean().optional(),
+    critical: z.boolean().optional(),
+    models: z.array(z.string().min(1)).min(1).max(4).optional(),
+    /** Check again even when an earlier verdict is kept. */
+    again: z.boolean().optional(),
+  })
+  .strict();
 export type StartFactcheckRequest = z.infer<typeof StartFactcheckRequest>;
 
 export const StartFactcheckResponse = z.object({
@@ -391,3 +426,50 @@ export const Explain = z.object({
   trace_url: z.string(),
 });
 export type Explain = z.infer<typeof Explain>;
+
+/**
+ * Mission-critical mode could not find two independent checkers at standard tier or better, so
+ * nothing ran and the person chooses (factcheck.needs_choice). POST /messages/:id/factcheck answers
+ * 200 with this instead of 202; sending the same request with `models` runs the check.
+ */
+export const FactcheckNeedsChoice = z.object({
+  needs_choice: z.object({
+    code: z.literal('factcheck.needs_choice'),
+    title: z.string(),
+    hint: z.string(),
+    /** The tier a checker has to be, at least. */
+    floor: ModelTier,
+    /** Every ready chat model, strongest first; the same provider as the writer is allowed. */
+    models: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        provider: z.string(),
+        family: z.string(),
+        tier: ModelTier,
+        same_family_as_writer: z.boolean(),
+        /** At or above the floor. */
+        suitable: z.boolean(),
+      }),
+    ),
+    /** Models picked for you, when there are any. */
+    suggested: z.array(z.string()),
+  }),
+});
+export type FactcheckNeedsChoice = z.infer<typeof FactcheckNeedsChoice>;
+
+/** A notebook's verdict cache (SI1): where its checks are kept, and how many. */
+export const VerdictCacheState = z.object({
+  notebook_id: z.string(),
+  /** `notebook`: only this notebook reuses them. `global`: every notebook may, for claims checked without a source. */
+  scope: z.enum(['notebook', 'global']),
+  entries: z.number().int(),
+  /** Whether sharing may be switched on here (a private notebook needs the setting allowed first). */
+  can_share: z.boolean(),
+  /** Why not, when it cannot. */
+  share_note: z.string().nullable(),
+});
+export type VerdictCacheState = z.infer<typeof VerdictCacheState>;
+
+export const SetVerdictCacheRequest = z.object({ shared: z.boolean() }).strict();
+export type SetVerdictCacheRequest = z.infer<typeof SetVerdictCacheRequest>;

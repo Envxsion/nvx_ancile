@@ -99,6 +99,8 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     pinned: n.pinned_at !== null,
     grounded: n.grounded,
     check_on_web: n.check_on_web,
+    critical: n.critical,
+    share_checks: n.share_checks,
     archived_at: n.archived_at,
     last_opened_at: n.last_opened_at,
     created_at: n.created_at,

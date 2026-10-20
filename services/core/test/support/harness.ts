@@ -116,6 +116,8 @@ export interface HarnessOptions {
   factcheck?: Partial<FactcheckDeps>;
   /** Extra dependencies for checking a highlighted claim (scope, web search, sandbox). */
   selection?: Partial<SelectionDeps>;
+  /** Extra dependencies for the trust routes: mission-critical choice, the verdict cache (TR3, SI1). */
+  trust?: Partial<Parameters<typeof trustRoutes>[0]>;
   /** Whether a fact-check may use the web (FC4). */
   webFor?: NonNullable<Parameters<typeof startFactcheck>[0]['webFor']>;
   /** What became of cited sources (track G): citations' states and a re-run's previous score. */
@@ -533,6 +535,8 @@ export async function harness(opts: HarnessOptions = {}) {
         ...(opts.integrity && { integrity: opts.integrity }),
         ...(opts.webFor && { webFor: opts.webFor }),
         preflight: (a) => preflightJudge({ registry, scopeOf: opts.selection?.scopeOf }, a),
+        registry,
+        ...opts.trust,
         selection: {
           run: (input, signal) =>
             checkSelection(

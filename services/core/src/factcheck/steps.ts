@@ -40,18 +40,21 @@ import {
   CLAUDE_CODE_PROVIDER,
   type EvidenceResponse,
   type ModelConfig,
+  type ModelTier,
+  TIER_RANK,
 } from '@nvx/contracts';
 import { z } from 'zod';
 import { loadPrompt, render } from '../conductor/prompt';
 import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
-import { NoRouteError } from '../gateway/router';
+import { canonicalFamily, sameFamily, type WantResolution } from '../gateway/tiers';
 import type { ModelRequest } from '../gateway/types';
 import type { CallUsage } from '../gateway/usage';
 import type { KnowledgeClient } from '../knowledge/client';
-import { REVIEWER_MAX_B, reviewerModel } from '../permissions/auto/wire';
+import type { VerdictCache } from './cache';
 import type { ClaimEvidence, ExtractedClaim } from './pipeline';
 import type { Stance, VerifierVerdict } from './score';
+import { escalateTo, type Triage } from './triage';
 import { hostName, type WebHit } from './web';
 
 /** At most this many claims are checked per answer (the prompt asks for 25). */
@@ -67,8 +70,6 @@ const SYSTEM =
 export const CLAUDE_CODE_JUDGE = `${CLAUDE_CODE_MODEL_PREFIX}haiku`;
 /** One Claude Code judge call gets this long before the next judge is tried. */
 export const CLAUDE_CODE_JUDGE_TIMEOUT_MS = 90_000;
-
-type JudgeRegistry = Pick<ModelRegistry, 'chain' | 'all' | 'status'>;
 
 /**
  * At most `limit()` Claude Code judge calls at once, across every
@@ -131,23 +132,7 @@ export class JudgeSlots {
   }
 }
 
-/**
- * Families by one name each: Claude Code's models say `claude` where the Anthropic API's say
- * `anthropic`, but they are one family, and GR24 must not be fooled by a spelling.
- */
-const FAMILY_ALIASES: Record<string, string> = { claude: 'anthropic', gpt: 'openai', gemini: 'google' };
-
-export function canonicalFamily(family: string | null | undefined): string | null {
-  if (!family) return null;
-  return FAMILY_ALIASES[family.trim().toLowerCase()] ?? family.trim();
-}
-
-/** Whether two family names are one family. */
-export function sameFamily(a: string | null | undefined, b: string | null | undefined): boolean {
-  const x = canonicalFamily(a);
-  const y = canonicalFamily(b);
-  return !!x && !!y && x.toLowerCase() === y.toLowerCase();
-}
+export { canonicalFamily, sameFamily };
 
 /** The family a model id points to when the registry does not know the model (an engine's own model name). */
 export function familyFromModelId(id: string | null | undefined): string | null {
@@ -158,69 +143,14 @@ export function familyFromModelId(id: string | null | undefined): string | null 
   return null;
 }
 
-/** What the registry can say about the models set for a step (a ModelRegistry does; a test double need not). */
-type JudgeRegistryFull = JudgeRegistry & Partial<Pick<ModelRegistry, 'configured'>>;
-
-const STATUS_WORDS: Record<string, string> = {
-  needs_key: 'no key saved',
-  disabled: 'switched off',
-  signed_out: 'signed out',
-  not_pulled: 'not pulled in Ollama',
-  ready: 'ready',
-};
-
-/** Each thing a judge search looked at, and why it was skipped: the error names them all (FC2). */
-export function triedWords(registry: JudgeRegistryFull, taskClass: string): string[] {
-  const out: string[] = [];
-  const set = registry.configured?.(taskClass) ?? [];
-  for (const m of set) out.push(`${m.name} (${STATUS_WORDS[m.status] ?? m.status})`);
-  if (!set.length)
-    out.push(
-      `the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is set or ready)`,
-    );
-  const cc = registry.all().filter((m) => m.provider === CLAUDE_CODE_PROVIDER);
-  const quick = cc.find((m) => m.id === CLAUDE_CODE_JUDGE) ?? cc[0];
-  if (!quick) out.push('Claude Code (not installed or not verified)');
-  else out.push(`Claude Code (${STATUS_WORDS[registry.status(quick)] ?? registry.status(quick)})`);
-  out.push(`a small Ollama model you pulled (none of ${REVIEWER_MAX_B}B or less is ready)`);
-  return out;
+export interface JudgeOpts {
+  /** The family that wrote the text being checked: models of other families go first. */
+  generatorFamily?: string | undefined;
+  /** The scope's say on a model: why it may not be used here, or null. */
+  allow?: ((m: ModelConfig) => string | null) | undefined;
 }
 
-/** The error when no judge can be found, saying each thing that was tried. */
-export function noJudge(taskClass: string, tried: string[] = []): AncileError {
-  const list = tried.length
-    ? `Tried ${tried.join('; ')}.`
-    : `Tried the models set for ${taskClass === 'utility' ? 'utility tasks' : 'fact-checking'} (none is ready), ` +
-      'Claude Code (not installed or not verified) and a small Ollama model you pulled ' +
-      `(none of ${REVIEWER_MAX_B}B or less).`;
-  return new AncileError({
-    code: 'factcheck.no_model',
-    title: 'No model is ready to fact-check',
-    hint: `${list} Add a provider key in Settings → Models, set up Claude Code in Settings → Claude Code, or pull a small model with Ollama.`,
-    status: 422,
-    errorClass: 'permanent',
-  });
-}
-
-/**
- * Guard rail GR24: a fact-check is judged by a different model family from
- * the one that wrote the text. When none is ready, say so and do not run: there
- * is no same-family fallback.
- */
-export function noOtherFamily(family: string, skipped: string[]): AncileError {
-  return new AncileError({
-    code: 'factcheck.no_other_family',
-    title: 'No second opinion is available',
-    hint:
-      `This was written by a ${family} model, and a fact-check is always judged by a model from a different family. ` +
-      `${skipped.length ? `Skipped: ${skipped.join('; ')}. ` : 'None is ready. '}` +
-      'Add a provider key for another family in Settings → Models, or pull a small Ollama model, then check again.',
-    status: 422,
-    errorClass: 'permanent',
-  });
-}
-
-/** Every judge that was ready is one the scope keeps out of this notebook. */
+/** Every ready model is refused by the scope (a private notebook, nothing may leave this machine). */
 export function judgeNotAllowed(reasons: string[]): AncileError {
   return new AncileError({
     code: 'factcheck.judge_not_allowed',
@@ -231,78 +161,77 @@ export function judgeNotAllowed(reasons: string[]): AncileError {
   });
 }
 
-export interface JudgeOpts {
-  /** The family that wrote the text being checked. */
-  generatorFamily?: string | undefined;
-  /** GR24: models of the writer's family never judge, and there is no fallback to one. */
-  strict?: boolean;
-  /** The scope's say on a model: why it may not be used here, or null. */
-  allow?: ((m: ModelConfig) => string | null) | undefined;
-}
-
-/** Claude Code's quickest model, then the smallest pulled local one: the judges when no model is set. */
-function fallbackJudges(registry: JudgeRegistryFull): ModelConfig[] {
-  const out: ModelConfig[] = [];
-  const cc = registry.all().find((m) => m.id === CLAUDE_CODE_JUDGE && registry.status(m) === 'ready');
-  if (cc) out.push({ ...cc, enabled: true });
-  const local = reviewerModel(registry);
-  if (local) out.push(local);
-  return out;
-}
-
 /**
- * The models that may judge a step: the chain set for it, else Claude
- * Code's quickest model and then the smallest pulled local model. With
- * `strict` (every fact-check, GR24) the writer's family is dropped and the
- * fallbacks are offered too, so another family is found whenever there is
- * one. Throws factcheck.no_model, naming what was tried, when there is none;
- * factcheck.no_other_family when only the writer's family is ready; and
- * factcheck.judge_not_allowed when the scope keeps every ready one out.
+ * The models that may answer a task class (utility, factcheck.verify…), best match first. Routing finds
+ * them by need (TR1), so a machine with any ready chat model has an answer; it fails only when no chat
+ * model is ready (routing.no_chat_model: add a key), or when the scope refuses every one
+ * (factcheck.judge_not_allowed).
  */
 export function judgeChain(
-  registry: JudgeRegistryFull,
+  registry: Pick<ModelRegistry, 'chain'>,
   taskClass: string,
   opts: JudgeOpts = {},
 ): ModelConfig[] {
-  let base: ModelConfig[] = [];
-  try {
-    base = registry.chain(
-      taskClass,
-      null,
-      opts.generatorFamily ? { generatorFamily: opts.generatorFamily } : {},
-    );
-  } catch (err) {
-    if (!(err instanceof NoRouteError)) throw err;
-  }
-  const plain = !opts.strict && !opts.allow;
-  if (plain && base.length) return base;
-  const seen = new Set<string>();
-  const candidates = (opts.strict || !base.length ? [...base, ...fallbackJudges(registry)] : base).filter(
-    (m) => !seen.has(m.id) && !!seen.add(m.id),
+  const base = registry.chain(
+    taskClass,
+    null,
+    opts.generatorFamily ? { generatorFamily: opts.generatorFamily } : {},
   );
-  if (plain) {
-    if (!candidates.length) throw noJudge(taskClass, triedWords(registry, taskClass));
-    return candidates;
-  }
-  const skippedFamily: string[] = [];
+  if (!opts.allow) return base;
   const refused: string[] = [];
-  const out: ModelConfig[] = [];
-  for (const m of candidates) {
-    if (opts.strict && opts.generatorFamily && sameFamily(m.family, opts.generatorFamily)) {
-      skippedFamily.push(`${m.display_name} (same family as the writer)`);
-      continue;
-    }
+  const out = base.filter((m) => {
     const why = opts.allow?.(m) ?? null;
-    if (why) {
-      refused.push(why);
-      continue;
-    }
-    out.push(m);
-  }
+    if (why) refused.push(why);
+    return !why;
+  });
   if (out.length) return out;
-  if (refused.length) throw judgeNotAllowed(refused);
-  if (skippedFamily.length && opts.generatorFamily) throw noOtherFamily(opts.generatorFamily, skippedFamily);
-  throw noJudge(taskClass, triedWords(registry, taskClass));
+  throw judgeNotAllowed(refused);
+}
+
+/** The models to check a claim with at a tier, with how far routing had to settle (TR1). */
+export function verifierPlan(
+  registry: Pick<ModelRegistry, 'resolveWant'>,
+  a: {
+    tier: ModelTier;
+    floor?: ModelTier | undefined;
+    generatorFamily?: string | null | undefined;
+    allow?: JudgeOpts['allow'];
+    exclude?: ReadonlySet<string> | undefined;
+  },
+): WantResolution {
+  const res = registry.resolveWant(
+    {
+      tier: a.tier,
+      ...(a.floor && { floor: a.floor }),
+      distinct_family: 'generator',
+      needs: [],
+    },
+    {
+      generatorFamily: a.generatorFamily ?? null,
+      allow: a.allow,
+      ...(a.exclude && { exclude: a.exclude }),
+    },
+  );
+  if (res.unmet === 'scope') throw judgeNotAllowed(res.refused);
+  return res;
+}
+
+/** The models mission-critical mode may pick for itself, or null when it must ask (D30). */
+export function criticalCheckers(
+  registry: Pick<ModelRegistry, 'resolveWant'>,
+  a: { generatorFamily: string | null; generatorModelId: string | null; allow?: JudgeOpts['allow'] },
+): ModelConfig[] | null {
+  const plan = verifierPlan(registry, {
+    tier: 'balanced',
+    floor: 'balanced',
+    generatorFamily: a.generatorFamily,
+    allow: a.allow,
+    ...(a.generatorModelId && { exclude: new Set([a.generatorModelId]) }),
+  });
+  const ok = plan.chain.filter((m) => !a.generatorFamily || !sameFamily(m.family, a.generatorFamily));
+  const first = ok[0];
+  const second = first ? ok.find((m) => !sameFamily(m.family, first.family)) : undefined;
+  return first && second ? [first, second] : null;
 }
 
 /* ---- Structured calls ------------------------------------------------------ */
@@ -684,6 +613,8 @@ const RawVerdict = z.object({
     )
     .default([]),
   rationale: z.string().default(''),
+  /** How sure the model is, 0 to 1. Optional: models that leave it out are not second-guessed. */
+  confidence: z.coerce.number().min(0).max(1).optional(),
 });
 
 const VERIFY_FALLBACK = `Judge the claim strictly against the evidence: supported, contradicted or insufficient. For each piece of evidence you relied on, give its ref, the shortest exact quote and whether it supports or contradicts.
@@ -694,7 +625,7 @@ Claim:
 Evidence:
 {{evidence}}
 
-Return JSON matching ClaimVerdict: { "stance", "evidence": [{ "ref", "quote", "stance" }], "rationale" }`;
+Return JSON matching ClaimVerdict: { "stance", "evidence": [{ "ref", "quote", "stance" }], "rationale", "confidence" }`;
 
 const WRAPPER_FALLBACK = `<untrusted kind="{{kind}}" origin="{{origin}}" id="{{marker}}">
 {{content}}
@@ -749,17 +680,40 @@ export interface Verified {
   /** The evidence with the verifier's stance applied (and its exact quotes, when they hold). */
   evidence: ClaimEvidence[];
   modelId: string;
+  /** The tier of the model that answered; null when nothing was asked. */
+  tier: ModelTier | null;
+  /** The model's own confidence in [0, 1], when it gave one. */
+  confidence: number | null;
+  /** Where routing settled for less than it wanted. */
+  degraded: string[];
+  /** Judged from common knowledge, not from evidence. */
+  general: boolean;
 }
 
+const GENERAL_FALLBACK = `This claim is obvious and widely known. Say whether it is true from common knowledge alone: supported, contradicted or insufficient. If there is any doubt, say insufficient.
+
+Claim:
+{{claim}}
+
+Return JSON matching ClaimVerdict: { "stance", "evidence": [], "rationale", "confidence" }`;
+
+/** Ask a model for one claim at a tier (TR3). With no evidence and not \`general\`, nothing is asked. */
 export async function verifyClaim(
   deps: StepDeps,
   input: {
     claim: string;
     evidence: Gathered['evidence'];
     generatorFamily: string | null;
-    /** GR24: the writer's family never judges and there is no fallback to it (default: yes). */
-    strict?: boolean;
     allow?: JudgeOpts['allow'];
+    /** The tier to start at (default small) and the lowest acceptable. */
+    tier?: ModelTier;
+    floor?: ModelTier | undefined;
+    /** Judge from common knowledge when there is no evidence (an obvious claim). */
+    general?: boolean;
+    /** Models that may not be used (already asked, or the writer). */
+    exclude?: ReadonlySet<string> | undefined;
+    /** Ask exactly these models, in order (the person chose them). */
+    only?: ModelConfig[] | undefined;
   },
   signal: AbortSignal,
 ): Promise<Verified> {
@@ -767,24 +721,47 @@ export async function verifyClaim(
     const { text: _t, ...rest } = e;
     return rest;
   };
-  if (!input.evidence.length)
+  const general = !!input.general && input.evidence.length === 0;
+  if (!input.evidence.length && !general)
     return {
       verdict: 'insufficient',
       rationale: 'Nothing in your sources mentions this.',
       evidence: [],
       modelId: '',
+      tier: null,
+      confidence: null,
+      degraded: [],
+      general: false,
     };
-  const [template, wrapper] = await Promise.all([
-    loadPrompt(deps.promptsDir, 'factcheck.verify-claim', VERIFY_FALLBACK),
-    loadPrompt(deps.promptsDir, 'system.untrusted-wrapper', WRAPPER_FALLBACK),
-  ]);
-  const prompt = render(template, { claim: input.claim, evidence: evidenceBlock(input.evidence, wrapper) });
-  const chain = judgeChain(deps.registry, 'factcheck.verify', {
-    ...(input.generatorFamily && { generatorFamily: input.generatorFamily }),
-    strict: input.strict ?? true,
-    allow: input.allow,
-  });
+  let prompt: string;
+  if (general) {
+    const t = await loadPrompt(deps.promptsDir, 'factcheck.verify-general', GENERAL_FALLBACK);
+    prompt = render(t, { claim: input.claim });
+  } else {
+    const [template, wrapper] = await Promise.all([
+      loadPrompt(deps.promptsDir, 'factcheck.verify-claim', VERIFY_FALLBACK),
+      loadPrompt(deps.promptsDir, 'system.untrusted-wrapper', WRAPPER_FALLBACK),
+    ]);
+    prompt = render(template, { claim: input.claim, evidence: evidenceBlock(input.evidence, wrapper) });
+  }
+  let chain: ModelConfig[];
+  let degraded: string[] = [];
+  if (input.only?.length) chain = input.only;
+  else {
+    const plan = verifierPlan(deps.registry, {
+      tier: input.tier ?? 'fast',
+      floor: input.floor,
+      generatorFamily: input.generatorFamily,
+      allow: input.allow,
+      exclude: input.exclude,
+    });
+    if (!plan.chain.length) throw new NeedsChoice();
+    chain = plan.chain;
+    degraded = plan.degraded;
+  }
   const { value, modelId } = await structured(deps, chain, prompt, RawVerdict, signal);
+  const answered = chain.find((m) => m.id === modelId) ?? deps.registry.get(modelId);
+  const tier = answered ? deps.registry.tierOf(answered) : null;
 
   const evidence = input.evidence.map(strip);
   for (const v of value.evidence) {
@@ -807,7 +784,197 @@ export async function verifyClaim(
       target.quote = q;
     }
   }
-  return { verdict: value.stance, rationale: value.rationale.trim(), evidence, modelId };
+  return {
+    verdict: value.stance,
+    rationale: value.rationale.trim(),
+    evidence,
+    modelId,
+    tier,
+    confidence: value.confidence ?? null,
+    degraded,
+    general,
+  };
 }
+
+/* ---- One claim, start to finish ---------------------------------------------- */
+
+/** How a claim was checked: the verdict and the road to it. */
+export interface Checked extends Verified {
+  /** Every checker's verdict, when more than one asked (mission-critical mode). */
+  verdicts: VerifierVerdict[];
+  /** The tier it started at when it was sent up, else null. */
+  escalatedFrom: ModelTier | null;
+  /** Answered from an earlier check; nothing was asked of a model. */
+  cached: { at: string; model_id: string | null; scope: 'notebook' | 'global' } | null;
+}
+
+const worst = (vs: VerifierVerdict[]): VerifierVerdict =>
+  vs.includes('contradicted')
+    ? 'contradicted'
+    : vs.every((v) => v === 'supported')
+      ? 'supported'
+      : 'insufficient';
+
+export interface CheckDeps extends StepDeps {
+  cache?: VerdictCache | undefined;
+}
+
+/**
+ * Check one claim. A cached verdict answers first (unless `again`). Otherwise a model of the claim's
+ * tier asks; low confidence, disagreement with the writer or criticality send it up a tier, twice at
+ * most (TR3). Mission-critical mode asks two checkers at standard tier or better, or exactly the
+ * ones the person chose, and the claim holds only if both agree.
+ */
+export async function checkClaim(
+  deps: CheckDeps,
+  input: {
+    claim: string;
+    evidence: Gathered['evidence'];
+    triage: Triage;
+    critical: boolean;
+    generatorFamily: string | null;
+    generatorModelId?: string | null;
+    allow?: JudgeOpts['allow'];
+    /** Models the person chose for a critical check. */
+    chosen?: ModelConfig[] | undefined;
+    notebookId: string | null;
+    sharing: boolean;
+    again?: boolean | undefined;
+  },
+  signal: AbortSignal,
+): Promise<Checked> {
+  const cacheArgs = {
+    notebookId: input.notebookId,
+    shared: input.sharing,
+    claim: input.claim,
+    evidence: input.evidence,
+    critical: input.critical,
+  };
+  if (deps.cache && !input.again && input.evidence.length + (input.triage.obvious ? 1 : 0) > 0) {
+    const hit = await deps.cache.lookup(cacheArgs);
+    if (hit) {
+      const v = hit.entry.verdict;
+      return {
+        verdict: v.stance,
+        rationale: v.rationale,
+        evidence: v.evidence,
+        modelId: hit.entry.model_id ?? '',
+        tier: hit.entry.tier,
+        confidence: v.confidence,
+        degraded: [],
+        general: v.general,
+        verdicts: [v.stance],
+        escalatedFrom: null,
+        cached: { at: hit.entry.created_at, model_id: hit.entry.model_id, scope: hit.scope },
+      };
+    }
+  }
+  const ask = {
+    claim: input.claim,
+    evidence: input.evidence,
+    generatorFamily: input.generatorFamily,
+    allow: input.allow,
+  };
+  let out: Checked;
+  if (input.critical) {
+    const writer = input.generatorModelId ? new Set([input.generatorModelId]) : undefined;
+    const models =
+      input.chosen && input.chosen.length > 0
+        ? input.chosen
+        : (criticalCheckers(deps.registry, {
+            generatorFamily: input.generatorFamily,
+            generatorModelId: input.generatorModelId ?? null,
+            allow: input.allow,
+          }) ?? []);
+    if (models.length === 0) throw needsChoice();
+    const all: Verified[] = [];
+    for (const m of models) all.push(await verifyClaim(deps, { ...ask, only: [m], exclude: writer }, signal));
+    const first = all[0] as Verified;
+    out = {
+      ...first,
+      verdict: worst(all.map((v) => v.verdict)),
+      verdicts: all.map((v) => v.verdict),
+      degraded: [
+        ...new Set([
+          ...all.flatMap((v) => v.degraded),
+          ...all.flatMap((v) =>
+            v.tier && TIER_RANK[v.tier] < TIER_RANK.balanced
+              ? [`${v.modelId} is below standard tier; you chose it.`]
+              : [],
+          ),
+        ]),
+      ],
+      rationale: all
+        .map((v) => v.rationale)
+        .filter(Boolean)
+        .join(' '),
+      escalatedFrom: null,
+      cached: null,
+    };
+  } else {
+    let tier = input.triage.tier;
+    const general = input.triage.obvious;
+    const used = new Set<string>();
+    let hops = 0;
+    let v = await verifyClaim(deps, { ...ask, tier, floor: input.triage.floor, general }, signal);
+    for (;;) {
+      if (!v.modelId) break;
+      used.add(v.modelId);
+      const next = escalateTo({
+        tier: v.tier ?? tier,
+        hops,
+        verdict: v.verdict,
+        confidence: v.confidence,
+        critical: input.triage.critical,
+      });
+      if (!next) break;
+      // Only a stronger model is worth asking; with none ready the answer stands.
+      const better = verifierPlan(deps.registry, {
+        tier: next,
+        floor: next,
+        generatorFamily: input.generatorFamily,
+        allow: input.allow,
+        exclude: used,
+      });
+      if (!better.chain.length) break;
+      tier = next;
+      hops++;
+      v = await verifyClaim(deps, { ...ask, tier, floor: next, general, exclude: used }, signal);
+    }
+    out = {
+      ...v,
+      verdicts: [v.verdict],
+      escalatedFrom: hops > 0 ? input.triage.tier : null,
+      cached: null,
+    };
+  }
+  if (deps.cache && out.modelId) {
+    await deps.cache
+      .record({
+        ...cacheArgs,
+        verdict: {
+          stance: out.verdict,
+          rationale: out.rationale,
+          evidence: out.evidence,
+          confidence: out.confidence,
+          general: out.general,
+        },
+        tier: out.tier,
+        modelId: out.modelId,
+      })
+      .catch(() => undefined);
+  }
+  return out;
+}
+
+/** Thrown when mission-critical mode has no two independent checkers and the person has not chosen. */
+export class NeedsChoice extends Error {
+  readonly errorClass = 'permanent' as const;
+  constructor() {
+    super('factcheck.needs_choice');
+    this.name = 'NeedsChoice';
+  }
+}
+const needsChoice = () => new NeedsChoice();
 
 export type { Stance };

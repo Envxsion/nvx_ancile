@@ -34,6 +34,10 @@ export interface NotebookRecord {
   grounded: boolean;
   /** Fact-checks here may look claims up on the web (FC4). */
   check_on_web: boolean;
+  /** Mission-critical fact-checks (TR3). */
+  critical: boolean;
+  /** Verdicts shared with other notebooks (SI1). */
+  share_checks: boolean;
 }
 
 export interface NotebookPatch {
@@ -46,6 +50,8 @@ export interface NotebookPatch {
   opened?: boolean;
   grounded?: boolean;
   check_on_web?: boolean;
+  critical?: boolean;
+  share_checks?: boolean;
 }
 
 export interface NoteRecord extends Note {
@@ -131,6 +137,8 @@ const nbFromRow = (r: NotebookRow): NotebookRecord => ({
   updated_at: r.updated_at.toISOString(),
   grounded: r.settings?.grounded === true,
   check_on_web: r.settings?.check_on_web === true,
+  critical: r.settings?.critical === true,
+  share_checks: r.settings?.share_checks === true,
 });
 
 interface NoteRow {
@@ -204,6 +212,8 @@ export class PgNotebookRepo implements NotebookRepo {
         settings = settings || ${this.sql.json({
           ...(p.grounded !== undefined && { grounded: p.grounded === true }),
           ...(p.check_on_web !== undefined && { check_on_web: p.check_on_web === true }),
+          ...(p.critical !== undefined && { critical: p.critical === true }),
+          ...(p.share_checks !== undefined && { share_checks: p.share_checks === true }),
         } as never)},
         updated_at = case when ${p.opened === true && Object.keys(p).length === 1} then updated_at else now() end
       where id = ${id} and deleted_at is null
@@ -322,6 +332,8 @@ export class MemoryNotebookRepo implements NotebookRepo {
       updated_at: at,
       grounded: false,
       check_on_web: false,
+      critical: false,
+      share_checks: false,
     };
     this.books.set(n.id, rec);
     return { ...rec };
@@ -338,6 +350,8 @@ export class MemoryNotebookRepo implements NotebookRepo {
     if (p.archived !== undefined) b.archived_at = p.archived ? (b.archived_at ?? this.stamp()) : null;
     if (p.grounded !== undefined) b.grounded = p.grounded;
     if (p.check_on_web !== undefined) b.check_on_web = p.check_on_web;
+    if (p.critical !== undefined) b.critical = p.critical;
+    if (p.share_checks !== undefined) b.share_checks = p.share_checks;
     if (p.opened) b.last_opened_at = this.stamp();
     if (!(p.opened && Object.keys(p).length === 1)) b.updated_at = this.stamp();
     return this.get(id);

@@ -8,7 +8,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimEvidence, Factcheck, FactcheckClaim } from '@nvx/contracts';
+import type { ClaimCheckInfo, ClaimEvidence, Factcheck, FactcheckClaim } from '@nvx/contracts';
 
-export type { ClaimEvidence, Factcheck, FactcheckClaim };
+export type { ClaimCheckInfo, ClaimEvidence, Factcheck, FactcheckClaim };
 export type FactsheetCounts = Factcheck['counts'];

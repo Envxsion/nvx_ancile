@@ -18,7 +18,7 @@ import { type EffectiveScope, isClaudeCodeModel, type ModelConfig } from '@nvx/c
 import { isLocalModel } from '../engines/select';
 import type { ModelRegistry } from '../gateway/registry';
 import { checkEngineAllowed } from '../scopes';
-import { judgeChain } from './steps';
+import { verifierPlan } from './steps';
 
 export function scopeAllow(
   scope: EffectiveScope | null | undefined,
@@ -35,21 +35,17 @@ export function scopeAllow(
 }
 
 /**
- * Before a check is started: is there a judge from another family that the
- * scope lets answer? Throws the error that says so (factcheck.no_other_family,
- * factcheck.judge_not_allowed, factcheck.no_model), so the check does not start (GR24).
+ * Before a check is started: is there any model the scope lets answer? Routing finds one by need
+ * (TR1), so this throws only routing.no_chat_model (add a key) or factcheck.judge_not_allowed
+ * (the scope refuses every ready model), and the check does not start.
  */
 export async function preflightJudge(
   deps: {
-    registry: Pick<ModelRegistry, 'chain' | 'all' | 'status' | 'configured'>;
+    registry: Pick<ModelRegistry, 'resolveWant'>;
     scopeOf?: (ref: { threadId: string }) => Promise<EffectiveScope>;
   },
   a: { threadId: string; generatorFamily: string | null },
 ): Promise<void> {
   const scope = (await deps.scopeOf?.({ threadId: a.threadId }).catch(() => null)) ?? null;
-  judgeChain(deps.registry, 'factcheck.verify', {
-    ...(a.generatorFamily && { generatorFamily: a.generatorFamily }),
-    strict: true,
-    allow: scopeAllow(scope),
-  });
+  verifierPlan(deps.registry, { tier: 'fast', generatorFamily: a.generatorFamily, allow: scopeAllow(scope) });
 }

@@ -1,7 +1,7 @@
 ---
 id: factcheck.verify-claim
 task_class: factcheck.verify
-output: ClaimVerdict   # { stance: "supported"|"contradicted"|"insufficient", evidence: [{ ref, quote, stance }], rationale }
+output: ClaimVerdict   # { stance: "supported"|"contradicted"|"insufficient", evidence: [{ ref, quote, stance }], rationale, confidence }
 version: 1
 variables: [claim, evidence]
 notes: >
@@ -17,6 +17,8 @@ Judge one claim strictly against the evidence provided. Do not use outside knowl
 For each piece of evidence you relied on, give its ref, the shortest exact quote that matters, and whether it supports or contradicts. Quotes must be copied exactly from the evidence.
 
 rationale: one or two sentences a reader can check.
+
+confidence: a number from 0 to 1 for how sure you are of your stance. Say less than 0.6 when the evidence could be read two ways.
 
 Claim:
 {{claim}}

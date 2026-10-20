@@ -103,6 +103,7 @@ import { PgEngineStore } from './engines/store';
 import { loadEnv } from './env';
 import { PgEventBus } from './events/bus';
 import { preflightJudge } from './factcheck/allow';
+import { PgVerdictCacheStore, VerdictCache } from './factcheck/cache';
 import { factcheckHandler, startFactcheck } from './factcheck/handler';
 import { trustRoutes } from './factcheck/routes';
 import { checkSelection } from './factcheck/selection';
@@ -1060,7 +1061,7 @@ async function main() {
     },
     afterAnswer: async (a) => {
       await startFactcheck(
-        { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor },
+        { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor, notebookFlags },
         a.messageId,
         { workspaceId: a.workspaceId, notebookId: a.notebookId },
       );
@@ -1157,7 +1158,7 @@ async function main() {
         .catch(() => false),
   });
   // ---- end Flows ----
-  // One name per family (Claude Code's `claude` is the Anthropic API's `anthropic`), so a judge is never the writer's family by another spelling (GR24).
+  // One name per family (Claude Code's `claude` is the Anthropic API's `anthropic`), so a judge is told apart from the writer's family whatever the spelling.
   const familyOf = (id: string | null) =>
     id ? (canonicalFamily(registry.get(id)?.family) ?? familyFromModelId(id)) : null;
   // Every fact-check shares these: at most "fact-check judges at once" Claude Code sessions (Settings → Claude Code).
@@ -1173,6 +1174,12 @@ async function main() {
       requested: a.requested,
       configured: !!factcheckWeb,
     });
+  // Mission-critical and verdict sharing are notebook settings (TR3, SI1).
+  const verdictCache = new VerdictCache(new PgVerdictCacheStore(sql), privacy);
+  const notebookFlags = async (id: string | null) => {
+    const nb = id ? await notebooks.get(id) : undefined;
+    return { critical: nb?.critical === true, sharing: nb?.share_checks === true };
+  };
   // Engines (docs/engines.md): a turn in any thread with any model, its scope checked first.
   // CH6 (Pro): a token estimate on each chip; read at each attachment, so a lapse stops it at once.
   const attachments = new AttachmentService({
@@ -1290,7 +1297,7 @@ async function main() {
               .catch((err: unknown) => log.warn({ err }, 'a Pro after-answer step failed'));
           if (!a.notebookId || !(await notebooks.get(a.notebookId))?.grounded) return;
           await startFactcheck(
-            { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor },
+            { repo: threads, runs: runStore, store: factchecks, worker, familyOf, webFor, notebookFlags },
             a.messageId,
             { workspaceId: a.workspaceId, notebookId: a.notebookId },
           );
@@ -1307,6 +1314,7 @@ async function main() {
         judges: factcheckJudges,
         repo: threads,
         store: factchecks,
+        cache: verdictCache,
         config: config.factcheck ?? undefined,
         scopeOf: (ref) => scopes.effective(ref),
         web: factcheckWeb,
@@ -1967,6 +1975,10 @@ async function main() {
         memoryEntry: (path, key) => memory.entryUsed(path, key),
         integrity,
         webFor,
+        notebookFlags,
+        registry,
+        cache: verdictCache,
+        notebooks,
         preflight: (a) => preflightJudge({ registry, scopeOf: (ref) => scopes.effective(ref) }, a),
         selection: {
           run: (input, signal) =>

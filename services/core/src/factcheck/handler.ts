@@ -15,10 +15,16 @@
  *           |  Each claim is announced as it is found and again as its
  *           |  verdict lands (factcheck.claim), so the Evidence tab fills
  *           |  in live (EV1).
- *  Guards   |  GR24: the judge is always from a different model family
- *           |  from the one that wrote the answer, and the check stops
- *           |  with factcheck.no_other_family when there is none. The
- *           |  judges are held to the thread's scope (keep-local), and
+ *  Tiers    |  Each claim is triaged (triage.ts) and checked by the
+ *           |  best ready model of the tier it needs, from another
+ *           |  family when one is ready, a same-family one with a note
+ *           |  when not (TR1, TR3): a check never fails for lack of a
+ *           |  listed model. It goes up a tier on low confidence or a
+ *           |  contradiction, twice at most. An earlier verdict for the
+ *           |  same claim and sources answers first (cache.ts, SI1).
+ *           |  Mission-critical mode (the notebook's setting, or one
+ *           |  check) uses two checkers at standard tier or better.
+ *  Guards   |  The judges are held to the thread's scope (keep-local), and
  *           |  the web is searched only when the check may (web.ts), each
  *           |  search through the permission gate (FC4).
  *  Note     |  A fact-check run has no thread_id: it must not hold the
@@ -27,7 +33,13 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type EffectiveScope, type FactcheckFile, type RunEvent } from '@nvx/contracts';
+import {
+  AncileError,
+  type ClaimCheckInfo,
+  type EffectiveScope,
+  type FactcheckFile,
+  type RunEvent,
+} from '@nvx/contracts';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { currentContext, newTraceId } from '../context';
@@ -46,6 +58,7 @@ import {
 import type { RunEventInput } from '../runs/events';
 import { type ThreadRepo, textOf } from '../threads/repo';
 import { scopeAllow } from './allow';
+import type { VerdictCache } from './cache';
 import {
   type ClaimOutcome,
   countVerdicts,
@@ -58,15 +71,16 @@ import {
   toStored,
 } from './pipeline';
 import {
+  checkClaim,
   extractClaims,
   type Gathered,
   gatherEvidence,
-  noJudge,
+  NeedsChoice,
   type StepDeps,
-  verifyClaim,
   type WebLookup,
 } from './steps';
 import type { FactcheckRecord, FactcheckStore } from './store';
+import { type Triage, triageClaims } from './triage';
 import { gatedWeb, type WebDecision, type WebSearch } from './web';
 
 const log = logFor('factcheck');
@@ -78,10 +92,20 @@ export interface FactcheckInput {
   threadId: string;
   workspaceId: string;
   notebookId: string | null;
-  /** Family of the model that wrote the answer: the judge is always from another family (GR24). */
+  /** Family of the model that wrote the answer: another family checks it when one is ready. */
   generatorFamily: string | null;
   /** This check may search the web (FC4); checks started before it existed read as false. */
   web?: boolean;
+  /** Mission-critical: standard tier or better, two checkers (TR3). */
+  critical?: boolean;
+  /** The models the person chose for a critical check; absent: picked automatically. */
+  checkers?: string[];
+  /** The model that wrote the answer, so it never checks itself. */
+  generatorModelId?: string | null;
+  /** Check again even when an earlier verdict is kept. */
+  again?: boolean;
+  /** This notebook shares its verdicts with the others (SI1). */
+  sharing?: boolean;
 }
 
 export interface FactcheckCheckpoint {
@@ -91,9 +115,13 @@ export interface FactcheckCheckpoint {
   gathered: Gathered[] | null;
   outcomes: (ClaimOutcome | null)[];
   verifier: string | null;
+  /** How much model each claim needs, decided once so a resumed run does not decide again. */
+  triage?: Triage[];
 }
 
 export interface FactcheckDeps extends StepDeps {
+  /** Earlier verdicts (SI1); absent: every claim is asked. */
+  cache?: VerdictCache;
   repo: ThreadRepo;
   store: FactcheckStore;
   config?: z.infer<typeof FactcheckFile>;
@@ -124,10 +152,18 @@ export function chainFailure(err: ChainFailedError): { code: string; title: stri
 }
 
 function failure(err: unknown): { code: string; title: string; hint: string } | null {
-  if (err instanceof NoRouteError) {
-    const e = noJudge(err.taskClass);
-    return { code: e.code, title: e.title, hint: e.hint };
-  }
+  if (err instanceof NoRouteError)
+    return {
+      code: 'routing.no_chat_model',
+      title: 'No model is ready yet',
+      hint: 'Add a key in Settings → Keys, set up Claude Code in Settings → Claude Code, or pull a model with Ollama.',
+    };
+  if (err instanceof NeedsChoice)
+    return {
+      code: 'factcheck.needs_choice',
+      title: 'Choose the models to check with',
+      hint: 'Start the check again from the answer and pick the models that should check it.',
+    };
   if (err instanceof ChainFailedError) return chainFailure(err);
   if (err instanceof AncileError) return { code: err.code, title: err.title, hint: err.hint };
   return null;
@@ -250,6 +286,19 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
         }
         const gathered = cp.gathered;
 
+        if (!cp.triage) {
+          cp.triage = await triageClaims(
+            claims.map((c) => c.text),
+            { critical: input.critical === true },
+          );
+          await ctx.checkpoint(cp);
+        }
+        const triage = cp.triage;
+        const chosen = (input.checkers ?? []).flatMap((id) => {
+          const m = deps.registry.get(id);
+          return m ? [m] : [];
+        });
+
         const todo = () => cp.outcomes.flatMap((o, i) => (o ? [] : [i]));
         let remaining = todo();
         while (remaining.length) {
@@ -262,24 +311,45 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
               const g = gathered[i] ?? { evidence: [], coverage: 0 };
               if (!claim.checkable)
                 return { claim, evidence: [], coverage: 0, verdict: 'insufficient', rationale: '' };
-              const v = await verifyClaim(
+              const t = triage[i] as Triage;
+              const v = await checkClaim(
                 deps,
                 {
                   claim: claim.text,
                   evidence: g.evidence,
+                  triage: t,
+                  critical: input.critical === true,
                   generatorFamily: input.generatorFamily,
-                  strict: true,
+                  generatorModelId: input.generatorModelId ?? null,
                   allow,
+                  chosen,
+                  notebookId: input.notebookId,
+                  sharing: input.sharing === true,
+                  again: input.again,
                 },
                 ctx.signal,
               );
               if (v.modelId) cp.verifier = v.modelId;
+              const check: ClaimCheckInfo | undefined =
+                v.modelId || v.cached
+                  ? {
+                      tier_used: v.tier,
+                      model_id: v.modelId || null,
+                      escalated_from: v.escalatedFrom,
+                      cached: v.cached,
+                      degraded: v.degraded,
+                      general_knowledge: v.general,
+                    }
+                  : undefined;
               return {
                 claim,
                 evidence: v.evidence,
                 coverage: g.coverage,
                 verdict: v.verdict,
                 rationale: v.rationale,
+                verdicts: v.verdicts,
+                general: v.general,
+                ...(check && { check }),
               };
             }),
           );
@@ -381,6 +451,8 @@ export interface StartDeps {
   store: FactcheckStore;
   worker: { kick(): void };
   familyOf: (modelId: string | null) => string | null;
+  /** The notebook's mission-critical and verdict-sharing settings (TR3, SI1). */
+  notebookFlags?: (notebookId: string | null) => Promise<{ critical: boolean; sharing: boolean }>;
   /** May this check use the web? (the notebook's setting, the one-click allow, the scope); absent: no. */
   webFor?: (a: {
     threadId: string;
@@ -396,7 +468,14 @@ export interface StartDeps {
 export async function startFactcheck(
   deps: StartDeps,
   messageId: string,
-  scope: { workspaceId: string; notebookId: string | null; web?: boolean },
+  scope: {
+    workspaceId: string;
+    notebookId: string | null;
+    web?: boolean;
+    critical?: boolean;
+    checkers?: string[];
+    again?: boolean;
+  },
 ): Promise<{ record: FactcheckRecord; started: boolean; web: WebDecision }> {
   const message = await deps.repo.getMessage(messageId);
   if (
@@ -428,6 +507,8 @@ export async function startFactcheck(
     notebookId: scope.notebookId,
     requested: scope.web,
   })) ?? { use: false, note: null };
+  const flags = (await deps.notebookFlags?.(scope.notebookId)) ?? { critical: false, sharing: false };
+  const critical = scope.critical ?? flags.critical;
   const factcheckId = `fck_${ulid()}`;
   const runId = `run_${ulid()}`;
   const checkpoint: FactcheckCheckpoint = {
@@ -440,6 +521,11 @@ export async function startFactcheck(
       notebookId: scope.notebookId,
       generatorFamily: deps.familyOf(message.model_id),
       web: web.use,
+      critical,
+      ...(scope.checkers?.length && { checkers: scope.checkers }),
+      generatorModelId: message.model_id ?? null,
+      ...(scope.again && { again: true }),
+      sharing: flags.sharing,
     },
     claims: null,
     gathered: null,
@@ -450,7 +536,7 @@ export async function startFactcheck(
     id: factcheckId,
     message_id: messageId,
     run_id: runId,
-    scope: { notebook_id: scope.notebookId, web: web.use, web_note: web.note },
+    scope: { notebook_id: scope.notebookId, web: web.use, web_note: web.note, critical },
   });
   await deps.runs.create({
     id: runId,

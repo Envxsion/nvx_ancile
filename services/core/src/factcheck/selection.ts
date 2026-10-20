@@ -18,10 +18,10 @@
  *           |  The check is recorded on the message it was made in
  *           |  (provenance.selection_checks), so it survives a reload and
  *           |  shows in the Evidence tab and the receipt.
- *  Guards   |  GR24: the judge is from a different model family from
- *           |  the one that wrote the text; for your own message any
- *           |  family may judge. With none, the check says so and does
- *           |  not run. The judge follows the scope's keep-local rules,
+ *  Guards   |  The judge is from a different model family than the one
+ *           |  that wrote the text when one is ready; for your own message
+ *           |  any family may judge. With only the writer's family ready
+ *           |  the check still runs. The judge follows the scope's keep-local rules,
  *           |  code runs only through the permission gate (never asking),
  *           |  and the web only where web.ts allows it. The highlighted
  *           |  text, the thread and every piece of evidence reach the
@@ -54,7 +54,7 @@ import type { Gate } from '../permissions/gate';
 import { allowedSources } from '../scopes';
 import { type MessageRecord, type ThreadRepo, textOf } from '../threads/repo';
 import { scopeAllow } from './allow';
-import { evidenceBlock, gatherEvidence, judgeChain, type StepDeps, sameFamily, structured } from './steps';
+import { evidenceBlock, gatherEvidence, judgeChain, type StepDeps, structured } from './steps';
 import { gatedWeb, type WebDecision, type WebSearch, webPolicy } from './web';
 
 const log = logFor('factcheck');
@@ -448,7 +448,6 @@ export async function checkSelection(
   const writer = message.role === 'assistant' ? deps.familyOf(message.model_id) : null;
   const chain = judgeChain(deps.registry, 'factcheck.verify', {
     ...(writer && { generatorFamily: writer }),
-    strict: true,
     allow: scopeAllow(scope),
   });
 
@@ -586,8 +585,6 @@ export async function checkSelection(
       errorClass: 'transient',
     });
   const model: ModelConfig | undefined = deps.registry.get(res.modelId);
-  // A reply from the writer's own family is never shown, whatever the chain did (GR24).
-  if (writer && sameFamily(model?.family, writer)) throw judgeSameFamily(writer);
   const billing = model ? deps.registry.billingFor(res.modelId) : null;
   const billed: SelectionCheck['billed'] =
     billing?.kind === 'key'
@@ -631,16 +628,6 @@ export async function checkSelection(
     'checked a highlighted claim',
   );
   return { check, cached: false };
-}
-
-function judgeSameFamily(family: string): AncileError {
-  return new AncileError({
-    code: 'factcheck.no_other_family',
-    title: 'No second opinion is available',
-    hint: `The only model that answered is from the ${family} family, the same as the writer. A fact-check is always judged by a different family, so nothing is shown.`,
-    status: 422,
-    errorClass: 'permanent',
-  });
 }
 
 /**

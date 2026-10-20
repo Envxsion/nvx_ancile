@@ -31,6 +31,10 @@ export const Notebook = z.object({
   grounded: z.boolean().default(false),
   /** Fact-checks here may also look claims up on the web (FC4). Never for a private or keep-local notebook. */
   check_on_web: z.boolean().default(false),
+  /** Mission-critical: fact-checks here use standard-tier models or better and two independent checkers (TR3). */
+  critical: z.boolean().default(false),
+  /** Verdicts from this notebook are reused by your other notebooks (SI1). Off keeps them here. */
+  share_checks: z.boolean().default(false),
   archived_at: z.string().nullable(),
   last_opened_at: z.string().nullable(),
   created_at: z.string(),
@@ -62,6 +66,7 @@ export const PatchNotebookRequest = z
     archived: z.boolean(),
     grounded: z.boolean(),
     check_on_web: z.boolean(),
+    critical: z.boolean(),
   })
   .partial()
   .strict();

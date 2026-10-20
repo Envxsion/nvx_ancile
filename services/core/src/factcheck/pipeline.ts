@@ -29,7 +29,13 @@ import {
   type VerifierVerdict,
 } from './score';
 import type { FactcheckRecord, StoredClaim } from './store';
-import type { ClaimEvidence as ContractEvidence, Factcheck, FactcheckClaim, FactsheetCounts } from './types';
+import type {
+  ClaimCheckInfo,
+  ClaimEvidence as ContractEvidence,
+  Factcheck,
+  FactcheckClaim,
+  FactsheetCounts,
+} from './types';
 
 export interface ExtractedClaim {
   text: string;
@@ -45,6 +51,7 @@ export interface CheckedClaim extends ExtractedClaim {
   score: ClaimScore;
   evidence: ClaimEvidence[];
   rationale: string;
+  check?: ClaimCheckInfo | undefined;
 }
 
 export interface ScoreConfig {
@@ -61,19 +68,35 @@ export interface ClaimOutcome {
   coverage: number;
   verdict: VerifierVerdict;
   rationale: string;
+  /** Every checker's verdict, when more than one asked (mission-critical mode). */
+  verdicts?: VerifierVerdict[];
+  /** Judged from common knowledge, not from evidence. */
+  general?: boolean;
+  /** Which model, at what tier, and how it got there (TR3). */
+  check?: ClaimCheckInfo;
 }
 
 export function scoreOutcome(o: ClaimOutcome, cfg: ScoreConfig = DEFAULT_SCORE_CONFIG): CheckedClaim {
-  const score = scoreClaim(
-    { checkable: o.claim.checkable, evidence: o.evidence, verifier: o.verdict, coverage: o.coverage },
-    cfg.weights,
-    cfg.thresholds,
-  );
+  // An obvious claim no source covers is held to what a small model knows: verified, but never sure.
+  const score: ClaimScore =
+    o.general && o.claim.checkable && o.verdict === 'supported' && o.evidence.length === 0
+      ? { verdict: 'verified', confidence: 0.7, support: 0.6, agreement: 1, retrieval: 0 }
+      : scoreClaim(
+          {
+            checkable: o.claim.checkable,
+            evidence: o.evidence,
+            verifier: o.verdicts?.length ? o.verdicts : o.verdict,
+            coverage: o.coverage,
+          },
+          cfg.weights,
+          cfg.thresholds,
+        );
   return {
     ...o.claim,
     evidence: o.evidence,
     rationale: o.claim.checkable ? o.rationale : 'An opinion, advice or a prediction: nothing to check.',
     score,
+    check: o.check,
   };
 }
 
@@ -91,6 +114,7 @@ export function toStored(c: CheckedClaim, id: string): StoredClaim {
     retrieval: c.score.retrieval,
     evidence: c.evidence,
     rationale: c.rationale,
+    ...(c.check && { check: c.check }),
   };
 }
 
@@ -132,17 +156,28 @@ export function messageScore(claims: CheckedClaim[]): number | null {
   return messageConfidence(claims);
 }
 
+/** The tooltip for a claim a small model judged from common knowledge. */
+function commonKnowledgeWords(c: StoredClaim): string {
+  if (c.verdict === 'verified')
+    return 'No source covers this. It is common knowledge, and a small model agreed.';
+  if (c.verdict === 'contradicted')
+    return 'No source covers this. A small model judged it wrong from common knowledge.';
+  return 'No source covers this, and a small model could not say.';
+}
+
 /** The stored record as the Cockpit reads it. */
 export function toView(r: FactcheckRecord, previous: Factcheck['previous'] = null): Factcheck {
   const claims: FactcheckClaim[] = r.claims.map((c) => ({
     ...c,
-    explanation: explainScore({
-      verdict: c.verdict,
-      confidence: c.confidence,
-      support: c.support,
-      agreement: c.agreement,
-      retrieval: c.retrieval,
-    }),
+    explanation: c.check?.general_knowledge
+      ? commonKnowledgeWords(c)
+      : explainScore({
+          verdict: c.verdict,
+          confidence: c.confidence,
+          support: c.support,
+          agreement: c.agreement,
+          retrieval: c.retrieval,
+        }),
   }));
   const counts = countVerdicts(r.claims);
   return {
@@ -158,6 +193,7 @@ export function toView(r: FactcheckRecord, previous: Factcheck['previous'] = nul
     summary: summarise({ status: r.status, confidence: r.confidence, counts }),
     scope: r.scope,
     error: r.error,
+    critical: r.scope.critical === true,
     created_at: r.created_at,
     finished_at: r.finished_at,
     previous,

@@ -12,6 +12,9 @@
  *           |  GET  /messages/:id/explain    why it said this
  *           |  GET  /messages/:id/citations  each citation, checked
  *           |       against its source now (current, changed, removed)
+ *           |  GET  /notebooks/:id/verdict-cache  where its checks are kept
+ *           |  POST /notebooks/:id/verdict-cache  share them with every
+ *           |       notebook, or stop sharing (SI1)
  *  How      |  A check is a durable run; the POST answers 202 with its
  *           |  run and the stream to follow. The GET answers 404 with
  *           |  factcheck.none until one has been started. A re-run's
@@ -24,22 +27,31 @@ import {
   AncileError,
   type CitationStatus,
   type EffectiveScope,
+  SetVerdictCacheRequest,
   StartFactcheckRequest,
   StartSelectionCheckRequest,
   type StartSelectionCheckResponse,
+  type VerdictCacheState,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import { assembleExplain } from '../explain/assemble';
+import type { ModelRegistry } from '../gateway/registry';
 import type { SourceIntegrity } from '../knowledge/integrity';
+import type { NotebookRepo } from '../notebooks/repo';
 import { notFound } from '../obs/errors';
 import type { PermissionStore } from '../permissions/store';
+import { deniedError } from '../privacy/policy';
 import type { RunStore } from '../runs/engine';
 import type { ThreadRepo } from '../threads/repo';
+import { scopeAllow } from './allow';
+import type { VerdictCache } from './cache';
+import { chosenModels, needsChoice } from './critical';
 import { startFactcheck } from './handler';
 import { previousView } from './history';
 import { toView } from './pipeline';
 import { type CheckInput, checksOf } from './selection';
+import { criticalCheckers } from './steps';
 import type { FactcheckStore } from './store';
 
 export interface TrustRouteDeps {
@@ -68,7 +80,14 @@ export interface TrustRouteDeps {
     notebookId: string | null;
     requested: boolean | undefined;
   }) => Promise<{ use: boolean; note: string | null }>;
-  /** Refuses a check with no judge from another family that the scope allows (GR24), before it starts. */
+  /** The notebook's mission-critical and sharing settings (TR3, SI1). */
+  notebookFlags?: (notebookId: string | null) => Promise<{ critical: boolean; sharing: boolean }>;
+  /** Models, for mission-critical mode's choice (TR3). */
+  registry?: Pick<ModelRegistry, 'readyChat' | 'tierOf' | 'resolveWant' | 'get'>;
+  /** The verdict cache and the notebooks that hold its sharing setting (SI1). */
+  cache?: VerdictCache;
+  notebooks?: Pick<NotebookRepo, 'get' | 'patch'>;
+  /** Refuses a check when no chat model is ready, or the scope refuses every one, before it starts. */
   preflight?: (a: { threadId: string; generatorFamily: string | null }) => Promise<void>;
   /** Checks a highlighted claim and records the card on its message (FC3). */
   selection?: {
@@ -128,13 +147,27 @@ export function trustRoutes(deps: TrustRouteDeps) {
         });
       return p.data;
     });
-    // GR24: no judge from another family means no check, said before it starts.
+    // No ready chat model, or a scope that refuses them all, means no check, said before it starts.
     if (m.role === 'assistant' && m.status === 'complete')
       await deps.preflight?.({ threadId: t.id, generatorFamily: deps.familyOf(m.model_id) });
+    // Mission-critical: two independent checkers at standard tier or better, or the person's own pick.
+    const critical = req.critical ?? (await deps.notebookFlags?.(t.notebook_id))?.critical ?? false;
+    if (critical && deps.registry && m.role === 'assistant' && m.status === 'complete') {
+      const scope = (await deps.scopeOf?.({ threadId: t.id }).catch(() => null)) ?? null;
+      const allow = scopeAllow(scope);
+      const writer = { generatorFamily: deps.familyOf(m.model_id), generatorModelId: m.model_id ?? null };
+      if (req.models?.length) chosenModels(deps.registry, req.models, allow);
+      else if (!criticalCheckers(deps.registry, { ...writer, allow }))
+        return c.json(needsChoice(deps.registry, { ...writer, allow }), 200);
+    }
     const { record, web } = await startFactcheck(deps, m.id, {
       workspaceId: t.workspace_id,
       notebookId: t.notebook_id,
       ...(req.web !== undefined && { web: req.web }),
+      ...(critical && { critical }),
+      ...(req.critical === false && { critical: false }),
+      ...(req.models?.length && { checkers: req.models }),
+      ...(req.again && { again: true }),
     });
     const runId = record.run_id ?? '';
     return c.json(
@@ -146,6 +179,47 @@ export function trustRoutes(deps: TrustRouteDeps) {
       },
       202,
     );
+  });
+
+  /** A notebook in this workspace. */
+  const notebookOf = async (id: string) => {
+    const n = await deps.notebooks?.get(id);
+    if (!n || n.workspace_id !== deps.workspaceId || !deps.cache) throw notFound('That notebook');
+    return n;
+  };
+  const cacheState = async (id: string, shared: boolean): Promise<VerdictCacheState> => {
+    const can = (await deps.cache?.mayShare(id)) ?? false;
+    return {
+      notebook_id: id,
+      scope: shared ? 'global' : 'notebook',
+      entries: (await deps.cache?.entries(id)) ?? 0,
+      can_share: can,
+      share_note: can
+        ? null
+        : 'This notebook is private. Allow shared verdicts in Settings → Private notebooks first.',
+    };
+  };
+
+  r.get('/notebooks/:id/verdict-cache', async (c) => {
+    const n = await notebookOf(c.req.param('id'));
+    return c.json(await cacheState(n.id, n.share_checks));
+  });
+
+  r.post('/notebooks/:id/verdict-cache', async (c) => {
+    const n = await notebookOf(c.req.param('id'));
+    const p = SetVerdictCacheRequest.safeParse(await c.req.json().catch(() => null));
+    if (!p.success)
+      throw new AncileError({
+        code: 'request.invalid',
+        title: 'That request is not valid',
+        hint: 'Send { "shared": true } or { "shared": false }.',
+        status: 400,
+        errorClass: 'permanent',
+      });
+    if (p.data.shared && !(await deps.cache?.mayShare(n.id))) throw deniedError('verdict_cache_global');
+    await deps.cache?.setShared(n.id, p.data.shared);
+    await deps.notebooks?.patch(n.id, { share_checks: p.data.shared });
+    return c.json(await cacheState(n.id, p.data.shared));
   });
 
   r.post('/messages/:id/selection-checks', async (c) => {
