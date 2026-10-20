@@ -368,6 +368,8 @@ export async function structured<T>(
     opts.budget?.spend(out.costUsd ?? (out.usage ? priceOf(m, out.usage) : 0));
   };
   for (let i = 0; i < chain.length; i++) {
+    // A stop ends the walk down the chain: nothing more is asked.
+    signal.throwIfAborted();
     const model = chain[i] as ModelConfig;
     // Claude Code as a judge is asked on its own, through a slot, with a short time limit (started once
     // the slot is free); the next judge is tried if it fails or runs over. Other models fall through the
@@ -630,6 +632,8 @@ export type WebLookup = (query: string, signal: AbortSignal) => Promise<WebHit[]
 export const WEB_MAX_QUERIES = 8;
 /** Web results kept for a claim. */
 export const WEB_HITS_PER_CLAIM = 3;
+/** Web lookups of one check that run side by side. */
+export const WEB_PARALLEL = 4;
 /** A claim with no source passage, or weaker coverage than this, is looked up on the web (FC4). */
 const WEB_WHEN_COVERAGE = 0.6;
 
@@ -714,12 +718,21 @@ export async function gatherEvidence(
       .filter(({ g }) => g.evidence.length === 0 || g.coverage < WEB_WHEN_COVERAGE)
       .sort((a, b) => a.g.coverage - b.g.coverage)
       .slice(0, WEB_MAX_QUERIES);
-    for (const { g, i } of order) {
-      const claim = input.claims[i] ?? '';
-      const signal = input.signal ?? new AbortController().signal;
-      const hits = await input.web(webQuery(claim), signal).catch(() => null);
-      if (hits?.length) g.evidence.push(...hits.slice(0, WEB_HITS_PER_CLAIM).map(webEvidence));
-    }
+    const signal = input.signal ?? new AbortController().signal;
+    // A few lookups at a time (each can take seconds); a stop ends them all, and is not swallowed as "no results".
+    let next = 0;
+    const worker = async () => {
+      while (next < order.length) {
+        signal.throwIfAborted();
+        const { g, i } = order[next++] as (typeof order)[number];
+        const hits = await input.web?.(webQuery(input.claims[i] ?? ''), signal).catch((err) => {
+          if (signal.aborted) throw err;
+          return null;
+        });
+        if (hits?.length) g.evidence.push(...hits.slice(0, WEB_HITS_PER_CLAIM).map(webEvidence));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(WEB_PARALLEL, order.length) }, worker));
   }
   return out;
 }

@@ -168,3 +168,42 @@ describe('resolveChain', () => {
     expect(() => resolveChain({ taskClass: 'embed' }, { embed: ['fake/off'] }, models)).toThrow(NoRouteError);
   });
 });
+
+describe('Gateway: a stop ends the walk down the chain', () => {
+  const chain = ['a', 'b', 'c', 'd'].map((id) => fakeModel(id, 'echo'));
+  const req = { messages: [{ role: 'user' as const, content: 'hello there' }] };
+
+  it('asks no further model once the signal is aborted, whatever the one in flight threw', async () => {
+    const ctl = new AbortController();
+    const asked: string[] = [];
+    const client = {
+      // biome-ignore lint/correctness/useYield: fails before it has anything to say
+      async *stream(model: ModelConfig) {
+        asked.push(model.id);
+        ctl.abort(new Error('cancelled'));
+        throw new Error('503 service unavailable'); // transient: normally the next model is tried
+      },
+    };
+    const gw = new Gateway({ client, breaker: new CircuitBreaker({ clock: instantClock() }) });
+    const events: GatewayEvent[] = [];
+    await expect(
+      (async () => {
+        for await (const e of gw.stream(chain, req, ctl.signal)) events.push(e);
+      })(),
+    ).rejects.toBeDefined();
+    expect(asked).toEqual(['fake/a']);
+    expect(events.filter((e) => e.type === 'fallback')).toEqual([]);
+  });
+
+  it('asks no model at all when it is already stopped', async () => {
+    const ctl = new AbortController();
+    ctl.abort(new Error('cancelled'));
+    const { gw, p } = gateway();
+    await expect(
+      (async () => {
+        for await (const _ of gw.stream(chain, req, ctl.signal));
+      })(),
+    ).rejects.toBeDefined();
+    expect(p.calls).toEqual([]);
+  });
+});

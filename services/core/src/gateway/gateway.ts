@@ -237,6 +237,8 @@ export class Gateway {
     const reconnects = new Map<string, number>();
 
     for (let i = 0; i < chain.length; i++) {
+      // A stop ends the walk: no further attempt, no span, no fallback event for a model never asked.
+      if (signal.aborted) throw signal.reason ?? new Error('aborted');
       const model = chain[i] as ModelConfig;
       const next = chain[i + 1];
       const continuing = shown !== '';
@@ -323,7 +325,11 @@ export class Gateway {
         span.end('ok', { chars: shown.length });
         return;
       } catch (err) {
-        span.end('error', { error: err instanceof Error ? err.message : String(err) });
+        // A stop is not the model's failure: the span says so, and the walk ends here.
+        span.end('error', {
+          error: err instanceof Error ? err.message : String(err),
+          ...(signal.aborted ? { aborted: true } : {}),
+        });
         await iterator?.return?.().catch(() => undefined);
         if (signal.aborted) throw err;
         const cls = classify(err);
