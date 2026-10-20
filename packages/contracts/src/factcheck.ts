@@ -87,7 +87,8 @@ export const FactcheckClaim = z.object({
 });
 export type FactcheckClaim = z.infer<typeof FactcheckClaim>;
 
-export const FactcheckStatus = z.enum(['running', 'done', 'failed']);
+/** `cancelled`: the person stopped it. It is not a failure, and the run it belonged to reads cancelled too. */
+export const FactcheckStatus = z.enum(['running', 'done', 'failed', 'cancelled']);
 
 /**
  * Why a check did not look at the web when it was asked to: no search is set up, the notebook keeps

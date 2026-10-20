@@ -130,6 +130,8 @@ describe('a check on models that cannot answer', () => {
     const run = await h.runs.get(start.body.run_id);
     expect(run?.status).toBe('cancelled');
     const f = (await h.call<Factcheck>('GET', `/messages/${message}/factcheck`)).body;
+    // The check reads cancelled, as the run does; it is not a failure.
+    expect(f.status).toBe('cancelled');
     expect(f.error?.code).toBe('run.cancelled');
   });
 });

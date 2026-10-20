@@ -230,6 +230,15 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
     await deps.store.fail(factcheckId, error);
     await markMessage(deps.repo, messageId, { id: factcheckId, status: 'failed' });
   };
+  /** A stop: the check reads cancelled, as the run does. */
+  const cancel = async (factcheckId: string, messageId: string) => {
+    await deps.store.cancel(factcheckId, {
+      code: 'run.cancelled',
+      title: 'The fact-check was stopped',
+      hint: 'Start it again from the answer when you want it.',
+    });
+    await markMessage(deps.repo, messageId, { id: factcheckId, status: 'cancelled' });
+  };
 
   return {
     async execute(ctx: RunContext): Promise<RunOutcome> {
@@ -254,11 +263,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
       const budget = new CheckBudget(checkLimits(deps.config), cp.budget);
       cp.budget = budget.state;
       const stopped = async (): Promise<RunOutcome> => {
-        await fail(input.factcheckId, input.messageId, {
-          code: 'run.cancelled',
-          title: 'The fact-check was stopped',
-          hint: 'Start it again from the answer when you want it.',
-        });
+        await cancel(input.factcheckId, input.messageId);
         return { kind: 'cancelled' };
       };
 
@@ -507,11 +512,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
 
     async cancelled(run: RunRecord) {
       const cp = run.checkpoint as FactcheckCheckpoint;
-      await fail(cp.input.factcheckId, cp.input.messageId, {
-        code: 'run.cancelled',
-        title: 'The fact-check was stopped',
-        hint: 'Start it again from the answer when you want it.',
-      });
+      await cancel(cp.input.factcheckId, cp.input.messageId);
     },
 
     async failed(run: RunRecord, error) {

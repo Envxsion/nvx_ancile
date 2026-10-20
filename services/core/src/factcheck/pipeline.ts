@@ -138,6 +138,7 @@ export function summarise(r: {
   counts: FactsheetCounts;
 }): string {
   if (r.status === 'running') return 'Checking each claim against your sources.';
+  if (r.status === 'cancelled') return 'The fact-check was stopped.';
   if (r.status === 'failed') return 'The fact-check did not finish.';
   const { verified, unverified, contradicted, not_checkable } = r.counts;
   const checkable = verified + unverified + contradicted;

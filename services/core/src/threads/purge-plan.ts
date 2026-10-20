@@ -73,6 +73,13 @@ export const PURGE_PLAN: readonly PurgeEntry[] = [
     why: "Claims of a fact-check of the thread's answers; they mean nothing without the answer.",
   },
   {
+    table: 'core.factcheck_extractions',
+    action: 'delete',
+    by: 'message',
+    column: 'message_id',
+    why: "The claims found in one of the thread's answers, kept so a re-check reuses them (foreign key to messages).",
+  },
+  {
     table: 'core.factchecks',
     action: 'delete',
     by: 'message',

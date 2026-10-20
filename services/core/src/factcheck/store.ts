@@ -40,7 +40,7 @@ export interface FactcheckRecord {
   id: string;
   message_id: string;
   run_id: string | null;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'done' | 'failed' | 'cancelled';
   confidence: number | null;
   verifier_model_id: string | null;
   scope: {
@@ -80,6 +80,8 @@ export interface FactcheckStore {
     },
   ): Promise<void>;
   fail(id: string, error: NonNullable<FactcheckRecord['error']>): Promise<void>;
+  /** The person stopped it: ends it as cancelled (the same words as the run), not as a failure. */
+  cancel(id: string, error: NonNullable<FactcheckRecord['error']>): Promise<void>;
 }
 
 /* ---- Postgres ------------------------------------------------------------- */
@@ -214,6 +216,12 @@ export class PgFactcheckStore implements FactcheckStore {
       update core.factchecks set status = 'failed', error = ${this.sql.json(pgSafe(error) as never)}, finished_at = now()
       where id = ${id}`;
   }
+
+  async cancel(id: string, error: NonNullable<FactcheckRecord['error']>) {
+    await this.sql`
+      update core.factchecks set status = 'cancelled', error = ${this.sql.json(pgSafe(error) as never)}, finished_at = now()
+      where id = ${id}`;
+  }
 }
 
 /* ---- Memory (unit tests) -------------------------------------------------- */
@@ -287,5 +295,11 @@ export class MemoryFactcheckStore implements FactcheckStore {
     const rec = this.rows.get(id);
     if (!rec) return;
     Object.assign(rec, { status: 'failed', error, finished_at: this.stamp() });
+  }
+
+  async cancel(id: string, error: NonNullable<FactcheckRecord['error']>) {
+    const rec = this.rows.get(id);
+    if (!rec) return;
+    Object.assign(rec, { status: 'cancelled', error, finished_at: this.stamp() });
   }
 }

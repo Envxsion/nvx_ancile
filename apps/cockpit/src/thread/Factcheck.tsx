@@ -72,6 +72,16 @@ export function FactcheckChip({
         <span>Checking claims</span>
       </span>
     );
+  // Stopped by the person: not a failure, so no alert mark. The same way back.
+  if (factcheck.status === 'cancelled')
+    return (
+      <span className="fc-chip" data-state="stopped">
+        <span>The fact-check was stopped</span>
+        <button type="button" className="link-btn" onClick={() => void startFactcheck(messageId)}>
+          Check again
+        </button>
+      </span>
+    );
   if (factcheck.status === 'failed')
     return (
       <span className="fc-chip" data-state="failed">
