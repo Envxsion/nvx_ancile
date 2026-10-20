@@ -55,6 +55,7 @@ A notebook marked private (`PATCH /notebooks/:id/scope { "private": true }`, sto
 - `data_leaves_machine` is false and `engines` is local only. Claude Code is never used.
 - This is a floor, not a default: a notebook patch cannot switch it back on (`422 scope.private_conflict`), and stored values are clamped anyway.
 - Auto mode asks only local reviewers (a local model, or the rules).
+- What a private notebook may use beyond this floor (hosted decision models, learning in passing, shared fact-check verdicts) is one policy, Settings → Private notebooks (docs/privacy.md).
 
 ## Private after shared
 

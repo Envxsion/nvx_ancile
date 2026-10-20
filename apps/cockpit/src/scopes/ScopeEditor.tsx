@@ -41,6 +41,7 @@ import type {
   ToolPreset,
 } from '@nvx/contracts';
 import * as Dialog from '@radix-ui/react-dialog';
+import { Link } from '@tanstack/react-router';
 import { useId, useMemo, useState } from 'react';
 import { useLayer } from '../keys/dispatch';
 import { ApiCallError } from '../lib/api';
@@ -406,6 +407,18 @@ function Form({
           onChange={setPriv}
           strong
         />
+      ) : null}
+      {isPrivate ? (
+        <p className="mute">
+          <Link
+            to="/settings/$group"
+            params={{ group: 'private-notebooks' }}
+            className="link-btn link-btn--quiet"
+            onClick={onClose}
+          >
+            What private notebooks may use
+          </Link>
+        </p>
       ) : null}
 
       <fieldset className="scope-ed__group">

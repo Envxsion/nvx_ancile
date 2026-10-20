@@ -142,6 +142,13 @@ PATCH /api/v1/threads/thr_…/scope            { "memory_write": false, "folders
 GET   /api/v1/threads/thr_…/scope/effective  → EffectiveScope { scope, provenance, private, clamped }
 ```
 
+Private notebooks' extras live in one policy (docs/privacy.md):
+
+```http
+GET /api/v1/privacy/policy   → { policy: PrivacyPolicy, rows: PrivacyRow[] }
+PUT /api/v1/privacy/policy   { "policy": { "passive_memory": { "allowed_in_private": true } } }   → the same as GET
+```
+
 `StoredScope.shared_before_local` lists, newest first, each time this notebook (or, for a thread, the thread or its notebook) stopped letting data leave the machine, with what had already left: `{ change: private | local_only, changed_at, turns, first_at, last_at, destinations: [{ destination, turns }] }`. Destinations are a closed set (`claude_code`, `anthropic`, `openai`, `google`, `openrouter`, `mistral`, `groq`, `deepseek`, `xai`, `other_cloud`); no content and no model ids.
 
 Tool presets are named sets of tool rules a notebook or thread can choose with `tool_preset` (docs/scopes.md, Tool presets):

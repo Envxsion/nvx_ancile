@@ -40,6 +40,7 @@ export * from './ops';
 export * as packs from './packs';
 export * from './permissions';
 export * from './prefs';
+export * from './privacy';
 export * as pro from './pro';
 export * as proai from './proai';
 export * from './repos';

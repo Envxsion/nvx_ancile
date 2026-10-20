@@ -44,6 +44,7 @@ import { ClassifiedError } from '@nvx/resilience';
 import { ulid } from 'ulid';
 import { logFor } from '../../obs/logger';
 import { startSpan } from '../../obs/spans';
+import { allowsByDefault } from '../../privacy/policy';
 import type { RunEventInput } from '../../runs/events';
 import { type AutoCall, checkFloors, type FloorHit } from './floors';
 import { type PlanStore, planStepFor, sessionKey } from './plans';
@@ -315,7 +316,10 @@ export class AutoReview {
     plan: Awaited<ReturnType<PlanStore['current']>> | null,
     started: number,
   ): Promise<AutoOutcome> {
-    const mayLeave = ctx.scope ? ctx.scope.scope.data_leaves_machine && !ctx.scope.private : true;
+    const mayLeave = ctx.scope
+      ? ctx.scope.scope.data_leaves_machine &&
+        allowsByDefault('auto_reviewer_off_machine', { private: ctx.scope.private })
+      : true;
     const tried: AutoReviewerId[] = [];
     // Why each reviewer before the rules could not answer: failures first, then ones not set up.
     const failed: ReviewerOfflineReason[] = [];

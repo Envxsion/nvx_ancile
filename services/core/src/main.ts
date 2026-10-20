@@ -198,6 +198,8 @@ import { createGate } from './permissions/gate';
 import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
 import { PgPermissionStore } from './permissions/store';
+import { PrivacyPolicies } from './privacy/policy';
+import { privacyRoutes } from './privacy/routes';
 import { loadPro } from './pro';
 import { proAnswers } from './pro/answers';
 import { proDataRoutes } from './pro/data';
@@ -617,6 +619,8 @@ async function main() {
   // Scopes (docs/scopes.md) are floors in every preset; Auto mode (docs/auto-mode.md) is the `auto` preset.
   const scopeStore = new PgScopeStore(sql);
   const scopes = scopeResolver(scopeStore);
+  // What private notebooks may use beyond the floor (docs/privacy.md); every feature asks this one object.
+  const privacy = new PrivacyPolicies({ settings, isPrivate: (id) => scopeStore.isPrivate(id) });
   const autoPlans = new PgPlanStore(sql);
   let presetNow = (await settings.get<string>(SETTING.preset)) ?? config.tools?.preset ?? 'balanced';
   const gateAuto = {
@@ -1897,6 +1901,7 @@ async function main() {
         merge: notebookMerge,
       }),
       linkRoutes(contextLinks),
+      privacyRoutes(privacy),
       scopeRoutes({
         store: scopeStore,
         history: new SharedHistory({

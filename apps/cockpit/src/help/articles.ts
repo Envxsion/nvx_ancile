@@ -686,6 +686,22 @@ The theme button in the title bar always switches to the other theme; when that 
     title: 'More features',
     articles: [
       {
+        id: 'private-notebooks',
+        title: 'Private notebooks',
+        summary: 'What stays on this computer, and the few things you can allow.',
+        keywords:
+          'private notebook local privacy off machine cloud decisions jev clef passive memory verdicts',
+        body: `A notebook marked **Private** keeps its work on this computer. It uses only models on this machine (or on your own GPU node), never Claude Code, never the web, and Auto mode asks only local reviewers.
+
+**Settings → Private notebooks** lists the few extras you can allow for every private notebook at once. All are off to begin with:
+
+- **Hosted decision models.** Jev and hosted Clef choose routes and checks. Off, a decision model on this computer is used if you have one, and the rules otherwise.
+- **Learn from things said in passing.** Off, nothing is remembered unless you say so, unless a model on this computer can do the learning.
+- **Share fact-check verdicts.** Off, a private notebook's verdicts are never reused in other notebooks.
+
+Turning one on affects only private notebooks. Everywhere else these features already work. A model on this computer, or on a GPU node you run yourself, counts as private.`,
+      },
+      {
         id: 'grants',
         title: 'Grants and permissions',
         summary: 'What the AI may do without asking, and how to take it back.',
@@ -986,6 +1002,8 @@ export function articleById(id: string): { chapter: Chapter; article: Article } 
 
 /** Error codes (docs/errors.md) → the article that explains them. */
 export const ERROR_ARTICLES: Record<string, string> = {
+  'privacy.denied': 'private-notebooks',
+  'privacy.locked': 'private-notebooks',
   'openrouter.endpoints_unavailable': 'openrouter-quality',
   'openrouter.model_invalid': 'openrouter-quality',
   'factcheck.no_model': 'fact-checking',

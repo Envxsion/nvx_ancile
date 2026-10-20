@@ -23,6 +23,7 @@ import { DesktopGroup } from '../../desktop/DesktopGroup';
 import { helpDone } from '../../help/store';
 import { LabGroup } from '../../lab/LabGroup';
 import { isDesktop } from '../../lib/runtime';
+import { PrivateNotebooksGroup } from '../../privacy/PrivateNotebooksGroup';
 import { ProSurfaceView } from '../../pro/slot';
 import { SourcesGroup } from '../../sources/SourcesGroup';
 import { notify } from '../../state/notify';
@@ -50,6 +51,7 @@ const ALL_GROUPS: {
     | PrefGroup
     | 'about'
     | 'privacy'
+    | 'private-notebooks'
     | 'sync'
     | 'keys'
     | 'claude-code'
@@ -149,6 +151,13 @@ const ALL_GROUPS: {
     icon: 'monitor',
     body: DesktopGroup,
     lede: 'What closing the window does, and updates.',
+  },
+  {
+    id: 'private-notebooks',
+    label: 'Private notebooks',
+    icon: 'lock',
+    body: PrivateNotebooksGroup,
+    lede: 'What a private notebook may use. Nothing leaves this computer unless you allow it.',
   },
   {
     id: 'privacy',
