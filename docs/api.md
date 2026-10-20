@@ -142,6 +142,13 @@ PATCH /api/v1/threads/thr_…/scope            { "memory_write": false, "folders
 GET   /api/v1/threads/thr_…/scope/effective  → EffectiveScope { scope, provenance, private, clamped }
 ```
 
+Decision models (docs/decisions.md): the routes and their state, the free allowance meters, recent receipts and the settings. No key is ever in an answer.
+
+```http
+GET /api/v1/decisions            → DecisionStatus { settings, routes, meters, recent, local_available }
+PUT /api/v1/decisions/settings   { "free_first": true, "disabled": ["openai_luna"], "local": { "url": "http://localhost:30000", "model": "Cloudflare/clef-flash" } }   → DecisionStatus
+```
+
 Private notebooks' extras live in one policy (docs/privacy.md):
 
 ```http

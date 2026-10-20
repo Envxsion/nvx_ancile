@@ -1,0 +1,28 @@
+/*
+ * Settings → Decisions (docs/decisions.md): the allowance meter and the route
+ * controls. A hairline track and a neutral fill; violet is not used, because a
+ * meter is not a focus, a primary action or a live state. Tokens only.
+ */
+
+.decision-meter {
+  height: 4px;
+  border-radius: var(--r-sm);
+  background: var(--hair-2);
+  overflow: hidden;
+}
+.decision-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--mute);
+  transition: width var(--dur-2, 200ms) ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .decision-meter > span {
+    transition: none;
+  }
+}
+.decision-route__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

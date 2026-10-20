@@ -28,12 +28,12 @@ The reviewer can only make things stricter. It decides between "run" and "ask" f
 
 The first one available answers. A failure moves on to the next, and the trace records what was tried.
 
-1. **Jev via OpenRouter.** `POST https://openrouter.ai/api/alpha/decisions` with your saved OpenRouter key, model `~typesafe/jev-latest`, falling back to `typesafe/jev-1.13` if the service doesn't know it.
-2. **Jev direct.** `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest`, with the TypeSafe key (Settings → API keys, or `TYPESAFE_API_KEY`).
+1. **A hosted decision model** (`decisions`). Auto mode asks the shared decision-model layer (docs/decisions.md), which picks the route: Cloudflare Clef while its free daily allowance lasts, then the cheapest connected route that suits a security review (Jev via OpenRouter `~typesafe/jev-latest`, falling back to `typesafe/jev-1.13`; Jev direct at `https://api.typesafe.ai/v1/systemone`, model `jev-latest`; Perplexity's decider). A 402 moves to the next route, so OpenRouter running out of credit means TypeSafe next.
+2. **A decision model on this computer** (`decisions_local`). A Clef-flash or Laya server you run (docs/decisions.md, On your own hardware). It is private: it is used whatever a scope allows, and costs nothing.
 3. **A local model.** The first ready Ollama or local model on the utility chain, else the smallest ready local chat model whose name gives its size, up to 14B (an Ollama model you pulled; never a GPU node), with a strict JSON yes/no prompt. It runs on this machine, so it is used whatever a scope allows. A yes counts as 0.92 for fits, not 1.
 4. **Rules only.** Recognises routine steps: file writes, git status, add and commit, tests, builds, linters, listing and searching. Anything else asks.
 
-When nothing may leave the machine (a private notebook, or `data_leaves_machine: false`), only 3 and 4 are asked.
+When nothing may leave the machine (a private notebook, or `data_leaves_machine: false`), only 2, 3 and 4 are asked. Hosted auto reviewers stay a locked floor in private notebooks: the Private notebooks setting for hosted decision models does not widen it.
 
 ### Reviewer offline
 
@@ -43,9 +43,9 @@ When every reviewer before the rules is unavailable (no key saved, a key turned 
 - The reason is a closed set: `no_key`, `key_rejected`, `network`, `model_not_pulled`. A reviewer that is set up but failed is named before one that is not set up. `local_only` says only local reviewers were allowed.
 - The Cockpit shows one quiet line above the composer, "Reviewer offline, asking more often", with the reason and a link to fix it (Settings → API keys, Admin → Health or Admin → Models). Dismissing it hides it until the next outage.
 
-### What is sent to Jev
+### What is sent to a decision model
 
-Both Jev endpoints take the same body (checked against openrouter.ai/docs/guides/community/jev and docs.typesafe.ai/api):
+Every decision route takes the same body, except that Cloudflare wraps the answer in `{ result, success, errors }` (checked against openrouter.ai/docs/guides/community/jev and docs.typesafe.ai/api):
 
 ```json
 {
@@ -66,7 +66,7 @@ Both Jev endpoints take the same body (checked against openrouter.ai/docs/guides
 
 The response is read as `answers.fits.noul` and `answers.injection.noul` (probabilities from 0 to 1) and `usage.cost` (USD, OpenRouter only). The call goes in as quoted data inside fences the data cannot close. The tool's arguments are included, cut to 12,000 characters. Calls go through `packages/resilience` with a 4-second timeout, two attempts and a circuit breaker.
 
-**Privacy.** The tool call (including its arguments, such as a file's new contents or a command), the approved plan, the workspace path and the scope's switches go to OpenRouter and TypeSafe when those reviewers are used. Nothing else from the thread is sent. In a private notebook, or with `data_leaves_machine: false`, nothing goes to them at all. Keys are read per call and never logged.
+**Privacy.** The tool call (including its arguments, such as a file's new contents or a command), the approved plan, the workspace path and the scope's switches go to OpenRouter and TypeSafe when those routes are used, or to Cloudflare or Perplexity when the layer picks them. Nothing else from the thread is sent. In a private notebook, or with `data_leaves_machine: false`, nothing goes to them at all. Keys are read per call and never logged.
 
 ## Low friction
 

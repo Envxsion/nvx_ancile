@@ -51,10 +51,29 @@ describe('API keys', () => {
       'github',
       'memory_remote',
       'typesafe',
+      'cloudflare',
     ]);
     expect(r.body.items.every((x) => !x.set && x.last4 === null && x.source === null)).toBe(true);
     // No Controller in the harness: RunPod says why it cannot be added.
     expect(r.body.items.find((x) => x.id === 'runpod')).toMatchObject({ available: false });
+  });
+
+  it('Cloudflare needs an account ID beside the token, and checks both without spending neurons', async () => {
+    const seen: string[] = [];
+    h = await harness({ credentials: { cloudflareCheck: async (t, a) => void seen.push(`${t}|${a}`) } });
+    const token = 'cf-token-abcdefghijklmnop';
+    const noAccount = await h.call('PUT', '/credentials/cloudflare', { value: token });
+    expect(noAccount.status).toBe(400);
+    const ok = await h.call<CredentialStatus>('PUT', '/credentials/cloudflare', {
+      value: token,
+      account_id: 'a1b2c3d4'.repeat(4),
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ id: 'cloudflare', set: true, account_id: 'a1b2c3d4'.repeat(4) });
+    expect(JSON.stringify(ok.body)).not.toContain(token);
+    expect(seen).toEqual([`${token}|${'a1b2c3d4'.repeat(4)}`]);
+    const gone = await h.call<CredentialStatus>('DELETE', '/credentials/cloudflare');
+    expect(gone.body).toMatchObject({ set: false, account_id: null });
   });
 
   it('adds, replaces and removes a provider key, returning only the last four', async () => {

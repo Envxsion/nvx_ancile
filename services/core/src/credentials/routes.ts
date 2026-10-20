@@ -55,6 +55,8 @@ import {
 
 export const HUGGINGFACE_TOKEN_SECRET = 'huggingface.token';
 export const MEMORY_REMOTE_SECRET = 'memory.remote';
+/** The account a Cloudflare token runs under. Not secret, but kept beside the token (same store, same override). */
+export const CLOUDFLARE_ACCOUNT_SECRET = 'CLOUDFLARE_ACCOUNT_ID';
 
 interface Definition {
   name: string;
@@ -111,6 +113,13 @@ export const CREDENTIALS: Record<CredentialId, Definition> = {
   xai: providerCredential('xai'),
   mistral: providerCredential('mistral'),
   typesafe: { name: 'TypeSafe (Jev)', secret: TYPESAFE_KEY_SECRET, env: 'TYPESAFE_API_KEY', check: 'format' },
+  // Free Clef and Clef-flash decisions (docs/decisions.md). Checked with Cloudflare's token verify call, which costs nothing.
+  cloudflare: {
+    name: 'Cloudflare Workers AI',
+    secret: 'CLOUDFLARE_API_TOKEN',
+    env: 'CLOUDFLARE_API_TOKEN',
+    check: 'service',
+  },
 };
 
 /** Secret name → the environment variable that wins over it (for EnvFirstSecretStore). */
@@ -118,6 +127,8 @@ export const ENV_FOR_SECRET: Record<string, string> = {
   ...Object.fromEntries(Object.values(CREDENTIALS).map((d) => [d.secret, d.env])),
   // The workspace a personal Anthropic key bills, beside ANTHROPIC_API_KEY.
   [ANTHROPIC_WORKSPACE_SECRET]: 'ANTHROPIC_WORKSPACE_ID',
+  // The account a Cloudflare token runs under.
+  [CLOUDFLARE_ACCOUNT_SECRET]: 'CLOUDFLARE_ACCOUNT_ID',
   // The region of a provider that has them (Moonshot, MiniMax, Qwen, Z.ai), beside its key.
   ...Object.fromEntries(
     PROFILES.flatMap((p) => (p.regionSecret ? [[p.regionSecret, p.regionSecret] as const] : [])),
@@ -152,6 +163,41 @@ export const liveServiceCheck: ServiceCheck = async (id, token) => {
   );
 };
 
+/**
+ * The real Cloudflare check: token verify, which spends no neurons. An account-owned token verifies at
+ * /accounts/{id}/tokens/verify and a user token at /user/tokens/verify (the second is on
+ * developers.cloudflare.com/fundamentals/api/get-started/create-token, checked 2026-10-20; the account
+ * form is from Cloudflare's API reference and not re-read that day), so the account form is tried
+ * first and a 401/403/404 from it falls back to the user form.
+ */
+export type CloudflareCheck = (token: string, accountId: string) => Promise<void>;
+
+export const liveCloudflareCheck: CloudflareCheck = async (token, accountId) => {
+  const base = 'https://api.cloudflare.com/client/v4';
+  const verify = (path: string) =>
+    guarded(
+      { key: 'credentials.cloudflare', breaker, timeoutMs: 10_000, retry: { maxAttempts: 2 } },
+      async (signal) => {
+        const res = await tracedFetch(`${base}${path}`, {
+          signal,
+          headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        });
+        await res.body?.cancel();
+        if (!res.ok)
+          throw new ClassifiedError(classifyStatus(res.status), `cloudflare answered ${res.status}`, {
+            status: res.status,
+          });
+      },
+    );
+  try {
+    await verify(`/accounts/${encodeURIComponent(accountId)}/tokens/verify`);
+  } catch (err) {
+    const status = err instanceof ClassifiedError ? err.status : undefined;
+    if (status !== 401 && status !== 403 && status !== 404) throw err;
+    await verify('/user/tokens/verify');
+  }
+};
+
 export interface CredentialRouteDeps {
   /** The secret store, ideally the EnvFirstSecretStore main.ts builds. */
   secrets: SecretStore;
@@ -161,6 +207,7 @@ export interface CredentialRouteDeps {
   /** The setup tester: one tiny real call with the key. */
   tester: ProviderTester;
   serviceCheck?: ServiceCheck;
+  cloudflareCheck?: CloudflareCheck;
   /** RunPod through the Controller; absent when there is no Controller. */
   runpod?: { connect(key: string): Promise<unknown>; disconnect(): Promise<unknown> } | undefined;
   /** CR1: the Anthropic key's monthly-credit setting, as saved (gateway/credit.ts). */
@@ -228,6 +275,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
   const r = new Hono<AppEnv>();
   const { secrets, env, registry } = deps;
   const serviceCheck = deps.serviceCheck ?? liveServiceCheck;
+  const cloudflareCheck = deps.cloudflareCheck ?? liveCloudflareCheck;
 
   const definition = (raw: string): [CredentialId, Definition] => {
     const id = CredentialId.safeParse(raw);
@@ -257,6 +305,9 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
       check: d.check,
       available: !unavailable,
       unavailable_reason: unavailable ? 'Compute is not set up on this install (no Controller).' : null,
+      ...(id === 'cloudflare' && {
+        account_id: value ? ((await secrets.get(CLOUDFLARE_ACCOUNT_SECRET)) ?? null) : null,
+      }),
       ...(id === 'anthropic' && {
         workspace_id: value ? ((await secrets.get(ANTHROPIC_WORKSPACE_SECRET)) ?? null) : null,
         plan_credit: value ? (deps.planCredit?.() ?? null) : null,
@@ -286,7 +337,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
   r.put('/credentials/:id', async (c) => {
     const [id, d] = definition(c.req.param('id'));
     if (env[d.env]?.trim()) throw fromEnvironment(d);
-    const { value, workspace_id, region: askedRegion } = await body(c, SaveCredentialRequest);
+    const { value, workspace_id, region: askedRegion, account_id } = await body(c, SaveCredentialRequest);
     const wasSet = (await secrets.names()).includes(d.secret);
     let notOffered: { id: string; display_name: string }[] = [];
 
@@ -355,6 +406,29 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
             errorClass: 'permanent',
           });
         await deps.runpod.connect(value); // the Controller checks it with RunPod, then it is saved
+      } else if (id === 'cloudflare') {
+        if (!account_id)
+          throw new AncileError({
+            code: 'credentials.invalid',
+            title: 'Cloudflare also needs your account ID',
+            hint: 'Open the Workers AI page in the Cloudflare dashboard, choose Use REST API and copy the account ID. Nothing was saved.',
+            status: 400,
+            errorClass: 'permanent',
+          });
+        try {
+          await cloudflareCheck(value, account_id);
+        } catch (err) {
+          const status = err instanceof ClassifiedError ? err.status : undefined;
+          if (status === 400 || status === 401 || status === 403 || status === 404)
+            throw rejected(
+              'Cloudflare',
+              'token',
+              'dash.cloudflare.com/profile/api-tokens (use the Workers AI template)',
+            );
+          throw err;
+        }
+        await secrets.set(d.secret, value);
+        await secrets.set(CLOUDFLARE_ACCOUNT_SECRET, account_id);
       } else if (d.check === 'service') {
         const service = id as 'huggingface' | 'github';
         try {
@@ -404,6 +478,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     if (d.check === 'controller' && deps.runpod) await deps.runpod.disconnect();
     else await secrets.delete(d.secret);
     if (id === 'anthropic') await secrets.delete(ANTHROPIC_WORKSPACE_SECRET);
+    if (id === 'cloudflare') await secrets.delete(CLOUDFLARE_ACCOUNT_SECRET);
     const gone = d.check === 'provider' ? knownProfile(id)?.regionSecret : null;
     if (gone) await secrets.delete(gone);
     await changed(id);

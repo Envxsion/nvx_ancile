@@ -19,6 +19,7 @@ import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'r
 import { CheckReviewers } from '../../auto/CheckReviewers';
 import { ClaudeCodeGroup } from '../../claudecode/ClaudeCodeGroup';
 import { ApiKeysGroup } from '../../credentials/ApiKeys';
+import { DecisionsGroup } from '../../decisions/DecisionsGroup';
 import { DesktopGroup } from '../../desktop/DesktopGroup';
 import { helpDone } from '../../help/store';
 import { LabGroup } from '../../lab/LabGroup';
@@ -52,6 +53,7 @@ const ALL_GROUPS: {
     | 'about'
     | 'privacy'
     | 'private-notebooks'
+    | 'decisions'
     | 'sync'
     | 'keys'
     | 'claude-code'
@@ -123,6 +125,13 @@ const ALL_GROUPS: {
     icon: 'shield',
     body: CheckReviewers,
     lede: 'See how your Auto mode reviewers do on the built-in safety cases.',
+  },
+  {
+    id: 'decisions',
+    label: 'Decisions',
+    icon: 'pulse',
+    body: DecisionsGroup,
+    lede: 'Small models that pick routes and judge checks. Free allowances first, then the cheapest.',
   },
   {
     id: 'lab',

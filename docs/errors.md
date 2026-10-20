@@ -113,6 +113,7 @@ What a notebook or thread may use (docs/scopes.md). The `scope.*` refusals marke
 | `scope.widen` | 422 | "A thread can only narrow its notebook." / Names the fields; change the notebook's scope first, or choose less. |
 | `scope.private_conflict` | 422 | "A private notebook keeps everything on this machine." / Turn off "Private" for the notebook first. |
 | `privacy.denied` | 403 | "This notebook is private, so that stayed on this computer." / Allow it in Settings → Private notebooks, or use a model on this computer. For a floor (cloud models, Claude Code, the web, hosted Auto reviewers) turn off Private for the notebook. Raised by `PrivacyPolicies.require` (docs/privacy.md); the capability is in the context. |
+| `decisions.local_url_invalid` | 422 | "That isn't an address a decision server can have." / `PUT /decisions/settings` was given a local server address that does not start with http:// or https://. Use one such as http://localhost:30000. Nothing was saved. |
 | `privacy.locked` | 422 | "That cannot be switched on for private notebooks." / `PUT /privacy/policy` named a capability that is a fixed floor, or one that does not exist. Only `decisions_off_machine`, `passive_memory` and `verdict_cache_global` can be switched. |
 | `scope.engine_not_allowed` | – | "<Engine> is not allowed here." / Change the notebook's or thread's engines. |
 | `scope.model_not_allowed` | – | "<Model> is blocked here" or "is not one of the models allowed here." / Pick an allowed model, or change the scope. |

@@ -109,6 +109,16 @@ export const CREDENTIAL_META: CredentialMeta[] = [
     getLabel: 'Get a key',
     removes: 'Auto mode reviews with OpenRouter, a local model or rules only.',
   },
+  {
+    id: 'cloudflare',
+    name: 'Cloudflare Workers AI',
+    desc: 'Free daily decisions from Clef and Clef-flash (10,000 neurons a day), used only inside the free allowance.',
+    noun: 'API token',
+    placeholder: 'Paste the token',
+    getUrl: 'https://dash.cloudflare.com/profile/api-tokens',
+    getLabel: 'Make a token',
+    removes: 'Decisions use Jev, Perplexity or a model on this computer instead.',
+  },
   ...(
     [
       ['deepseek', 'DeepSeek', 'sk-…', 'https://platform.deepseek.com/api_keys'],
@@ -186,9 +196,9 @@ const GROUPS: { title: string; lede: string; ids: CredentialId[] }[] = [
   },
   { title: 'Compute', lede: 'Your own GPU nodes.', ids: ['runpod', 'huggingface'] },
   {
-    title: 'Auto mode review',
-    lede: 'Jev, the independent reviewer behind Auto mode. A TypeSafe key or your OpenRouter key powers it.',
-    ids: ['typesafe'],
+    title: 'Decision models',
+    lede: 'Quick, cheap choices for Auto mode review, flow routers and fact-check triage. Cloudflare is free each day; Jev comes next, and your OpenRouter key works for Jev too.',
+    ids: ['cloudflare', 'typesafe'],
   },
   {
     title: 'Repositories and backup',
@@ -273,12 +283,15 @@ export function CredentialRow({
   const [mode, setMode] = useState<'idle' | 'edit' | 'confirm'>('idle');
   const [value, setValue] = useState('');
   const [workspace, setWorkspace] = useState('');
+  const [account, setAccount] = useState('');
   const [region, setRegion] = useState('');
   const [reveal, setReveal] = useState(false);
   const inputId = useId();
   const hintId = useId();
   const keyHintId = useId();
   const workspaceId = useId();
+  const accountFieldId = useId();
+  const accountHintId = useId();
   const workspaceHintId = useId();
   const regionId = useId();
   const regionHintId = useId();
@@ -315,11 +328,12 @@ export function CredentialRow({
     : '';
 
   const save = useMutation({
-    mutationFn: (v: { value: string; workspace_id?: string; region?: string }) =>
+    mutationFn: (v: { value: string; workspace_id?: string; region?: string; account_id?: string }) =>
       api.put<CredentialStatus>(`/credentials/${meta.id}`, v),
     onSuccess: (s) => {
       setValue('');
       setWorkspace('');
+      setAccount('');
       setRegion('');
       setReveal(false);
       setMode('idle');
@@ -378,19 +392,23 @@ export function CredentialRow({
   const needsWorkspace =
     meta.id === 'anthropic' &&
     (isPersonalAnthropicKey(value) || problem?.code === 'provider.workspace_needed');
+  // Cloudflare runs a token under an account: its ID goes beside the token.
+  const needsAccount = meta.id === 'cloudflare';
   const suggestion = onMove ? recogniseKey(value, meta.id, neighbours) : null;
   const cancel = () => {
     setMode('idle');
     setValue('');
     setWorkspace('');
+    setAccount('');
     setRegion('');
     save.reset();
   };
   const submit = (inRegion: string) => {
-    if (!value.trim() || (needsWorkspace && !workspace.trim())) return;
+    if (!value.trim() || (needsWorkspace && !workspace.trim()) || (needsAccount && !account.trim())) return;
     save.mutate({
       value: value.trim(),
       ...(needsWorkspace && { workspace_id: workspace.trim() }),
+      ...(needsAccount && { account_id: account.trim() }),
       ...(regions && inRegion && { region: inRegion }),
     });
   };
@@ -434,6 +452,11 @@ export function CredentialRow({
           <p className="setting__desc">
             Personal key, billing workspace{' '}
             <code title={status.workspace_id}>{shortWorkspace(status.workspace_id)}</code>.
+          </p>
+        ) : null}
+        {status?.set && status.account_id ? (
+          <p className="setting__desc">
+            Account <code title={status.account_id}>{shortWorkspace(status.account_id)}</code>.
           </p>
         ) : null}
         {meta.id === 'anthropic' && status?.set ? <PlanCreditSetting saved={status.plan_credit} /> : null}
@@ -609,6 +632,34 @@ export function CredentialRow({
               </p>
             </div>
           ) : null}
+          {needsAccount ? (
+            <div className="credential__workspace">
+              <label htmlFor={accountFieldId} className="setting__label">
+                Account ID
+              </label>
+              <input
+                id={accountFieldId}
+                className="input input--mono"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="32 letters and numbers"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    cancel();
+                  }
+                }}
+                aria-describedby={accountHintId}
+              />
+              <p id={accountHintId} className="setting__desc">
+                In the Cloudflare dashboard open Workers AI, choose Use REST API and copy the account ID. Make
+                the token from the Workers AI template.
+              </p>
+            </div>
+          ) : null}
           {needsWorkspace ? (
             <div className="credential__workspace">
               <label htmlFor={workspaceId} className="setting__label">
@@ -674,7 +725,12 @@ export function CredentialRow({
             <button
               type="submit"
               className="btn btn--primary btn--sm"
-              disabled={!value.trim() || (needsWorkspace && !workspace.trim()) || save.isPending}
+              disabled={
+                !value.trim() ||
+                (needsWorkspace && !workspace.trim()) ||
+                (needsAccount && !account.trim()) ||
+                save.isPending
+              }
             >
               {save.isPending ? checking : meta.id === 'memory_remote' ? 'Save remote' : `Check and save`}
             </button>

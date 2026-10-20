@@ -130,6 +130,7 @@ export interface HarnessOptions {
   credentials?: {
     env?: Record<string, string | undefined>;
     serviceCheck?: import('../../src/credentials/routes').ServiceCheck;
+    cloudflareCheck?: import('../../src/credentials/routes').CloudflareCheck;
     runpod?: import('../../src/credentials/routes').CredentialRouteDeps['runpod'];
   };
   /** CA2: the per-family switch for the end-of-request layout (default on for every family). */
@@ -492,6 +493,7 @@ export async function harness(opts: HarnessOptions = {}) {
         registry,
         tester: opts.tester ?? (async ({ model }) => ({ model: model?.id ?? 'x' })),
         serviceCheck: opts.credentials?.serviceCheck ?? (async () => undefined),
+        cloudflareCheck: opts.credentials?.cloudflareCheck ?? (async () => undefined),
         runpod: opts.credentials?.runpod,
       }),
       stateRoutes(new MemoryStateStore()),
