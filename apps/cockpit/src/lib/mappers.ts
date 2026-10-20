@@ -12,6 +12,7 @@
 import type {
   AnswerRoute,
   Approval,
+  ExplainMemory,
   FlowProvenance,
   Message,
   ModelInfo,
@@ -254,6 +255,8 @@ export interface Provenance {
   images_not_shown?: string[];
   retrieval?: RetrievalTrace;
   retrieval_error?: { code: string; title: string };
+  /** The memory files and entries the answer was given (the receipt lists them before /explain loads). */
+  memory?: ExplainMemory;
   /** The latest fact-check of this answer, in short (Core notes it here). */
   factcheck?: {
     id: string;

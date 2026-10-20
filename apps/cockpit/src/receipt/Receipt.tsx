@@ -346,7 +346,9 @@ function WentIn({
   const parent = thread.data?.messages.find((p) => p.id === m.parentId);
   const attached = (parent?.parts ?? []).filter((p) => p.type === 'file' || p.type === 'image').length;
   const cc = !!m.provenance?.claude_code;
-  const memory = x?.memory?.files.length ? x.memory : null;
+  // The answer's own record names the memory it was given; /explain is not needed to list it.
+  const recorded = x?.memory ?? m.provenance?.memory;
+  const memory = recorded?.files.length ? recorded : null;
   const r = x?.retrieval ?? m.provenance?.retrieval ?? null;
   const cited = r?.hits.filter((h) => h.cited) ?? [];
   const sourceCount = new Set(r?.hits.map((h) => h.source_id)).size;
@@ -368,7 +370,9 @@ function WentIn({
     rows.push({
       key: 'memory',
       node: (
-        <Fold label={`Memory: ${plural(memory.files.length, 'file')}, ${n(memory.tokens)} tokens`}>
+        <Fold
+          label={`Memory: ${plural(memory.files.reduce((k, f) => k + f.entries.length, 0), 'entry', 'entries')} from ${plural(memory.files.length, 'file')}, ${n(memory.tokens)} tokens`}
+        >
           <MemoryFiles memory={memory} />
         </Fold>
       ),
