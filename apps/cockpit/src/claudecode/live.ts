@@ -44,7 +44,7 @@ import { queryClient } from '../lib/query';
 import { attachRun } from '../lib/run';
 import type { MessageView, ThreadView } from '../lib/types';
 import { notify } from '../state/notify';
-import { isThreadBusy, markBusy } from '../thread/busy-store';
+import { busyReason, isThreadBusy, markBusy } from '../thread/busy-store';
 import { type CcRetry, type Effort, patchCc } from './store';
 
 export const CC_LIVE_KEYS = {
@@ -229,7 +229,11 @@ export async function sendClaudeCode(o: CcSend): Promise<boolean> {
     };
     // Another window is sending here: offer to send it as a branch (a fork of the session) once it ends.
     if (error instanceof ApiCallError && isThreadBusy(error.body.error.code)) {
-      markBusy(o.threadId, () => sendClaudeCode({ ...o, asBranch: !o.other }));
+      markBusy(
+        o.threadId,
+        () => sendClaudeCode({ ...o, asBranch: !o.other }),
+        busyReason(error.body.error.context),
+      );
       return false;
     }
     reportSendFailure(o.threadId, error, retry);

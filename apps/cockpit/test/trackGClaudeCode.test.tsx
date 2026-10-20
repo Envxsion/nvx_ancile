@@ -49,7 +49,7 @@ import { queryClient } from '../src/lib/query';
 import { sendMessage } from '../src/lib/turns';
 import type { MessageView, ModelView, ThreadView } from '../src/lib/types';
 import { BusyNotice } from '../src/thread/BusyNotice';
-import { markBusy, useBusyStore } from '../src/thread/busy-store';
+import { busyReason, markBusy, useBusyStore } from '../src/thread/busy-store';
 import { Composer } from '../src/thread/Composer';
 
 const mocked = api as unknown as Record<'get' | 'post', ReturnType<typeof vi.fn>>;
@@ -162,6 +162,21 @@ describe('another window is sending', () => {
     useBusyStore.getState().set('thr_1', { state: 'waiting', again, since: 1 });
     markBusy('thr_1', again);
     expect(useBusyStore.getState().byThread.thr_1?.state).toBe('waiting');
+  });
+
+  it('a turn paused on an approval says so and offers Deny and send', async () => {
+    markBusy('thr_1', async () => true, busyReason({ reason: 'approval' }));
+    queryClient.setQueryData(keys.approvals, [{ id: 'apr_1', threadId: 'thr_1' }]);
+    mocked.post.mockResolvedValueOnce({});
+    wrap(<BusyNotice threadId="thr_1" onSent={vi.fn()} />);
+    expect(screen.getByText(/Waiting for your approval above/)).toBeTruthy();
+    expect(screen.queryByText(/Another window/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Deny and send' }));
+    await waitFor(() => expect(useBusyStore.getState().byThread.thr_1?.state).toBe('waiting'));
+    expect(mocked.post).toHaveBeenCalledWith('/approvals/batch', {
+      approval_ids: ['apr_1'],
+      decision: 'deny',
+    });
   });
 });
 

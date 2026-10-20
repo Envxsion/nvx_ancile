@@ -34,7 +34,17 @@ export const SEND_LEASE_MS = 30_000;
 
 const ACTIVE = ['queued', 'running', 'waiting_approval', 'waiting_compute'] as const;
 
-export function threadBusy(): AncileError {
+export function threadBusy(holderRunStatus?: string | null): AncileError {
+  // The turn holding the thread is paused on a person's yes or no: say that, not "another window".
+  if (holderRunStatus === 'waiting_approval')
+    return new AncileError({
+      code: 'thread.busy',
+      title: 'Waiting for your approval',
+      hint: 'Answer the approval above, or deny it and send, or send as a branch.',
+      status: 409,
+      errorClass: 'transient',
+      context: { reason: 'approval' },
+    });
   return new AncileError({
     code: 'thread.busy',
     title: 'Another window is sending in this thread',
@@ -50,7 +60,8 @@ export function holderOf(header: string | null | undefined): string {
   return /^[A-Za-z0-9_-]{8,64}$/.test(h) ? `win:${h}` : `req:${randomUUID()}`;
 }
 
-export type Acquired = { ok: true } | { ok: false; holder: string };
+/** Who holds it, and the status of the run they started (when it is known). */
+export type Acquired = { ok: true } | { ok: false; holder: string; runStatus?: string | null };
 
 export interface SendLocks {
   /** Take the thread's lock for this holder, or say who holds it. */
@@ -75,7 +86,7 @@ export async function withSendLock<T extends { run_id: string } | { queued: unkn
 ): Promise<T> {
   if (!locks) return fn();
   const got = await locks.acquire(threadId, holder);
-  if (!got.ok) throw threadBusy();
+  if (!got.ok) throw threadBusy(got.runStatus);
   let out: T;
   try {
     out = await fn();
@@ -109,9 +120,10 @@ export class PgSendLocks implements SendLocks {
           select 1 from core.runs r where r.id = l.run_id and r.status in ${sql(ACTIVE)}))
       returning holder`;
     if (rows.length) return { ok: true };
-    const held = await sql<{ holder: string }[]>`
-      select holder from core.thread_send_locks where thread_id = ${threadId}`;
-    return { ok: false, holder: held[0]?.holder ?? '' };
+    const held = await sql<{ holder: string; status: string | null }[]>`
+      select l.holder, r.status from core.thread_send_locks l
+      left join core.runs r on r.id = l.run_id where l.thread_id = ${threadId}`;
+    return { ok: false, holder: held[0]?.holder ?? '', runStatus: held[0]?.status ?? null };
   }
 
   async attach(threadId: string, holder: string, runId: string): Promise<void> {
@@ -139,13 +151,15 @@ export class MemorySendLocks implements SendLocks {
     // Decide on what is known now, then set in the same tick: no await between check and set
     // except the run lookup, after which the row is read again.
     let free = !cur || cur.holder === holder || (cur.runId === null && cur.leaseUntil < this.now());
+    let runStatus: string | null = null;
     if (!free && cur?.runId) {
       const run = await this.runs.get(cur.runId);
+      runStatus = run?.status ?? null;
       free = !run || !(ACTIVE as readonly string[]).includes(run.status);
     }
     const again = this.rows.get(threadId);
     if (again !== cur) return this.acquire(threadId, holder, leaseMs);
-    if (!free) return { ok: false, holder: cur?.holder ?? '' };
+    if (!free) return { ok: false, holder: cur?.holder ?? '', runStatus };
     this.rows.set(threadId, {
       holder,
       runId: cur && cur.holder === holder ? cur.runId : null,

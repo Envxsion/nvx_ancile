@@ -26,6 +26,8 @@ export interface BusySend {
   again: () => Promise<boolean>;
   /** When waiting began (ms), so it gives up after a while. */
   since: number | null;
+  /** The turn in the way is paused on a tool approval (Core's context.reason), not another window's. */
+  reason?: 'approval';
 }
 
 interface BusyStore {
@@ -43,12 +45,25 @@ export const useBusyStore = create<BusyStore>((set) => ({
 }));
 
 /** Core said thread.busy: remember how to send again. A message already waiting keeps waiting. */
-export function markBusy(threadId: string, again: () => Promise<boolean>): void {
+export function markBusy(
+  threadId: string,
+  again: () => Promise<boolean>,
+  reason?: 'approval',
+): void {
   const cur = useBusyStore.getState().byThread[threadId];
   useBusyStore
     .getState()
-    .set(threadId, cur?.state === 'waiting' ? { ...cur, again } : { state: 'refused', again, since: null });
+    .set(
+      threadId,
+      cur?.state === 'waiting'
+        ? { ...cur, again }
+        : { state: 'refused', again, since: null, ...(reason && { reason }) },
+    );
 }
+
+/** The reason Core gave with thread.busy, when it is one the Cockpit has words for. */
+export const busyReason = (context: Record<string, unknown> | undefined): 'approval' | undefined =>
+  context?.reason === 'approval' ? 'approval' : undefined;
 
 export function clearBusy(threadId: string): void {
   useBusyStore.getState().set(threadId, null);

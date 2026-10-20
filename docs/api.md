@@ -78,7 +78,7 @@ Two Cockpit windows (later a phone) can have one thread open. Each window sends 
 
 - The lock is shared across clients in the database (`core.thread_send_locks`, one row per thread), and taken in one atomic statement.
 - A window holds it from the moment it sends until the run its send started is no longer active. The same window sending again is let in, and hears what it always did (`run.already_running` while its turn runs, or the same turn again for a repeated `idempotency_key`).
-- Another window gets **409 `thread.busy`**: "Another window is sending in this thread" / "Wait for it to finish, or send as a branch." The Cockpit offers **Send as a branch**: the message waits until that turn ends, then goes from the message the window was answering, as a branch (in a Claude Code thread, a fork of the session).
+- Another window gets **409 `thread.busy`**: "Another window is sending in this thread" / "Wait for it to finish, or send as a branch." The Cockpit offers **Send as a branch**: the message waits until that turn ends, then goes from the message the window was answering, as a branch (in a Claude Code thread, a fork of the session). If that turn is paused on a tool approval, the error reads "Waiting for your approval" (`context.reason` is `approval`) and the Cockpit also offers **Deny and send**.
 - Nothing has to tidy it up. A send that fails lets go at once; one that crashed before starting a run frees it when its 30-second lease runs out; the run it started ending (however it ends) frees it too.
 - A request without the header is a sender of its own.
 

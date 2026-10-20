@@ -19,16 +19,41 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
-import type { ThreadView } from '../lib/types';
+import type { PendingApproval, ThreadView } from '../lib/types';
+import { notify } from '../state/notify';
 import { Icon } from '../ui/Icon';
-import { clearBusy, useBusyStore } from './busy-store';
+import { type BusySend, clearBusy, useBusyStore } from './busy-store';
 import '../styles/cclive.css';
 
 /** How often the thread is read while a message waits, and for how long at most. */
 export const BUSY_POLL_MS = 2_000;
 export const BUSY_WAIT_MS = 10 * 60_000;
+
+/** Say no to what this thread is waiting on, then send once its turn ends. */
+async function denyAndSend(threadId: string, busy: BusySend) {
+  const waiting = (queryClient.getQueryData<PendingApproval[]>(keys.approvals) ?? []).filter(
+    (a) => a.threadId === threadId,
+  );
+  try {
+    if (waiting.length)
+      await api.post('/approvals/batch', { approval_ids: waiting.map((a) => a.id), decision: 'deny' });
+  } catch (error) {
+    notify({
+      level: 'error',
+      title: error instanceof ApiCallError ? error.body.error.title : 'Could not deny the request',
+      body:
+        error instanceof ApiCallError
+          ? error.body.error.hint
+          : 'Check that NVX Ancile is running, then try again.',
+    });
+    return;
+  }
+  void queryClient.invalidateQueries({ queryKey: keys.approvals });
+  useBusyStore.getState().set(threadId, { ...busy, state: 'waiting', since: Date.now() });
+}
 
 export function BusyNotice({ threadId, onSent }: { threadId: string; onSent: () => void }) {
   const busy = useBusyStore((s) => s.byThread[threadId]);
@@ -67,12 +92,20 @@ export function BusyNotice({ threadId, onSent }: { threadId: string; onSent: () 
 
   if (!busy) return null;
   const waiting = busy.state === 'waiting';
+  const approval = busy.reason === 'approval';
   return (
     <div className="cc-notice" data-kind="thread_busy" role={waiting ? 'status' : 'alert'}>
       <Icon name={waiting ? 'clock' : 'branch'} size={14} className="cc-notice__icon" />
       <div className="cc-notice__text">
         {waiting ? (
-          <p>Your message sends as a branch when the other window's turn ends.</p>
+          <p>
+            Your message sends as a branch when {approval ? "this turn" : "the other window's turn"} ends.
+          </p>
+        ) : approval ? (
+          <p>
+            <strong>Waiting for your approval above.</strong> Answer it, deny it and send, or send yours as a
+            branch.
+          </p>
         ) : (
           <p>
             <strong>Another window is sending in this thread.</strong> Wait for it to finish, or send yours as
@@ -86,15 +119,26 @@ export function BusyNotice({ threadId, onSent }: { threadId: string; onSent: () 
             Don't send
           </button>
         ) : (
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
-            onClick={() =>
-              useBusyStore.getState().set(threadId, { ...busy, state: 'waiting', since: Date.now() })
-            }
-          >
-            Send as a branch
-          </button>
+          <>
+            {approval ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => void denyAndSend(threadId, busy)}
+              >
+                Deny and send
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={() =>
+                useBusyStore.getState().set(threadId, { ...busy, state: 'waiting', since: Date.now() })
+              }
+            >
+              Send as a branch
+            </button>
+          </>
         )}
         {waiting ? null : (
           <button

@@ -100,4 +100,20 @@ eachBackend('per-thread send lock', (backend) => {
     ).rejects.toThrow('model refused');
     expect((await locks.acquire(other, 'win:next1111')).ok).toBe(true);
   });
+
+  it('a turn paused on an approval says so, not "another window"', async () => {
+    const thread = uid('thr');
+    expect((await locks.acquire(thread, 'win:aaaaaaaa')).ok).toBe(true);
+    const r = await run();
+    await locks.attach(thread, 'win:aaaaaaaa', r);
+    const rec = await runs.get(r);
+    if (rec) await runs.save({ ...rec, status: 'waiting_approval' }, { status: 'queued' });
+    await expect(
+      withSendLock(locks, thread, 'win:bbbbbbbb', async () => ({ run_id: 'never' })),
+    ).rejects.toMatchObject({
+      code: 'thread.busy',
+      title: 'Waiting for your approval',
+      context: { reason: 'approval' },
+    });
+  });
 });
