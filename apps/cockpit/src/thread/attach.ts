@@ -25,7 +25,7 @@
  */
 
 import type { AttachmentRecord } from '@nvx/contracts';
-import { attachableKind } from '@nvx/contracts/attachments';
+import { ATTACHMENT_LIMITS, attachableKind } from '@nvx/contracts/attachments';
 import { CLIENT_ID_HEADER } from '@nvx/contracts/engines';
 import { API_BASE, WINDOW_ID } from '../lib/api';
 
@@ -62,6 +62,13 @@ export function discardAttachment(threadId: string, id: string): void {
     credentials: 'same-origin',
     headers: { [CLIENT_ID_HEADER]: WINDOW_ID },
   }).catch(() => undefined);
+}
+
+/** Why a chip says "start only": shown on hover, not always on screen (QU1). */
+export function cutNote(r: Pick<AttachmentRecord, 'truncated'>): string | undefined {
+  return r.truncated
+    ? `Only the first ${ATTACHMENT_LIMITS.chars.toLocaleString('en-GB')} characters were read.`
+    : undefined;
 }
 
 /**

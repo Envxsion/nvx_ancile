@@ -193,6 +193,7 @@ describe('what the model reads', () => {
     });
     expect(text.match(/<\/attached_file>/g)).toHaveLength(1);
     expect(text).toContain('cut short to fit');
+    expect(text).toContain('continues past this point. Only its first');
     expect(text).not.toContain('name="x"');
   });
 

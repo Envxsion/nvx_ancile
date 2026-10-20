@@ -35,7 +35,7 @@ import type { ThreadView } from '../src/lib/types';
 import { useUploads } from '../src/sources/uploads';
 import { useNotify } from '../src/state/notify';
 import { useUi } from '../src/state/ui';
-import { chipWords } from '../src/thread/attach';
+import { chipWords, cutNote } from '../src/thread/attach';
 import { Composer } from '../src/thread/Composer';
 
 const record = (p: Partial<AttachmentRecord> = {}): AttachmentRecord => ({
@@ -309,5 +309,9 @@ describe('the words on a chip', () => {
     expect(chipWords({ kind: 'pdf', pages: 40, truncated: true })).toBe('40 pages, start only');
     expect(chipWords({ kind: 'text', pages: null, truncated: true })).toBe('start only');
     expect(chipWords({ kind: 'text', pages: null, truncated: false })).toBe('');
+  });
+  it('explain the cut on hover only', () => {
+    expect(cutNote({ truncated: true })).toBe('Only the first 200,000 characters were read.');
+    expect(cutNote({ truncated: false })).toBeUndefined();
   });
 });

@@ -19,7 +19,7 @@
 import type { AttachmentRecord } from '@nvx/contracts';
 import { Icon } from '../ui/Icon';
 import { AttachPro } from './AttachPro';
-import { chipWords } from './attach';
+import { chipWords, cutNote } from './attach';
 
 /** A file on its way to the next message: being read, then ready as a chip (CH6). */
 export interface PendingFile {
@@ -112,7 +112,7 @@ export function FileChips({
         >
           <Icon name="attach" size={12} />
           <span className="file-chip__name">{f.file.name}</span>
-          <span data-num className="mute">
+          <span data-num className="mute" title={f.record ? cutNote(f.record) : undefined}>
             {f.state === 'sending' ? 'reading' : f.record ? chipWords(f.record) : ''}
           </span>
           {inNotebook && f.state === 'ready' ? (
