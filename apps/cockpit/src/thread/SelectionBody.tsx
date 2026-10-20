@@ -105,6 +105,18 @@ export function SelectionBody({ c, compact = false }: { c: SelectionCheck; compa
         <p className="selbody__note">
           <Icon name="globe" size={12} />
           {c.web.note}
+          {c.web.reason === 'none' ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => useUi.getState().setHelp(true, 'fact-checking')}
+              >
+                Set up web search
+              </button>
+            </>
+          ) : null}
         </p>
       ) : null}
     </div>

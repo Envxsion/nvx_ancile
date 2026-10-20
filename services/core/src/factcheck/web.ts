@@ -16,13 +16,15 @@
  *           |  only titles, links and snippets: pages are never opened,
  *           |  so a dead link costs nothing. Each search goes through
  *           |  the permission gate on its real query before it leaves.
+ *           |  The search itself is SearXNG when SEARXNG_URL is set, else a
+ *           |  model's own web search (web-models.ts), within a daily cap.
  *  Note     |  Results are data from a stranger. They reach a model
  *           |  only inside the untrusted wrapper (steps.ts), and can
  *           |  only add evidence, never instructions.
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type EffectiveScope } from '@nvx/contracts';
+import { AncileError, type EffectiveScope, type WebReason } from '@nvx/contracts';
 import { retry } from '@nvx/resilience';
 import type { Gate } from '../permissions/gate';
 import { checkToolCall, keepsLocal } from '../scopes';
@@ -33,8 +35,61 @@ export interface WebHit {
   snippet: string;
 }
 
+/** Whether a web search can run now, and when not, why. */
+export type WebStatus = { ready: true; via: string } | { ready: false; reason: 'none' | 'budget' };
+
+/** What one check's web lookups did, so the card can say what happened and what it cost. */
+export interface WebTally {
+  /** Searches that answered. */
+  searches: number;
+  /** Searches that failed (the search did not answer). */
+  failed: number;
+  /** Searches the permission gate did not allow (it would have had to ask, or refused). */
+  refused: number;
+  /** A search was refused because the daily web budget was reached. */
+  budget: boolean;
+  /** What the searches cost, in USD (0 with SearXNG). */
+  costUsd: number;
+}
+
+export const newTally = (): WebTally => ({ searches: 0, failed: 0, refused: 0, budget: false, costUsd: 0 });
+
 export interface WebSearch {
-  search(query: string, signal: AbortSignal): Promise<WebHit[]>;
+  search(query: string, signal: AbortSignal, tally?: WebTally): Promise<WebHit[]>;
+  /** Absent: always ready (SearXNG). */
+  status?(): Promise<WebStatus>;
+}
+
+const NOTE = {
+  none: 'Not checked on the web: no search is set up.',
+  private: 'Not checked on the web: this notebook keeps everything on this machine.',
+  budget: 'Not checked on the web: the daily web budget is reached.',
+  failed: 'Not checked on the web: the search did not answer.',
+  refused: 'Not checked on the web: the search was not allowed.',
+} as const;
+
+/** Whether the web can be searched at all right now, for webPolicy. */
+export async function webAvailability(
+  web: WebSearch | null | undefined,
+): Promise<{ configured: boolean; why?: 'none' | 'budget' }> {
+  if (!web) return { configured: false, why: 'none' };
+  const s = await web.status?.();
+  return s && !s.ready ? { configured: false, why: s.reason } : { configured: true };
+}
+
+/** What to tell the person after a check's lookups, when something stopped them; null when all was well. */
+export function tallyOutcome(t: WebTally): { reason: WebReason; note: string } | null {
+  if (t.budget)
+    return {
+      reason: 'budget',
+      note:
+        t.searches > 0
+          ? 'Some claims were not checked on the web: the daily web budget was reached.'
+          : NOTE.budget,
+    };
+  if (t.searches === 0 && t.refused > 0) return { reason: 'blocked', note: NOTE.refused };
+  if (t.failed > 0 && t.searches === 0) return { reason: 'failed', note: NOTE.failed };
+  return null;
 }
 
 /** The site's name for a link ("example.org"); the link itself when it cannot be read. */
@@ -51,6 +106,8 @@ export interface WebDecision {
   use: boolean;
   /** Why not (or a plain note), for the card; null when the web was not wanted and nothing needs saying. */
   note: string | null;
+  /** The same as a code, so the panel can offer the right action. */
+  reason?: WebReason | null;
 }
 
 /**
@@ -64,24 +121,28 @@ export function webPolicy(a: {
   notebookWeb: boolean;
   requested: boolean | undefined;
   configured: boolean;
+  /** When not configured: no search is set up, or the daily budget is spent. */
+  why?: 'none' | 'budget';
 }): WebDecision {
   const wanted = a.notebookWeb || a.requested === true;
-  if (!wanted) return { use: false, note: null };
+  if (!wanted) return { use: false, note: null, reason: null };
   if (a.scope) {
     if (keepsLocal(a.scope))
       return {
         use: false,
-        note: 'This notebook keeps everything on this machine, so nothing was looked up on the web.',
+        note: NOTE.private,
+        reason: 'private',
       };
     const check = checkToolCall(a.scope, { action: 'web.search', resource: 'web:search/claim' });
-    if (!check.ok) return { use: false, note: `Not looked up on the web: ${check.reason}.` };
+    if (!check.ok) return { use: false, note: `Not checked on the web: ${check.reason}.`, reason: 'blocked' };
   }
   if (!a.configured)
     return {
       use: false,
-      note: 'Web search is not set up. Add a SearXNG address (SEARXNG_URL) to check claims on the web.',
+      note: a.why === 'budget' ? NOTE.budget : NOTE.none,
+      reason: a.why === 'budget' ? 'budget' : 'none',
     };
-  return { use: true, note: null };
+  return { use: true, note: null, reason: null };
 }
 
 /** Where a gated web search is being run for, so the permission decision names the real thread and run. */
@@ -103,8 +164,10 @@ export function gatedWeb(a: {
   gate: Gate | undefined;
   userId: string | undefined;
   ctx: WebContext;
+  /** Filled in as the check searches: what it cost and what stopped it. */
+  tally?: WebTally;
 }): ((query: string, signal: AbortSignal) => Promise<WebHit[] | null>) | undefined {
-  const { web, gate, userId, ctx } = a;
+  const { web, gate, userId, ctx, tally } = a;
   if (!web) return undefined;
   return async (query, signal) => {
     if (!gate || !userId) return null;
@@ -121,7 +184,22 @@ export function gatedWeb(a: {
       tool: 'factcheck.web',
       args: { query },
     });
-    return d.outcome === 'allow' ? web.search(query, signal) : null;
+    if (d.outcome !== 'allow') {
+      if (tally) tally.refused += 1;
+      return null;
+    }
+    try {
+      const hits = await web.search(query, signal, tally);
+      if (tally) tally.searches += 1;
+      return hits;
+    } catch (err) {
+      if (signal.aborted) throw err;
+      if (tally) {
+        if (err instanceof AncileError && err.code === 'factcheck.web_budget') tally.budget = true;
+        else tally.failed += 1;
+      }
+      return null;
+    }
   };
 }
 

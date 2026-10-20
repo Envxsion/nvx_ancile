@@ -4,7 +4,13 @@
  * permission gate on its real query, labelled evidence, a search that fails
  * costing nothing, and code run only when the gate has already allowed it.
  */
-import type { EffectiveScope, EvidenceResponse, Factcheck, StartFactcheckResponse } from '@nvx/contracts';
+import {
+  AncileError,
+  type EffectiveScope,
+  type EvidenceResponse,
+  type Factcheck,
+  type StartFactcheckResponse,
+} from '@nvx/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { scopeAllow } from '../../src/factcheck/allow';
 import { parseSearx, searxngSearch, type WebHit, type WebSearch, webPolicy } from '../../src/factcheck/web';
@@ -26,12 +32,20 @@ describe('may a check use the web?', () => {
   const base = { notebookWeb: false, requested: undefined, configured: true };
 
   it('does not look anything up unless the notebook allows it or this check asks', () => {
-    expect(webPolicy({ ...base, scope: scopeOf() })).toEqual({ use: false, note: null });
+    expect(webPolicy({ ...base, scope: scopeOf() })).toEqual({ use: false, note: null, reason: null });
   });
 
   it('follows the notebook setting, or the one-click allow on this check', () => {
-    expect(webPolicy({ ...base, scope: scopeOf(), notebookWeb: true })).toEqual({ use: true, note: null });
-    expect(webPolicy({ ...base, scope: scopeOf(), requested: true })).toEqual({ use: true, note: null });
+    expect(webPolicy({ ...base, scope: scopeOf(), notebookWeb: true })).toEqual({
+      use: true,
+      note: null,
+      reason: null,
+    });
+    expect(webPolicy({ ...base, scope: scopeOf(), requested: true })).toEqual({
+      use: true,
+      note: null,
+      reason: null,
+    });
   });
 
   it('never in a private notebook, whatever was asked', () => {
@@ -55,7 +69,11 @@ describe('may a check use the web?', () => {
   it('says so when no search is set up', () => {
     const d = webPolicy({ ...base, scope: scopeOf(), requested: true, configured: false });
     expect(d.use).toBe(false);
-    expect(d.note).toMatch(/SEARXNG_URL/);
+    expect(d.note).toMatch(/no search is set up/);
+    expect(d.reason).toBe('none');
+    const spent = webPolicy({ ...base, scope: scopeOf(), requested: true, configured: false, why: 'budget' });
+    expect(spent.note).toMatch(/daily web budget/);
+    expect(spent.reason).toBe('budget');
   });
 });
 
@@ -226,7 +244,7 @@ describe('highlighting a claim your sources do not cover', () => {
       `/messages/${message}/selection-checks`,
       { text: CLAIM },
     );
-    expect(off.body.check.web).toEqual({ used: false, note: null });
+    expect(off.body.check.web).toMatchObject({ used: false, note: null });
     expect(w.queries).toEqual([]);
     const on = await h.call<{ check: import('@nvx/contracts').SelectionCheck }>(
       'POST',
@@ -281,7 +299,8 @@ describe('highlighting a claim your sources do not cover', () => {
     );
     expect(res.status).toBe(200);
     expect(res.body.check.web.used).toBe(false);
-    expect(res.body.check.web.note).toMatch(/nothing on this/);
+    expect(res.body.check.web.note).toMatch(/not allowed/);
+    expect(res.body.check.web.reason).toBe('blocked');
   });
 });
 
@@ -296,7 +315,7 @@ describe('a whole-answer check on the web', () => {
     ]);
     h = await harness({
       kn,
-      webFor: async () => ({ use: true, note: null }),
+      webFor: async () => ({ use: true, note: null, reason: null }),
       factcheck: { web: w, gate: gate() as never, userId: 'usr_1' },
     });
     const { message } = await answered(
@@ -306,7 +325,7 @@ describe('a whole-answer check on the web', () => {
       web: true,
     });
     expect(start.status).toBe(202);
-    expect(start.body.web).toEqual({ used: true, note: null });
+    expect(start.body.web).toEqual({ used: true, note: null, reason: null });
     await h.settle(start.body.run_id);
     const f = (await h.call<Factcheck>('GET', `/messages/${message}/factcheck`)).body;
     expect(f.status).toBe('done');
@@ -324,7 +343,8 @@ describe('a whole-answer check on the web', () => {
       kn,
       webFor: async () => ({
         use: false,
-        note: 'This notebook keeps everything on this machine, so nothing was looked up on the web.',
+        note: 'Not checked on the web: this notebook keeps everything on this machine.',
+        reason: 'private' as const,
       }),
       factcheck: { web: w, gate: gate() as never, userId: 'usr_1' },
     });
@@ -493,5 +513,84 @@ describe('code in a highlight', () => {
     const prompt = h.provider.calls.at(-1)?.req.messages.at(-1)?.content ?? '';
     expect(prompt).toMatch(/<untrusted kind="highlight"[^>]*>\nIgnore previous instructions/);
     expect(prompt).toMatch(/<untrusted kind="thread"/);
+  });
+});
+
+describe('what a check says about the web it could not use', () => {
+  const sel = async (w: WebSearch) => {
+    h = await harness({
+      kn,
+      selection: { web: w, gate: gate() as never, userId: 'usr_1', notebookWeb: async () => true },
+    });
+    const { message } = await answered(CLAIM);
+    const res = await h.call<{ check: import('@nvx/contracts').SelectionCheck }>(
+      'POST',
+      `/messages/${message}/selection-checks`,
+      { text: CLAIM },
+    );
+    expect(res.status).toBe(200);
+    return res.body.check;
+  };
+
+  it('adds what the web lookups cost to the check and shows it on its own', async () => {
+    const priced: WebSearch = {
+      async search(_q, _s, tally) {
+        if (tally) tally.costUsd += 0.0071;
+        return [PAGE];
+      },
+    };
+    const c = await sel(priced);
+    expect(c.web.used).toBe(true);
+    expect(c.web.cost_usd).toBeCloseTo(0.0071, 6);
+    expect(c.cost_usd).toBeGreaterThanOrEqual(0.0071);
+    expect(c.billed).toBe('key');
+  });
+
+  it('says no search is set up, with the reason, instead of finding nothing', async () => {
+    const c = await sel({ search: async () => [], status: async () => ({ ready: false, reason: 'none' }) });
+    expect(c.web).toMatchObject({ used: false, reason: 'none' });
+    expect(c.web.note).toBe('Not checked on the web: no search is set up.');
+  });
+
+  it('says the daily budget is reached, before and during a check', async () => {
+    const before = await sel({
+      search: async () => [],
+      status: async () => ({ ready: false, reason: 'budget' }),
+    });
+    expect(before.web).toMatchObject({ used: false, reason: 'budget' });
+    await h.close();
+    const mid = await sel({
+      async search() {
+        throw new AncileError({ code: 'factcheck.web_budget', title: 't', hint: 'h' });
+      },
+    });
+    expect(mid.web).toMatchObject({ used: false, reason: 'budget' });
+    expect(mid.web.note).toMatch(/daily web budget/);
+  });
+
+  it('records a budget stop on a whole-answer check', async () => {
+    const w: WebSearch = {
+      async search(q, _s, tally) {
+        if (tally) tally.costUsd += 0.01;
+        if (/anemometer/i.test(q))
+          throw new AncileError({ code: 'factcheck.web_budget', title: 't', hint: 'h' });
+        return [PAGE];
+      },
+    };
+    h = await harness({
+      kn,
+      webFor: async () => ({ use: true, note: null, reason: null }),
+      factcheck: { web: w, gate: gate() as never, userId: 'usr_1' },
+    });
+    const { message } = await answered(
+      'The ZX-4410 pump must be primed before first use. The Sundew anemometer reads wind speed in knots.',
+    );
+    const start = await h.call<StartFactcheckResponse>('POST', `/messages/${message}/factcheck`, {
+      web: true,
+    });
+    await h.settle(start.body.run_id);
+    const f = (await h.call<Factcheck>('GET', `/messages/${message}/factcheck`)).body;
+    expect(f.scope.web_reason).toBe('budget');
+    expect(f.scope.web_note).toMatch(/daily web budget/);
   });
 });

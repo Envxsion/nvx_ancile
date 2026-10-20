@@ -276,7 +276,8 @@ Attaching a pack where a scope says no answers 403 with the scope's own code (`s
 | `factcheck.judge_not_allowed` | 422 | "No allowed model can fact-check this here." / The scope keeps every ready judge out (a private notebook, or nothing may leave the machine, so only a local model judges). Says each reason. Allow a model in this notebook's scope, or add a local model. |
 | `factcheck.still_writing` | 409 | "The answer is still being written." / Wait until it is done, then highlight the claim again. |
 | `factcheck.selection_too_long` | 413 | "That is too much to check at once." / Highlight up to 2,000 characters, one passage at a time. |
-| `factcheck.web_unavailable` | 503 | "The web search did not answer." / The check went on with your sources only. Check the SearXNG address (`SEARXNG_URL`) and that it is running. |
+| `factcheck.web_unavailable` | 503 | "The web search did not answer." / The check went on with your sources only. Check the key you use for web search in Settings → Models, or the SearXNG address (`SEARXNG_URL`) and that it is running. |
+| `factcheck.web_budget` | 429 | "The daily web budget is reached." / The check went on without the web. Raise `web_daily_cap_usd` in `config/factcheck.yaml`, or try again tomorrow. |
 | `factcheck.unavailable` | 503 | "Highlighted claims cannot be checked here." / Core was started without the fact-check service. Restart NVX Ancile. |
 | `factcheck.bad_output` | 502 | "No model returned a usable fact-check." / Try again, or add a stronger model for the utility and fact-check tasks. Every model in the chain answered, but not in the shape asked for. |
 | `factcheck.evidence_unavailable` | 503 | "Your sources could not be searched." / Knowledge did not answer; check it in Admin → Health, then fact-check again. |

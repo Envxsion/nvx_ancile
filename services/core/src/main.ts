@@ -110,7 +110,8 @@ import { checkSelection } from './factcheck/selection';
 import { canonicalFamily, familyFromModelId, JudgeSlots } from './factcheck/steps';
 import { PgFactcheckStore } from './factcheck/store';
 import { DECISION_TRIAGE_TIERS, fromDecisions, setTriageProvider } from './factcheck/triage';
-import { searxngSearch, webPolicy } from './factcheck/web';
+import { searxngSearch, webAvailability, webPolicy } from './factcheck/web';
+import { webSearchChain } from './factcheck/web-models';
 import { nativeProbe as filesProbe, rootSource } from './files/roots';
 import { fileRoutes } from './files/routes';
 import { FileService } from './files/service';
@@ -1165,15 +1166,22 @@ async function main() {
   // Every fact-check shares these: at most "fact-check judges at once" Claude Code sessions (Settings → Claude Code).
   const factcheckJudges = new JudgeSlots(async () => (await claudeCode.service.settings()).factcheck_judges);
   // Fact-checks on the web (FC4): the notebook's setting, this check's allow, and the scope's keep-local rules.
-  const factcheckWeb = env.SEARXNG_URL ? searxngSearch({ baseUrl: env.SEARXNG_URL }) : null;
+  // SearXNG when SEARXNG_URL is set; else a small web search through a key you already have, within a daily cap.
+  const factcheckWeb = webSearchChain({
+    models: () => registry.readyChat(),
+    secret: (name) => secrets.get(name),
+    settings,
+    capUsd: () => config.factcheck?.web_daily_cap_usd ?? 0.25,
+    searxng: env.SEARXNG_URL ? searxngSearch({ baseUrl: env.SEARXNG_URL }) : null,
+  });
   const webFor: NonNullable<Parameters<typeof startFactcheck>[0]['webFor']> = async (a) =>
     webPolicy({
+      ...(await webAvailability(factcheckWeb)),
       scope: await scopes.effective({ threadId: a.threadId }).catch(() => null),
       notebookWeb:
         config.factcheck?.web_search === true ||
         (a.notebookId ? ((await notebooks.get(a.notebookId))?.check_on_web ?? false) : false),
       requested: a.requested,
-      configured: !!factcheckWeb,
     });
   // The decision layer sorts claims into obvious, ordinary and careful; a miss is `rules`, so the rules decide and nothing blocks.
   setTriageProvider(

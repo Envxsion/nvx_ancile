@@ -290,6 +290,8 @@ export const FactcheckFile = z.object({
   weights: z.object({ support: z.number(), agreement: z.number(), retrieval: z.number() }),
   thresholds: z.object({ contradict: z.number(), verified: z.number() }),
   web_search: z.boolean().default(false),
+  /** The most web lookups through a model may cost in a day, in USD. SearXNG is not counted. 0 turns them off. */
+  web_daily_cap_usd: z.number().min(0).default(0.25),
 });
 
 /** config/retrieval.yaml: how many passages a turn is given, and how many one source may give. */

@@ -81,7 +81,7 @@ import {
 } from './steps';
 import type { FactcheckRecord, FactcheckStore } from './store';
 import { type Triage, triageClaims } from './triage';
-import { gatedWeb, type WebDecision, type WebSearch } from './web';
+import { gatedWeb, newTally, tallyOutcome, type WebDecision, type WebSearch, type WebTally } from './web';
 
 const log = logFor('factcheck');
 const BATCH = 4;
@@ -117,6 +117,8 @@ export interface FactcheckCheckpoint {
   verifier: string | null;
   /** How much model each claim needs, decided once so a resumed run does not decide again. */
   triage?: Triage[];
+  /** What the web lookups did and cost, kept so a resumed run adds to it. */
+  webTally?: WebTally;
 }
 
 export interface FactcheckDeps extends StepDeps {
@@ -217,6 +219,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
       try {
         const scope = (await deps.scopeOf?.({ threadId: input.threadId }).catch(() => null)) ?? null;
         const allow = scopeAllow(scope);
+        const tally: WebTally = cp.webTally ?? newTally();
         const webLookup: WebLookup | undefined = input.web
           ? gatedWeb({
               web: deps.web,
@@ -229,6 +232,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                 runId: run.id,
                 traceId: run.traceId,
               },
+              tally,
             })
           : undefined;
         const message = await deps.repo.getMessage(input.messageId);
@@ -282,6 +286,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
             gathered[ci] = found[k] ?? { evidence: [], coverage: 0 };
           });
           cp.gathered = gathered;
+          cp.webTally = tally;
           await ctx.checkpoint(cp);
         }
         const gathered = cp.gathered;
@@ -402,6 +407,15 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           confidence,
           verifier_model_id: cp.verifier,
           claims: stored,
+          ...(input.web && {
+            scope: {
+              web_cost_usd: tally.costUsd,
+              ...(tallyOutcome(tally) && {
+                web_note: tallyOutcome(tally)?.note ?? null,
+                web_reason: tallyOutcome(tally)?.reason ?? null,
+              }),
+            },
+          }),
         });
         await markMessage(deps.repo, input.messageId, {
           id: input.factcheckId,
@@ -499,14 +513,18 @@ export async function startFactcheck(
       return {
         record: latest,
         started: false,
-        web: { use: latest.scope.web, note: latest.scope.web_note ?? null },
+        web: {
+          use: latest.scope.web,
+          note: latest.scope.web_note ?? null,
+          reason: latest.scope.web_reason ?? null,
+        },
       };
   }
   const web: WebDecision = (await deps.webFor?.({
     threadId: message.thread_id,
     notebookId: scope.notebookId,
     requested: scope.web,
-  })) ?? { use: false, note: null };
+  })) ?? { use: false, note: null, reason: null };
   const flags = (await deps.notebookFlags?.(scope.notebookId)) ?? { critical: false, sharing: false };
   const critical = scope.critical ?? flags.critical;
   const factcheckId = `fck_${ulid()}`;
@@ -536,7 +554,13 @@ export async function startFactcheck(
     id: factcheckId,
     message_id: messageId,
     run_id: runId,
-    scope: { notebook_id: scope.notebookId, web: web.use, web_note: web.note, critical },
+    scope: {
+      notebook_id: scope.notebookId,
+      web: web.use,
+      web_note: web.note,
+      web_reason: web.reason,
+      critical,
+    },
   });
   await deps.runs.create({
     id: runId,

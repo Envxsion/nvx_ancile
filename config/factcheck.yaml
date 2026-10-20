@@ -14,3 +14,4 @@ thresholds:
   verified: 0.6         # source support at or above this (and the verifier agreeing) verifies a claim;
                         # one passage that states it outright (score ~0.95) is enough
 web_search: false       # look claims up on the web in every notebook (needs SEARXNG_URL). Off by default; a notebook turns it on with "Check on the web"
+web_daily_cap_usd: 0.25 # most web lookups through a model may cost in a day (USD). SearXNG is free and not counted. 0: no model lookups

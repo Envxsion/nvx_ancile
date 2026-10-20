@@ -55,7 +55,15 @@ import { allowedSources } from '../scopes';
 import { type MessageRecord, type ThreadRepo, textOf } from '../threads/repo';
 import { scopeAllow } from './allow';
 import { evidenceBlock, gatherEvidence, judgeChain, type StepDeps, structured } from './steps';
-import { gatedWeb, type WebDecision, type WebSearch, webPolicy } from './web';
+import {
+  gatedWeb,
+  newTally,
+  tallyOutcome,
+  type WebDecision,
+  type WebSearch,
+  webAvailability,
+  webPolicy,
+} from './web';
 
 const log = logFor('factcheck');
 
@@ -455,8 +463,9 @@ export async function checkSelection(
     scope,
     notebookWeb: thread.notebook_id ? ((await deps.notebookWeb?.(thread.notebook_id)) ?? false) : false,
     requested: input.web,
-    configured: !!deps.web,
+    ...(await webAvailability(deps.web)),
   });
+  const tally = newTally();
   const lookup = web.use
     ? gatedWeb({
         web: deps.web,
@@ -469,6 +478,7 @@ export async function checkSelection(
           runId: null,
           traceId: message.trace_id,
         },
+        tally,
       })
     : undefined;
 
@@ -535,7 +545,12 @@ export async function checkSelection(
       });
   }
   const used = webHits > 0;
-  const note = web.note ?? (web.use && webAsked && !used ? 'The web had nothing on this.' : null);
+  const stopped = tallyOutcome(tally);
+  const note =
+    web.note ??
+    stopped?.note ??
+    (web.use && webAsked && !used && tally.searches > 0 ? 'The web had nothing on this.' : null);
+  const reason = web.reason ?? stopped?.reason ?? null;
 
   const [template, wrapper] = await Promise.all([
     loadPrompt(deps.promptsDir, 'factcheck.check-selection', FALLBACK),
@@ -592,7 +607,10 @@ export async function checkSelection(
       : billing?.kind === 'plan' || isClaudeCodeModel(res.modelId)
         ? 'plan'
         : 'free';
-  const cost = billed === 'key' ? (res.costUsd ?? (res.usage && model ? priceOf(model, res.usage) : 0)) : 0;
+  const judging =
+    billed === 'key' ? (res.costUsd ?? (res.usage && model ? priceOf(model, res.usage) : 0)) : 0;
+  // The web lookups are paid on a key whatever judged, so they join the cost (and say so in who pays).
+  const cost = judging + tally.costUsd;
 
   const check: SelectionCheck = {
     id: `sck_${ulid()}`,
@@ -610,8 +628,8 @@ export async function checkSelection(
     checker_model_id: res.modelId,
     checker_family: model?.family ?? null,
     cost_usd: cost,
-    billed,
-    web: { used, note },
+    billed: billed === 'free' && tally.costUsd > 0 ? 'key' : billed,
+    web: { used, note, reason, ...(tally.costUsd > 0 && { cost_usd: tally.costUsd }) },
     ran,
     created_at: (deps.now?.() ?? new Date()).toISOString(),
   };

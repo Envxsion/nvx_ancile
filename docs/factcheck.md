@@ -78,7 +78,21 @@ It is never an essay: the judge is asked for a small JSON object with at most 70
 
 ## The web (FC4)
 
-**Check on the web** is a switch per notebook (Sources panel), off by default; **Check again with the web** allows it for one check. It is also on for every notebook when `web_search: true` is set in `config/factcheck.yaml`. Needs `SEARXNG_URL` (a SearXNG address, [configuration.md](configuration.md)).
+**Check on the web** is a switch per notebook (Sources panel), off by default; **Check again with the web** allows it for one check. It is also on for every notebook when `web_search: true` is set in `config/factcheck.yaml`. Needs a web search, which is one of these, tried in this order:
+
+| Route | Used when | Model | Price | Free allowance | Source (checked 2026-10-20) |
+|---|---|---|---|---|---|
+| SearXNG | `SEARXNG_URL` is set ([configuration.md](configuration.md)) | none | free | not limited | your own server |
+| Gemini with Google Search grounding | a Google key is ready | the cheapest ready Flash-Lite | $14 per 1,000 searches on Gemini 3 and newer ($35 on 2.5), plus tokens | 5,000 a month on Gemini 3 and newer; 1,500 a day on 2.5 | https://ai.google.dev/gemini-api/docs/pricing |
+| OpenRouter web plugin, Exa engine | an OpenRouter key is ready | the cheapest ready OpenRouter model | $0.007 per search (up to 10 results), plus tokens | none | https://openrouter.ai/docs/guides/features/plugins/web-search |
+| Anthropic web search tool | an Anthropic key is ready | the cheapest ready Claude Haiku | $10 per 1,000 searches, plus tokens | none | https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool |
+
+A model route is one small call per claim that returns titles, links and snippets, the same shape as SearXNG's, and a route that fails hands over to the next. Pages are never opened, and results are untrusted exactly as before. When none is available, the check says "Not checked on the web: no search is set up." with **Set up web search**, and never "no evidence found".
+
+- **Cost.** What a check's lookups cost is added to the check's cost (the card's footer and the receipt) and shown on its own for a whole-answer check in the Evidence tab data (`scope.web_cost_usd`).
+- **Daily cap.** Lookups through a model stop for the day once they have cost `web_daily_cap_usd` (default `0.25`, in `config/factcheck.yaml`; `0` turns them off). SearXNG is not counted. The check carries on with your sources and says "Not checked on the web: the daily web budget is reached." The day is your computer's local day.
+- **Why a check may not use the web:** no search set up, a private notebook or one that keeps data on this machine, network off or `web.search` blocked, the daily budget reached, or the search did not answer. Each is said in one line.
+- A built-in search layer is planned (roadmap WB2, 0.2.0); until then these routes are the way.
 
 - A **private notebook, or one where nothing may leave the machine,** never uses the web, whatever was asked; neither does one with the network off or `web.search` blocked. The check says why on its card and in the Evidence tab.
 - Each search goes through the permission gate on its real query (`web.search`, `web:search/<query>`). If the gate would have to ask, the check carries on without the web, never stalls. At most 8 claims of a check are looked up, only those the sources cover least, with 3 results each. A search that fails costs the check nothing.

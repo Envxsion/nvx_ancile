@@ -495,7 +495,23 @@ export function EvidencePanel() {
             </>
           ) : null}
         </p>
-        {f.scope.web_note ? <p className="mute evidence-head__by">{f.scope.web_note}</p> : null}
+        {f.scope.web_note ? (
+          <p className="mute evidence-head__by">
+            {f.scope.web_note}
+            {f.scope.web_reason === 'none' ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => useUi.getState().setHelp(true, 'fact-checking')}
+                >
+                  Set up web search
+                </button>
+              </>
+            ) : null}
+          </p>
+        ) : null}
       </header>
       {f.status === 'failed' ? (
         <p className="evidence-failed" role="alert">

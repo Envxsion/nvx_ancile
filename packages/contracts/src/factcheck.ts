@@ -89,6 +89,13 @@ export type FactcheckClaim = z.infer<typeof FactcheckClaim>;
 
 export const FactcheckStatus = z.enum(['running', 'done', 'failed']);
 
+/**
+ * Why a check did not look at the web when it was asked to: no search is set up, the notebook keeps
+ * data local, the scope blocks it, the daily web budget is spent, or the search did not answer.
+ */
+export const WebReason = z.enum(['none', 'private', 'blocked', 'budget', 'failed']);
+export type WebReason = z.infer<typeof WebReason>;
+
 export const Factcheck = z.object({
   id: z.string(),
   message_id: z.string(),
@@ -115,6 +122,10 @@ export const Factcheck = z.object({
     web: z.boolean(),
     /** Why the web was not used when it was asked for (a private notebook, no search set up); null otherwise. */
     web_note: z.string().nullable().optional(),
+    /** The same reason as a code, so the panel can offer the right action. */
+    web_reason: WebReason.nullable().optional(),
+    /** What the web lookups of this check cost (0 with SearXNG); part of the check's cost. */
+    web_cost_usd: z.number().optional(),
   }),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   /** The check ran in mission-critical mode: standard tier or better, two checkers (TR3). */
@@ -163,7 +174,9 @@ export const StartFactcheckResponse = z.object({
   run_id: z.string(),
   stream_url: z.string(),
   /** Whether this check searches the web, and why not when it was asked to (FC4). */
-  web: z.object({ used: z.boolean(), note: z.string().nullable() }).optional(),
+  web: z
+    .object({ used: z.boolean(), note: z.string().nullable(), reason: WebReason.nullable().optional() })
+    .optional(),
 });
 export type StartFactcheckResponse = z.infer<typeof StartFactcheckResponse>;
 
@@ -233,7 +246,13 @@ export const SelectionCheck = z.object({
   cost_usd: z.number(),
   billed: z.enum(['key', 'plan', 'free']),
   /** The web, as it was used: not asked for, allowed and used, or forbidden with the reason. */
-  web: z.object({ used: z.boolean(), note: z.string().nullable() }),
+  web: z.object({
+    used: z.boolean(),
+    note: z.string().nullable(),
+    reason: WebReason.nullable().optional(),
+    /** What the web lookups cost; already in cost_usd. */
+    cost_usd: z.number().optional(),
+  }),
   /** Code run in the sandbox: what it printed, or why it was not run. */
   ran: z
     .object({

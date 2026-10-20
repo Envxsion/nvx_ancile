@@ -288,7 +288,9 @@ Hover or focus a claim to see the passage behind its verdict, and open it in the
 
 **Just one claim.** Highlight any words in any message, an answer or your own, and choose **Fact-check** on the bar beside them (or press **F**). A card gives a one-line verdict, the corrected claim when it does not hold, three to five evidence lines each with its source, and one line on what would change. **Use the corrected claim** writes a follow-up in your message box and never sends it. A check uses a model from a different company than the one that wrote the words when one is ready, and checks anyway when only the writer's is. A check costs money only when you ask for it, and the card shows the cost.
 
-**On the web.** Turn on **Check on the web** in the Sources panel, or choose **Check again with the web** for one check, and claims your sources do not cover are looked up on the web and marked **Web**. A private notebook never uses the web.`,
+**On the web.** Turn on **Check on the web** in the Sources panel, or choose **Check again with the web** for one check, and claims your sources do not cover are looked up on the web and marked **Web**. A private notebook never uses the web.
+
+**Setting up web search.** Nothing to install if you already have a Google (Gemini), OpenRouter or Anthropic key: NVX Ancile uses the cheapest of them for one small lookup per claim, up to 25 cents a day by default, and the card shows what it cost. If you run SearXNG, set \`SEARXNG_URL\` and it is used instead, free. When the web could not be checked, the panel says why in one line: no search set up, a private notebook, or the daily budget reached. It never says "no evidence" for a claim it did not look up.`,
       },
       {
         id: 'why',

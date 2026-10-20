@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict } from '@nvx/contracts';
+import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict, WebReason } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { pgSafe } from '../db/json';
 
@@ -43,7 +43,14 @@ export interface FactcheckRecord {
   status: 'running' | 'done' | 'failed';
   confidence: number | null;
   verifier_model_id: string | null;
-  scope: { notebook_id: string | null; web: boolean; web_note?: string | null; critical?: boolean };
+  scope: {
+    notebook_id: string | null;
+    web: boolean;
+    web_note?: string | null;
+    web_reason?: WebReason | null;
+    web_cost_usd?: number;
+    critical?: boolean;
+  };
   error: { code: string; title: string; hint: string } | null;
   claims: StoredClaim[];
   created_at: string;
@@ -64,7 +71,13 @@ export interface FactcheckStore {
   previousFor(messageId: string, beforeId: string): Promise<FactcheckRecord | undefined>;
   finish(
     id: string,
-    r: { confidence: number | null; verifier_model_id: string | null; claims: StoredClaim[] },
+    r: {
+      confidence: number | null;
+      verifier_model_id: string | null;
+      claims: StoredClaim[];
+      /** What the web lookups turned out to be (a budget reached, a search that failed, what they cost). */
+      scope?: Partial<FactcheckRecord['scope']>;
+    },
   ): Promise<void>;
   fail(id: string, error: NonNullable<FactcheckRecord['error']>): Promise<void>;
 }
@@ -111,6 +124,8 @@ const fromRow = (r: FactcheckRow, claims: StoredClaim[]): FactcheckRecord => ({
     notebook_id: r.scope?.notebook_id ?? null,
     web: r.scope?.web === true,
     web_note: r.scope?.web_note ?? null,
+    web_reason: r.scope?.web_reason ?? null,
+    ...(r.scope?.web_cost_usd !== undefined && { web_cost_usd: r.scope.web_cost_usd }),
     critical: r.scope?.critical === true,
   },
   error: r.error,
@@ -188,7 +203,8 @@ export class PgFactcheckStore implements FactcheckStore {
       }
       await tx`
         update core.factchecks set status = 'done', confidence = ${r.confidence},
-          verifier_model_id = ${r.verifier_model_id}, finished_at = now(), error = null
+          verifier_model_id = ${r.verifier_model_id}, finished_at = now(), error = null,
+          scope = coalesce(scope, '{}'::jsonb) || ${tx.json(pgSafe(r.scope ?? {}) as never)}
         where id = ${id}`;
     });
   }
@@ -261,6 +277,7 @@ export class MemoryFactcheckStore implements FactcheckStore {
       confidence: r.confidence,
       verifier_model_id: r.verifier_model_id,
       claims: structuredClone(r.claims),
+      scope: { ...rec.scope, ...r.scope },
       finished_at: this.stamp(),
       error: null,
     });

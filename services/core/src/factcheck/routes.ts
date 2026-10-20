@@ -175,7 +175,7 @@ export function trustRoutes(deps: TrustRouteDeps) {
         factcheck_id: record.id,
         run_id: runId,
         stream_url: `/api/v1/runs/${runId}/stream`,
-        web: { used: web.use, note: web.note },
+        web: { used: web.use, note: web.note, reason: web.reason ?? null },
       },
       202,
     );
