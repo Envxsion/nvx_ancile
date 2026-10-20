@@ -67,6 +67,23 @@ describe('explicit memory requests (M2)', () => {
     });
   });
 
+  it.each([
+    ['[live test 20 Oct] Remember that my manager wants weekly updates.', 'My manager wants weekly updates.'],
+    ['(note) remember that I use metric units', 'I use metric units.'],
+    ['Note: always remember that deploys go out on Thursdays', 'Deploys go out on Thursdays.'],
+    ['ok so remember that I use pnpm', 'I use pnpm.'],
+    ['Can you remember that I use pnpm', 'I use pnpm.'],
+    ['I need this by Friday, please remember that I use metric units', 'I use metric units.'],
+    ['#todo never add a summary at the end', 'Never add a summary at the end.'],
+  ])('finds a request behind a tag or a lead-in: %j', (text, statement) => {
+    expect(detectExplicit(text)?.statement).toBe(statement);
+  });
+
+  it('still leaves reported speech and conditions alone behind a comma', () => {
+    expect(detectExplicit('He said, never do that again')).toBeNull();
+    expect(detectExplicit('If it fails, remember that I use pnpm')).toBeNull();
+  });
+
   it('stays out of a long paste', () => {
     expect(detectExplicit(`Remember that ${'word '.repeat(80)}`)).toBeNull();
   });
