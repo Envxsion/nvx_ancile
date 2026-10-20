@@ -328,5 +328,6 @@ describe('deleting a memory file', () => {
     const back = await h.call<MemoryFileContent>('GET', '/memory/files/PROJECTS/undo-me.md');
     expect(back.status).toBe(200);
     expect(back.body.content).toContain('Keep this line.');
-  });
+    // Five git commits in a row: on Windows under a full parallel run this passes 5 s.
+  }, 20_000);
 });
