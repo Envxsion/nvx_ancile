@@ -83,7 +83,7 @@ import {
   servedByOllama,
 } from './ollama-discovery';
 import { DEFAULT_SECRET } from './providers';
-import { type ChainSpec, chainFor, NoRouteError, noDearerThan, resolveChain } from './router';
+import { type ChainSpec, chainFor, isSubscription, NoRouteError, noDearerThan, resolveChain } from './router';
 import {
   assignTier,
   defaultWantFor,
@@ -965,6 +965,24 @@ export class ModelRegistry {
           standInCost(a) - standInCost(b) ||
           a.id.localeCompare(b.id),
       );
+  }
+
+  /**
+   * The ready chat model to use for a helper job when nobody chose one: the cheapest standard-tier
+   * model, else the cheapest small or tiny one, and a frontier model only when nothing else can answer.
+   * Never a plan engine while a paid or local model can. `allow` is the caller's own say (a Pro seat).
+   */
+  cheapestStandard(allow: (m: ModelConfig) => boolean = () => true): ModelConfig | undefined {
+    const pool = this.readyChat().filter((m) => allow(m));
+    const own = pool.filter((m) => !isSubscription(m));
+    const from = own.length ? own : pool;
+    for (const tier of ['balanced', 'fast', 'tiny', 'best'] as const) {
+      const hit = from
+        .filter((m) => this.tierOf(m) === tier)
+        .sort((a, b) => standInCost(a) - standInCost(b) || a.id.localeCompare(b.id))[0];
+      if (hit) return hit;
+    }
+    return undefined;
   }
 
   /**

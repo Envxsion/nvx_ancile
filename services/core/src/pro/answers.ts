@@ -191,6 +191,10 @@ export function proAnswers(deps: {
           return null;
         }
       },
+      fuserDefault() {
+        // Fusing is a helper job: the cheapest standard model, not whatever the composer is on.
+        return registry.cheapestStandard((m) => allowed(m.id))?.id ?? null;
+      },
       async complete(model, req, signal) {
         if (model && !allowed(model)) refuse(model);
         const chain = registry.chain('chat.default', model).filter((m) => allowed(m.id));

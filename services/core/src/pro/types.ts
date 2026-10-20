@@ -244,6 +244,11 @@ export interface ProAnswers {
     list(): ProModelInfo[];
     /** The model a plain chat would use now, or null when none can answer. */
     defaultChat(): string | null;
+    /**
+     * The model for a helper job that nobody chose a model for (Beam's fuser): the cheapest ready
+     * standard-tier model, else the cheapest small one; null when none can answer.
+     */
+    fuserDefault(): string | null;
     /** One answer, not streamed and not saved anywhere. Fallbacks apply. */
     complete(
       model: string | null,
