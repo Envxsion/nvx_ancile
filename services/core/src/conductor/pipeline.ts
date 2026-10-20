@@ -1237,6 +1237,18 @@ ${noted.stop.forModel}`,
         };
         let current: ModelConfig | undefined = chain[0];
         let callStarted = Date.now();
+        // A stop mid-call leaves this to be estimated (settleUnreported), as for a plain round.
+        const open = {
+          inTokens: approxTokens(
+            [req.system ?? '', ...req.messages.map((m) => m.content), JSON.stringify(req.tools ?? [])].join(
+              ' ',
+            ),
+          ),
+          outChars: 0,
+          modelId: chain[0]?.id ?? '',
+          startedAt: callStarted,
+        };
+        cp.roundOpen = open;
         for await (const ev of watched(
           deps.gateway.stream(chain, req, ctx.signal, opts),
           recorder('model'),
@@ -1244,6 +1256,7 @@ ${noted.stop.forModel}`,
           if (ev.type === 'model') {
             current = deps.registry.get(ev.modelId);
             out.modelId = ev.modelId;
+            open.modelId = ev.modelId;
           } else if (ev.type === 'fallback') {
             cp.attempts.push({ model: ev.from, reason: ev.reason, detail: ev.detail });
             await emit({
@@ -1266,13 +1279,16 @@ ${noted.stop.forModel}`,
             const c = ev.chunk;
             if (c.type === 'text') {
               out.text += c.delta;
+              open.outChars += c.delta.length;
               onDelta('text', c.delta);
             } else if (c.type === 'reasoning') {
               out.reasoning += c.delta;
+              open.outChars += c.delta.length;
               if (c.delta) onDelta('reasoning', c.delta);
             } else if (c.type === 'tool_call') {
               out.toolCalls = [...(out.toolCalls ?? []), { callId: c.callId, tool: c.tool, args: c.args }];
             } else if (c.type === 'finish') {
+              if (cp.roundOpen === open) cp.roundOpen = null;
               const spent = countCall(current, out.modelId, c, callStarted);
               callStarted = Date.now();
               out.tokensIn += c.usage.inputTokens;
@@ -1281,6 +1297,8 @@ ${noted.stop.forModel}`,
             }
           }
         }
+        // A stop ends the stream quietly: keep the call open so its cost is estimated, not lost.
+        if (cp.roundOpen === open && !ctx.signal.aborted) cp.roundOpen = null;
         return out;
       };
 
@@ -1454,20 +1472,34 @@ ${noted.stop.forModel}`,
               overrides: thread.settings.flow_overrides,
             }),
         });
-        const outcome = await executeFlow(state, withFlow(rt, state, flows.deps.store, cp.input.threadId));
-        await deltas.flush();
-        const models = state.steps.map((s) => s.model_id).filter((m): m is string => !!m);
-        cp.chain = [...new Set(models)];
-        const by = models.at(-1) ?? null;
-        if (by && cp.answeredBy !== by) {
-          cp.answeredBy = by;
-          await emit({
-            type: 'model',
-            message_id: msgId,
-            model_id: by,
-            display_name: deps.registry.get(by)?.display_name ?? by,
-          });
+        // Who answered is noted even when the turn is stopped or fails part-way: the steps that
+        // finished (and their cost) belong on the receipt, not lost with the interrupted one.
+        const noteAnswerers = async () => {
+          const models = state.steps.map((s) => s.model_id).filter((m): m is string => !!m);
+          cp.chain = [...new Set(models)];
+          const by = models.at(-1) ?? null;
+          if (by && cp.answeredBy !== by) {
+            cp.answeredBy = by;
+            await emit({
+              type: 'model',
+              message_id: msgId,
+              model_id: by,
+              display_name: deps.registry.get(by)?.display_name ?? by,
+            });
+          }
+        };
+        let outcome: Awaited<ReturnType<typeof executeFlow>>;
+        try {
+          outcome = await executeFlow(state, withFlow(rt, state, flows.deps.store, cp.input.threadId));
+        } catch (err) {
+          await deltas.flush().catch(() => undefined);
+          // A call in flight when the turn stopped has no step yet: it still paid.
+          if (!cp.answeredBy && cp.roundOpen?.modelId) cp.answeredBy = cp.roundOpen.modelId;
+          await noteAnswerers().catch(() => undefined);
+          throw err;
         }
+        await deltas.flush();
+        await noteAnswerers();
         return outcome.kind;
       };
       // ---- end Flows ----
