@@ -9,7 +9,8 @@
  *           |  that thread; on the home screen it is your default for
  *           |  new threads.
  *  How      |  Thread setting → your default (if it can answer) →
- *           |  the first model that can. Switching inside a thread
+ *           |  the routing default, else the cheapest standard model
+ *           |  that can (lib/defaultModel.ts). Switching inside a thread
  *           |  saves the setting on the thread, so earlier context
  *           |  carries over and the next message uses the new model.
  *           |  When a flow answers the thread, switching asks first:
@@ -18,7 +19,9 @@
  * ------------------------------------------------------------------
  */
 
+import type { RoutingList } from '@nvx/contracts';
 import { isClaudeCodeModel } from '@nvx/contracts/engines';
+import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { withdrawForModelChange } from '../claudecode/live';
 import { patchCc } from '../claudecode/store';
@@ -31,6 +34,7 @@ import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
 import { useModelChoice } from '../thread/ModelChoice';
 import { ApiCallError, api } from './api';
 import { canAnswer, keys, useModels, useThread } from './data';
+import { pickDefaultModel } from './defaultModel';
 import { queryClient } from './query';
 import type { ModelView, ThreadView } from './types';
 
@@ -43,15 +47,30 @@ export function useThreadIdFromRoute(): string | undefined {
 export function useCurrentModel(threadId?: string): ModelView | undefined {
   const models = useModels().data ?? [];
   const thread = useThread(threadId);
+  const demo = useUi((s) => s.demo);
   const fallbackId = useUi((s) => s.live.modelId);
   const byId = (id: string | null | undefined) => (id ? models.find((m) => m.id === id) : undefined);
   const fromThread = byId(thread.data?.model);
-  if (canAnswer(fromThread)) return fromThread;
   const fromDefault = byId(fallbackId);
-  if (canAnswer(fromDefault)) return fromDefault;
-  // Never fall into a GPU-node model by accident: asking it wakes (and bills) the node.
-  const direct = models.filter((m) => m.via !== 'controller');
-  return direct.find((m) => canAnswer(m) && !m.offline) ?? direct.find(canAnswer) ?? models.find(canAnswer);
+  const chosen = canAnswer(fromThread) ? fromThread : canAnswer(fromDefault) ? fromDefault : undefined;
+  // Routing is asked only when nothing was chosen that can answer.
+  const routingDefault = useRoutingDefault(!chosen && !demo);
+  if (chosen) return chosen;
+  // Nothing chosen: the routing default, else the cheapest standard model (lib/defaultModel.ts).
+  // Never the first one listed: a lineup that lists its dearest model first would make it the default.
+  return pickDefaultModel(models, routingDefault.data);
+}
+
+/** The first ready model of chat.default, which is what Core uses when you chose none. */
+function useRoutingDefault(enabled: boolean) {
+  return useQuery({
+    queryKey: ['routing'],
+    queryFn: () => api.get<RoutingList>('/routing').then((r) => r.items),
+    select: (items) => items.find((i) => i.task_class === 'chat.default')?.chain[0] ?? null,
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
 }
 
 /**

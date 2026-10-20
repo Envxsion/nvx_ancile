@@ -16,6 +16,7 @@
 
 import { useState } from 'react';
 import { useModels } from '../lib/data';
+import { pickDefaultModel } from '../lib/defaultModel';
 import { Icon } from '../ui/Icon';
 import { clearModelGone, useModelGoneStore } from './model-gone-store';
 import '../styles/cclive.css';
@@ -28,7 +29,10 @@ export function ModelGoneNotice({ threadId }: { threadId: string }) {
   if (!gone) return null;
 
   const ready = (models.data ?? []).filter((m) => m.chat !== false && (m.status ?? 'ready') === 'ready');
-  const preset = gone.suggested && ready.some((m) => m.id === gone.suggested) ? gone.suggested : ready[0]?.id;
+  const preset =
+    gone.suggested && ready.some((m) => m.id === gone.suggested)
+      ? gone.suggested
+      : pickDefaultModel(ready)?.id;
   const pick = picked && ready.some((m) => m.id === picked) ? picked : (preset ?? '');
 
   return (

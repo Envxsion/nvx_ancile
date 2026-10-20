@@ -611,7 +611,10 @@ function Editor({
       kind,
       id,
       { x: Math.round(at.x), y: Math.round(at.y - 40) },
-      model ?? models.list.find((m) => m.chat && m.status === 'ready')?.id,
+      model ??
+        [...models.list]
+          .filter((m) => m.chat && m.status === 'ready' && m.via !== 'controller')
+          .sort((a, b) => a.priceOut * 4 + a.priceIn - (b.priceOut * 4 + b.priceIn))[0]?.id,
     );
     if (p.type === 'model') n = { ...n, label: p.model.name } as typeof n;
     if (p.type === 'block' && n.kind === 'subflow')
