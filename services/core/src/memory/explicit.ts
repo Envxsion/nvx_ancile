@@ -12,6 +12,9 @@
  *           |  read (ownWords drops quotes, pasted blocks and code). A
  *           |  request has to open a sentence, so a sentence that only
  *           |  mentions one ("he said never do that") never counts.
+ *           |  A leading tag ("[note]", "Note:") or a polite lead
+ *           |  ("ok so", "can you") is skipped, and a request after a
+ *           |  comma or "and" counts ("..., please remember that...").
  *           |  Questions, "never mind", "don't remember that", "if I say
  *           |  remember" and sarcasm are turned away.
  *  Note     |  GR3: this decides only that the person asked. Saving is
@@ -35,7 +38,7 @@ export interface ExplicitMemory {
 }
 
 /** Words that open a sentence without changing what follows. */
-const LEAD = String.raw`(?:(?:ok|okay|also|and|so|please|hey|btw|just|oh and|one more thing|note to self)[,:]?\s+)*`;
+const LEAD = String.raw`(?:(?:ok|okay|also|and|so|please|hey|btw|just|oh and|one more thing|note to self|right|well|now|then|yeah|yes|thanks|thank you|can you|could you|would you|i want you to|i need you to|i'd like you to|you should|you need to|make sure you)[,:]?\s+)*`;
 
 const REMEMBER = new RegExp(
   String.raw`^${LEAD}(?:always\s+)?remember(?:\s+(?:to|that|this))?[,:]?\s+(?<rest>.+)$`,
@@ -71,6 +74,33 @@ const sentences = (text: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/** A tag or label in front of the sentence: "[live test 20 Oct] Remember...", "(note) Never...", "Note: always...". */
+const TAG = /^\s*(?:\[[^\]\n]{0,80}\]|\([^)\n]{0,60}\)|<[^>\n]{0,40}>|#[\w-]+)\s*[:\-–—,]?\s*/;
+const LABEL =
+  /^\s*[A-Za-z][\w ]{0,24}:\s+(?=(?:please\s+)?(?:always\s+)?(?:remember|never|don'?t ever|do not ever|from now on|going forward|in (?:the )?future)\b)/i;
+/** Where a request can start inside a longer sentence. */
+const CLAUSE = /(?:,|;|—|–|\band\b|\bso\b|\balso\b)\s+(?=\S)/g;
+/** Someone else's words, or a condition: a request after these is not the person's own. */
+const REPORTED =
+  /\b(?:he|she|they|said|says|told|tells|wrote|writes|thinks?|claims?|asked|suggested?|if|when|whenever|unless)\b/i;
+
+/** The sentence as it is, without its tags, and from each point a request could start. */
+function clauses(raw: string): string[] {
+  let s = raw;
+  for (let i = 0; i < 4; i++) {
+    const next = s.replace(TAG, '').replace(LABEL, (l) => (REPORTED.test(l) ? l : ''));
+    if (next === s) break;
+    s = next;
+  }
+  const out = [s];
+  for (const m of s.matchAll(CLAUSE)) {
+    const at = m.index ?? 0;
+    if (REPORTED.test(s.slice(0, at))) break;
+    out.push(s.slice(at + m[0].length));
+  }
+  return out;
+}
+
 const cap = (s: string) => (s ? s[0]?.toUpperCase() + s.slice(1) : s);
 const tidy = (s: string) =>
   s
@@ -86,19 +116,20 @@ export function detectExplicit(userText: string): ExplicitMemory | null {
   for (const raw of sentences(own)) {
     // A question is not an instruction; neither is a sentence that opens with a quote mark.
     if (/\?\s*$/.test(raw) || /^["'“‘`]/.test(raw)) continue;
-    const sentence = raw.replace(/[.!]+$/, '');
-
     let statement: string | null = null;
-    const rem = REMEMBER.exec(sentence);
-    if (rem?.groups) {
-      statement = tidy(rem.groups.rest ?? '');
-    } else {
-      const never = NEVER.exec(sentence);
-      const dont = never ? null : DONT_EVER.exec(sentence);
-      const now = never || dont ? null : FROM_NOW_ON.exec(sentence);
-      if (never?.groups) statement = `Never ${tidy(never.groups.rest ?? '')}`;
-      else if (dont?.groups) statement = `Never ${tidy(dont.groups.rest ?? '')}`;
-      else if (now?.groups) statement = tidy(now.groups.rest ?? '');
+    for (const clause of clauses(raw.replace(/[.!]+$/, ''))) {
+      const rem = REMEMBER.exec(clause);
+      if (rem?.groups) {
+        statement = tidy(rem.groups.rest ?? '');
+      } else {
+        const never = NEVER.exec(clause);
+        const dont = never ? null : DONT_EVER.exec(clause);
+        const now = never || dont ? null : FROM_NOW_ON.exec(clause);
+        if (never?.groups) statement = `Never ${tidy(never.groups.rest ?? '')}`;
+        else if (dont?.groups) statement = `Never ${tidy(dont.groups.rest ?? '')}`;
+        else if (now?.groups) statement = tidy(now.groups.rest ?? '');
+      }
+      if (statement) break;
     }
     if (!statement) continue;
 
