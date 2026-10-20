@@ -117,7 +117,11 @@ export function testFailed(provider: string, err: unknown, hide?: string, region
     });
   }
   // Out of credit, wrong region, a model this key may not use, a rejected key: each has a documented code.
-  const words = failureWords(seen.kind, profile, { region, regionHint: seen.regionHint === true });
+  const words = failureWords(seen.kind, profile, {
+    region,
+    regionHint: seen.regionHint === true,
+    note: seen.note,
+  });
   if (words)
     return new AncileError({
       code: words.code,

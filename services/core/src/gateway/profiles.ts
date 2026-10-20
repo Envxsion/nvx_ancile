@@ -18,7 +18,7 @@
  *           |  is a new row. Error rules are matched by
  *           |  provider-errors.ts.
  *  Note     |  Facts come from providers' own docs, researched
- *           |  16-17 Oct 2026. A rule or field marked `confirmed: false`
+ *           |  16-17 Oct 2026, and checked again on 20 Oct 2026. A rule or field marked `confirmed: false`
  *           |  was taken from memory or a third party: it is used, but
  *           |  never as proof that a key is bad. The `cache` section is
  *           |  read by gateway/cache.ts (CA5 settings, CA12 lifetimes)
@@ -42,6 +42,26 @@ export type ErrorKind =
   | 'server'
   | 'unknown';
 
+/**
+ * Why an out-of-credit style failure needs words of its own: the fix is not "top up".
+ * provider-errors.ts failureWords turns each into a title and a hint.
+ */
+export type FailureNote =
+  /** Anthropic: the tier's monthly spend cap (a 429 with no retry-after). Retrying never helps. */
+  | 'spend_cap'
+  /** Anthropic: a spend limit you set yourself (a 400). */
+  | 'own_limit'
+  /** Anthropic: a billing problem such as a failed payment (a 402). */
+  | 'billing'
+  /** Z.ai 1113: no balance, or a Coding Plan key used from a tool the plan does not cover. */
+  | 'plan_scope'
+  /** Z.ai: the Coding Plan's 5-hour, weekly or monthly cap. It never draws on the balance. */
+  | 'plan_limit'
+  /** MiniMax 2056: the plan's usage window is spent. A plan key never spends the pay-as-you-go balance. */
+  | 'plan_window'
+  /** OpenRouter: a balance below zero blocks every model, free ones too. */
+  | 'negative_balance';
+
 /** One way a provider says something went wrong. The first rule that matches wins. */
 export interface ErrorRule {
   /** HTTP statuses it applies to; omitted: any status (MiniMax errors can arrive with 200). */
@@ -57,6 +77,8 @@ export interface ErrorRule {
   confirmed: boolean;
   /** The key may belong to another region of the same provider. */
   regionHint?: boolean;
+  /** The fix is not the usual one: see FailureNote. */
+  note?: FailureNote;
 }
 
 export interface KeyPattern {
@@ -178,6 +200,10 @@ export interface ProviderProfile {
   usage: UsageProfile;
   cache: CacheProfile;
   reasoning: ReasoningProfile;
+  /** Said after "rejected the API key": a fact about this provider's key kinds that explains a wrong-looking key. */
+  keyNote?: string;
+  /** Facts from the provider's own docs that the fields above cannot hold (limits, windows, fees, where a product is sold). */
+  notes?: readonly string[];
 }
 
 // ---- Shared pieces ------------------------------------------------------
@@ -294,17 +320,34 @@ const anthropic: ProviderProfile = {
   errors: [
     // An unscoped personal key: not a bad key (AK1).
     { text: /anthropic-workspace-id/i, kind: 'invalid_request', confirmed: true },
-    { status: [402], codes: ['billing_error'], kind: 'no_credit', confirmed: true },
-    // Org or workspace spend limit you set: a 400. The "credit balance too low" wording is observed, not documented.
+    // A billing problem: a 402 (platform.claude.com/docs/en/api/errors). Not the same fix as an empty balance.
+    { status: [402], codes: ['billing_error'], kind: 'no_credit', confirmed: true, note: 'billing' },
+    // A spend limit you set yourself: a 400 that starts "You have reached your specified API usage limits".
     {
       status: [400],
-      text: /(spend(ing)? limit|usage limit|credit balance is too low|billing)/i,
+      text: /reached your specified (api )?usage limits?/i,
+      kind: 'no_credit',
+      confirmed: true,
+      note: 'own_limit',
+    },
+    // An empty balance: "Your credit balance is too low to access the Anthropic API" (a 400). The wordings here are broad, so unconfirmed.
+    {
+      status: [400],
+      text: /(credit balance is too low|spend(ing)? limit|usage limit|billing)/i,
       kind: 'no_credit',
       confirmed: false,
     },
     { status: [401], codes: ['authentication_error'], kind: 'bad_key', confirmed: true },
     { status: [403], codes: ['permission_error'], kind: 'model_not_permitted', confirmed: true },
-    // A tier's monthly spend cap arrives as a 429 with no retry-after: do not loop on it.
+    // A tier's monthly spend cap is a 429 rate_limit_error with details.error_code
+    // enforced_spend_limit_reached and no retry-after: retrying keeps failing, so it is never retried.
+    {
+      status: [429],
+      codes: ['enforced_spend_limit_reached'],
+      kind: 'no_credit',
+      confirmed: true,
+      note: 'spend_cap',
+    },
     {
       status: [429],
       text: /(monthly|spend(ing)? (cap|limit)|usage limit|workspace.*limit)/i,
@@ -342,6 +385,12 @@ const anthropic: ProviderProfile = {
     levels: ALL_EFFORTS,
     confirmed: true,
   }),
+  notes: [
+    // support.claude.com/en/articles/11145838
+    'ANTHROPIC_API_KEY set in the environment overrides a Claude Code subscription login and bills the API instead of the plan; the Claude bridge keeps it out of plan sessions (claudecode/bridge.ts BRIDGE_ENV).',
+    // platform.claude.com/docs/en/api/rate-limits
+    'Tier spend caps ($500, $1,000, $200,000 a month) reset at 00:00 UTC on the 1st; the plan credit refreshes on the billing cycle, a different clock.',
+  ],
 };
 
 const openai: ProviderProfile = {
@@ -487,8 +536,10 @@ const openrouter: ProviderProfile = {
   check: { kind: 'balance', method: 'GET', path: '/key', confirmed: true },
   modelsPath: '/models',
   errors: [
-    // Insufficient credits; may carry Retry-After when caused by an in-flight budget.
-    { status: [402], kind: 'no_credit', confirmed: true },
+    // A 402 whose reason is the in-flight budget is transient: retry later (openrouter.ai/docs/api-reference/limits).
+    { status: [402], text: /in_flight_budget_exhausted/i, kind: 'rate_limited', confirmed: true },
+    // Insufficient credits. A balance below zero gives a 402 on free models too, until credit lifts it above zero.
+    { status: [402], kind: 'no_credit', confirmed: true, note: 'negative_balance' },
     { status: [401], kind: 'bad_key', text: AUTH_BODY, confirmed: true },
     { status: [403], text: /(moderation|flagged)/i, kind: 'invalid_request', confirmed: true },
     { status: [408, 502], kind: 'server', confirmed: true },
@@ -510,6 +561,13 @@ const openrouter: ProviderProfile = {
     levels: ALL_EFFORTS,
     confirmed: true,
   }),
+  notes: [
+    // openrouter.ai/docs/api-reference/limits, /docs/faq
+    'Free models (:free) allow 20 requests a minute and 50 requests a day; 1,000 a day once you have ever bought $10 of credits. The limit counts purchases, not the balance.',
+    // openrouter.ai/docs/guides/overview/auth/byok
+    "A BYOK key costs 5% of the model's normal OpenRouter price, taken from OpenRouter credits. If every BYOK key fails or is rate limited, OpenRouter falls back to its shared capacity by default and bills credits instead.",
+    'A balance below zero blocks every model with a 402, free ones too.',
+  ],
 };
 
 const deepseek: ProviderProfile = {
@@ -547,6 +605,11 @@ const deepseek: ProviderProfile = {
   cache: autoCache({ ttl: [] }),
   // With tools, reasoning_content must come back on every later request, or the API answers 400.
   reasoning: reasoning('with_tools', 'reasoning_content'),
+  notes: [
+    // api-docs.deepseek.com pricing: peak is full price, off-peak is half.
+    'Peak (full price) is 01:00 to 04:00 and 06:00 to 10:00 UTC, Monday to Friday, excluding Chinese public holidays. Every other time, weekends included, is off-peak (half price): config/models.yaml carries the windows in UTC.',
+    'Chinese public holidays are off-peak too but cannot be known here, so those days cost less than the shown peak rate: estimates err high, never low.',
+  ],
 };
 
 const moonshot: ProviderProfile = {
@@ -591,6 +654,13 @@ const moonshot: ProviderProfile = {
     { status: [429], codes: ['exceeded_current_quota_error'], kind: 'no_credit', confirmed: true },
     { status: [429], codes: ['engine_overloaded_error'], kind: 'overloaded', confirmed: true },
     { status: [429], codes: ['rate_limit_reached_error'], kind: 'rate_limited', confirmed: true },
+    // Both an empty balance and a rate limit are a 429: the type decides. A body with no type but the balance words is still money.
+    {
+      status: [429],
+      text: /(account balance is insufficient|token quota is insufficient)/i,
+      kind: 'no_credit',
+      confirmed: true,
+    },
     {
       status: [400],
       codes: ['content_filter', 'invalid_request_error'],
@@ -610,6 +680,13 @@ const moonshot: ProviderProfile = {
   },
   cache: autoCache({ ttl: ['5m', '1h'], writeCostsExtra: true }),
   reasoning: reasoning('always', 'reasoning_content'),
+  notes: [
+    // platform.kimi.ai/docs
+    'platform.kimi.ai (api.moonshot.ai) and platform.moonshot.cn (api.moonshot.cn) are separate platforms with separate keys: save the region beside the key.',
+    'A Kimi Code membership key (api.kimi.com/coding) is a third kind of key and does not work on either platform address.',
+    'Out of balance (exceeded_current_quota_error) and a rate limit (rate_limit_reached_error) are both HTTP 429: error.type tells them apart. Repeated 429s can trip a risk control that cannot be lifted, so do not hammer.',
+    'Cache writes are billed on K3 models only; K2 models have no write fee (config/models.yaml carries each price).',
+  ],
 };
 
 const minimax: ProviderProfile = {
@@ -626,10 +703,13 @@ const minimax: ProviderProfile = {
   secret: 'MINIMAX_API_KEY',
   regionSecret: 'MINIMAX_REGION',
   needsKey: true,
-  keyHint: 'a long key; copy all of it',
+  keyHint: 'starts with sk-api- (pay-as-you-go) or sk-cp- (subscription); copy all of it',
   docsUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
-  // A long JWT-style secret (unconfirmed).
   keys: [
+    // Two wallets that are "not interchangeable" (platform.minimax.io/docs/token-plan/faq): a subscription key never spends the pay-as-you-go balance.
+    { kind: 'subscription', prefix: 'sk-cp-', usable: true, confirmed: true, distinct: true },
+    { kind: 'pay_as_you_go', prefix: 'sk-api-', usable: true, confirmed: true, distinct: true },
+    // An older long JWT-style secret (unconfirmed).
     {
       kind: 'standard',
       re: /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/,
@@ -643,7 +723,9 @@ const minimax: ProviderProfile = {
   modelsPath: '/models',
   errors: [
     // Errors can come with HTTP 200: base_resp.status_code is the truth (transport unconfirmed).
-    { codes: [1008, 2056], kind: 'no_credit', confirmed: true },
+    { codes: [1008], kind: 'no_credit', confirmed: true },
+    // 2056: the plan's 5-hour (or weekly) window is spent. Wait for the window; a top-up does not help.
+    { codes: [2056], kind: 'no_credit', confirmed: true, note: 'plan_window' },
     { codes: [2049, 1004], kind: 'bad_key', confirmed: false, regionHint: true },
     { status: [401], text: AUTH_BODY, kind: 'bad_key', confirmed: true, regionHint: true },
     { codes: [1002], kind: 'rate_limited', confirmed: true },
@@ -662,6 +744,13 @@ const minimax: ProviderProfile = {
   cache: autoCache({ minTokens: 512, writeCostsExtra: false }),
   // Keep the whole assistant message, <think> included; stripping it breaks tool loops.
   reasoning: reasoning('always', 'reasoning_content (or <think> in content)'),
+  keyNote:
+    'Subscription keys (sk-cp-) and pay-as-you-go keys (sk-api-) are separate wallets, and a mainland China key does not work on the global address.',
+  notes: [
+    // platform.minimax.io/docs/token-plan/faq
+    'A subscription key never draws on the pay-as-you-go balance, and the reverse. Plan usage runs in a 5-hour and a weekly window (video: weekly only); unused usage does not carry over.',
+    'Global (api.minimax.io) and mainland China keys are separate services.',
+  ],
 };
 
 const qwen: ProviderProfile = {
@@ -684,9 +773,14 @@ const qwen: ProviderProfile = {
   secret: 'DASHSCOPE_API_KEY',
   regionSecret: 'DASHSCOPE_REGION',
   needsKey: true,
-  keyHint: 'starts with sk-; a key only works in the region it was made in',
+  keyHint:
+    'starts with sk-; a key only works in the region it was made in. Plan keys (sk-sp-) are a separate product and never fall back to pay-as-you-go',
   docsUrl: 'https://modelstudio.console.alibabacloud.com/model/settings/api-key',
-  keys: [{ kind: 'standard', prefix: 'sk-', usable: true, confirmed: false, distinct: false }],
+  keys: [
+    // Coding Plan and Token Plan keys (help.aliyun.com model-studio token-plan, coding-plan): their own base URL, never pay-as-you-go.
+    { kind: 'plan', prefix: 'sk-sp-', usable: true, confirmed: true, distinct: true },
+    { kind: 'standard', prefix: 'sk-', usable: true, confirmed: false, distinct: false },
+  ],
   headers: none,
   check: modelsCheck('/models', false),
   modelsPath: '/models',
@@ -726,9 +820,21 @@ const qwen: ProviderProfile = {
     streamNeedsIncludeUsage: true,
     confirmed: false,
   },
-  // Implicit: 1024 minimum, hits at about 20%, no write fee. Explicit cache_control: 125% write, 10% hit.
+  // Implicit: automatic, always on, no write fee, hits at about 20%, lifetime not fixed. Explicit cache_control: 1,024 minimum,
+  // 5 minute lifetime renewed on a hit, 125% write, 10% hit.
   cache: autoCache({ mode: 'both', minTokens: 1024, ttl: ['5m'], confirmed: true }),
   reasoning: reasoning('with_tools', 'reasoning_content (with preserve_thinking)'),
+  keyNote:
+    'Plan keys (sk-sp-) work only at their own plan address, never here, and a key from one region does not work in another.',
+  notes: [
+    // alibabacloud.com/help/en/model-studio/new-free-quota
+    'The new-user free quota applies only to the Singapore region with international deployment, lasts 90 days and is per model. With "Free Quota Only" off, calls carry on at pay-as-you-go rates once it is gone.',
+    // help.aliyun.com/en/model-studio/token-plan-overview
+    'Token Plan is sold in the China (Beijing) region only, in yuan. An international key cannot use it.',
+    // help.aliyun.com coding-plan-faq, token-plan-faq
+    'A plan (Coding Plan, Token Plan) never falls back to pay-as-you-go: when it is spent, calls fail. Plan keys are for interactive coding tools, not an application backend or batch calls.',
+    'Keys are per region and cannot be used across regions; each region has its own models and prices.',
+  ],
 };
 
 const zai: ProviderProfile = {
@@ -763,10 +869,14 @@ const zai: ProviderProfile = {
   modelsPath: null,
   errors: [
     // Billing and rate limits share HTTP 429: the body's code tells them apart.
-    { status: [429], codes: [1113], kind: 'no_credit', confirmed: true },
+    // 1113 is "insufficient balance or no resource package", but using a Coding Plan key from a tool the plan does not cover
+    // is reported the same way (docs.z.ai/devpack/faq), so the words must not say only "top up".
+    { status: [429], codes: [1113], kind: 'no_credit', confirmed: true, note: 'plan_scope' },
+    // The Coding Plan's weekly or monthly limit (1310) and its 5-hour and 7-day caps (1316, 1317): a wait, never a top-up.
+    { status: [429], codes: [1310, 1316, 1317], kind: 'no_credit', confirmed: true, note: 'plan_limit' },
     {
       status: [429],
-      codes: [1308, 1309, 1310, 1312, 1313, 1314, 1315, 1316, 1317, 1318, 1319, 1320, 1321],
+      codes: [1308, 1309, 1312, 1313, 1314, 1315, 1318, 1319, 1320, 1321],
       kind: 'no_credit',
       confirmed: true,
     },
@@ -793,6 +903,12 @@ const zai: ProviderProfile = {
   },
   cache: autoCache({ confirmed: false }),
   reasoning: reasoning('with_tools', 'reasoning_content (complete and unmodified)'),
+  notes: [
+    // docs.z.ai/devpack/faq
+    "The GLM Coding Plan only works in Z.ai's officially supported tools and on its own address; it never draws on the account balance. Using it elsewhere can show as error 1113 'insufficient balance'.",
+    'Plan credits cost double at peak (Monday to Friday, 06:00 to 10:00 UTC) and half off peak.',
+    'Z.ai (api.z.ai) and BigModel (open.bigmodel.cn) are separate platforms with separate keys.',
+  ],
 };
 
 const xai: ProviderProfile = {
@@ -853,7 +969,9 @@ const mistral: ProviderProfile = {
     { status: [429], kind: 'rate_limited', confirmed: true },
   ],
   usage: { ...OPENAI_USAGE, write: [] },
-  cache: autoCache({ confirmed: true }),
+  // Caching is opt-in: a prompt_cache_key on requests that share a prefix (gateway/cache.ts sends it). Blocks of 64 tokens,
+  // cached tokens at 10% of input; no lifetime is published.
+  cache: autoCache({ mode: 'explicit', blockTokens: 64, confirmed: true }),
   reasoning: reasoning('none', null, false),
 };
 

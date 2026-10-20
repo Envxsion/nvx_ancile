@@ -38,7 +38,8 @@ export interface ProcResult {
 
 export interface SpawnOptions {
   timeoutMs: number;
-  env?: Record<string, string>;
+  /** Merged over this process's environment; a name set to undefined is left out. */
+  env?: Record<string, string | undefined>;
   maxBytes?: number;
 }
 
@@ -256,6 +257,14 @@ export interface ClaudeCliOptions {
 }
 
 /** Claude Code as Core sees it: where it is, which version, signed in or not. */
+/**
+ * A stray ANTHROPIC_API_KEY (or auth token) in this process's environment takes over from the
+ * person's own Claude Code login, so `auth status` would report API-key sign-in and a session
+ * would bill that key. Commands run here are for the person's own login only; Node leaves out
+ * variables set to undefined. CR1's credit models pass their key to one bridge session instead.
+ */
+const PLAN_LOGIN_ONLY = { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined } as const;
+
 export class ClaudeCli {
   private cache: { at: number; status: CliStatus } | null = null;
   private inflight: Promise<CliStatus> | null = null;
@@ -281,7 +290,7 @@ export class ClaudeCli {
   async run(args: string[], timeoutMs: number): Promise<ProcResult & { located: Located | null }> {
     const at = this.where();
     if (!at) return { code: 127, stdout: '', stderr: 'not installed', timedOut: false, located: null };
-    const env = (await this.opts.env?.()) ?? {};
+    const env = { ...((await this.opts.env?.()) ?? {}), ...PLAN_LOGIN_ONLY };
     const r = await this.spawner(at.cmd, [...at.prefix, ...args], { timeoutMs, env });
     return { ...r, located: at };
   }
@@ -292,7 +301,7 @@ export class ClaudeCli {
     if (!at) return null;
     const env = (await this.opts.env?.()) ?? {};
     const child = spawn(at.cmd, [...at.prefix, ...args], {
-      env: { ...process.env, ...env },
+      env: { ...process.env, ...env, ...PLAN_LOGIN_ONLY },
       stdio: 'ignore',
       detached: process.platform !== 'win32',
       windowsHide: false,

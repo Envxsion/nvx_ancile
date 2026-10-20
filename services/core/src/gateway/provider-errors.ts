@@ -28,6 +28,7 @@ import {
   CREDIT_BODY_RE,
   type ErrorKind,
   type ErrorRule,
+  type FailureNote,
   otherRegions,
   type ProviderProfile,
   REGION_BODY_RE,
@@ -43,6 +44,8 @@ export interface ProviderErrorResult {
   suspectBadKey?: boolean;
   /** The matching rule is confirmed in the provider's docs. */
   confirmed: boolean;
+  /** The fix is not the usual one (a spend cap, a plan window...): failureWords gives it words. */
+  note?: FailureNote;
 }
 
 /** The longest Retry-After kept; a provider asking for more is treated as "later", not waited for. */
@@ -106,6 +109,9 @@ export function readBody(body: unknown, message = ''): ReadBody {
             addCode(codes, r.code);
           }
         }
+    // Anthropic: error.details.error_code (enforced_spend_limit_reached), which is an object, not a list.
+    for (const holder of [top, err ?? {}, asRecord(top.details) ?? {}, asRecord(err?.details) ?? {}])
+      addCode(codes, holder.error_code);
     // MiniMax: a non-zero base_resp.status_code, even on HTTP 200.
     const base = asRecord(top.base_resp);
     if (base && typeof base.status_code === 'number' && base.status_code !== 0)
@@ -157,8 +163,13 @@ export function classifyProviderError(
   const waited = (r: ProviderErrorResult): ProviderErrorResult =>
     r.kind === 'rate_limited' || r.kind === 'overloaded' || r.kind === 'server' ? { ...r, ...wait } : r;
   // CR1: on a key that draws on the plan's monthly credit, "out of credit" means that credit is spent.
+  // A tier spend cap or a limit you set yourself is not the plan credit running out, so those stay as they are.
   const done = (r: ProviderErrorResult): ProviderErrorResult =>
-    waited(ctx.planCredit && r.kind === 'no_credit' ? { ...r, kind: 'credit_exhausted' } : r);
+    waited(
+      ctx.planCredit && r.kind === 'no_credit' && r.note !== 'spend_cap' && r.note !== 'own_limit'
+        ? { ...r, kind: 'credit_exhausted' }
+        : r,
+    );
 
   for (const rule of profile.errors) {
     if (rule.status && !rule.status.includes(status)) continue;
@@ -174,7 +185,12 @@ export function classifyProviderError(
         );
       return done({ kind: 'bad_key', confirmed: true, ...(rule.regionHint && { regionHint: true }) });
     }
-    return done({ kind: rule.kind, confirmed: rule.confirmed, ...(rule.regionHint && { regionHint: true }) });
+    return done({
+      kind: rule.kind,
+      confirmed: rule.confirmed,
+      ...(rule.regionHint && { regionHint: true }),
+      ...(rule.note && { note: rule.note }),
+    });
   }
 
   // Nothing in the profile matched: a conservative default by status.
@@ -280,22 +296,65 @@ export interface FailureWords {
 }
 
 /**
+ * Words for the failures whose fix is not "top up" (docs/errors.md, provider.no_credit). Each is from the
+ * provider's own docs: Anthropic's errors and rate-limits pages, Z.ai's Coding Plan FAQ, MiniMax's plan FAQ,
+ * OpenRouter's limits page.
+ */
+const NOTE_WORDS: Record<FailureNote, (name: string) => { title: string; hint: string }> = {
+  spend_cap: (name) => ({
+    title: `${name} has stopped requests at your monthly spend cap`,
+    hint: `Retrying will not help. The cap resets at 00:00 UTC on the 1st of the month: until then pick another model, or check your limits in the Claude Console.`,
+  }),
+  own_limit: (name) => ({
+    title: `You have reached the usage limit you set at ${name}`,
+    hint: `Raise the limit in the Claude Console, or pick another model.`,
+  }),
+  billing: (name) => ({
+    title: `${name} reports a billing problem`,
+    hint: `Check Plans and Billing in the Claude Console: a payment may have failed. Then try again, or pick another model.`,
+  }),
+  plan_scope: (name) => ({
+    title: `${name} says there is no balance or resource package`,
+    hint: `Top up at ${name}. If this is a GLM Coding Plan key, it can also mean the plan was used from a tool it does not cover: the plan only works in its supported tools, so use a pay-as-you-go API key here.`,
+  }),
+  plan_limit: (name) => ({
+    title: `Your ${name} Coding Plan quota is used up`,
+    hint: 'The plan never draws on your account balance, so topping up will not help. Wait for the plan to reset (5-hour, weekly and monthly caps), or pick another model.',
+  }),
+  plan_window: (name) => ({
+    title: `Your ${name} plan has no usage left in this window`,
+    hint: 'Plan usage runs in 5-hour and weekly windows, and a plan key never spends your pay-as-you-go balance, so topping up will not help. Wait for the next window, or pick another model.',
+  }),
+  negative_balance: (name) => ({
+    title: `${name} says your account is out of credit`,
+    hint: `Add credit at ${name}. While the balance is below zero every model is blocked, free ones too. Then try again, or pick another model.`,
+  }),
+};
+
+/**
  * The documented words for a kind (docs/errors.md), or null when the kind has
  * no code of its own. `model` names the model that was refused, when known.
  */
 export function failureWords(
   kind: ErrorKind,
   profile: ProviderProfile,
-  ctx: { model?: string | undefined; region?: string | null | undefined; regionHint?: boolean } = {},
+  ctx: {
+    model?: string | undefined;
+    region?: string | null | undefined;
+    regionHint?: boolean;
+    note?: FailureNote | undefined;
+  } = {},
 ): FailureWords | null {
   const name = profile.name;
   switch (kind) {
-    case 'no_credit':
+    case 'no_credit': {
+      const special = ctx.note ? NOTE_WORDS[ctx.note](name) : null;
       return {
         code: 'provider.no_credit',
-        title: `${name} says your account is out of credit`,
-        hint: `Top up at ${name}, or pick another model.`,
+        title: special?.title ?? `${name} says your account is out of credit`,
+        hint: special?.hint ?? `Top up at ${name}, or pick another model.`,
       };
+    }
     case 'credit_exhausted':
       return {
         code: 'provider.credit_exhausted',
@@ -320,12 +379,13 @@ export function failureWords(
       };
     case 'bad_key': {
       const others = ctx.regionHint ? otherRegions(profile, ctx.region).map((r) => r.label) : [];
+      const hint = others.length
+        ? `Check you copied the whole key, and that it is active. A key only works in the region it was made in: if it is for ${others.join(' or ')}, change the region beside the key.`
+        : 'Check you copied the whole key, and that it is active in your provider account.';
       return {
         code: 'provider.auth_failed',
         title: `${name} rejected the API key`,
-        hint: others.length
-          ? `Check you copied the whole key, and that it is active. A key only works in the region it was made in: if it is for ${others.join(' or ')}, change the region beside the key.`
-          : 'Check you copied the whole key, and that it is active in your provider account.',
+        hint: profile.keyNote ? `${hint} ${profile.keyNote}` : hint,
       };
     }
     default:

@@ -38,7 +38,9 @@ const roomy = async () => ({ bavail: 1e9, bsize: 4096 });
 const tools = { dump: 'pg_dump', restore: 'pg_restore', from: 'pg0' as const };
 
 /** pg_dump that writes a file where --file= says, and remembers how it was called. */
-function fakeDump(calls: { cmd: string; args: string[]; env?: Record<string, string> }[]): Spawner {
+function fakeDump(
+  calls: { cmd: string; args: string[]; env?: Record<string, string | undefined> }[],
+): Spawner {
   return async (cmd, args, opts) => {
     calls.push({ cmd, args, ...(opts.env && { env: opts.env }) });
     const file = args.find((a) => a.startsWith('--file='))?.slice(7);

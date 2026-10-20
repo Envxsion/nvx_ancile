@@ -99,6 +99,18 @@ describe('status through the CLI', () => {
     await cli.status(true);
     expect(runs).toBe(4);
   });
+
+  it('never lets a stray Anthropic key in the environment stand in for the person’s own login', async () => {
+    const envs: (Record<string, string | undefined> | undefined)[] = [];
+    const spawn: Spawner = async (_cmd, _args, opts) => {
+      envs.push(opts.env);
+      return { code: 0, stdout: '{}', stderr: '', timedOut: false };
+    };
+    const cli = new ClaudeCli({ spawn, locate: () => ({ path: 'c', cmd: 'c', prefix: [] }) });
+    await cli.run(['auth', 'status', '--json'], 1000);
+    expect(envs[0]).toHaveProperty('ANTHROPIC_API_KEY', undefined);
+    expect(envs[0]).toHaveProperty('ANTHROPIC_AUTH_TOKEN', undefined);
+  });
 });
 
 describe('finding Claude Code', () => {

@@ -358,6 +358,7 @@ export function wrap(
     ...(ctx.model && { model: ctx.model }),
     region: ctx.region,
     ...(seen.regionHint && { regionHint: true }),
+    ...(seen.note && { note: seen.note }),
   });
   const status = seen.status || e.statusCode;
   return new ClassifiedError(cls, e.message ?? String(err), {
