@@ -113,6 +113,8 @@ export function assembleExplain(input: {
   modelName: (id: string | null) => string | null;
   /** The thread's effective scope, for scope reasons (optional). */
   scope?: EffectiveScope | null;
+  /** The memory entries the answer was given, as words (the route resolves them from the index). */
+  memoryUsed?: Explain['memory_used'];
 }): Explain {
   const m = input.message;
   const p = (m.provenance ?? {}) as Record<string, unknown>;
@@ -172,6 +174,7 @@ export function assembleExplain(input: {
     },
     attempts,
     memory: memory.success ? memory.data : null,
+    memory_used: input.memoryUsed ?? [],
     retrieval: retrieval.success ? retrieval.data : null,
     retrieval_error: re?.code ? { code: String(re.code), title: String(re.title ?? '') } : null,
     tools: pairTools(m.parts, input.decisions, input.actionOf, input.scope),

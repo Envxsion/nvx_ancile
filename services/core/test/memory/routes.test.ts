@@ -289,9 +289,12 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
   });
 
   it('reads and changes how capture behaves', async () => {
-    expect((await h.call('GET', '/memory/settings')).body).toEqual({ capture: 'auto_confident' });
+    expect((await h.call('GET', '/memory/settings')).body).toEqual({
+      capture: 'auto_confident',
+      passive: true,
+    });
     const r = await h.call('PUT', '/memory/settings', { capture: 'off' });
-    expect(r.body).toEqual({ capture: 'off' });
+    expect(r.body).toEqual({ capture: 'off', passive: true });
     expect((await h.call('PUT', '/memory/settings', { capture: 'sometimes' })).status).toBe(400);
     await h.call('PUT', '/memory/settings', { capture: 'auto_confident' });
   });

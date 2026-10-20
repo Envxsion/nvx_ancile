@@ -10,6 +10,7 @@ Ancile remembers what you tell it, what it learns from your corrections, and wha
 | `USER.md` | Your preferences | Corrections you make, and you |
 | `PROJECTS/<notebook>.md` | A notebook's goal, decisions, findings and open questions | Notebook threads, and you |
 | `FAILURES/<topic>.md` | Lessons from things that failed and were then fixed | Runs that recovered |
+| `STANDARDS/<who>.md` | A standard learned from an example of someone else's work ("how my manager writes updates") | Examples you share, after your yes |
 | `MODELS/<model>.md` | Quirks of a particular model | Usage statistics |
 
 New kinds of memory are added in `config/memory.yaml`; no code is needed.
@@ -40,6 +41,25 @@ Before writing, Ancile compares the new entry with the closest existing ones. It
 
 **Your own explicit request is yours (GR3).** Say "remember that I use metric units", "never add a summary", or "from now on answer in French" and it is saved at once, in any capture mode except Off (with capture Off it waits in the inbox, so it is never lost). A note under your message says **Saved to memory** with **Undo**. The detector (`services/core/src/memory/explicit.ts`) reads only your own words: quoted lines, pasted blocks and code are ignored, and it turns away questions ("do you remember that?"), "never mind", negations ("don't remember that"), "if I say remember" and sarcasm. A request has to open a sentence, so "he said never do that" is not one. "Remember..." and "from now on..." are kept under *Preferences*, "never..." under *Restrictions* in `USER.md`, or in the notebook's file when you say "in this notebook". The rule is enforced in code, not in a prompt: `applyPolicy` honours the explicit flag only for content whose provenance is `user_message`. Text from a source, a tool or another model can only propose.
 
+**Things said in passing (passive memory).** Say "I prefer tabs", "my manager is Dana" or "we deploy on Fridays" and NVX Ancile may keep it without being asked. It looks when a thread has been quiet for five minutes (`IDLE_MS`), not on every turn:
+
+1. A rules gate reads only your own words (quotes, pastes and code are left out, and so is everything the assistant said). A thread that said nothing about you costs nothing: no model is asked.
+2. Otherwise one batched call on the cheap tier (`memory.detector`, then `utility`) reads those sentences, at most 2,000 tokens, and returns candidate statements. Each must cite a turn it was shown and be about what that turn said.
+3. A fact said once waits in the inbox as a suggestion ("Noticed in passing, said once."). Said again in another message, in this thread or another, it is saved without a yes, with a note and Undo. The commit lists both mentions ("Also said in thread ..., message ..."), and the earlier suggestion is withdrawn. The count is the mention ledger (`memory.passive.ledger` in settings): statements are matched by wording (word overlap 0.75), and mentions older than 60 days drop out.
+4. At most one look per thread every ten minutes and twenty an hour.
+
+It is on by default. Switch it off under **Admin → Memory → Learn from things said in passing**. In a private notebook it is off unless you allow it in Settings → Private notebooks, or a model on this computer or your own GPU node can do it, in which case only that model is used and nothing leaves the machine (`privacy.resolve('passive_memory')`, `must_run_local`). With learning set to **Do not learn** or **Always ask**, passive memory never saves on its own: it proposes.
+
+**Learning from examples.** Show it work that is the bar to aim for: "this is how my manager writes updates" with the update pasted or attached, ideally with "this is mine" and your own. NVX Ancile finds the person (`senior dev`, `manager`, `lead`, `client`...), tells their piece from yours, and makes one standard-tier call to distil a short standard (3 to 8 rules on structure, tone and length) and, if you showed yours, how it differs. These are suggestions in the inbox, filed under `STANDARDS/<who>.md`. They are **always** suggestions, even if you said "learn this": pasted text can carry instructions, so a rule a model wrote from it is never saved without your yes (provenance `source_content`, which `applyPolicy` never auto-applies). The example's text is shown to the model as data to describe, never as instructions; rules that read like orders or contain links or credentials are dropped. The example is kept as a reference (the message and any file names) in the entry's `src`, not copied.
+
+**Compare with a standard.** On a message, the menu beside Copy has **Compare with a standard**. One call sets your work against the closest standard (or the one you pick through the API) and returns a short summary, the differences and suggested edits, citing the standard entry (`POST /api/v1/memory/compare`).
+
+**Mistakes.** When you correct an answer, the correction detector also writes what happened as a lesson: "When asked X. I did: Y. You wanted: Z." in `FAILURES/answer-corrections.md`. The first time it is a suggestion; the same mistake corrected again is saved. This adds no model call: the lesson comes with the correction that was already being read. TODO(phase-5): lessons from a thumbs-down and regenerate, once thumbs-down carries a reason.
+
+**Taking something back.** "Actually no, scrap that, I have moved to US-style dates", "ignore what I said about...", "not any more", "changed my mind" count as corrections even with no answer to reply to. The new statement replaces the closest entry on the same subject: the old one moves under Superseded with a pointer. If the reversal taught memory nothing clear, a quiet note says **Nothing changed in memory** with **Update memory**, which saves what that message said (your click is the request, so it is kept with Undo).
+
+**Tags and lead-ins.** "[note] Remember that...", "Note: never...", "ok so remember that..." and "..., please remember that..." all count as an explicit request. Reported speech ("he said, never do that") and conditions ("if it fails, remember...") still do not.
+
 **Lessons need two sightings (proved or suggested).** A lesson learned from a run (a failure then a fix, a project finding, a model quirk) is not a rule the first time. Seen once it waits in the inbox under **Watching**, with its uncertainty written in ("Seen once. The cause is not clear, so it may be a coincidence."). Seen again, it becomes an ordinary suggestion (or is kept, if the type auto-applies), with both cases as evidence. It also skips the wait when its evidence is checked: the same fix worked at least twice in the turn and the cause is stated. A watch item that is never seen again lapses after 90 days (`WATCH_DAYS`). You can trust one early (**Trust it now**) or turn it down. What you state yourself, a correction or an explicit request, never waits.
 
 **Where it is kept.** Approving a suggestion in the inbox or under an answer lets you choose **You** (`USER.md`), **This notebook** (the notebook the thread was in) or **Everywhere** (`AGENTS.md`), or any memory file. **This notebook** is off, with the reason, when the thread was not in a notebook, the notebook was deleted, or the thread is gone. Lessons and model quirks are kept by topic, so they offer only a file.
@@ -59,7 +79,7 @@ Before every model call, Ancile builds a memory block:
 
 Memory gets at most 8% of the model's context window, capped at 4,000 tokens (configurable per notebook). When it doesn't all fit, whole entries are dropped by priority, then confidence, then age, never mid-sentence. The block tells the model these are notes, not orders, and that your current request wins.
 
-To see exactly what will be injected before you send, open **Memory → Preview** from the composer menu. After a reply, the "why" panel lists the files, the commit and the entries that were used.
+To see exactly what will be injected before you send, open **Memory → Preview** from the composer menu. After a reply, the "why" panel starts with **Used:** and the entries that shaped the answer, in words, each linking to its file (the commit it was read at is in the tooltip); the Memory fold lists the files, commits and entries in full. An entry edited or removed since is left out of the line.
 
 ## Every change is a commit
 

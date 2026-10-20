@@ -253,7 +253,11 @@ export type MemorySearchResult = z.infer<typeof MemorySearchResult>;
 
 /** How capture behaves; set in onboarding, changed in Settings or on the Memory page. */
 export const MemorySettings = z
-  .object({ capture: z.enum(['auto_confident', 'propose_all', 'off']) })
+  .object({
+    capture: z.enum(['auto_confident', 'propose_all', 'off']),
+    /** Learn from things said in passing (on when absent). Private notebooks follow Settings → Private notebooks. */
+    passive: z.boolean().optional(),
+  })
   .strict();
 export type MemorySettings = z.infer<typeof MemorySettings>;
 
@@ -402,3 +406,29 @@ export const HindsightResponse = z.object({
   summarised: z.boolean(),
 });
 export type HindsightResponse = z.infer<typeof HindsightResponse>;
+
+/* ---- Standards: compare your work with one ------------------------------------------ */
+
+export const CompareRequest = z
+  .object({
+    /** The message whose text is the person's work. */
+    message_id: z.string().min(1),
+    /** A standard to use (STANDARDS/manager.md); absent: the closest one. */
+    path: z.string().min(1).max(200).optional(),
+    key: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+export type CompareRequest = z.infer<typeof CompareRequest>;
+
+export const CompareResponse = z.object({
+  /** The standard entry the comparison cites. */
+  standard: z.object({ path: z.string(), key: z.string(), text: z.string(), commit: z.string() }),
+  summary: z.string(),
+  differences: z.array(z.object({ point: z.string(), yours: z.string(), standard: z.string() })),
+  suggestions: z.array(z.string()),
+});
+export type CompareResponse = z.infer<typeof CompareResponse>;
+
+/** "Update memory" under a note that nothing changed: save what the person said in that message. */
+export const UpdateFromMessageRequest = z.object({ message_id: z.string().min(1) }).strict();
+export type UpdateFromMessageRequest = z.infer<typeof UpdateFromMessageRequest>;

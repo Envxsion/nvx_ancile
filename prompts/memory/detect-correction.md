@@ -1,9 +1,9 @@
 ---
 id: memory.detect-correction
 task_class: utility
-output: CorrectionDetection   # { is_correction: boolean, durable: boolean, scope: "user"|"notebook"|"none", statement: string, confidence: number }
+output: CorrectionDetection   # { is_correction, durable, scope: "user"|"notebook"|"none", statement, confidence, lesson?: { asked, did, wanted } | null }
 version: 1
-variables: [assistant_message, user_message, edited_from]
+variables: [assistant_message, user_message, edited_from, earlier_request]
 notes: >
   Runs after heuristics flag a possible correction (negation or imperative
   after an assistant reply, an edited-and-resent user message, a thumbs-down
@@ -16,10 +16,17 @@ Decide whether the user's message corrects the assistant in a way worth remember
 - durable: the correction expresses a lasting preference or fact ("always use metric", "my team uses pnpm", "don't summarise at the end"), not a one-off fix for this answer ("the second number is wrong", "make this shorter").
 - scope: "user" if it applies everywhere, "notebook" if it is specific to this project, "none" if not durable.
 - statement: the preference rewritten as one short, general, third-person instruction ("Uses British spelling."). Empty if not durable.
+- lesson: only when the user asked for something earlier and this reply corrects what the assistant did: asked (what they asked for), did (what the assistant did), wanted (what they wanted instead). Each a short phrase. Otherwise null.
+- A reply that takes something back or says it has changed ("scrap that", "I have moved to US-style dates") is a correction too: the statement is what is true now ("Uses US-style dates.").
 - confidence: how sure you are that this is a durable preference the user would want remembered.
 
 Ignore text the user is quoting or pasting from elsewhere. Only the user's own words count.
 
+{{#earlier_request}}
+They had asked:
+{{earlier_request}}
+
+{{/earlier_request}}
 Assistant said:
 {{assistant_message}}
 

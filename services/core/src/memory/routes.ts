@@ -17,6 +17,7 @@
  */
 
 import {
+  CompareRequest,
   MemoryExportFormat,
   MemoryImportDecision,
   MemoryImportRequest,
@@ -25,6 +26,7 @@ import {
   ProposalDecisionRequest,
   type ProposalStatus,
   PutMemoryFileRequest,
+  UpdateFromMessageRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { z } from 'zod';
@@ -73,12 +75,23 @@ export function memoryRoutes(deps: MemoryRouteDeps) {
 
   r.get('/memory/files', async (c) => c.json(await service.files()));
 
-  r.get('/memory/settings', async (c) => c.json({ capture: await service.captureMode() }));
+  r.get('/memory/settings', async (c) =>
+    c.json({ capture: await service.captureMode(), passive: await service.passiveEnabled() }),
+  );
   r.put('/memory/settings', async (c) => {
     const req = await body(c, MemorySettings);
     await service.setCaptureMode(req.capture);
-    return c.json({ capture: await service.captureMode() });
+    if (req.passive !== undefined) await service.setPassive(req.passive);
+    return c.json({ capture: await service.captureMode(), passive: await service.passiveEnabled() });
   });
+
+  /** Compare a message's work with a standard learned from an example: one call. */
+  r.post('/memory/compare', async (c) => c.json(await service.compare(await body(c, CompareRequest))));
+
+  /** "Update memory" under the note that nothing changed after a reversal. */
+  r.post('/memory/update-from', async (c) =>
+    c.json(await service.updateFromMessage((await body(c, UpdateFromMessageRequest)).message_id)),
+  );
 
   r.get('/memory/files/*', async (c) => {
     const version = c.req.query('version');

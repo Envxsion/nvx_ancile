@@ -801,6 +801,7 @@ async function main() {
     settings,
     bus: events,
     utility: utilityFrom({ gateway, registry, promptsDir: resolve(env.ANCILE_PROMPTS_DIR) }),
+    privacy,
     threads,
     notebook: async (id) => {
       const n = await notebooks.get(id);
@@ -1963,6 +1964,7 @@ async function main() {
         modelName: (id) => (id ? (registry.get(id)?.display_name ?? null) : null),
         actionOf: (tool) => tools.get(tool)?.action,
         scopeOf: (ref) => scopes.effective(ref),
+        memoryEntry: (path, key) => memory.entryUsed(path, key),
         integrity,
         webFor,
         preflight: (a) => preflightJudge({ registry, scopeOf: (ref) => scopes.effective(ref) }, a),

@@ -429,6 +429,14 @@ export const GlobalEvent = z.discriminatedUnion('type', [
   }),
   z.object({
     ...base,
+    /** Memory heard what sounded like a reversal ("scrap that", "I've moved to...") and changed nothing. */
+    type: z.literal('memory.unchanged'),
+    message_id: z.string(),
+    thread_id: z.string(),
+    reason: z.literal('reversal'),
+  }),
+  z.object({
+    ...base,
     type: z.literal('node.operation'),
     operation_id: z.string(),
     node_id: z.string(),

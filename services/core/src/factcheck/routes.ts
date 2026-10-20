@@ -55,6 +55,11 @@ export interface TrustRouteDeps {
   actionOf: (tool: string) => string | undefined;
   /** The thread's effective scope, for the Why view's scope reasons (docs/scopes.md). */
   scopeOf?: (ref: { threadId: string }) => Promise<EffectiveScope>;
+  /** A memory entry as words, for the "Used:" line of the Why view (memory/service.ts entryUsed). */
+  memoryEntry?: (
+    path: string,
+    key: string,
+  ) => { path: string; key: string; text: string; commit: string } | null;
   /** What became of cited sources since (track G); without it, citations read "unknown". */
   integrity?: SourceIntegrity;
   /** May this check use the web? Decided from the notebook's setting, this check's allow and the scope (FC4). */
@@ -69,6 +74,23 @@ export interface TrustRouteDeps {
   selection?: {
     run(input: CheckInput, signal: AbortSignal): Promise<StartSelectionCheckResponse>;
   };
+}
+
+/** The memory entries an answer was given, as words; an entry edited or removed since is left out. */
+export function memoryUsedOf(provenance: unknown, lookup: TrustRouteDeps['memoryEntry']) {
+  if (!lookup) return [];
+  const files = (provenance as { memory?: { files?: { path?: unknown; entries?: unknown }[] } } | null)
+    ?.memory?.files;
+  if (!Array.isArray(files)) return [];
+  const out: NonNullable<ReturnType<NonNullable<TrustRouteDeps['memoryEntry']>>>[] = [];
+  for (const f of files)
+    if (typeof f.path === 'string' && Array.isArray(f.entries))
+      for (const k of f.entries)
+        if (typeof k === 'string') {
+          const e = lookup(f.path, k);
+          if (e) out.push(e);
+        }
+  return out.slice(0, 12);
 }
 
 export function trustRoutes(deps: TrustRouteDeps) {
@@ -214,6 +236,7 @@ export function trustRoutes(deps: TrustRouteDeps) {
         actionOf: deps.actionOf,
         modelName: deps.modelName,
         scope,
+        memoryUsed: memoryUsedOf(m.provenance, deps.memoryEntry),
       }),
     );
   });

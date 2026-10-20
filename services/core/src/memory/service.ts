@@ -20,6 +20,8 @@
 
 import {
   AncileError,
+  type CompareRequest,
+  type CompareResponse,
   type HindsightResponse,
   type MemoryCommit,
   type MemoryEntryView,
@@ -41,6 +43,7 @@ import type { z } from 'zod';
 import { pathFor } from '../conductor/context';
 import type { EventBus } from '../events/bus';
 import { logFor } from '../obs/logger';
+import type { PrivacyPolicies } from '../privacy/policy';
 import { SETTING, type SettingsStore } from '../settings';
 import { type ThreadRepo, textOf } from '../threads/repo';
 import {
@@ -59,10 +62,25 @@ import {
   PROMPTS,
   ReconcileOutput,
   reconcileLocally,
+  reversalSignal,
   scrubPaths,
   staleStatement,
   topicSlug,
 } from './capture';
+import {
+  COMPARE_CHARS,
+  COMPARE_PROMPT,
+  CompareResult,
+  checkRubric,
+  detectExample,
+  differenceText,
+  type ExampleDetection,
+  exampleBlock,
+  STANDARD_PROMPT,
+  StandardRubric,
+  standardPath,
+  standardText,
+} from './examples';
 import { detectExplicit } from './explicit';
 import { addEntry, type EntryMeta, parseMemory, renderMemory, supersedeEntry, updateEntry } from './format';
 import {
@@ -80,6 +98,22 @@ import { checkReview, condense, HINDSIGHT_PROMPT, HindsightReview, turnsOf } fro
 import { type IndexedEntry, indexFile, isGuideFile, type MemoryIndex, similarity } from './index';
 import { buildMemoryPack, type InjectFile, type MemoryPack, memoryBudget } from './inject';
 import type { Utility } from './llm';
+import {
+  condensePassive,
+  emptyLedger,
+  IDLE_MS,
+  type Ledger,
+  type Mention,
+  PASSIVE_MAX_ITEMS,
+  PASSIVE_PROMPT,
+  PassiveReview,
+  parseLedger,
+  passiveTurns,
+  recordMention,
+  SweepLimiter,
+  statementsIn,
+  worthAsking,
+} from './passive';
 import type { ProposalStore } from './proposals';
 import {
   formatCommitMessage,
@@ -122,6 +156,14 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
       auto_apply: 0,
       top_k: 5,
     },
+    standards: {
+      path: 'STANDARDS/*.md',
+      scope: 'retrieved',
+      priority: 55,
+      budget_share: 0.1,
+      auto_apply: null,
+      top_k: 3,
+    },
     models: { path: 'MODELS/{model}.md', scope: 'model', priority: 50, budget_share: 0.08, auto_apply: 0.9 },
   },
 };
@@ -146,6 +188,13 @@ export interface MemoryServiceDeps {
   notebook?: (id: string) => Promise<NotebookInfo | null>;
   /** The clock, so watch items can be aged in tests. */
   now?: () => Date;
+  /** Private notebooks: may passive memory learn here, and must it use a model on this machine? */
+  privacy?: Pick<PrivacyPolicies, 'resolve'>;
+  /**
+   * How long a thread is quiet before it is looked at for things said in passing, in
+   * milliseconds. 0 turns the timer off (tests call passiveSweep themselves). Default: IDLE_MS.
+   */
+  idleMs?: number;
 }
 
 /** What the conductor hands over after a turn. */
@@ -200,6 +249,15 @@ const KIND_LABEL: Record<MemoryProposal['kind'], string> = {
   imported: 'imported',
 };
 
+/** What the commit says detected the change. */
+function kindLabel(p: MemoryProposal, repeated: boolean): string {
+  if (p.target_path.startsWith('STANDARDS/')) return 'standard from an example';
+  if (p.rationale.startsWith('Noticed in passing'))
+    return repeated ? 'said more than once' : 'noticed in passing';
+  if (p.rationale.startsWith('Learned from a correction')) return repeated ? 'mistake said twice' : 'mistake';
+  return KIND_LABEL[p.kind];
+}
+
 function globToRegExp(pattern: string): RegExp {
   const esc = pattern
     .replace(/[.+^$()|[\]\\]/g, '\\$&')
@@ -209,7 +267,16 @@ function globToRegExp(pattern: string): RegExp {
 }
 
 export class MemoryService {
-  constructor(private readonly deps: MemoryServiceDeps) {}
+  private privacy: MemoryServiceDeps['privacy'];
+
+  constructor(private readonly deps: MemoryServiceDeps) {
+    this.privacy = deps.privacy;
+  }
+
+  /** Where private-notebook rules come from; set once the privacy policies exist (and by tests). */
+  setPrivacy(privacy: MemoryServiceDeps['privacy']): void {
+    this.privacy = privacy;
+  }
 
   get provider() {
     return this.deps.provider;
@@ -567,6 +634,7 @@ export class MemoryService {
     if (path === 'AGENTS.md') return 'Rules';
     if (path.startsWith('PROJECTS/')) return 'Decisions';
     if (path.startsWith('FAILURES/')) return 'Lessons';
+    if (path.startsWith('STANDARDS/')) return 'Standards';
     if (path.startsWith('MODELS/')) return 'Quirks';
     return p.section || 'Notes';
   }
@@ -640,6 +708,10 @@ export class MemoryService {
       const topic = path.slice(9, -3).replace(/-/g, ' ');
       return `---\ntype: failures\nscope: retrieved\nupdated: ${date}\n---\n# ${topic.charAt(0).toUpperCase()}${topic.slice(1)}\n\n## Lessons\n`;
     }
+    if (path.startsWith('STANDARDS/')) {
+      const who = path.slice(10, -3).replace(/-/g, ' ');
+      return `---\ntype: standards\nscope: retrieved\nupdated: ${date}\n---\n# Standard: ${who}\n\n## Standards\n`;
+    }
     if (path.startsWith('MODELS/')) {
       return `---\ntype: models\nscope: model\nupdated: ${date}\n---\n# ${path.slice(7, -3).replace(/__/g, '/')}\n\n## Quirks\n`;
     }
@@ -680,6 +752,15 @@ export class MemoryService {
     const thread = ev?.thread_id
       ? await this.deps.threads?.getThread(ev.thread_id).catch(() => undefined)
       : undefined;
+    // Said more than once (passive memory): every mention is listed, so the commit shows both.
+    const later = p.evidence
+      .slice(1)
+      .filter((e) => e.thread_id || e.message_id)
+      .map(
+        (e) =>
+          `Also said in thread ${e.thread_id ?? 'unknown'}${e.message_id ? `, message ${e.message_id}` : ''}.`,
+      );
+    const label = kindLabel(p, later.length > 0);
     const body = [
       ...(ev?.thread_id
         ? [
@@ -688,7 +769,8 @@ export class MemoryService {
         : ev?.run_id
           ? [`From run ${ev.run_id}.`]
           : []),
-      `Detected: ${KIND_LABEL[p.kind]} · confidence ${meta.conf} · ${auto ? 'auto-applied' : 'approved'}`,
+      ...later,
+      `Detected: ${label} · confidence ${meta.conf} · ${auto ? 'auto-applied' : 'approved'}`,
     ];
     const r = await provider.writeDetailed({
       path,
@@ -736,7 +818,18 @@ export class MemoryService {
           )
           .catch(() => null)
       : null;
-    const d = checkDecision(out ?? null, c.text, neighbours);
+    let d = checkDecision(out ?? null, c.text, neighbours);
+    // A reversal replaces the closest entry on the same subject, even when the words differ.
+    if (c.reversal && (d.op === 'add' || d.op === 'update')) {
+      const best = this.deps.index.search(c.text, { path: c.targetPath, limit: 1, min: 0.12 })[0];
+      if (best)
+        d = {
+          op: 'supersede',
+          targetKey: best.key,
+          text: c.text,
+          rationale: 'You took back or changed what was remembered, so this replaces it.',
+        };
+    }
     const verdict = applyPolicy(c, d, spec ? spec.auto_apply : null, mode);
     if (verdict === 'skip' || d.op === 'noop') return null;
 
@@ -752,7 +845,7 @@ export class MemoryService {
       text: asEntry(cleanEntry(d.text)),
       target_key: target?.key ?? null,
       target_text: target?.text ?? null,
-      rationale: d.rationale,
+      rationale: c.note ? `${c.note} ${d.rationale}` : d.rationale,
     };
 
     // M8, proved or suggested: a lesson from a run needs a second sighting or checked evidence.
@@ -1034,6 +1127,433 @@ export class MemoryService {
     };
   }
 
+  /* ---- Passive memory -------------------------------------------------------- */
+
+  async passiveEnabled(): Promise<boolean> {
+    return (await this.deps.settings?.get<boolean>(SETTING.memoryPassive).catch(() => undefined)) !== false;
+  }
+
+  async setPassive(on: boolean): Promise<void> {
+    await this.deps.settings?.set(SETTING.memoryPassive, on);
+  }
+
+  private readonly sweeps = new SweepLimiter();
+  private ledgerLock: Promise<unknown> = Promise.resolve();
+
+  /** Read, change and save the mention ledger one change at a time. */
+  private async withLedger<T>(fn: (l: Ledger) => Promise<{ ledger: Ledger; out: T }>): Promise<T> {
+    const run = this.ledgerLock.then(async () => {
+      const settings = this.deps.settings;
+      const raw = settings
+        ? await settings.get<unknown>(SETTING.memoryPassiveLedger).catch(() => null)
+        : null;
+      const { ledger, out } = await fn(raw ? parseLedger(raw) : emptyLedger());
+      await settings?.set(SETTING.memoryPassiveLedger, ledger);
+      return out;
+    });
+    this.ledgerLock = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Must a call about this notebook run on this machine? (A private notebook never reaches a cloud model.) */
+  private async localOnlyFor(notebookId: string | null | undefined): Promise<boolean> {
+    if (!notebookId || !this.privacy) return false;
+    const a = await this.privacy.resolve('cloud_models', { notebookId }).catch(() => null);
+    return !!a && !a.allowed;
+  }
+
+  /**
+   * Count that the person said something, and file it: a proposal the first time, saved
+   * without a yes when this is a second, independent mention (another message, this thread
+   * or another). The earlier proposal for the same fact is withdrawn so the inbox has one.
+   */
+  private async mentioned(
+    statement: string,
+    mention: Mention,
+    build: (repeated: boolean, evidence: CaptureCandidate['evidence']) => CaptureCandidate,
+    nb: NotebookInfo | null | undefined,
+  ): Promise<MemoryProposal | null> {
+    return this.withLedger(async (ledger) => {
+      const r = recordMention(ledger, statement, mention, this.now());
+      if (r.entry.saved) return { ledger: r.ledger, out: null };
+      const evidence = r.entry.mentions.map((m) => ({ threadId: m.thread_id, messageId: m.message_id }));
+      const p = await this.consider(build(r.repeated, evidence), { notebook: nb });
+      if (p) {
+        const earlier = r.entry.proposal_id;
+        if (earlier && earlier !== p.id) {
+          const old = await this.deps.proposals.get(earlier);
+          if (old?.status === 'proposed')
+            await this.deps.proposals.update(earlier, { status: 'rejected', decided: true });
+        }
+        if (p.status === 'auto_applied' || p.status === 'applied') r.entry.saved = true;
+        else if (!earlier || earlier !== p.id) r.entry.proposal_id = p.id;
+      }
+      return { ledger: r.ledger, out: p };
+    });
+  }
+
+  /**
+   * Look back over what the person said in a quiet thread, for things worth remembering.
+   * Free when there is nothing to find: the rules gate runs first and no model is asked
+   * for a thread that said nothing about the person. Otherwise one batched call over their
+   * own words (2,000 tokens at most) on the cheap tier, or on a local model only when the
+   * notebook is private and a local model is what makes it allowed.
+   */
+  async passiveSweep(
+    threadId: string,
+  ): Promise<{ asked: boolean; filed: number; saved: number; skipped?: string }> {
+    const none = (skipped: string) => ({ asked: false, filed: 0, saved: 0, skipped });
+    const threads = this.deps.threads;
+    if (!threads || !this.deps.utility) return none('no_model');
+    if (!(await this.passiveEnabled())) return none('off');
+    if ((await this.captureMode()) === 'off') return none('capture_off');
+    const thread = await threads.getThread(threadId).catch(() => undefined);
+    if (!thread) return none('thread_gone');
+
+    const all = await threads.messages(threadId);
+    const head = thread.active_head_id ?? all.at(-1)?.id;
+    const path = head ? pathFor(all, head) : [];
+    const users = path.filter((m) => m.role === 'user');
+    const ledger0 = parseLedger(
+      await this.deps.settings?.get<unknown>(SETTING.memoryPassiveLedger).catch(() => null),
+    );
+    const doneId = ledger0.done[threadId];
+    const at = doneId ? users.findIndex((m) => m.id === doneId) : -1;
+    const fresh = users.slice(at + 1);
+    const turnOf = (m: (typeof users)[number], n: number) => ({
+      n,
+      messageId: m.id,
+      // A message that shows someone else's work as an example is handled by examples.ts.
+      user: detectExample(textOf(m.parts), m.parts) ? '' : textOf(m.parts),
+      assistant: '',
+      tools: [] as string[],
+    });
+    const turns = passiveTurns(fresh.map((m, i) => turnOf(m, i + 1)));
+    const markDone = async () => {
+      const last = users.at(-1)?.id;
+      if (!last) return;
+      await this.withLedger(async (l) => ({
+        ledger: {
+          ...l,
+          done: { ...Object.fromEntries(Object.entries(l.done).slice(-400)), [threadId]: last },
+        },
+        out: null,
+      }));
+    };
+    // The gate: nothing said about the person, nothing asked, nothing spent.
+    if (!worthAsking(turns)) {
+      await markDone();
+      return none('quiet');
+    }
+
+    // Private notebooks: only if the person allowed it, or a local model can do it.
+    let localOnly = false;
+    if (thread.notebook_id && this.privacy) {
+      const a = await this.privacy.resolve('passive_memory', { notebookId: thread.notebook_id });
+      if (!a.allowed) return none('private');
+      localOnly = a.must_run_local;
+    }
+    const nowMs = this.now().getTime();
+    if (!this.sweeps.allow(threadId, nowMs)) return none('rate_limited');
+
+    const nb = thread.notebook_id ? await this.deps.notebook?.(thread.notebook_id).catch(() => null) : null;
+    const shown = condensePassive(turns);
+    this.sweeps.record(threadId, nowMs);
+    const review = await this.deps.utility.json(PASSIVE_PROMPT, { turns: shown.text }, PassiveReview, {
+      maxOutputTokens: 500,
+      taskClasses: ['memory.detector'],
+      ...(localOnly && { localOnly: true }),
+    });
+    if (!review) return { asked: true, filed: 0, saved: 0, skipped: 'no_answer' };
+
+    const byTurn = new Map(turns.map((t) => [t.n, t]));
+    let filed = 0;
+    let saved = 0;
+    const seen = new Set<string>();
+    for (const it of review.items) {
+      const t = byTurn.get(it.turn);
+      const statement = asEntry(cleanEntry(it.statement));
+      // It must cite a turn it was shown and be about what that turn said, or it is dropped.
+      if (!t || !shown.shown.includes(it.turn) || statement.length < 8 || seen.has(statement.toLowerCase()))
+        continue;
+      if (similarity(statement, t.user) < 0.1) continue;
+      seen.add(statement.toLowerCase());
+      if (filed + saved >= PASSIVE_MAX_ITEMS) break;
+      const project = it.scope === 'notebook' && nb;
+      const p = await this.mentioned(
+        statement,
+        { thread_id: threadId, message_id: t.messageId, at: this.now().toISOString() },
+        (repeated, evidence) => ({
+          kind: 'preference',
+          targetPath: project ? `PROJECTS/${nb.slug}.md` : 'USER.md',
+          section: project ? 'Decisions' : 'Preferences',
+          text: statement,
+          confidence: it.confidence,
+          evidence: evidence.map((e) =>
+            e.messageId === t.messageId ? { ...e, quote: statementsIn(t.user).join(' ').slice(0, 300) } : e,
+          ),
+          provenance: 'user_message',
+          passive: true,
+          repeated,
+          note: repeated ? 'Noticed in passing, and said more than once.' : 'Noticed in passing, said once.',
+        }),
+        nb,
+      );
+      if (p?.status === 'auto_applied') saved++;
+      else if (p) filed++;
+    }
+    await markDone();
+    log.info({ thread_id: threadId, shown: shown.shown.length, filed, saved }, 'passive memory sweep done');
+    return { asked: true, filed, saved };
+  }
+
+  /* ---- Learning from an example ---------------------------------------------- */
+
+  /**
+   * The person showed someone else's work as the standard (and maybe their own). One
+   * standard-tier call distils a short rubric. It is always a proposal: pasted text can
+   * carry instructions, so a rule written from it is never saved without a yes. The
+   * example is kept as a reference (the message and file names), not copied.
+   */
+  private async learnExample(
+    turn: TurnRecord,
+    ex: ExampleDetection,
+    userText: string,
+    nb: NotebookInfo | null | undefined,
+  ): Promise<void> {
+    if (!this.deps.utility) return;
+    const rubric = checkRubric(
+      await this.deps.utility
+        .json(
+          STANDARD_PROMPT,
+          {
+            role: ex.role,
+            theirs: exampleBlock(ex.theirs),
+            mine: ex.mine.length ? exampleBlock(ex.mine) : '',
+          },
+          StandardRubric,
+          {
+            maxOutputTokens: 700,
+            taskClasses: ['chat.default'],
+            ...((await this.localOnlyFor(turn.notebookId)) && { localOnly: true }),
+          },
+        )
+        .catch(() => null),
+    );
+    if (!rubric) return;
+    const path = standardPath(ex.role);
+    const files = [...ex.theirs, ...ex.mine].filter((p) => p.from !== 'pasted block').map((p) => p.from);
+    const intro = ownWords(userText).slice(0, 240);
+    const evidence = [
+      {
+        threadId: turn.threadId,
+        messageId: turn.userMessageId,
+        runId: turn.runId,
+        quote: `${intro}${files.length ? ` (files: ${files.join(', ')})` : ''}`,
+      },
+    ];
+    const base = {
+      kind: 'preference' as const,
+      targetPath: path,
+      section: 'Standards',
+      evidence,
+      // Content the person shared, not their own rule: proposed whatever else is true.
+      provenance: 'source_content' as const,
+      note: ex.asked
+        ? 'Distilled from an example you asked to learn from.'
+        : 'Distilled from an example you shared.',
+    };
+    await this.consider(
+      { ...base, text: standardText(ex.role, rubric), confidence: Math.min(rubric.confidence, 0.8) },
+      { notebook: nb },
+    );
+    const diff = differenceText(ex.role, rubric);
+    if (diff && ex.mine.length)
+      await this.consider(
+        { ...base, section: 'Your work', text: diff, confidence: Math.min(rubric.confidence, 0.7) },
+        { notebook: nb },
+      );
+  }
+
+  /**
+   * Compare a piece of the person's work with a standard they have kept: one call, a short
+   * list of differences and suggested edits, citing the standard entry.
+   */
+  async compare(req: CompareRequest): Promise<CompareResponse> {
+    const threads = this.deps.threads;
+    const m = await threads?.getMessage(req.message_id);
+    if (!threads || !m)
+      throw new AncileError({
+        code: 'memory.message_not_found',
+        title: 'That message does not exist',
+        hint: 'It may have been deleted. Pick another message.',
+        status: 404,
+        errorClass: 'permanent',
+      });
+    const work = [textOf(m.parts), ...m.parts.flatMap((p) => (p.type === 'file' && p.text ? [p.text] : []))]
+      .join('\n\n')
+      .trim()
+      .slice(0, COMPARE_CHARS);
+    const live = this.deps.index.live('STANDARDS/');
+    const chosen =
+      req.path && req.key
+        ? this.deps.index.find(req.path, req.key)
+        : (this.deps.index.search(work, { prefix: 'STANDARDS/', limit: 1 })[0] ?? live[0]);
+    if (!chosen || chosen.superseded)
+      throw new AncileError({
+        code: 'memory.no_standard',
+        title: 'There is no standard to compare with yet',
+        hint: 'Show NVX Ancile an example of work you want to match ("this is how my manager writes updates") and keep the standard it suggests.',
+        status: 404,
+        errorClass: 'permanent',
+      });
+    if (!work)
+      throw new AncileError({
+        code: 'memory.nothing_to_compare',
+        title: 'That message has no text to compare',
+        hint: 'Pick a message with the work in it, or attach the file to it.',
+        status: 422,
+        errorClass: 'permanent',
+      });
+    const out = await this.deps.utility
+      ?.json(COMPARE_PROMPT, { standard: chosen.text, work }, CompareResult, {
+        maxOutputTokens: 900,
+        taskClasses: ['chat.default'],
+        ...((await this.localOnlyFor(
+          (
+            await threads.getThread(m.thread_id).catch(() => undefined)
+          )?.notebook_id,
+        )) && { localOnly: true }),
+      })
+      .catch(() => null);
+    if (!out)
+      throw new AncileError({
+        code: 'memory.compare_unavailable',
+        title: 'The comparison could not be done',
+        hint: 'No model answered, or its answer could not be read. Check that a default model is set up, then try again.',
+        status: 503,
+        errorClass: 'transient',
+      });
+    return {
+      standard: { path: chosen.path, key: chosen.key, text: chosen.text, commit: chosen.commit },
+      summary: out.summary,
+      differences: out.differences,
+      suggestions: out.suggestions,
+    };
+  }
+
+  /* ---- Mistakes -------------------------------------------------------------- */
+
+  /**
+   * The person corrected an answer: what was asked, what was done, what they wanted. A proposal
+   * the first time; saved when it happens again (another message, this thread or another).
+   */
+  private async learnMistake(
+    turn: TurnRecord,
+    lesson: { asked: string; did: string; wanted: string },
+    userText: string,
+    nb: NotebookInfo | null | undefined,
+  ): Promise<void> {
+    const clean = (x: string) => cleanEntry(x).replace(/[.\s]+$/, '');
+    const asked = clean(lesson.asked);
+    const did = clean(lesson.did);
+    const wanted = clean(lesson.wanted);
+    if (asked.length < 4 || did.length < 4 || wanted.length < 4) return;
+    const text = `**When asked ${asked}.** I did: ${did}. You wanted: ${wanted}.`;
+    await this.mentioned(
+      `${asked} ${wanted}`,
+      { thread_id: turn.threadId, message_id: turn.userMessageId, at: this.now().toISOString() },
+      (repeated, evidence) => ({
+        kind: 'failure_lesson',
+        targetPath: 'FAILURES/answer-corrections.md',
+        section: 'Lessons',
+        text,
+        confidence: 0.75,
+        evidence: evidence.map((e) =>
+          e.messageId === turn.userMessageId ? { ...e, runId: turn.runId, quote: userText.slice(0, 300) } : e,
+        ),
+        provenance: 'user_message',
+        passive: true,
+        repeated,
+        note: 'Learned from a correction of an answer.',
+      }),
+      nb,
+    );
+  }
+
+  /**
+   * "Update memory": the person asks for what they said in this message to be kept, after
+   * memory heard a reversal and changed nothing. Their click is the request (GR3), so it is
+   * saved with a note and Undo, replacing the nearest entry on the same subject.
+   */
+  async updateFromMessage(messageId: string): Promise<MemoryProposal> {
+    const threads = this.deps.threads;
+    const m = await threads?.getMessage(messageId);
+    if (!threads || !m || m.role !== 'user')
+      throw new AncileError({
+        code: 'memory.message_not_found',
+        title: 'That message does not exist',
+        hint: 'It may have been deleted. Pick another message.',
+        status: 404,
+        errorClass: 'permanent',
+      });
+    const own = ownWords(textOf(m.parts));
+    const det = await this.deps.utility
+      ?.json(
+        PROMPTS.detect,
+        { assistant_message: '', user_message: own.slice(0, 2_000), edited_from: '' },
+        CorrectionDetection,
+      )
+      .catch(() => null);
+    // Without a model: the last sentence that is not only taking something back.
+    const fallback = own
+      .split(/(?<=[.!])\s+/)
+      .map((x) => x.trim())
+      .filter((x) => x && !reversalOnly(x))
+      .at(-1);
+    const statement = det?.statement?.trim() || fallback;
+    if (!statement)
+      throw new AncileError({
+        code: 'memory.nothing_to_save',
+        title: 'There is nothing in that message to save',
+        hint: 'Say what is true now ("I use US-style dates") and it will be saved.',
+        status: 422,
+        errorClass: 'permanent',
+      });
+    const thread = await threads.getThread(m.thread_id).catch(() => undefined);
+    const nb = thread?.notebook_id ? await this.deps.notebook?.(thread.notebook_id).catch(() => null) : null;
+    const p = await this.consider(
+      {
+        kind: 'preference',
+        targetPath: 'USER.md',
+        section: 'Preferences',
+        text: asEntry(statement),
+        confidence: 0.9,
+        evidence: [{ threadId: m.thread_id, messageId, quote: own.slice(0, 300) }],
+        provenance: 'user_message',
+        explicit: true,
+        reversal: true,
+        note: 'You asked for this to be updated.',
+      },
+      { notebook: nb },
+    );
+    if (!p)
+      throw new AncileError({
+        code: 'memory.nothing_to_save',
+        title: 'That is already what memory says',
+        hint: 'Nothing needed changing.',
+        status: 409,
+        errorClass: 'permanent',
+      });
+    return p;
+  }
+
+  /** An entry as words, with the commit it was read at: for the "Used:" line of an answer. */
+  entryUsed(path: string, key: string): { path: string; key: string; text: string; commit: string } | null {
+    const e = this.deps.index.find(path, key);
+    return e && !e.superseded ? { path, key, text: e.text, commit: e.commit } : null;
+  }
+
   /* ---- Capture --------------------------------------------------------------- */
 
   /** After a turn is saved: learn from it, in the background. */
@@ -1041,9 +1561,49 @@ export class MemoryService {
     const done = this.capture(turn).catch((err) => {
       log.warn({ err, thread_id: turn.threadId }, 'memory capture failed; nothing learned from this turn');
     });
+    this.track(done);
+    this.armIdle(turn.threadId);
+    return done;
+  }
+
+  private track(p: Promise<unknown>) {
+    const done = p.then(
+      () => undefined,
+      () => undefined,
+    );
     this.capturing.add(done);
     void done.finally(() => this.capturing.delete(done));
-    return done;
+  }
+
+  private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** (Re)start the quiet timer for a thread. When it runs out, the thread is looked at once. */
+  private armIdle(threadId: string) {
+    const ms = this.deps.idleMs ?? IDLE_MS;
+    if (ms <= 0) return;
+    clearTimeout(this.idleTimers.get(threadId));
+    const t = setTimeout(() => {
+      this.idleTimers.delete(threadId);
+      this.track(this.onIdle(threadId));
+    }, ms);
+    t.unref?.();
+    this.idleTimers.set(threadId, t);
+  }
+
+  /**
+   * A thread has been quiet. The one place idle work hangs from: passive memory today;
+   * TODO(phase-5): project findings for a notebook thread.
+   */
+  async onIdle(threadId: string): Promise<void> {
+    await this.passiveSweep(threadId).catch((err) =>
+      log.warn({ err, thread_id: threadId }, 'passive memory failed; nothing learned this time'),
+    );
+  }
+
+  /** Stop the timers (a clean shutdown). */
+  stop() {
+    for (const t of this.idleTimers.values()) clearTimeout(t);
+    this.idleTimers.clear();
   }
 
   private readonly capturing = new Set<Promise<void>>();
@@ -1106,10 +1666,20 @@ export class MemoryService {
     }
     if (off) return;
 
-    // 1. A correction of the assistant, in the user's own words.
-    if (!ask && user && threads && this.deps.utility) {
+    // 0b. Someone else's work shown as the bar to aim for: a standard, proposed (never saved unasked).
+    const example = user && userText ? detectExample(userText, user.parts) : null;
+    if (example)
+      await this.learnExample(turn, example, userText, nb).catch((err) =>
+        log.warn({ err, thread_id: turn.threadId }, 'could not learn a standard from the example'),
+      );
+
+    // 1. A correction of the assistant, in the user's own words. Taking something back
+    //    ("scrap that", "I've moved to...") counts even with no answer to reply to.
+    const reversal = reversalSignal(userText);
+    let heard = false;
+    if (!ask && !example && user && threads && this.deps.utility) {
       const original = user.edit_of_id ? await threads.getMessage(user.edit_of_id) : undefined;
-      let assistant: { parts: Part[]; role: string } | undefined;
+      let assistant: { parts: Part[]; role: string; parent_id?: string | null } | undefined;
       if (original) {
         const all = await threads.messages(turn.threadId);
         assistant = all.find((m) => m.parent_id === original.id && m.role === 'assistant');
@@ -1119,6 +1689,10 @@ export class MemoryService {
       }
       const assistantText = assistant ? textOf(assistant.parts) : null;
       const editedFrom = original ? textOf(original.parts) : null;
+      // What was asked before the answer being corrected: the "asked" of a lesson.
+      const askedId = assistant?.parent_id;
+      const asker = askedId ? await threads.getMessage(askedId) : undefined;
+      const earlierRequest = asker?.role === 'user' ? ownWords(textOf(asker.parts)) : null;
       if (correctionSignal({ userText, assistantText, editedFrom })) {
         // The model sees only what the user wrote themselves: quotes, pasted
         // blocks and code are someone else's words and must not become memory.
@@ -1129,9 +1703,15 @@ export class MemoryService {
             assistant_message: (assistantText ?? '').slice(0, 2_000),
             user_message: own.slice(0, 2_000),
             edited_from: editedFrom?.slice(0, 1_000) ?? '',
+            earlier_request: earlierRequest?.slice(0, 600) ?? '',
           },
           CorrectionDetection,
         );
+        // 1a. The answer was wrong: what was asked, what was done, what was wanted. Said twice, it is kept.
+        if (det?.is_correction && det.lesson && assistantText)
+          await this.learnMistake(turn, det.lesson, userText, nb).catch((err) =>
+            log.warn({ err }, 'could not note the mistake'),
+          );
         if (
           det?.is_correction &&
           det.durable &&
@@ -1140,12 +1720,13 @@ export class MemoryService {
           !staleStatement(det.statement, own, editedFrom)
         ) {
           const project = det.scope === 'notebook' && nb;
-          await this.consider(
+          const made = await this.consider(
             {
               kind: 'preference',
               targetPath: project ? `PROJECTS/${nb.slug}.md` : 'USER.md',
               section: project ? 'Decisions' : 'Preferences',
               text: asEntry(det.statement),
+              ...(reversal && { reversal: true }),
               // Corrections are short. A long message is probably a paste, so
               // whatever it yields is proposed, never kept without a yes.
               confidence: own.length > LONG_MESSAGE ? Math.min(det.confidence, 0.6) : det.confidence,
@@ -1161,9 +1742,20 @@ export class MemoryService {
             },
             { notebook: nb },
           );
+          heard = !!made;
         }
       }
     }
+    // A reversal that taught memory nothing is said so, with a way to save it anyway.
+    if (reversal && !ask && !example && !heard)
+      await this.deps.bus
+        ?.publish({
+          type: 'memory.unchanged',
+          message_id: turn.userMessageId,
+          thread_id: turn.threadId,
+          reason: 'reversal',
+        })
+        .catch(() => undefined);
 
     // 2. A tool that failed, then worked: a lesson.
     for (const e of failureEpisodes(turn.parts)) {
@@ -1201,6 +1793,12 @@ export class MemoryService {
     }
   }
 }
+
+/** A sentence that only takes something back: "Actually no, scrap that." */
+const reversalOnly = (x: string) =>
+  /^(?:actually,?\s+)?(?:no,?\s+)?(?:scrap|scratch|ignore|forget|disregard|never mind)\b[^,;]{0,40}$/i.test(
+    x.replace(/[.!]+$/, ''),
+  );
 
 function entryView(e: IndexedEntry): MemoryEntryView {
   return {

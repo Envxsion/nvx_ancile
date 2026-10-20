@@ -224,7 +224,7 @@ function scopeFor(path: string): string {
   if (path === 'AGENTS.md') return 'global';
   if (path === 'USER.md') return 'user';
   if (path.startsWith('PROJECTS/')) return 'notebook';
-  if (path.startsWith('FAILURES/')) return 'retrieved';
+  if (path.startsWith('FAILURES/') || path.startsWith('STANDARDS/')) return 'retrieved';
   if (path.startsWith('MODELS/')) return 'model';
   return 'other';
 }

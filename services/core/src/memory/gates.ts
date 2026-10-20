@@ -52,8 +52,9 @@ export const clearsBar = (score: number) => score >= RELEVANCE_BAR;
  * Lessons learned from runs go through the second gate. What the person said
  * themselves (a correction, an explicit "remember that") does not.
  */
-export function needsSightings(c: Pick<CaptureCandidate, 'kind' | 'explicit' | 'verified'>) {
-  if (c.explicit || c.verified) return false;
+export function needsSightings(c: Pick<CaptureCandidate, 'kind' | 'explicit' | 'verified' | 'passive'>) {
+  // Passive captures keep their own count (the mention ledger in passive.ts).
+  if (c.explicit || c.verified || c.passive) return false;
   // A preference is a rule about the person: stated by them, or proposed for their yes.
   return c.kind !== 'preference';
 }

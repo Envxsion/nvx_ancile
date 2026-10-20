@@ -72,6 +72,10 @@ export const SETTING = {
   memoryCapture: 'memory.capture',
   /** The mode memory capture goes back to when it is switched on again (Admin → Automations). */
   memoryCaptureLastOn: 'memory.capture.last_on',
+  /** true (or absent): memory learns from things said in passing. false: only what is asked or corrected. */
+  memoryPassive: 'memory.passive',
+  /** The mention ledger for passive memory (memory/passive.ts): what was said, how often, where. */
+  memoryPassiveLedger: 'memory.passive.ledger',
   /** Free text from onboarding, written into memory when Phase 4 lands. */
   memoryAbout: 'memory.about',
   /** Models you added in Settings → Models: ModelConfig[] (DESIGN §16.7). */

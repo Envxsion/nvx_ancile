@@ -40,6 +40,13 @@ types:
     budget_share: 0.12
     auto_apply: 0.0                 # always applied; Undo is offered in a toast
     top_k: 5
+  standards:                        # a standard learned from an example of someone else's work
+    path: "STANDARDS/*.md"
+    scope: retrieved                # only the most relevant entries are injected
+    priority: 55
+    budget_share: 0.1
+    auto_apply: null                # always a proposal: a rule written from pasted text is never saved unasked
+    top_k: 3
   models:                           # quirks of the model actually called (resolved after fallback)
     path: "MODELS/{model}.md"
     scope: model

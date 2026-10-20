@@ -228,6 +228,8 @@ export async function harness(opts: HarnessOptions = {}) {
       notebook:
         opts.memoryNotebook ?? (async (id) => ({ id, slug: 'test-notebook', title: 'Test notebook' })),
       ...(opts.memoryNow && { now: opts.memoryNow }),
+      // Tests sweep for passive memory themselves; no timers left running.
+      idleMs: 0,
     });
     await memory.start();
     memoryTransfer = new MemoryTransfer({

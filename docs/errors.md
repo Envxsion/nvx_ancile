@@ -192,6 +192,11 @@ docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and 
 | `memory.file_unknown` | 400 | "<path> is not a memory file" / Choose USER.md, AGENTS.md, a notebook file under PROJECTS, or a topic under FAILURES. |
 | `memory.thread_not_found` | 404 | "That thread does not exist" / It may have been deleted. Open another thread and try again. (Hindsight pass.) |
 | `memory.hindsight_unavailable` | 503 | "The review could not be done" / No model answered, or its answer could not be read. Check that a utility or default model is set up, then try again. Nothing was saved. |
+| `memory.message_not_found` | 404 | "That message does not exist" / It may have been deleted. Pick another message. (Compare with a standard, Update memory.) |
+| `memory.no_standard` | 404 | "There is no standard to compare with yet" / Show NVX Ancile an example of work you want to match ("this is how my manager writes updates") and keep the standard it suggests. |
+| `memory.nothing_to_compare` | 422 | "That message has no text to compare" / Pick a message with the work in it, or attach the file to it. |
+| `memory.compare_unavailable` | 503 | "The comparison could not be done" / No model answered, or its answer could not be read. Check that a default model is set up, then try again. |
+| `memory.nothing_to_save` | 422 or 409 | "There is nothing in that message to save" / Say what is true now ("I use US-style dates") and it will be saved. 409 "That is already what memory says": nothing needed changing. (Update memory.) |
 | `memory.repo_corrupt` | 500 | "The memory repository failed its integrity check." / See docs/runbooks/restore-backup.md. |
 | `memory.invalid_entry` | 422 | "Some lines couldn't be read as memory entries." / Names the lines; keep one idea per bullet. |
 | `memory.export_bundle_whole` | 422 | "A git bundle always holds all of memory." / A bundle carries every file and its history, private notebooks included. Choose a zip or Markdown to leave some out. |

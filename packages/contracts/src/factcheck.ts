@@ -299,6 +299,14 @@ export const ExplainMemory = z.object({
   tokens: z.number(),
   truncated: z.number(),
 });
+/** One memory entry an answer was given, in words, for the "Used:" line. */
+export const ExplainMemoryUsed = z.object({
+  path: z.string(),
+  key: z.string(),
+  text: z.string(),
+  commit: z.string(),
+});
+export type ExplainMemoryUsed = z.infer<typeof ExplainMemoryUsed>;
 export type ExplainMemory = z.infer<typeof ExplainMemory>;
 
 export const ExplainCompaction = z.object({
@@ -353,6 +361,8 @@ export const Explain = z.object({
   }),
   attempts: z.array(z.object({ model: z.string(), reason: z.string(), detail: z.string() })),
   memory: ExplainMemory.nullable(),
+  /** The memory entries this answer was given, as words (path, key, text, commit); empty when none or since removed. */
+  memory_used: z.array(ExplainMemoryUsed).default([]),
   retrieval: RetrievalTrace.nullable(),
   retrieval_error: z.object({ code: z.string(), title: z.string() }).nullable(),
   tools: z.array(ExplainTool),

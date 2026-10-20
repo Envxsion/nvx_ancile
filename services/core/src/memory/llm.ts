@@ -19,6 +19,7 @@
 import type { ModelConfig } from '@nvx/contracts';
 import type { z } from 'zod';
 import { loadPrompt, render } from '../conductor/prompt';
+import { isLocalModel } from '../engines/select';
 import type { Gateway } from '../gateway/gateway';
 import type { ModelRegistry } from '../gateway/registry';
 import { logFor } from '../obs/logger';
@@ -30,7 +31,16 @@ export interface Utility {
     prompt: { id: string; fallback: string; output: string },
     vars: Record<string, string | number | boolean | null | undefined>,
     schema: S,
-    opts?: { maxOutputTokens?: number },
+    opts?: {
+      maxOutputTokens?: number;
+      /**
+       * Task classes to try first, cheapest wanted first (for example `memory.detector`, then
+       * `utility`). Absent: `utility`, then `chat.default`. A class that does not exist is skipped.
+       */
+      taskClasses?: string[];
+      /** Use only a model on this machine or the person's own node (a private notebook). */
+      localOnly?: boolean;
+    },
   ): Promise<z.infer<S> | null>;
 }
 
@@ -55,11 +65,12 @@ export function utilityFrom(deps: {
   promptsDir: string;
   timeoutMs?: number;
 }): Utility {
-  const chain = (): ModelConfig[] => {
-    for (const tc of ['utility', 'chat.default']) {
+  const chain = (classes?: string[], localOnly?: boolean): ModelConfig[] => {
+    for (const tc of [...(classes ?? []), 'utility', 'chat.default']) {
       try {
         const c = deps.registry.chain(tc, null);
-        if (c.length) return c;
+        const usable = localOnly ? c.filter((m) => isLocalModel(m)) : c;
+        if (usable.length) return usable;
       } catch {
         /* try the next class */
       }
@@ -69,7 +80,7 @@ export function utilityFrom(deps: {
 
   return {
     async json(prompt, vars, schema, opts) {
-      const models = chain();
+      const models = chain(opts?.taskClasses, opts?.localOnly);
       if (!models.length) return null;
       const template = await loadPrompt(deps.promptsDir, prompt.id, prompt.fallback);
       let content = render(template, vars);

@@ -19,8 +19,10 @@
  *  Note     |  This file is pure: the model calls and the writing live
  *           |  in service.ts. reconcileLocally() is the fallback when
  *           |  no model answers, and the reference the prompt is held to.
- *           |  TODO(phase-5): project findings when a notebook thread goes
- *           |  idle, and model quirks from model_stats thresholds.
+ *           |  The idle trigger exists (service.onIdle, used by passive
+ *           |  memory, passive.ts). TODO(phase-5): project findings when a
+ *           |  notebook thread goes idle hook onto it, and model quirks
+ *           |  from model_stats thresholds.
  * ------------------------------------------------------------------
  */
 
@@ -48,6 +50,18 @@ export interface CaptureCandidate {
   explicit?: boolean;
   /** M8: the fix worked and the cause is known, so one sighting is enough. */
   verified?: boolean;
+  /**
+   * Learned in passing, from the person's own words, without being asked. It is proposed
+   * the first time and saved without a yes only once it has been said a second time
+   * (`repeated`, decided from the mention ledger in passive.ts). Never set for content
+   * that is not the person's own message.
+   */
+  passive?: boolean;
+  repeated?: boolean;
+  /** The person took something back ("scrap that", "I've moved to..."): replace the closest entry. */
+  reversal?: boolean;
+  /** A few words on where this came from, shown as the start of the rationale ("Noticed in passing."). */
+  note?: string;
 }
 
 export interface ReconcileDecision {
@@ -75,6 +89,11 @@ export function applyPolicy(
   if (c.explicit && c.provenance === 'user_message') return mode === 'off' ? 'propose' : 'auto_apply';
   if (mode === 'off') return 'skip';
   if (c.provenance === 'tool_output' || c.provenance === 'source_content') return 'propose';
+  // Learned in passing: a proposal the first time, saved when the person said it again.
+  if (c.passive)
+    return c.provenance === 'user_message' && c.repeated && mode === 'auto_confident'
+      ? 'auto_apply'
+      : 'propose';
   if (mode === 'propose_all' || autoApplyThreshold === null) return 'propose';
   return c.confidence >= autoApplyThreshold ? 'auto_apply' : 'propose';
 }
@@ -89,6 +108,14 @@ export const CorrectionDetection = z.object({
   scope: z.enum(['user', 'notebook', 'none']),
   statement: z.string().max(400),
   confidence: conf,
+  /** What went wrong, for a lesson: only when the person was correcting the answer. */
+  lesson: z
+    .object({
+      asked: z.string().max(200),
+      did: z.string().max(200),
+      wanted: z.string().max(200),
+    })
+    .nullish(),
 });
 export type CorrectionDetection = z.infer<typeof CorrectionDetection>;
 
@@ -118,7 +145,7 @@ export const PROMPTS = {
     id: 'memory.detect-correction',
     output: 'CorrectionDetection',
     fallback:
-      'Decide whether the user corrects the assistant in a way worth remembering for future conversations. Fields: is_correction, durable, scope ("user"|"notebook"|"none"), statement (one short general third-person instruction), confidence.\n\nAssistant said:\n{{assistant_message}}\n\nUser replied:\n{{user_message}}\n{{#edited_from}}\n(The user edited an earlier message. It originally said: {{edited_from}} That wording is replaced: the statement must come from the reply above only.)\n{{/edited_from}}',
+      'Decide whether the user corrects the assistant in a way worth remembering for future conversations. Fields: is_correction, durable, scope ("user"|"notebook"|"none"), statement (one short general third-person instruction), confidence, lesson (only when they asked for something earlier and this corrects the answer: {asked, did, wanted}, each a short phrase; otherwise null). A reply that takes something back or says it has changed ("scrap that", "I have moved to...") is a correction too: the statement is what is true now.\n\n{{#earlier_request}}They had asked:\n{{earlier_request}}\n\n{{/earlier_request}}Assistant said:\n{{assistant_message}}\n\nUser replied:\n{{user_message}}\n{{#edited_from}}\n(The user edited an earlier message. It originally said: {{edited_from}} That wording is replaced: the statement must come from the reply above only.)\n{{/edited_from}}',
   },
   reconcile: {
     id: 'memory.reconcile',
@@ -160,6 +187,19 @@ export function ownWords(text: string): string {
     .trim();
 }
 
+/**
+ * Taking something back or changing it: "actually scrap that", "ignore what I said about...",
+ * "I've moved to...", "not anymore", "changed my mind". These need no assistant answer to reply to.
+ */
+const REVERSAL =
+  /\b(scrap that|scratch that|ignore (?:what i (?:said|told you)|that|my (?:last|previous|earlier))|forget (?:that|what i (?:said|told you))|disregard (?:that|what i (?:said|told you))|(?:i'?ve|i have|we'?ve|we have) (?:now )?(?:moved|switched|changed|migrated)|(?:i|we) (?:now|just) (?:use|moved|switched)|not any ?more|no longer|changed my mind|that'?s changed|that has changed|(?:i|we) used to)\b/i;
+
+/** True when the person's own words take something back or say it has changed. */
+export function reversalSignal(userText: string): boolean {
+  const own = ownWords(userText);
+  return !!own && own.length <= 1_500 && REVERSAL.test(own);
+}
+
 const OPENERS =
   /^(no\b|nope\b|not\b|wrong\b|actually\b|stop\b|don'?t\b|do not\b|never\b|always\b|please (use|don'?t|do not|stop|always|never)\b|use\b|i (prefer|want|asked|said|meant|told you)\b|that'?s (not|wrong)\b|instead\b)/i;
 const ANYWHERE =
@@ -178,6 +218,7 @@ export function correctionSignal(input: {
   const own = ownWords(input.userText);
   if (!own || own.length > 1_500) return false;
   if (input.editedFrom !== null) return true;
+  if (REVERSAL.test(own)) return true;
   if (!input.assistantText) return false;
   return OPENERS.test(own) || ANYWHERE.test(own);
 }
