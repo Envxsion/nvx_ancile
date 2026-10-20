@@ -166,6 +166,11 @@ export const StartFactcheckRequest = z
     models: z.array(z.string().min(1)).min(1).max(4).optional(),
     /** Check again even when an earlier verdict is kept. */
     again: z.boolean().optional(),
+    /**
+     * Find the claims in the answer again. Without it a check of an unchanged answer reuses the claims
+     * found the first time, so two checks of one answer judge the same sentences.
+     */
+    reextract: z.boolean().optional(),
   })
   .strict();
 export type StartFactcheckRequest = z.infer<typeof StartFactcheckRequest>;

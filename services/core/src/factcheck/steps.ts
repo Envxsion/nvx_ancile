@@ -60,13 +60,30 @@ import type { KnowledgeClient } from '../knowledge/client';
 import { CheckLimit, type ClaimBudget } from './budget';
 import type { VerdictCache } from './cache';
 import type { ClaimEvidence, ExtractedClaim } from './pipeline';
-import type { Stance, VerifierVerdict } from './score';
+import { DEFAULT_RELEVANT, type Stance, type VerifierVerdict } from './score';
 import { parseJsonValue, REPAIR_LEAD, tolerantClaims, tolerantVerdict } from './tolerant';
 import { escalateTo, type Triage } from './triage';
 import { hostName, type WebHit } from './web';
 
 /** At most this many claims are checked per answer (the prompt asks for 25). */
 export const MAX_CLAIMS = 25;
+
+/**
+ * Which extraction found the claims kept for an answer. Raise it when the prompt or the rules that
+ * decide what a claim is change: the claims kept by an older one are found again, not reused.
+ */
+export const EXTRACTOR_VERSION = 2;
+
+/**
+ * A sentence about other sentences, or about the answer itself ("The first sentence contradicts the
+ * others"): commentary, not a claim about the world, whatever the model made of it.
+ */
+const META_SENTENCE: readonly RegExp[] = [
+  /\b(?:the|this|that|these|those|my|our)\s+(?:first|second|third|fourth|fifth|sixth|last|final|previous|preceding|following|above|earlier)\s+(?:sentences?|claims?|statements?|paragraphs?|points?|lines?|answers?|parts?)\b/i,
+  /\b(?:this|the above|the previous|the preceding)\s+(?:answer|response|reply|text|paragraph|passage)\b/i,
+  /\b(?:sentences?|claims?|statements?)\s+(?:above|before|that follows)\b/i,
+];
+export const isMetaSentence = (text: string): boolean => META_SENTENCE.some((re) => re.test(text));
 const EVIDENCE_CHARS = 1_200;
 
 const SYSTEM =
@@ -537,6 +554,7 @@ export function nearestOccurrence(answer: string, text: string, near: number): n
 export function validateClaims(answer: string, raw: z.infer<typeof RawClaims>['claims']): ExtractedClaim[] {
   const out: ExtractedClaim[] = [];
   for (const c of raw) {
+    if (isMetaSentence(c.text)) continue;
     let start = c.char_start ?? -1;
     let end = c.char_end ?? -1;
     // The span must be about the claim (its text may be reworded, so words, not characters).
@@ -667,6 +685,10 @@ export async function gatherEvidence(
     /** Look claims your sources do not cover up on the web (FC4); absent: sources only. */
     web?: WebLookup | undefined;
     signal?: AbortSignal | undefined;
+    /** Source passages less relevant than this are not evidence (score.ts DEFAULT_RELEVANT). */
+    minRelevance?: number | undefined;
+    /** True: this claim needs no web lookup (an earlier verdict answers it from the sources alone). */
+    skipWeb?: ((index: number, g: Gathered) => Promise<boolean>) | undefined;
   },
 ): Promise<Gathered[]> {
   if (!input.claims.length) return [];
@@ -690,11 +712,15 @@ export async function gatherEvidence(
       });
     }
   }
+  const minRelevance = input.minRelevance ?? DEFAULT_RELEVANT;
   const out: Gathered[] = input.claims.map((_, i) => {
     const r = res?.results[i];
+    // A passage on another subject is not evidence. Left in, it kept an obvious claim from the
+    // common-knowledge path and made a model say "the evidence does not mention it".
+    const hits = (r?.hits ?? []).filter((h) => h.relevance >= minRelevance);
     return {
-      coverage: r?.coverage ?? 0,
-      evidence: (r?.hits ?? []).map((h) => ({
+      coverage: hits.length ? (r?.coverage ?? 0) : 0,
+      evidence: hits.map((h) => ({
         kind: h.kind,
         ref: h.chunk_id,
         source_id: h.source_id,
@@ -713,11 +739,15 @@ export async function gatherEvidence(
   // The web, for the claims your sources cover least, up to WEB_MAX_QUERIES. A search that fails or is
   // refused leaves the claim with what the sources gave: the web adds evidence, it never removes any.
   if (input.web) {
-    const order = out
+    const wanting = out
       .map((g, i) => ({ g, i }))
       .filter(({ g }) => g.evidence.length === 0 || g.coverage < WEB_WHEN_COVERAGE)
-      .sort((a, b) => a.g.coverage - b.g.coverage)
-      .slice(0, WEB_MAX_QUERIES);
+      .sort((a, b) => a.g.coverage - b.g.coverage);
+    // A claim an earlier verdict already answers is not looked up again: a re-run waits for no search.
+    const keep = await Promise.all(
+      wanting.map(async ({ g, i }) => !(await input.skipWeb?.(i, g).catch(() => false))),
+    );
+    const order = wanting.filter((_, k) => keep[k]).slice(0, WEB_MAX_QUERIES);
     const signal = input.signal ?? new AbortController().signal;
     // A few lookups at a time (each can take seconds); a stop ends them all, and is not swallowed as "no results".
     let next = 0;
@@ -1005,6 +1035,43 @@ export interface CheckDeps extends StepDeps {
   cache?: VerdictCache | undefined;
 }
 
+/** An earlier verdict for this claim and evidence as a finished check, or null. Nothing is asked of a model. */
+export async function cachedCheck(
+  deps: Pick<CheckDeps, 'cache'>,
+  a: {
+    notebookId: string | null;
+    shared: boolean;
+    claim: string;
+    evidence: Gathered['evidence'];
+    critical: boolean;
+  },
+): Promise<Checked | null> {
+  if (!deps.cache) return null;
+  const hit = await deps.cache.lookup({
+    notebookId: a.notebookId,
+    shared: a.shared,
+    claim: a.claim,
+    evidence: a.evidence,
+    critical: a.critical,
+  });
+  if (!hit) return null;
+  const v = hit.entry.verdict;
+  return {
+    verdict: v.stance,
+    rationale: v.rationale,
+    evidence: v.evidence,
+    modelId: hit.entry.model_id ?? '',
+    tier: hit.entry.tier,
+    confidence: v.confidence,
+    // How the verdict was reached is part of what is kept: where it started, and what routing settled for.
+    degraded: v.degraded ?? [],
+    general: v.general,
+    verdicts: [v.stance],
+    escalatedFrom: v.escalated_from ?? null,
+    cached: { at: hit.entry.created_at, model_id: hit.entry.model_id, scope: hit.scope },
+  };
+}
+
 /**
  * Check one claim. A cached verdict answers first (unless `again`). Otherwise a model of the claim's
  * tier asks; low confidence, disagreement with the writer or criticality send it up a tier, twice at
@@ -1028,6 +1095,8 @@ export async function checkClaim(
     again?: boolean | undefined;
     /** The calls this claim may make (budget.ts); absent: only the chain bounds it. */
     budget?: ClaimBudget | undefined;
+    /** The cache was already asked for this claim: its answer (null: nothing kept). Absent: ask here. */
+    known?: Checked | null | undefined;
   },
   signal: AbortSignal,
 ): Promise<Checked> {
@@ -1038,24 +1107,9 @@ export async function checkClaim(
     evidence: input.evidence,
     critical: input.critical,
   };
-  if (deps.cache && !input.again && input.evidence.length + (input.triage.obvious ? 1 : 0) > 0) {
-    const hit = await deps.cache.lookup(cacheArgs);
-    if (hit) {
-      const v = hit.entry.verdict;
-      return {
-        verdict: v.stance,
-        rationale: v.rationale,
-        evidence: v.evidence,
-        modelId: hit.entry.model_id ?? '',
-        tier: hit.entry.tier,
-        confidence: v.confidence,
-        degraded: [],
-        general: v.general,
-        verdicts: [v.stance],
-        escalatedFrom: null,
-        cached: { at: hit.entry.created_at, model_id: hit.entry.model_id, scope: hit.scope },
-      };
-    }
+  if (!input.again) {
+    const hit = input.known === undefined ? await cachedCheck(deps, cacheArgs) : input.known;
+    if (hit) return hit;
   }
   const ask = {
     claim: input.claim,
@@ -1083,6 +1137,11 @@ export async function checkClaim(
       ...first,
       verdict: worst(all.map((v) => v.verdict)),
       verdicts: all.map((v) => v.verdict),
+      // The least sure of them: the claim holds only as far as the doubtful checker.
+      confidence: all.reduce<number | null>(
+        (m, v) => (v.confidence === null ? m : m === null ? v.confidence : Math.min(m, v.confidence)),
+        null,
+      ),
       degraded: [
         ...new Set([
           ...all.flatMap((v) => v.degraded),
@@ -1157,11 +1216,34 @@ export async function checkClaim(
           evidence: out.evidence,
           confidence: out.confidence,
           general: out.general,
+          escalated_from: out.escalatedFrom,
+          degraded: out.degraded,
         },
         tier: out.tier,
         modelId: out.modelId,
       })
       .catch(() => undefined);
+    // Looked up on the web too? Then the sources alone find this verdict as well, so a re-run skips the search.
+    const own = input.evidence.filter((e) => e.origin !== 'web');
+    if (own.length > 0 && own.length < input.evidence.length)
+      await deps.cache
+        .record({
+          ...cacheArgs,
+          evidence: own,
+          alias: true,
+          verdict: {
+            stance: out.verdict,
+            rationale: out.rationale,
+            evidence: out.evidence,
+            confidence: out.confidence,
+            general: out.general,
+            escalated_from: out.escalatedFrom,
+            degraded: out.degraded,
+          },
+          tier: out.tier,
+          modelId: out.modelId,
+        })
+        .catch(() => undefined);
   }
   return out;
 }

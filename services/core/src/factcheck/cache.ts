@@ -38,6 +38,10 @@ export interface CachedVerdict {
   evidence: ClaimEvidence[];
   confidence: number | null;
   general: boolean;
+  /** The tier the claim started at when it was sent up; absent on entries from before this was kept. */
+  escalated_from?: ModelTier | null;
+  /** Where routing settled for less than it wanted; absent on older entries. */
+  degraded?: string[];
 }
 
 export interface CacheEntry {
@@ -174,12 +178,22 @@ export class VerdictCache {
     verdict: CachedVerdict;
     tier: ModelTier | null;
     modelId: string | null;
+    /**
+     * The verdict also answers a check made from `evidence` alone, because the web lookup that
+     * changed the evidence can be skipped when this is found (a re-run waits for no search). It lasts
+     * as long as web evidence does, never replaces a verdict that is already there, and is never shared.
+     */
+    alias?: boolean;
   }): Promise<void> {
     const nb = a.notebookId ?? '';
     const { key, basis, mode } = cacheKey(a);
-    const ttl = TTL[basis];
+    const ttl = a.alias ? { kind: 'web' as const, ms: WEB_TTL_MS } : TTL[basis];
     const now = this.now();
-    const global = basis !== 'sources' && a.shared && (await this.mayShare(nb));
+    if (a.alias) {
+      const held = await this.store.get(nb, key);
+      if (held && (!held.expires_at || new Date(held.expires_at).getTime() > now.getTime())) return;
+    }
+    const global = !a.alias && basis !== 'sources' && a.shared && (await this.mayShare(nb));
     await this.store.put({
       notebook_id: nb,
       key,
@@ -189,7 +203,7 @@ export class VerdictCache {
       model_id: a.modelId,
       mode,
       ttl_kind: ttl.kind,
-      source_backed: basis === 'sources',
+      source_backed: basis === 'sources' && !a.alias,
       created_at: now.toISOString(),
       expires_at: ttl.ms === null ? null : new Date(now.getTime() + ttl.ms).toISOString(),
     });

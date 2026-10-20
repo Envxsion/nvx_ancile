@@ -168,6 +168,7 @@ export function trustRoutes(deps: TrustRouteDeps) {
       ...(req.critical === false && { critical: false }),
       ...(req.models?.length && { checkers: req.models }),
       ...(req.again && { again: true }),
+      ...(req.reextract && { reextract: true }),
     });
     const runId = record.run_id ?? '';
     return c.json(

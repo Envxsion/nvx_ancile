@@ -39,6 +39,7 @@
  * ------------------------------------------------------------------
  */
 
+import { createHash } from 'node:crypto';
 import {
   AncileError,
   type ClaimCheckInfo,
@@ -84,8 +85,12 @@ import {
   scoreOutcome,
   toStored,
 } from './pipeline';
+import { relevantAt } from './score';
 import {
+  type Checked,
+  cachedCheck,
   checkClaim,
+  EXTRACTOR_VERSION,
   extractClaims,
   type Gathered,
   gatherEvidence,
@@ -94,7 +99,7 @@ import {
   type WebLookup,
 } from './steps';
 import type { FactcheckRecord, FactcheckStore } from './store';
-import { type Triage, triageClaims } from './triage';
+import { type Triage, triageClaim, triageClaims } from './triage';
 import { gatedWeb, newTally, tallyOutcome, type WebDecision, type WebSearch, type WebTally } from './web';
 
 const log = logFor('factcheck');
@@ -118,6 +123,8 @@ export interface FactcheckInput {
   generatorModelId?: string | null;
   /** Check again even when an earlier verdict is kept. */
   again?: boolean;
+  /** Find the claims again instead of reusing the ones kept for this answer. */
+  reextract?: boolean;
   /** This notebook shares its verdicts with the others (SI1). */
   sharing?: boolean;
 }
@@ -299,12 +306,31 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
         if (!cp.claims) {
           await progress('extracting', 0, 0);
           const answer = textOf(message.parts);
-          const parent = message.parent_id ? await deps.repo.getMessage(message.parent_id) : undefined;
-          const { claims } = await extractClaims(
-            deps,
-            { answer, question: parent ? textOf(parent.parts) : '', allow, budget: budget.forCheck() },
-            ctx.signal,
-          );
+          const answerSha = createHash('sha256').update(answer).digest('hex');
+          // The claims found the first time, when the answer is the same and the extraction is not newer:
+          // a model does not find the same ones twice, and two checks should judge the same sentences.
+          const kept = input.reextract ? undefined : await deps.store.extractionFor(input.messageId);
+          let claims: ExtractedClaim[];
+          if (kept && kept.answer_sha === answerSha && kept.version === EXTRACTOR_VERSION) {
+            claims = kept.claims;
+          } else {
+            const parent = message.parent_id ? await deps.repo.getMessage(message.parent_id) : undefined;
+            claims = (
+              await extractClaims(
+                deps,
+                { answer, question: parent ? textOf(parent.parts) : '', allow, budget: budget.forCheck() },
+                ctx.signal,
+              )
+            ).claims;
+            await deps.store
+              .saveExtraction({
+                message_id: input.messageId,
+                answer_sha: answerSha,
+                version: EXTRACTOR_VERSION,
+                claims,
+              })
+              .catch((err) => log.warn({ err }, 'could not keep the claims found in the answer'));
+          }
           cp.claims = claims;
           cp.outcomes = claims.map(() => null);
           await ctx.checkpoint(cp);
@@ -331,6 +357,22 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
             claims: checkable.map((i) => (claims[i] as ExtractedClaim).text),
             web: webLookup,
             signal: ctx.signal,
+            minRelevance: relevantAt(deps.config?.thresholds),
+            // A claim an earlier verdict already answers from its sources is not looked up on the web.
+            ...(!input.again && {
+              skipWeb: async (k: number, g: Gathered) => {
+                const claim = claims[checkable[k] as number] as ExtractedClaim;
+                return (
+                  (await cachedCheck(deps, {
+                    notebookId: input.notebookId,
+                    shared: input.sharing === true,
+                    claim: claim.text,
+                    evidence: g.evidence,
+                    critical: input.critical === true,
+                  })) !== null
+                );
+              },
+            }),
           });
           const gathered: Gathered[] = claims.map(() => ({ evidence: [], coverage: 0 }));
           checkable.forEach((ci, k) => {
@@ -342,11 +384,36 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
         }
         const gathered = cp.gathered;
 
-        if (!cp.triage) {
-          cp.triage = await triageClaims(
-            claims.map((c) => c.text),
-            { critical: input.critical === true, notebookId: input.notebookId },
+        // Earlier verdicts first: they need only the claim and its evidence, so a re-run is answered
+        // before anything slow (the decision layer, a model) is asked. Only the rest is triaged.
+        const known = new Map<number, Checked>();
+        const probed = !cp.triage && !input.again;
+        if (probed)
+          await Promise.all(
+            claims.map(async (c, i) => {
+              if (!c.checkable) return;
+              const hit = await cachedCheck(deps, {
+                notebookId: input.notebookId,
+                shared: input.sharing === true,
+                claim: c.text,
+                evidence: gathered[i]?.evidence ?? [],
+                critical: input.critical === true,
+              }).catch(() => null);
+              if (hit) known.set(i, hit);
+            }),
           );
+        if (!cp.triage) {
+          const rules = { critical: input.critical === true, notebookId: input.notebookId };
+          const asked = claims.flatMap((c, i) => (c.checkable && !known.has(i) ? [i] : []));
+          const decided = await triageClaims(
+            asked.map((i) => (claims[i] as ExtractedClaim).text),
+            rules,
+          );
+          // The rest (cached or not checkable) need no model, so the plain rules stand.
+          cp.triage = claims.map((c) => triageClaim(c.text, rules));
+          asked.forEach((i, k) => {
+            cp.triage?.splice(i, 1, decided[k] as Triage);
+          });
           await ctx.checkpoint(cp);
         }
         const triage = cp.triage;
@@ -370,24 +437,28 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
               const t = triage[i] as Triage;
               let v: Awaited<ReturnType<typeof checkClaim>>;
               try {
-                v = await checkClaim(
-                  deps,
-                  {
-                    claim: claim.text,
-                    evidence: g.evidence,
-                    triage: t,
-                    critical: input.critical === true,
-                    generatorFamily: input.generatorFamily,
-                    generatorModelId: input.generatorModelId ?? null,
-                    allow,
-                    chosen,
-                    notebookId: input.notebookId,
-                    sharing: input.sharing === true,
-                    again: input.again,
-                    budget: budget.forClaim(i),
-                  },
-                  ctx.signal,
-                );
+                const earlier = known.get(i);
+                v =
+                  earlier ??
+                  (await checkClaim(
+                    deps,
+                    {
+                      claim: claim.text,
+                      evidence: g.evidence,
+                      triage: t,
+                      critical: input.critical === true,
+                      generatorFamily: input.generatorFamily,
+                      generatorModelId: input.generatorModelId ?? null,
+                      allow,
+                      chosen,
+                      notebookId: input.notebookId,
+                      sharing: input.sharing === true,
+                      again: input.again,
+                      budget: budget.forClaim(i),
+                      ...(probed && { known: null }),
+                    },
+                    ctx.signal,
+                  ));
               } catch (err) {
                 // A limit, or a claim no checker could answer in the format asked for: said plainly, and the
                 // rest of the answer is still checked. Anything else (every model down) fails the run.
@@ -425,6 +496,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                 verdict: v.verdict,
                 rationale: v.rationale,
                 verdicts: v.verdicts,
+                confidence: v.confidence,
                 general: v.general,
                 ...(check && { check }),
               };
@@ -554,6 +626,7 @@ export async function startFactcheck(
     critical?: boolean;
     checkers?: string[];
     again?: boolean;
+    reextract?: boolean;
   },
 ): Promise<{ record: FactcheckRecord; started: boolean; web: WebDecision }> {
   const message = await deps.repo.getMessage(messageId);
@@ -608,6 +681,7 @@ export async function startFactcheck(
       ...(scope.checkers?.length && { checkers: scope.checkers }),
       generatorModelId: message.model_id ?? null,
       ...(scope.again && { again: true }),
+      ...(scope.reextract && { reextract: true }),
       sharing: flags.sharing,
     },
     claims: null,

@@ -18,6 +18,7 @@
 import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict, WebReason } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { pgSafe } from '../db/json';
+import type { ExtractedClaim } from './pipeline';
 
 export interface StoredClaim {
   id: string;
@@ -57,7 +58,21 @@ export interface FactcheckRecord {
   finished_at: string | null;
 }
 
+/** The claims found in one answer, kept so a check run again reuses them. */
+export interface StoredExtraction {
+  message_id: string;
+  /** sha256 of the answer's text when the claims were found: a changed answer is a miss. */
+  answer_sha: string;
+  /** Which extraction found them (steps.ts EXTRACTOR_VERSION): a newer one finds them again. */
+  version: number;
+  claims: ExtractedClaim[];
+  created_at: string;
+}
+
 export interface FactcheckStore {
+  /** The claims kept for a message, if any. */
+  extractionFor(messageId: string): Promise<StoredExtraction | undefined>;
+  saveExtraction(e: Omit<StoredExtraction, 'created_at'>): Promise<void>;
   create(f: {
     id: string;
     message_id: string;
@@ -155,6 +170,28 @@ const claimFromRow = (r: ClaimRow): StoredClaim => ({
 export class PgFactcheckStore implements FactcheckStore {
   constructor(private readonly sql: Sql) {}
 
+  async extractionFor(messageId: string) {
+    const rows = await this.sql<
+      {
+        message_id: string;
+        answer_sha: string;
+        version: number;
+        claims: ExtractedClaim[];
+        created_at: Date;
+      }[]
+    >`select * from core.factcheck_extractions where message_id = ${messageId}`;
+    const r = rows[0];
+    return r ? { ...r, created_at: r.created_at.toISOString() } : undefined;
+  }
+
+  async saveExtraction(e: Omit<StoredExtraction, 'created_at'>) {
+    await this.sql`
+      insert into core.factcheck_extractions (message_id, answer_sha, version, claims)
+      values (${e.message_id}, ${e.answer_sha}, ${e.version}, ${this.sql.json(pgSafe(e.claims) as never)})
+      on conflict (message_id) do update set answer_sha = excluded.answer_sha, version = excluded.version,
+        claims = excluded.claims, created_at = now()`;
+  }
+
   private async load(row: FactcheckRow | undefined) {
     if (!row) return undefined;
     const claims = await this.sql<ClaimRow[]>`
@@ -228,7 +265,17 @@ export class PgFactcheckStore implements FactcheckStore {
 
 export class MemoryFactcheckStore implements FactcheckStore {
   readonly rows = new Map<string, FactcheckRecord>();
+  readonly extractions = new Map<string, StoredExtraction>();
   private n = 0;
+
+  async extractionFor(messageId: string) {
+    const e = this.extractions.get(messageId);
+    return e ? structuredClone(e) : undefined;
+  }
+
+  async saveExtraction(e: Omit<StoredExtraction, 'created_at'>) {
+    this.extractions.set(e.message_id, { ...structuredClone(e), created_at: this.stamp() });
+  }
   private stamp() {
     // Strictly increasing, so "newest" is well defined within one millisecond.
     return new Date(Date.UTC(2026, 0, 1) + ++this.n).toISOString();
