@@ -24,7 +24,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 import { DeadlineExceededError, withTimeout } from '@nvx/resilience';
-import { sendGuardActive } from '../gateway/e2e-guard';
+import { claudeCodeBlocked } from '../gateway/e2e-guard';
 
 export const MIN_VERSION = '2.1.200';
 const STATUS_TTL_MS = 10_000;
@@ -268,8 +268,8 @@ export class ClaudeCli {
   }
 
   where(): Located | null {
-    // The test profile never finds your Claude Code (gateway/e2e-guard.ts).
-    if (sendGuardActive()) return null;
+    // The test profile and a live test run never find your Claude Code (gateway/e2e-guard.ts).
+    if (claudeCodeBlocked()) return null;
     return (this.opts.locate ?? locate)();
   }
 

@@ -26,6 +26,7 @@ import {
   type ImagesFile,
 } from '@nvx/contracts';
 import { ClassifiedError, classifyStatus, guarded } from '@nvx/resilience';
+import { assertDirectCallAllowed } from '../gateway/e2e-guard';
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -103,6 +104,8 @@ export async function generateWith(
   req: { prompt: string; size?: ImageSize; n: number },
   deps: { apiKey: string | undefined; fetch?: FetchLike; signal: AbortSignal },
 ): Promise<Generated> {
+  // A live test run (LT1) makes no images: they are not priced or capped (gateway/e2e-guard.ts).
+  assertDirectCallAllowed(`image generation with ${p.display_name}`);
   const fetcher: FetchLike = deps.fetch ?? ((u, i) => fetch(u, i));
   const url = endpointOf(p);
   const headers: Record<string, string> = { 'content-type': 'application/json' };

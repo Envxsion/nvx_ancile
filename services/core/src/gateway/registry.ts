@@ -59,7 +59,16 @@ import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
 import { billingOf, type ClaudeAuth, paidFromCredit } from './billing';
 import { preferCreditFirst } from './credit-routing';
-import { assertSendAllowed, modelAllowedInTestProfile, sendGuardActive } from './e2e-guard';
+import {
+  assertSendAllowed,
+  estimateCallUsd,
+  liveGuardActive,
+  modelAllowedInTestProfile,
+  reserveLive,
+  sendGuardActive,
+  settleLive,
+  testProfileActive,
+} from './e2e-guard';
 import { effortLevels } from './effort';
 import { OFFLINE_MODELS } from './fake';
 import {
@@ -70,8 +79,9 @@ import {
   servedByOllama,
 } from './ollama-discovery';
 import { DEFAULT_SECRET } from './providers';
-import { type ChainSpec, chainFor, resolveChain } from './router';
+import { type ChainSpec, chainFor, NoRouteError, resolveChain } from './router';
 import type { ModelClient, ModelRequest, StreamChunk } from './types';
+import { priceOf } from './usage';
 
 export interface RegistryOptions {
   models: ModelConfig[];
@@ -769,7 +779,7 @@ export class ModelRegistry {
     // does not use AI (docs/models.md, Test models). Asked for by name, they still answer.
     // In the test profile the Controller is the fake one, so its sample nodes are try-out models too.
     const realReady = [...ready.values()].some(
-      (m) => m.provider !== 'fake' && canChat(m) && !(sendGuardActive() && modelAllowedInTestProfile(m)),
+      (m) => m.provider !== 'fake' && canChat(m) && !(testProfileActive() && modelAllowedInTestProfile(m)),
     );
     if (this.opts.offline && !realReady) {
       for (const [tc, spec] of Object.entries(classes)) {
@@ -787,6 +797,13 @@ export class ModelRegistry {
     }
     const chosen = explicit ? this.resolve(explicit)?.model : undefined;
     const usable = chosen && canChat(chosen) ? chosen.id : undefined;
+    // LT1: in a live test run a model asked for by name answers alone. No chain behind it, so a failure
+    // stays that model's failure instead of moving the call (and the bill) to another one.
+    if (liveGuardActive() && explicit) {
+      const only = usable ? ready.get(usable) : undefined;
+      if (!only) throw new NoRouteError(taskClass);
+      return [only];
+    }
     const out = resolveChain(
       { taskClass, explicit: usable ?? undefined, generatorFamily: opts.generatorFamily },
       classes,
@@ -796,6 +813,29 @@ export class ModelRegistry {
     return this.credit.first
       ? preferCreditFirst(out, (m) => paidFromCredit(m, this.credit.enabled), usable ? 1 : 0)
       : out;
+  }
+}
+
+/**
+ * LT1: add up what a live run's calls billed (billed_usd, else the list price), so the cap holds. A call
+ * that ends without a finish chunk is counted at its estimate when it had started to answer, else at nothing.
+ */
+async function* tallyLive(
+  m: ModelConfig,
+  req: ModelRequest,
+  inner: AsyncIterable<StreamChunk>,
+  reserved: number,
+): AsyncGenerator<StreamChunk> {
+  let billed: number | null = null;
+  let spoke = false;
+  try {
+    for await (const chunk of inner) {
+      if (chunk.type === 'finish') billed = chunk.costUsd ?? priceOf(m, chunk.usage);
+      else spoke = true;
+      yield chunk;
+    }
+  } finally {
+    settleLive(reserved, billed ?? (spoke ? estimateCallUsd(m, req) : 0));
   }
 }
 
@@ -816,15 +856,20 @@ export class RoutingClient implements ModelClient {
   stream(m: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     // The test profile's send guard (e2e-guard.ts): refused before any client, network or CLI is touched.
     // Thrown from inside the stream, so the gateway handles it like any other failure of that model.
+    let reserved = 0;
     if (sendGuardActive()) {
       try {
         assertSendAllowed(m);
+        // A live run (LT1) also keeps to its spending cap: the estimate is set aside before the call.
+        reserved = reserveLive(m, estimateCallUsd(m, req));
       } catch (err) {
         return { [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(err) }) };
       }
     }
     const own = this.own.get(m.provider);
-    if (own) return own.stream(m, req, signal);
-    return (m.provider === 'fake' ? this.fake : this.sdk).stream(m, req, signal);
+    const inner = own
+      ? own.stream(m, req, signal)
+      : (m.provider === 'fake' ? this.fake : this.sdk).stream(m, req, signal);
+    return liveGuardActive() && m.provider !== 'fake' ? tallyLive(m, req, inner, reserved) : inner;
   }
 }

@@ -109,7 +109,7 @@ import { FlowsService } from './flows/turn';
 import { paidFromCredit } from './gateway/billing';
 import { CreditLedger, PgCreditSpend } from './gateway/credit';
 import { creditRoutes } from './gateway/credit-routes';
-import { installSendGuard } from './gateway/e2e-guard';
+import { installLiveGuard, installSendGuard, liveStatus } from './gateway/e2e-guard';
 import { FakeProvider } from './gateway/fake';
 import { Gateway } from './gateway/gateway';
 import { AiSdkClient, DEFAULT_SECRET, languageModelFor } from './gateway/providers';
@@ -689,6 +689,14 @@ async function main() {
   // The test profile (ANCILE_PROFILE=e2e) never reaches a real model, and ANCILE_CLAUDE_CODE=off switches
   // the whole Claude Code module off: no bridge, no detection, no import, no models (e2e-guard.ts).
   installSendGuard(env.ANCILE_PROFILE);
+  // A live test run (`pnpm test:live`) lists the only models Core may call and the most it may spend (LT1).
+  if (installLiveGuard(env.ANCILE_LIVE_ALLOW, env.ANCILE_LIVE_CAP_USD)) {
+    const g = liveStatus();
+    log.warn(
+      { allow: g?.allow, cap_usd: g?.cap_usd },
+      'Live test guard is on: only the listed models can be called',
+    );
+  }
   const claudeOff: string | null =
     env.ANCILE_PROFILE === 'e2e'
       ? 'Off in the test profile'

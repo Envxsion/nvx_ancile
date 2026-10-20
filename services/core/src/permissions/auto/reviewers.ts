@@ -22,6 +22,7 @@
 
 import type { AutoPlan, AutoReviewerId, EffectiveScope } from '@nvx/contracts';
 import { CircuitBreaker, ClassifiedError, classifyStatus, guarded } from '@nvx/resilience';
+import { assertDirectCallAllowed, liveGuardActive } from '../../gateway/e2e-guard';
 import type { AutoCall } from './floors';
 import { textOf } from './floors';
 
@@ -214,6 +215,8 @@ export class JevReviewer implements Reviewer {
   }
 
   async available() {
+    // A live test run (LT1) calls no reviewer service: they are not priced or capped (gateway/e2e-guard.ts).
+    if (liveGuardActive()) return false;
     return !!(await this.opts.key())?.trim();
   }
 
@@ -228,6 +231,7 @@ export class JevReviewer implements Reviewer {
   }
 
   async review(input: ReviewInput, signal?: AbortSignal): Promise<ReviewAnswer> {
+    assertDirectCallAllowed(`the ${this.id} reviewer`);
     const key = (await this.opts.key())?.trim();
     if (!key) throw new ClassifiedError('permanent', `${this.id}: no key`);
     const doFetch = this.opts.fetch ?? fetch;
