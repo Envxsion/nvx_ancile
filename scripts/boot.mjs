@@ -243,6 +243,11 @@ const services = [
       '--port',
       String(env.KNOWLEDGE_PORT ?? 7710),
       '--reload',
+      // Only its own code: by default the reloader watches the whole repo, so an
+      // edit in an agent's worktree (.claude/worktrees) restarted this service and,
+      // when that restart failed, stopped the whole stack.
+      '--reload-dir',
+      'services/knowledge/ancile_knowledge',
       '--app-dir',
       'services/knowledge',
     ],
