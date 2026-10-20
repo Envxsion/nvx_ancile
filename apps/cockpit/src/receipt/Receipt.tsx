@@ -371,7 +371,11 @@ function WentIn({
       key: 'memory',
       node: (
         <Fold
-          label={`Memory: ${plural(memory.files.reduce((k, f) => k + f.entries.length, 0), 'entry', 'entries')} from ${plural(memory.files.length, 'file')}, ${n(memory.tokens)} tokens`}
+          label={`Memory: ${plural(
+            memory.files.reduce((k, f) => k + f.entries.length, 0),
+            'entry',
+            'entries',
+          )} from ${plural(memory.files.length, 'file')}, ${n(memory.tokens)} tokens`}
         >
           <MemoryFiles memory={memory} />
         </Fold>

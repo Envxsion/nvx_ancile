@@ -83,7 +83,10 @@ export function buildMemoryPack(
   // The same sentence twice (two seedings, a hand copy) is said once: the better-ranked one stays.
   const said = new Set<string>();
   const once = (e: InjectEntry) => {
-    const k = e.text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+    const k = e.text
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[.\s]+$/, '');
     if (said.has(k)) return false;
     said.add(k);
     return true;

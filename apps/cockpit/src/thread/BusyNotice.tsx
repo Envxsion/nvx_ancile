@@ -99,7 +99,7 @@ export function BusyNotice({ threadId, onSent }: { threadId: string; onSent: () 
       <div className="cc-notice__text">
         {waiting ? (
           <p>
-            Your message sends as a branch when {approval ? "this turn" : "the other window's turn"} ends.
+            Your message sends as a branch when {approval ? 'this turn' : "the other window's turn"} ends.
           </p>
         ) : approval ? (
           <p>

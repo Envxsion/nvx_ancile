@@ -58,8 +58,8 @@ import {
   ownWords,
   PROMPTS,
   ReconcileOutput,
-  scrubPaths,
   reconcileLocally,
+  scrubPaths,
   staleStatement,
   topicSlug,
 } from './capture';

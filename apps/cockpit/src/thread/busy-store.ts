@@ -45,11 +45,7 @@ export const useBusyStore = create<BusyStore>((set) => ({
 }));
 
 /** Core said thread.busy: remember how to send again. A message already waiting keeps waiting. */
-export function markBusy(
-  threadId: string,
-  again: () => Promise<boolean>,
-  reason?: 'approval',
-): void {
+export function markBusy(threadId: string, again: () => Promise<boolean>, reason?: 'approval'): void {
   const cur = useBusyStore.getState().byThread[threadId];
   useBusyStore
     .getState()
