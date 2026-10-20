@@ -211,17 +211,32 @@ export async function startPostgres(env, log = () => {}) {
   if (!/^[a-z0-9_]+$/.test(db)) throw new Error(`POSTGRES_DB must be lowercase letters, digits and _: ${db}`);
   // run() goes through cmd.exe on Windows, which splits unquoted SQL on spaces.
   const sql = (q) => (IS_WIN ? `"${q}"` : q);
+  // Ask the server's maintenance database, never the profile's own: after a wipe that one is
+  // the database that is missing, and connecting to it would fail before the question is asked.
+  const maintenance = ['-d', `postgresql://${env.POSTGRES_USER ?? 'ancile'}@127.0.0.1:${port}/postgres`];
+  const pgEnv = env.POSTGRES_PASSWORD ? { PGPASSWORD: env.POSTGRES_PASSWORD } : {};
   const exists = run(
     pg0,
-    ['psql', '--name', PG_INSTANCE, '--', '-tAc', sql(`SELECT 1 FROM pg_database WHERE datname = '${db}'`)],
-    {
-      timeout: 30_000,
-    },
+    [
+      'psql',
+      '--name',
+      PG_INSTANCE,
+      '--',
+      ...maintenance,
+      '-tAc',
+      sql(`SELECT 1 FROM pg_database WHERE datname = '${db}'`),
+    ],
+    { timeout: 30_000, env: pgEnv },
   );
   if (exists.ok && !exists.out.includes('1')) {
-    const made = run(pg0, ['psql', '--name', PG_INSTANCE, '--', '-c', sql(`CREATE DATABASE ${db}`)], {
-      timeout: 30_000,
-    });
+    const made = run(
+      pg0,
+      ['psql', '--name', PG_INSTANCE, '--', ...maintenance, '-c', sql(`CREATE DATABASE ${db}`)],
+      {
+        timeout: 30_000,
+        env: pgEnv,
+      },
+    );
     if (!made.ok)
       throw new Error(`Could not create the ${db} database:
 ${made.out}`);

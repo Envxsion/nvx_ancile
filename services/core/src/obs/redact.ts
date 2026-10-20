@@ -14,6 +14,8 @@ const SECRET_KEYS =
   /^(authorization|cookie|set-cookie|password|passphrase|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|.*_key|.*_token|.*_secret)$/i;
 
 const TEXT_PATTERNS: [RegExp, string][] = [
+  // CR1: the key a monthly-credit Claude Code session runs with, as it would read in an environment dump.
+  [/\b(ANTHROPIC_(?:API_KEY|AUTH_TOKEN))\s*[=:]\s*\S+/g, '$1=…'],
   [/\bsk-ant-[A-Za-z0-9_-]{10,}/g, 'sk-ant-…'],
   [/\bsk-(proj-)?[A-Za-z0-9_-]{16,}/g, 'sk-…'],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, 'AIza…'],

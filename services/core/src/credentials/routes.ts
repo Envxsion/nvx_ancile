@@ -26,6 +26,7 @@ import {
   type CredentialStatus,
   isPersonalAnthropicKey,
   last4,
+  type PlanCredit,
   type ProviderId,
   type ProviderInfoList,
   SaveCredentialRequest,
@@ -161,6 +162,8 @@ export interface CredentialRouteDeps {
   serviceCheck?: ServiceCheck;
   /** RunPod through the Controller; absent when there is no Controller. */
   runpod?: { connect(key: string): Promise<unknown>; disconnect(): Promise<unknown> } | undefined;
+  /** CR1: the Anthropic key's monthly-credit setting, as saved (gateway/credit.ts). */
+  planCredit?: () => PlanCredit | null;
   /** A credential changed: drop anything cached with the old value. */
   onChange?: (id: CredentialId) => void | Promise<void>;
 }
@@ -255,6 +258,7 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
       unavailable_reason: unavailable ? 'Compute is not set up on this install (no Controller).' : null,
       ...(id === 'anthropic' && {
         workspace_id: value ? ((await secrets.get(ANTHROPIC_WORKSPACE_SECRET)) ?? null) : null,
+        plan_credit: value ? (deps.planCredit?.() ?? null) : null,
       }),
       ...(profile?.regionSecret && {
         region: value ? ((await secrets.get(profile.regionSecret)) ?? null) : null,

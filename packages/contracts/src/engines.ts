@@ -27,6 +27,19 @@ export const CLAUDE_CODE_MODEL_PREFIX = 'claude-code/';
 /** The provider name Claude Code's models carry in the model registry (Mode A). */
 export const CLAUDE_CODE_PROVIDER = 'claude_code';
 
+/**
+ * CR1: `claude-code/<model>@credit` is the same Claude Code model run with an
+ * Anthropic API key, so it spends the plan's monthly API credit instead of the
+ * plan's usage limits. The plain id keeps using the plan sign-in.
+ */
+export const CREDIT_MODEL_SUFFIX = '@credit';
+export const isCreditModel = (id: string | null | undefined): boolean =>
+  !!id && id.startsWith(CLAUDE_CODE_MODEL_PREFIX) && id.endsWith(CREDIT_MODEL_SUFFIX);
+/** The plan twin of a credit id (any other id comes back unchanged). */
+export const planIdOf = (id: string): string =>
+  id.endsWith(CREDIT_MODEL_SUFFIX) ? id.slice(0, -CREDIT_MODEL_SUFFIX.length) : id;
+export const creditIdOf = (id: string): string => `${planIdOf(id)}${CREDIT_MODEL_SUFFIX}`;
+
 export const isClaudeCodeModel = (id: string | null | undefined): boolean =>
   !!id && id.startsWith(CLAUDE_CODE_MODEL_PREFIX);
 

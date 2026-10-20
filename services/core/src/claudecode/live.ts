@@ -60,6 +60,7 @@ import {
   type ImagePart,
   type ModelBilling,
   type Part,
+  PLAN_CREDIT_PAYER,
   type ResumeCommand,
   type RetrievalTrace,
   type SearchHit,
@@ -71,6 +72,7 @@ import {
 import { ulid } from 'ulid';
 import { applyCitations } from '../conductor/citations';
 import { currentContext, newSpanId, newTraceId, type RequestContext } from '../context';
+import { CREDIT_SPENT_RE } from '../engines/mode-a';
 import type { EventBus } from '../events/bus';
 import type { LabPasses } from '../lab/hosted';
 import { hostedTool } from '../lab/hosted';
@@ -176,6 +178,8 @@ export interface ClaudeCodeCheckpoint {
   noFiles?: boolean;
   /** Lean: only the project's own Claude Code settings load (ClaudeCodeBinding.lean). Kept for resumes. */
   lean?: boolean;
+  /** CR1: the turn runs on the Anthropic key, spending the plan's monthly API credit. */
+  credit?: boolean;
 }
 
 /**
@@ -277,6 +281,13 @@ export interface LiveDeps {
   /** A gate whose root is the session's folder (writes outside it are critical). */
   gateFor(root: string): Gate;
   tools?: Pick<ToolRegistry, 'get'>;
+  /**
+   * CR1: the Anthropic key for a monthly-credit session. It goes to that one bridge session's
+   * environment (ANTHROPIC_API_KEY) and nowhere else: never logged, never written to disk.
+   */
+  creditKey?: () => Promise<string | null>;
+  /** CR1: Anthropic said the monthly credit is gone. */
+  onCreditExhausted?: () => void;
   /** Who pays for a model now (registry.billingFor); recorded with each answer's usage (roadmap WY1). */
   billing?: (modelId: string) => ModelBilling | null;
   passes?: LabPasses;
@@ -359,6 +370,8 @@ interface Live {
   note: string | null;
   /** Whether the open handle was started lean (a change reopens it). */
   lean?: boolean;
+  /** CR1: whether the open handle runs on the Anthropic key. A change reopens it, never resumes across. */
+  credit?: boolean;
   /** Claude Code's running cost total for the open handle (to tell one turn's share). */
   costSoFar: number;
   turn: Turn | null;
@@ -778,7 +791,11 @@ export class ClaudeCodeLive {
     // Engines: a parent written by another model goes on from Claude Code's last message on
     // the path, with what the others said as a digest (engines/claude.ts).
     // The folder was pointed somewhere new (or files turned off): a new session, given the thread so far.
-    const restart = cc.fresh_next === true;
+    // CR1: a session started on the plan never resumes on the credit, nor the reverse. Switching starts
+    // a new session given the thread so far (the same seam as pointing a thread at a new folder).
+    const credit = req.credit === true;
+    const switched = !pending && (cc.pay === 'credit') !== credit;
+    const restart = cc.fresh_next === true || switched;
     const plan = this.deps.engines
       ? await this.deps.engines.plan({
           thread,
@@ -868,6 +885,7 @@ export class ClaudeCodeLive {
       }),
       ...((plan || fresh) && { fresh }),
       ...(restart && { rebind: true }),
+      ...(credit && { credit: true }),
       ...(noFiles && { noFiles: true }),
       ...(claudeCodeLean(cc) && { lean: true }),
     };
@@ -951,6 +969,7 @@ export class ClaudeCodeLive {
       l.sessionId === want &&
       (l.note === null || l.note === note) &&
       (l.lean ?? false) === (cp.lean === true) &&
+      (l.credit ?? false) === (cp.credit === true) &&
       !(auto && l.effort !== null)
     ) {
       if (cp.model && cp.model !== l.model) {
@@ -966,6 +985,16 @@ export class ClaudeCodeLive {
     }
     if (l.handle) await this.closeHandle(l);
     const cli = await this.deps.service.cliPath();
+    // CR1: the key is read now, held in this one call's environment, and not kept.
+    const creditKey = cp.credit ? await this.deps.creditKey?.() : null;
+    if (cp.credit && !creditKey)
+      throw new AncileError({
+        code: 'provider.auth_failed',
+        title: 'Anthropic has no key saved here',
+        hint: 'Add your Anthropic key in Settings, API keys, to use the monthly credit.',
+        status: 409,
+        errorClass: 'permanent',
+      });
     l.state = 'starting';
     const { handle } = await this.deps.bridge.open({
       // A fresh session (seeded from NVX Ancile's summary) resumes nothing.
@@ -990,13 +1019,14 @@ export class ClaudeCodeLive {
           },
         },
       }),
-      env: await this.deps.service.cliEnv(),
+      env: { ...(await this.deps.service.cliEnv()), ...(creditKey && { ANTHROPIC_API_KEY: creditKey }) },
       path_to_cli: cli.path,
     });
     l.handle = handle;
     l.sessionId = cp.fork || cp.fresh ? null : cp.sessionId;
     l.note = note;
     l.lean = cp.lean === true;
+    l.credit = cp.credit === true;
     l.state = 'ready';
     l.model = cp.model;
     l.effort = effort;
@@ -1086,7 +1116,7 @@ export class ClaudeCodeLive {
     await emit({
       type: 'model',
       message_id: cp.assistantMessageId,
-      model_id: `claude-code/${cp.model ?? 'default'}`,
+      model_id: `claude-code/${cp.model ?? 'default'}${cp.credit ? '@credit' : ''}`,
       display_name: CC_MODEL_NAME,
     });
 
@@ -1271,10 +1301,15 @@ export class ClaudeCodeLive {
       if ((isPendingSession(cp.sessionId) || cp.rebind) && !isPendingSession(sessionId)) {
         const t = await threads.getThread(cp.threadId);
         const bound = t?.settings.claude_code;
-        if (bound && (isPendingSession(bound.session_id) || (cp.rebind && bound.fresh_next))) {
+        const pay = cp.credit ? 'credit' : 'plan';
+        if (
+          bound &&
+          (isPendingSession(bound.session_id) ||
+            (cp.rebind && (bound.fresh_next || (bound.pay ?? 'plan') !== pay)))
+        ) {
           const { fresh_next: _done, ...rest } = bound;
           await threads.patchThread(cp.threadId, {
-            settings: { claude_code: { ...rest, session_id: sessionId } },
+            settings: { claude_code: { ...rest, session_id: sessionId, pay } },
           });
         }
       }
@@ -1323,7 +1358,20 @@ export class ClaudeCodeLive {
       const until = await this.deps.limits?.blockedUntil?.().catch(() => null);
       if (until) limit = { resetsAt: until };
     }
+    // CR1: on the key, Anthropic's "credit balance is too low" is the monthly credit gone.
+    const creditGone =
+      cp.credit === true &&
+      status === 'error' &&
+      !limit &&
+      CREDIT_SPENT_RE.test(`${turn.error ?? ''} ${typeof result?.result === 'string' ? result.result : ''}`);
+    if (creditGone) this.deps.onCreditExhausted?.();
     const failure = (() => {
+      if (creditGone)
+        return {
+          code: 'provider.credit_exhausted',
+          title: "Your plan's monthly API credit is used up",
+          hint: 'It renews at the start of the next cycle. Until then this model is skipped: pick another, or buy credit in the Claude Console.',
+        };
       const e = limit
         ? ccErrors.planLimit(limit.resetsAt, this.now())
         : ccErrors.liveFailed(turn.error ?? String(result?.subtype ?? 'error'));
@@ -1385,10 +1433,9 @@ export class ClaudeCodeLive {
               await emit({ type: 'citation', message_id: cp.assistantMessageId, part });
         }
         // Claude Code bills the account it is signed into: a plan unless the registry knows it is metered.
-        const billing: ModelBilling = (p.model_id ? this.deps.billing?.(p.model_id) : null) ?? {
-          kind: 'plan',
-          payer: null,
-        };
+        const billing: ModelBilling = cp.credit
+          ? { kind: 'credit', payer: PLAN_CREDIT_PAYER }
+          : ((p.model_id ? this.deps.billing?.(p.model_id) : null) ?? { kind: 'plan', payer: null });
         const usage: Usage | null = p.usage
           ? { ...p.usage, cost_usd: turnCost ?? 0, billing }
           : turnCost !== null
@@ -1421,7 +1468,7 @@ export class ClaudeCodeLive {
             },
             ...retrieval,
             ...(cp.engineContext && { engine_context: cp.engineContext }),
-            ...(status === 'error' && (turn.error || limit) && { error: failure }),
+            ...(status === 'error' && (turn.error || limit || creditGone) && { error: failure }),
           },
         });
         continue;

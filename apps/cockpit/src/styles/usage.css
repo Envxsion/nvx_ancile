@@ -423,3 +423,42 @@
   margin: 12px 0 0;
   font-size: var(--t-small);
 }
+
+/* The plan's monthly API credit (credentials/PlanCredit.tsx, routes/admin/CreditFirst.tsx). */
+.credit-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.credit-setting__head,
+.route-goal__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.credit-setting__title,
+.route-goal__title {
+  color: inherit;
+  font-weight: 500;
+}
+.credit-setting__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.credit-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.credit-meter__line,
+.credit-meter__note {
+  margin: 0;
+}
+.route-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}

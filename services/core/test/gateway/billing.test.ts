@@ -2,7 +2,7 @@
  * Who pays for a model (MD3): a plan, a key, your computer, a rented node,
  * or nothing. Claude Code's models follow how it is signed in.
  */
-import type { ModelConfig } from '@nvx/contracts';
+import { isCreditModel, type ModelConfig } from '@nvx/contracts';
 import { describe, expect, it } from 'vitest';
 import { claudeCodeModels, syncClaudeCodeModels } from '../../src/engines/mode-a';
 import { billingOf } from '../../src/gateway/billing';
@@ -99,8 +99,8 @@ describe('the registry says who pays', () => {
   it('keeps Claude Code models as signed_out, and never routes to them, while signed out', async () => {
     const reg = await world();
     syncClaudeCodeModels(reg, { ...ok, signed_in: false, auth_method: null, plan: null });
-    const cc = reg.info().filter((x) => x.provider === 'claude_code');
-    expect(cc).toHaveLength(claudeCodeModels().length);
+    const cc = reg.info().filter((x) => x.provider === 'claude_code' && !isCreditModel(x.id));
+    expect(cc).toHaveLength(claudeCodeModels().filter((x) => !isCreditModel(x.id)).length);
     expect(cc.every((x) => x.status === 'signed_out')).toBe(true);
     expect(reg.chain('chat.default', 'claude-code/opus').map((x) => x.id)).not.toContain('claude-code/opus');
     syncClaudeCodeModels(reg, { ...ok, ...max });

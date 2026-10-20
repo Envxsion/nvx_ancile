@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import { UsageRange } from '@nvx/contracts';
+import { type CreditStatus, UsageRange } from '@nvx/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
 import type { PlanLimits } from '../claudecode/plan-limits';
@@ -26,6 +26,8 @@ export function usageRoutes(deps: {
   workspaceId: string;
   source: UsageSource;
   limits?: () => PlanLimits | null;
+  /** CR1: the plan's monthly API credit this cycle (Ancile's own count); null when it is not set up. */
+  credit?: () => Promise<CreditStatus | null>;
   now?: () => number;
 }) {
   const r = new Hono<AppEnv>();
@@ -46,7 +48,8 @@ export function usageRoutes(deps: {
       to: w.to,
       provider: c.req.query('provider') || undefined,
     });
-    return c.json(buildReport(range.data, tz, w, rows));
+    const credit = (await deps.credit?.().catch(() => null)) ?? null;
+    return c.json({ ...buildReport(range.data, tz, w, rows), ...(credit && { credit }) });
   });
 
   r.get('/claude-code/usage', async (c) => {

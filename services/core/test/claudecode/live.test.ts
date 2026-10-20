@@ -1831,3 +1831,80 @@ describe('a tool result with its call, in a turn from NVX Ancile', () => {
     expect(msgs.filter((m) => m.parts.length && m.parts.every((p) => p.type === 'tool_result'))).toEqual([]);
   });
 });
+
+describe('monthly-credit sessions (CR1)', () => {
+  const KEY = 'sk-ant-api03-CREDITKEYCREDITKEY0001';
+  const finish = async (runId: string) => {
+    expect(await execute(runId)).toEqual({ kind: 'done' });
+    await runs.save({ ...((await runs.get(runId)) as RunRecord), status: 'succeeded' }, { status: 'queued' });
+  };
+
+  it('runs on the Anthropic key in that one session, never resumes a plan session, and never the reverse', async () => {
+    live.stop();
+    live = makeLive({ creditKey: async () => KEY });
+    // thr_1 is bound to a session started on the plan.
+    bridge.script = textAnswer('sess-credit-0001', 'c1', 'On the credit');
+    const sent = await live.send('thr_1', {
+      text: 'Use the credit',
+      credit: true,
+      idempotency_key: 'key-credit-001',
+    });
+    const cp = (await runs.get(sent.run_id))?.checkpoint as ClaudeCodeCheckpoint;
+    expect(cp).toMatchObject({ credit: true, fresh: true, rebind: true });
+    await finish(sent.run_id);
+    const opened = bridge.opened.at(-1);
+    expect(opened?.env?.ANTHROPIC_API_KEY).toBe(KEY);
+    expect(opened).not.toHaveProperty('resume');
+    const answer = await threads.getMessage(sent.assistant_message_id);
+    expect(answer?.usage?.billing).toEqual({ kind: 'credit', payer: "Your plan's monthly API credit" });
+    expect(JSON.stringify(answer)).not.toContain(KEY);
+    expect((await threads.getThread('thr_1'))?.settings.claude_code).toMatchObject({
+      session_id: 'sess-credit-0001',
+      pay: 'credit',
+    });
+
+    // The next credit turn carries that session on: the open session is reused, not reopened.
+    const openedBefore = bridge.opened.length;
+    bridge.script = textAnswer('sess-credit-0001', 'c2', 'Still on the credit');
+    const again = await live.send('thr_1', {
+      text: 'And again',
+      credit: true,
+      idempotency_key: 'key-credit-002',
+    });
+    expect((await runs.get(again.run_id))?.checkpoint).toMatchObject({
+      sessionId: 'sess-credit-0001',
+      fork: false,
+    });
+    expect(
+      ((await runs.get(again.run_id))?.checkpoint as ClaudeCodeCheckpoint | undefined)?.fresh,
+    ).toBeFalsy();
+    await finish(again.run_id);
+    expect(bridge.opened).toHaveLength(openedBefore);
+
+    // Back to the plan: a new session again, and the key is not in its environment.
+    bridge.script = textAnswer('sess-plan-0002', 'c3', 'Back on the plan');
+    const back = await live.send('thr_1', { text: 'Plan again', idempotency_key: 'key-credit-003' });
+    expect((await runs.get(back.run_id))?.checkpoint).toMatchObject({ fresh: true, rebind: true });
+    await finish(back.run_id);
+    expect(bridge.opened.at(-1)?.env?.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(bridge.opened.at(-1)).not.toHaveProperty('resume');
+    expect((await threads.getThread('thr_1'))?.settings.claude_code).toMatchObject({
+      session_id: 'sess-plan-0002',
+      pay: 'plan',
+    });
+  });
+
+  it('refuses a monthly-credit turn when no Anthropic key is saved', async () => {
+    live.stop();
+    live = makeLive({ creditKey: async () => null });
+    bridge.script = textAnswer('sess-credit-0009', 'c9', 'never');
+    const sent = await live.send('thr_1', {
+      text: 'Use the credit',
+      credit: true,
+      idempotency_key: 'key-credit-009',
+    });
+    const outcome = await execute(sent.run_id);
+    expect(outcome).toMatchObject({ kind: 'failed' });
+    expect(bridge.opened.some((o) => o.env?.ANTHROPIC_API_KEY)).toBe(false);
+  });
+});

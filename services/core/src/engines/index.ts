@@ -144,6 +144,7 @@ export class ClaudeCodeEngine implements Engine {
       text: t.text,
       ...(t.parentId !== undefined && { parent_id: t.parentId }),
       ...(t.modelId && { model: t.modelId }),
+      ...(t.credit && { credit: true }),
       ...(t.effort && { effort: t.effort }),
       ...(t.sourceIds?.length && { source_ids: t.sourceIds }),
       ...(t.images?.length && { image_ids: t.images.flatMap((p) => (p.image_id ? [p.image_id] : [])) }),
@@ -305,6 +306,7 @@ export class Engines {
       thread,
       modelId: s.mode === 'session' ? s.engineModel : s.modelId,
       requestedModelId: s.modelId,
+      ...(s.credit && { credit: true }),
     };
     // A CLI session that is busy (answering, or open in a terminal): the turn waits its turn (CC6).
     const r =

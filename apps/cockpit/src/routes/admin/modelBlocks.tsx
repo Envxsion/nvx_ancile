@@ -42,6 +42,7 @@ const STATUS_WORDS = {
   disabled: 'Off',
   not_pulled: 'Not pulled',
   signed_out: 'Signed out',
+  credit_out: 'Credit used up',
 } as const;
 
 export interface KeyBlock {

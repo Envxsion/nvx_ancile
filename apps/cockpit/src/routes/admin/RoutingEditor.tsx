@@ -36,6 +36,7 @@ import { ErrorState } from '../../ui/ErrorState';
 import { Icon } from '../../ui/Icon';
 import { DropMenu, type MenuEntry } from '../../ui/Menu';
 import { EmptyState, Skeleton } from '../../ui/primitives';
+import { CreditFirst } from './CreditFirst';
 import { addModel, moveBy, removeModel, sameOrder } from './chainOrder';
 
 const ROUTING_KEY = ['routing'] as const;
@@ -54,6 +55,7 @@ const STATUS_NOTE: Record<NonNullable<ModelView['status']>, string> = {
   disabled: 'Skipped while it is off',
   not_pulled: 'Skipped until Ollama has it',
   signed_out: 'Skipped until Claude Code is signed in',
+  credit_out: 'Skipped until your monthly credit renews',
 };
 
 function failed(error: unknown, what: string) {
@@ -128,6 +130,7 @@ export function RoutingEditor() {
         Who answers each kind of task, in order. Drag a model or use its menu to reorder. Models without a
         key, or off, are skipped.
       </p>
+      <CreditFirst />
       <div className="route-chains">
         {(routing.data ?? []).map((r) => (
           <ChainCard

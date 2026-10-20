@@ -149,12 +149,16 @@ export function classifyProviderError(
   headers?: unknown,
   now: number = Date.now(),
   message = '',
+  ctx: { planCredit?: boolean } = {},
 ): ProviderErrorResult {
   const body = readBody(rawBody, message);
   const asked = parseRetryAfter(headerOf(headers, 'retry-after'), now);
   const wait = asked === undefined ? {} : { retryAfterMs: Math.min(asked, RETRY_AFTER_CAP_MS) };
-  const done = (r: ProviderErrorResult): ProviderErrorResult =>
+  const waited = (r: ProviderErrorResult): ProviderErrorResult =>
     r.kind === 'rate_limited' || r.kind === 'overloaded' || r.kind === 'server' ? { ...r, ...wait } : r;
+  // CR1: on a key that draws on the plan's monthly credit, "out of credit" means that credit is spent.
+  const done = (r: ProviderErrorResult): ProviderErrorResult =>
+    waited(ctx.planCredit && r.kind === 'no_credit' ? { ...r, kind: 'credit_exhausted' } : r);
 
   for (const rule of profile.errors) {
     if (rule.status && !rule.status.includes(status)) continue;
@@ -242,9 +246,13 @@ export function classifyFailure(
   profile: ProviderProfile,
   err: unknown,
   now?: number,
+  ctx: { planCredit?: boolean } = {},
 ): ProviderErrorResult & { status: number } {
   const p = failureParts(err);
-  return { ...classifyProviderError(profile, p.status, p.body, p.headers, now, p.message), status: p.status };
+  return {
+    ...classifyProviderError(profile, p.status, p.body, p.headers, now, p.message, ctx),
+    status: p.status,
+  };
 }
 
 /** The ErrorClass the resilience layer should see for a kind; null leaves it to the status default. */
@@ -252,6 +260,7 @@ export function errorClassFor(kind: ErrorKind): ErrorClass | null {
   switch (kind) {
     case 'bad_key':
     case 'no_credit':
+    case 'credit_exhausted':
     case 'region':
     case 'model_not_permitted':
       return 'permanent';
@@ -286,6 +295,12 @@ export function failureWords(
         code: 'provider.no_credit',
         title: `${name} says your account is out of credit`,
         hint: `Top up at ${name}, or pick another model.`,
+      };
+    case 'credit_exhausted':
+      return {
+        code: 'provider.credit_exhausted',
+        title: `Your plan's monthly API credit is used up`,
+        hint: 'It renews at the start of the next cycle. Until then this model is skipped: pick another, or buy credit in the Claude Console.',
       };
     case 'region': {
       const others = otherRegions(profile, ctx.region).map((r) => r.label);

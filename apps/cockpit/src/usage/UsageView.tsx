@@ -31,6 +31,7 @@ import { Link } from '@tanstack/react-router';
 import { useContext, useState } from 'react';
 import { openClaudeCodeSessions } from '../claudecode/SessionsDialog';
 import { useComputeStatus, useCosts } from '../compute/data';
+import { CreditMeter } from '../credentials/PlanCredit';
 import { useProFeature } from '../pro/slot';
 import { matches, SearchContext } from '../routes/settings/rows';
 import { Segmented } from '../ui/controls';
@@ -365,7 +366,13 @@ export function UsageGroup() {
   const report = useUsageReport(range, { provider });
   const providers = all.data?.by_provider.map((p) => p.provider) ?? [];
   const insights = useProFeature('insights');
-  if (!matches(q, 'Usage', 'plan limits session week tokens cost context cache threads pace Claude Code'))
+  if (
+    !matches(
+      q,
+      'Usage',
+      'plan limits session week tokens cost context cache threads pace Claude Code monthly credit',
+    )
+  )
     return null;
   return (
     <div className="u-view">
@@ -378,6 +385,18 @@ export function UsageGroup() {
           <LiveContext />
         </div>
       </section>
+
+      {all.data?.credit?.enabled ? (
+        <section className="setting-block" aria-labelledby="u-credit-title">
+          <header className="setting-block__head">
+            <h2 id="u-credit-title">Monthly API credit</h2>
+            <p className="mute">The credit that comes with your plan, spent by your Anthropic key.</p>
+          </header>
+          <div className="u-card m-raised">
+            <CreditMeter status={all.data.credit} />
+          </div>
+        </section>
+      ) : null}
 
       <section className="setting-block" aria-labelledby="u-plan-title">
         <header className="setting-block__head">

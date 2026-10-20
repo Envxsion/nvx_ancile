@@ -108,7 +108,7 @@ export function validZone(tz: string | undefined): string | null {
 }
 
 /** The local calendar parts of an instant in a zone. */
-function parts(tz: string, at: number) {
+export function parts(tz: string, at: number) {
   const f = new Intl.DateTimeFormat('en-GB', {
     timeZone: tz,
     hourCycle: 'h23',
@@ -133,7 +133,7 @@ function offset(tz: string, at: number): number {
 }
 
 /** The instant of local midnight for a local date in a zone. */
-function localMidnight(tz: string, y: number, m: number, d: number): number {
+export function localMidnight(tz: string, y: number, m: number, d: number): number {
   const guess = Date.UTC(y, m - 1, d);
   const first = guess - offset(tz, guess);
   return guess - offset(tz, first);

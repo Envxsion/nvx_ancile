@@ -70,8 +70,12 @@ export class BridgeError extends Error {
   }
 }
 
-/** What the bridge may see of this machine: enough to find files, a home and the network. */
-const BRIDGE_ENV = [
+/**
+ * What the bridge may see of this machine: enough to find files, a home and the network.
+ * ANTHROPIC_API_KEY is deliberately not here (CR1): a plan session must stay on the plan login, and a
+ * monthly-credit session gets the key in its own `env` (session.open), never in the bridge's.
+ */
+export const BRIDGE_ENV = [
   'PATH',
   'Path',
   'PATHEXT',

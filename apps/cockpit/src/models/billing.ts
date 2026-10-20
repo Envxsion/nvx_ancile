@@ -47,6 +47,8 @@ export function billingWords(b: ModelBilling): string {
       const name = b.payer ? (PROVIDER_NAME[b.payer] ?? cap(b.payer)) : 'API';
       return `${name} API key, pay per use`;
     }
+    case 'credit':
+      return b.payer ?? "Your plan's monthly API credit";
     case 'local':
       return 'Your computer';
     case 'rented':
@@ -58,7 +60,14 @@ export function billingWords(b: ModelBilling): string {
 
 /** The short badge for lists. */
 export function billingBadge(b: ModelBilling): string {
-  return { plan: 'Plan', key: 'Key', local: 'Local', rented: 'Rented', none: 'Test' }[b.kind];
+  return {
+    plan: 'Plan',
+    key: 'Key',
+    credit: 'Monthly credit',
+    local: 'Local',
+    rented: 'Rented',
+    none: 'Test',
+  }[b.kind];
 }
 
 const perMillion = (n: number) => usd(n, Number.isInteger(n) ? 0 : 2);
@@ -70,6 +79,12 @@ export function billingTitle(
 ): string {
   const words = billingWords(b);
   if (b.kind === 'plan') return `${words}, counted against its limits`;
+  if (b.kind === 'credit') {
+    const base = `${words}, spent before anything is charged`;
+    return price && (price.in > 0 || price.out > 0)
+      ? `${base}: ${perMillion(price.in)} in, ${perMillion(price.out)} out per million tokens`
+      : base;
+  }
   if (b.kind === 'key' && price && (price.in > 0 || price.out > 0)) {
     const line = `${words}: ${perMillion(price.in)} in, ${perMillion(price.out)} out per million tokens`;
     return price.offPeak ? `${line}. ${offPeakLabel(price, price.offPeak)}` : line;
@@ -84,6 +99,12 @@ export function modelBadge(m: Pick<ModelView, 'billing' | 'via'>): string | null
 }
 
 const LINES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+
+/** An Anthropic API model: on a plain key, or on the key that draws on the plan's monthly credit (CR1). */
+const anthropicKeyed = (m: Pick<ModelView, 'id' | 'billing'>): boolean =>
+  !isClaudeCodeModel(m.id) &&
+  !!m.billing &&
+  (m.billing.kind === 'credit' || (m.billing.kind === 'key' && m.billing.payer === 'anthropic'));
 const ready = (m: ModelView) => m.chat !== false && (m.status === undefined || m.status === 'ready');
 
 /** Which Claude line (opus, sonnet, haiku, fable) a Claude Code or Anthropic model is, or null. */
@@ -105,8 +126,7 @@ export function sameModelBothWays(models: ModelView[]): Set<string> {
     if (!line) continue;
     if (isClaudeCodeModel(m.id) && m.billing.kind === 'plan')
       plan.set(line, [...(plan.get(line) ?? []), m.id]);
-    else if (!isClaudeCodeModel(m.id) && m.billing.kind === 'key' && m.billing.payer === 'anthropic')
-      key.set(line, [...(key.get(line) ?? []), m.id]);
+    else if (anthropicKeyed(m)) key.set(line, [...(key.get(line) ?? []), m.id]);
   }
   const out = new Set<string>();
   for (const [line, ids] of plan) {
@@ -126,6 +146,7 @@ export function displayName(
   if (m.billing.kind === 'plan')
     return `${m.name} · ${m.billing.payer ? `${cap(m.billing.payer)} plan` : 'Plan'}`;
   if (m.billing.kind === 'key') return `${m.name} · API key`;
+  if (m.billing.kind === 'credit' && !isClaudeCodeModel(m.id)) return `${m.name} · Monthly credit`;
   return m.name;
 }
 
@@ -134,8 +155,7 @@ export function displayName(
  * model instead: the same line, ready, on a plan. Null when there is none.
  */
 export function planTwinOf(model: ModelView | undefined, models: ModelView[]): ModelView | null {
-  if (!model || isClaudeCodeModel(model.id)) return null;
-  if (model.billing?.kind !== 'key' || model.billing.payer !== 'anthropic') return null;
+  if (!model || !anthropicKeyed(model)) return null;
   const line = claudeLine(model);
   if (!line) return null;
   return (

@@ -32,6 +32,8 @@ import type { Effort } from '@nvx/contracts';
 export type ErrorKind =
   | 'bad_key'
   | 'no_credit'
+  /** CR1: the plan's monthly API credit is spent (a no_credit on a key marked plan_credit). */
+  | 'credit_exhausted'
   | 'rate_limited'
   | 'overloaded'
   | 'region'

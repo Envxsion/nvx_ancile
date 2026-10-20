@@ -347,12 +347,12 @@ export async function languageModelFor(
 export function wrap(
   err: unknown,
   provider = 'generic',
-  ctx: { model?: string; region?: string | undefined } = {},
+  ctx: { model?: string; region?: string | undefined; planCredit?: boolean } = {},
 ): unknown {
   if (err instanceof ClassifiedError) return err;
   const e = err as { statusCode?: number; message?: string };
   const profile = profileFor(provider);
-  const seen = classifyFailure(profile, err);
+  const seen = classifyFailure(profile, err, undefined, { planCredit: ctx.planCredit === true });
   const cls = errorClassFor(seen.kind) ?? classify(err);
   const words = failureWords(seen.kind, profile, {
     ...(ctx.model && { model: ctx.model }),
@@ -407,6 +407,10 @@ function callMeta(pm: unknown): Record<string, unknown> | undefined {
 export class AiSdkClient implements ModelClient {
   /** CA5: the OpenRouter upstream that served a warm call, per branch and model. */
   readonly pins = new PinBook();
+  /** CR1: is this model paid from the plan's monthly API credit? Set by main.ts from the credit ledger. */
+  planCredit?: (m: ModelConfig) => boolean;
+  /** CR1: Anthropic said the credit is spent. */
+  onCreditExhausted?: () => void;
 
   constructor(
     private readonly secrets: ProviderSecrets,
@@ -521,7 +525,15 @@ export class AiSdkClient implements ModelClient {
     }
     const model = await languageModelFor(m, this.secrets, this.endpoints);
     const region = await regionFor(profileFor(m.provider), this.secrets).catch(() => undefined);
-    const failed = (err: unknown) => wrap(err, m.provider, { model: m.display_name, region });
+    const failed = (err: unknown) => {
+      const w = wrap(err, m.provider, {
+        model: m.display_name,
+        region,
+        planCredit: this.planCredit?.(m) === true,
+      });
+      if (w instanceof ClassifiedError && w.code === 'provider.credit_exhausted') this.onCreditExhausted?.();
+      return w;
+    };
     // A routing problem never stops the call: it goes out as OpenRouter's default.
     // A pinned call reuses the routing that warmed it, so the choice is not made again.
     const fresh =

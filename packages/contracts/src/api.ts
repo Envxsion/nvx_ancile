@@ -288,8 +288,16 @@ export const EditMessageRequest = z
 /**
  * not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models).
  * signed_out: a Claude Code model while Claude Code is installed but not signed in.
+ * credit_out: a model paid from the plan's monthly API credit, which Anthropic says is spent (CR1).
  */
-export const ModelStatus = z.enum(['ready', 'needs_key', 'disabled', 'not_pulled', 'signed_out']);
+export const ModelStatus = z.enum([
+  'ready',
+  'needs_key',
+  'disabled',
+  'not_pulled',
+  'signed_out',
+  'credit_out',
+]);
 
 export const ModelInfo = z.object({
   id: z.string(),
@@ -311,6 +319,8 @@ export const ModelInfo = z.object({
   status: ModelStatus,
   /** Who pays for an answer from this model (MD3). */
   billing: ModelBilling,
+  /** CR1: a model paid from the monthly API credit while the credit is spent: it cannot answer until the next cycle. */
+  credit_exhausted: z.boolean().optional(),
   /**
    * A line's "latest" alias (`<provider>/<line>:latest`, MD4): the model it
    * answers with now. Null or absent for every ordinary model.

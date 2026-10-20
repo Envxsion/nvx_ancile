@@ -17,6 +17,7 @@
  */
 
 import { z } from 'zod';
+import { CreditStatus } from './billing';
 
 export const UsageRange = z.enum(['day', 'week', 'month']);
 export type UsageRange = z.infer<typeof UsageRange>;
@@ -61,6 +62,8 @@ export const UsageReport = z.object({
   by_provider: z.array(UsageTotals.extend({ provider: z.string() })).default([]),
   /** Part of cost_usd that is Claude Code's own estimate at API list prices. */
   estimated_cost_usd: z.number().nonnegative(),
+  /** CR1: the plan's monthly API credit this cycle (Ancile's own count); absent when it is not set up. */
+  credit: CreditStatus.nullable().optional(),
 });
 export type UsageReport = z.infer<typeof UsageReport>;
 

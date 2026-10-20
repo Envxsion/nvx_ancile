@@ -39,6 +39,8 @@ export interface EngineTurn {
   modelId: string | null;
   /** The model id as the person gave it, kept on the answer. */
   requestedModelId: string | null;
+  /** CR1: run the Claude Code session on the Anthropic key (the plan's monthly API credit). */
+  credit?: boolean;
   effort?: ClaudeCodeEffort | null;
   sourceIds?: string[];
   /** Images attached to this turn (core.images ids), already checked against the model. */

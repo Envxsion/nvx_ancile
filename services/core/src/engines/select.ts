@@ -25,7 +25,9 @@ import {
   CLAUDE_CODE_MODEL_PREFIX,
   type EffectiveScope,
   isClaudeCodeModel,
+  isCreditModel,
   type ModelConfig,
+  planIdOf,
 } from '@nvx/contracts';
 import type { ModelRegistry } from '../gateway/registry';
 import { checkEngineAllowed } from '../scopes';
@@ -41,6 +43,8 @@ export interface Selection {
   engineModel: string | null;
   /** The model that would answer, for the scope check. */
   checkModel: string | null;
+  /** CR1: a Claude Code session run on the Anthropic key, spending the plan's monthly API credit. */
+  credit?: boolean;
   /** It runs on this machine or a node you control. */
   local: boolean;
 }
@@ -75,7 +79,7 @@ export function isLocalModel(m: Pick<ModelConfig, 'provider' | 'via' | 'base_url
 /** Claude Code's own model name from `claude-code/<name>`; "default" means its default. */
 export function claudeModelName(id: string | null): string | null {
   if (!id || !isClaudeCodeModel(id)) return null;
-  const name = id.slice(CLAUDE_CODE_MODEL_PREFIX.length);
+  const name = planIdOf(id).slice(CLAUDE_CODE_MODEL_PREFIX.length);
   return name && name !== 'default' ? name : null;
 }
 
@@ -95,6 +99,7 @@ export function selectEngine(
       modelId: id,
       engineModel: claudeModelName(id),
       checkModel: id,
+      ...(isCreditModel(id) && { credit: true }),
       local: false,
     };
   }

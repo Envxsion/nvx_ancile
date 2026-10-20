@@ -55,6 +55,15 @@ describe('choosing an engine', () => {
     });
   });
 
+  it('picks the credit variant of a bound session with the plain model name (CR1)', () => {
+    expect(selectEngine(thread(bound), 'claude-code/opus@credit', { registry })).toMatchObject({
+      mode: 'session',
+      engineModel: 'opus',
+      credit: true,
+    });
+    expect(selectEngine(thread(bound), 'claude-code/opus', { registry })).not.toHaveProperty('credit');
+  });
+
   it('answers claude-code models elsewhere as a model through the gateway (Mode A)', () => {
     expect(selectEngine(thread(), 'claude-code/sonnet', { registry })).toMatchObject({
       engine: 'claude_code',
@@ -341,6 +350,107 @@ describe('Claude Code as a model (Mode A)', () => {
       ));
     };
     await expect(run()).rejects.toThrow('Claude Code could not answer: API Error: 529 Overloaded');
+  });
+
+  it('runs the monthly-credit variant on the Anthropic key, in that one session only (CR1)', async () => {
+    const KEY = 'sk-ant-api03-CREDITKEYCREDITKEY0001';
+    const mk = (bridge: Bridge, over: Partial<ConstructorParameters<typeof ClaudeCodeModelClient>[0]> = {}) =>
+      new ClaudeCodeModelClient({
+        bridge,
+        cli: async () => ({ path: 'claude', version: '2.1.300' }),
+        env: async () => ({ DISABLE_TELEMETRY: '1' }),
+        creditKey: async () => KEY,
+        cwd: join(tmpdir(), 'ancile-claude-model'),
+        gate: (root) =>
+          createGate({
+            policy: new BuiltinPolicy(),
+            store: new MemoryPermissionStore(),
+            workspaceRoot: root,
+          }),
+        userId: 'usr_1',
+        workspaceId: 'w',
+        handles: new Set<string>(),
+        ...over,
+      });
+    const run = async (client: ClaudeCodeModelClient, id: string) => {
+      const out = [];
+      for await (const c of client.stream(
+        claudeCodeModels().find((m) => m.id === id) as ModelConfig,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ))
+        out.push(c);
+      return out;
+    };
+    const plan = new Bridge();
+    await run(mk(plan), 'claude-code/sonnet');
+    expect(plan.opened[0]?.env).toEqual({ DISABLE_TELEMETRY: '1' });
+    expect(JSON.stringify(plan.opened[0])).not.toContain(KEY);
+
+    const credit = new Bridge();
+    credit.result = { subtype: 'success', is_error: false, total_cost_usd: 0.0123 };
+    const chunks = await run(mk(credit), 'claude-code/sonnet@credit');
+    expect(credit.opened[0]).toMatchObject({ model: 'sonnet', env: { ANTHROPIC_API_KEY: KEY } });
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', costUsd: 0.0123 });
+  });
+
+  it('says the credit is spent when Anthropic says so, and marks it (CR1)', async () => {
+    const bridge = new Bridge();
+    bridge.result = {
+      subtype: 'success',
+      is_error: true,
+      result: 'Credit balance is too low to access the Anthropic API',
+    };
+    let told = 0;
+    const client = new ClaudeCodeModelClient({
+      bridge,
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      creditKey: async () => 'sk-ant-api03-CREDITKEYCREDITKEY0001',
+      onCreditExhausted: () => {
+        told++;
+      },
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/haiku@credit') as ModelConfig;
+    const go = async () => {
+      for await (const _ of client.stream(
+        model,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ));
+    };
+    await expect(go()).rejects.toMatchObject({ errorClass: 'permanent', code: 'provider.credit_exhausted' });
+    expect(told).toBe(1);
+  });
+
+  it('refuses a monthly-credit call when no Anthropic key is saved (CR1)', async () => {
+    const client = new ClaudeCodeModelClient({
+      bridge: new Bridge(),
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      creditKey: async () => null,
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/opus@credit') as ModelConfig;
+    const go = async () => {
+      for await (const _ of client.stream(
+        model,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ));
+    };
+    await expect(go()).rejects.toMatchObject({ errorClass: 'permanent', code: 'provider.auth_failed' });
   });
 
   it('turns a conversation into one prompt', () => {

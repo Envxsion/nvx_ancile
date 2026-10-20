@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { PlanCredit } from './billing';
 
 export const CredentialId = z.enum([
   'anthropic',
@@ -63,6 +64,8 @@ export const CredentialStatus = z.object({
   unavailable_reason: z.string().nullable(),
   /** Anthropic only: the workspace a personal key bills (not a secret). */
   workspace_id: z.string().nullable().optional(),
+  /** Anthropic only (CR1): this key draws on the plan's monthly API credit. Null when not set up. */
+  plan_credit: PlanCredit.nullable().optional(),
   /**
    * Providers with regions only (Moonshot, MiniMax, Qwen, Z.ai): the region id
    * the key is used in (not a secret). Null when none is saved: the provider's

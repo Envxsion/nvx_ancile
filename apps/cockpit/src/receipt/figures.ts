@@ -41,7 +41,8 @@ export type PayKind = 'key' | 'plan' | 'free' | 'unknown';
 /** What the figures should look like: a key shows rates and money, a plan tokens, local nothing to pay. */
 export function payKind(b: ModelBilling | null | undefined): PayKind {
   if (!b) return 'unknown';
-  if (b.kind === 'key' || b.kind === 'rented') return 'key';
+  // A monthly-credit answer is priced like a key's: it spends real dollars, from the credit.
+  if (b.kind === 'key' || b.kind === 'rented' || b.kind === 'credit') return 'key';
   if (b.kind === 'plan') return 'plan';
   return 'free';
 }

@@ -36,6 +36,8 @@ import {
   CLAUDE_CODE_MODEL_PREFIX,
   CLAUDE_CODE_PROVIDER,
   type ClaudeCodeStatus,
+  CREDIT_MODEL_SUFFIX,
+  isCreditModel,
   type ModelConfig,
 } from '@nvx/contracts';
 import { ClassifiedError } from '@nvx/resilience';
@@ -58,6 +60,22 @@ export const CLAUDE_CODE_MODELS: { alias: string; name: string }[] = [
 ];
 
 const SYSTEM_MAX = 18_000;
+
+/**
+ * What Anthropic's API says when an organisation has no credit left. The documented shape is HTTP 402
+ * with error.type "billing_error" (platform.claude.com/docs/en/api/errors); the "credit balance is too
+ * low" message of a 400 invalid_request_error is what is seen in practice, and is not documented.
+ */
+export const CREDIT_SPENT_RE =
+  /(credit balance is too low|billing[_ ]error|out of credits?|insufficient (credits?|balance)|monthly (api )?credit)/i;
+
+export function creditSpentError(detail: string): ClassifiedError {
+  return new ClassifiedError('permanent', `Anthropic says the monthly API credit is spent (${detail})`, {
+    code: 'provider.credit_exhausted',
+    title: "Your plan's monthly API credit is used up",
+    hint: 'It renews at the start of the next cycle. Until then this model is skipped: pick another, or buy credit in the Claude Console.',
+  });
+}
 /** The window NVX Ancile budgets Claude Code calls to (each call is a fresh session). */
 export const MODE_A_WINDOW = 32_000;
 /** The most of the conversation one call's prompt carries, in tokens (about 4 characters each). */
@@ -70,8 +88,10 @@ const approx = (s: string) => Math.ceil(s.length / 4);
  * far above what was sent comes from Claude Code's own context, not ours:
  * say what NVX Ancile sent so the two are not confused.
  */
-export function errorResult(m: Record<string, unknown>, sentTokens: number): ClassifiedError {
+export function errorResult(m: Record<string, unknown>, sentTokens: number, credit = false): ClassifiedError {
   const said = typeof m.result === 'string' ? m.result.trim().replace(/\s+/g, ' ').slice(0, 200) : '';
+  // CR1: on the Anthropic key, "credit balance is too low" (or a billing error) is the monthly credit gone.
+  if (credit && CREDIT_SPENT_RE.test(said)) return creditSpentError(said);
   if (/too long|context (window|limit)|exceed/i.test(said))
     return new ClassifiedError(
       'context_overflow',
@@ -86,8 +106,11 @@ export function errorResult(m: Record<string, unknown>, sentTokens: number): Cla
   );
 }
 
+/** The Anthropic key's secret name, which the monthly-credit variants run on (CR1). */
+export const CREDIT_KEY_SECRET = 'ANTHROPIC_API_KEY';
+
 export function claudeCodeModels(): ModelConfig[] {
-  return CLAUDE_CODE_MODELS.map((m) => ({
+  const plan = CLAUDE_CODE_MODELS.map((m) => ({
     id: `${CLAUDE_CODE_MODEL_PREFIX}${m.alias}`,
     provider: CLAUDE_CODE_PROVIDER,
     provider_model: m.alias,
@@ -101,6 +124,15 @@ export function claudeCodeModels(): ModelConfig[] {
     price: { input_per_mtok: 0, output_per_mtok: 0 },
     enabled: true,
   }));
+  // CR1: the same models run on the Anthropic key, spending the plan's monthly API credit. They are
+  // listed only while the key is marked as drawing on it (registry.status/unlistedReason).
+  const credit = plan.map((m) => ({
+    ...m,
+    id: `${m.id}${CREDIT_MODEL_SUFFIX}`,
+    display_name: `${m.display_name} (monthly credit)`,
+    secret: CREDIT_KEY_SECRET,
+  }));
+  return [...plan, ...credit];
 }
 
 /**
@@ -165,6 +197,13 @@ export interface ModeADeps {
   bridge: LiveBridge;
   cli(): Promise<{ path: string; version: string }>;
   env(): Promise<Record<string, string>>;
+  /**
+   * CR1: the Anthropic key, read from the secret store when a monthly-credit model is asked.
+   * It goes to that one child process only (as ANTHROPIC_API_KEY) and is never logged or written.
+   */
+  creditKey?(): Promise<string | null>;
+  /** CR1: Anthropic said the monthly credit is gone. */
+  onCreditExhausted?(): void;
   /** NVX Ancile's own empty folder the calls run in. */
   cwd: string;
   /** Ancile's MCP server for sessions (/mcp/claude), when it is served. */
@@ -187,6 +226,14 @@ export class ClaudeCodeModelClient implements ModelClient {
 
   async *stream(model: ModelConfig, req: ModelRequest, signal: AbortSignal): AsyncIterable<StreamChunk> {
     const d = this.deps;
+    const credit = isCreditModel(model.id);
+    const key = credit ? await d.creditKey?.() : null;
+    if (credit && !key)
+      throw new ClassifiedError('permanent', 'No Anthropic key is saved for the monthly credit', {
+        code: 'provider.auth_failed',
+        title: 'Anthropic has no key saved here',
+        hint: 'Add your Anthropic key in Settings, API keys, to use the monthly credit.',
+      });
     const cli = await d.cli();
     await mkdir(d.cwd, { recursive: true });
     const threadId = req.meta?.threadId;
@@ -233,7 +280,8 @@ export class ClaudeCodeModelClient implements ModelClient {
                 },
               },
             }),
-          env: await d.env(),
+          // The key rides in this session's environment only (see claudecode/bridge.ts).
+          env: { ...(await d.env()), ...(key && { ANTHROPIC_API_KEY: key }) },
         })
       ).handle;
       d.handles.add(handle);
@@ -273,7 +321,9 @@ export class ClaudeCodeModelClient implements ModelClient {
         } else if (m.type === 'result') {
           if (m.is_error === true) {
             // An error result can say "success" as its subtype; its text says what went wrong.
-            throw errorResult(m, approx(prompt) + approx(req.system ?? ''));
+            const err = errorResult(m, approx(prompt) + approx(req.system ?? ''), credit);
+            if (err.code === 'provider.credit_exhausted') d.onCreditExhausted?.();
+            throw err;
           }
           const u = isObj(m.usage) ? m.usage : {};
           const n = (v: unknown) => (typeof v === 'number' ? v : 0);
@@ -285,6 +335,8 @@ export class ClaudeCodeModelClient implements ModelClient {
               outputTokens: n(u.output_tokens),
               cachedTokens: n(u.cache_read_input_tokens),
             },
+            // On the key, the credit is spent for real: the SDK reports what the call cost.
+            ...(credit && typeof m.total_cost_usd === 'number' && { costUsd: m.total_cost_usd }),
           };
           return;
         }

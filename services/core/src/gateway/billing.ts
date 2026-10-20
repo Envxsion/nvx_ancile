@@ -17,7 +17,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ModelBilling, ModelConfig } from '@nvx/contracts';
+import { isCreditModel, type ModelBilling, type ModelConfig, PLAN_CREDIT_PAYER } from '@nvx/contracts';
 import { isLocalModel } from '../engines/select';
 
 /** What Claude Code says about its sign-in (claude auth status). */
@@ -36,10 +36,22 @@ const METERED: Record<string, string> = {
   foundry: 'foundry',
 };
 
-export function billingOf(
-  m: Pick<ModelConfig, 'provider' | 'via' | 'base_url' | 'runs_on'>,
-  claude: ClaudeAuth | null,
-): ModelBilling {
+type Billable = Pick<ModelConfig, 'provider' | 'via' | 'base_url' | 'runs_on'> & { id?: string };
+
+/**
+ * CR1: is this model paid from the plan's monthly API credit? The Claude Code
+ * variants run on the Anthropic key (`claude-code/<model>@credit`), and so do
+ * Anthropic's own models once the key is marked as drawing on the credit.
+ * A custom endpoint named "anthropic" is not Anthropic.
+ */
+export function paidFromCredit(m: Billable, creditOn: boolean): boolean {
+  if (!creditOn) return false;
+  if (m.provider === 'claude_code') return isCreditModel(m.id);
+  return m.provider === 'anthropic' && m.via === 'direct' && !m.base_url;
+}
+
+export function billingOf(m: Billable, claude: ClaudeAuth | null, creditOn = false): ModelBilling {
+  if (paidFromCredit(m, creditOn)) return { kind: 'credit', payer: PLAN_CREDIT_PAYER };
   if (m.provider === 'claude_code') {
     const metered = claude?.auth_method ? METERED[claude.auth_method.toLowerCase()] : undefined;
     if (metered) return { kind: 'key', payer: metered };

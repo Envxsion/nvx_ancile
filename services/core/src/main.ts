@@ -106,10 +106,13 @@ import { flowRoutes, memoryText } from './flows/routes';
 import { PgFlowStore } from './flows/store';
 import { flowTryHandler } from './flows/try';
 import { FlowsService } from './flows/turn';
+import { paidFromCredit } from './gateway/billing';
+import { CreditLedger, PgCreditSpend } from './gateway/credit';
+import { creditRoutes } from './gateway/credit-routes';
 import { installSendGuard } from './gateway/e2e-guard';
 import { FakeProvider } from './gateway/fake';
 import { Gateway } from './gateway/gateway';
-import { AiSdkClient, languageModelFor } from './gateway/providers';
+import { AiSdkClient, DEFAULT_SECRET, languageModelFor } from './gateway/providers';
 import { ModelRegistry, RoutingClient } from './gateway/registry';
 import { coreProbes } from './health/probes';
 import { restartAdapterFor } from './health/restart';
@@ -445,6 +448,37 @@ async function main() {
       ]),
   });
   await registry.refresh();
+  // CR1: the plan's monthly API credit. Models paid from it follow the ledger (registry.setCredit).
+  const creditLedger = new CreditLedger({
+    settings,
+    spend: new PgCreditSpend(sql, owner.workspaceId),
+    onState: (s) => registry.setCredit(s),
+    notify: (n) =>
+      events.publish({
+        type: 'notification',
+        id: n.id,
+        level: n.level,
+        title: n.title,
+        body: n.body,
+        action: { label: 'Open usage', href: '/settings/usage' },
+        category: 'health',
+      }),
+  });
+  await creditLedger.load().catch((err: unknown) => log.warn({ err }, 'the monthly credit was not read'));
+  await registry.refresh();
+  // Late in a cycle the goal can switch on by itself, and 80% can be passed: look every few minutes.
+  setInterval(
+    () =>
+      void creditLedger
+        .check()
+        .then(() => creditLedger.refreshGoal())
+        .catch(() => undefined),
+    5 * 60_000,
+  ).unref();
+  events.subscribe(Number.MAX_SAFE_INTEGER, (e) => {
+    if (e.type === 'run.updated' && e.status === 'succeeded' && creditLedger.enabled)
+      void creditLedger.check().catch(() => undefined);
+  });
   // The first raw usage each provider sends is logged (numbers only), so what it
   // really reports for cache hits and writes can be checked against our counts.
   const usageSeen = new Set<string>();
@@ -490,18 +524,19 @@ async function main() {
       return { known: p.available === true, percent: used.length ? Math.max(...used) : null };
     },
   });
-  const routingClient = new RoutingClient(
-    new AiSdkClient(
-      secrets,
-      endpoints,
-      async (id) => {
-        const got = await imageStore.get(id);
-        return got ? { bytes: got.bytes, mime: got.record.mime } : null;
-      },
-      (m, req) => openRouter.forCall(m, req),
-    ),
-    new FakeProvider({ wordDelayMs: 25 }),
+  const sdkClient = new AiSdkClient(
+    secrets,
+    endpoints,
+    async (id) => {
+      const got = await imageStore.get(id);
+      return got ? { bytes: got.bytes, mime: got.record.mime } : null;
+    },
+    (m, req) => openRouter.forCall(m, req),
   );
+  // CR1: a key marked as drawing on the plan's credit reads "out of credit" as the credit being spent.
+  sdkClient.planCredit = (m) => paidFromCredit(m, creditLedger.enabled);
+  sdkClient.onCreditExhausted = () => void creditLedger.markExhausted().catch(() => undefined);
+  const routingClient = new RoutingClient(sdkClient, new FakeProvider({ wordDelayMs: 25 }));
   const gateway = new Gateway({
     client: routingClient,
     breaker: new CircuitBreaker(),
@@ -973,6 +1008,8 @@ async function main() {
       }),
     tools,
     billing: (id) => registry.billingFor(id),
+    creditKey: async () => (await secrets.get(DEFAULT_SECRET.anthropic ?? 'ANTHROPIC_API_KEY')) ?? null,
+    onCreditExhausted: () => void creditLedger.markExhausted().catch(() => undefined),
     passes: claudePasses,
     mcp: {
       url: `http://${ccHost.includes(':') ? `[${ccHost}]` : ccHost}:${env.ANCILE_PORT}/mcp/claude`,
@@ -1972,10 +2009,12 @@ async function main() {
       stateRoutes(stateStore),
       notificationRoutes(notifications),
       computeRoutes({ client: compute, secrets, hasFeature: hasProFeature, sync: syncProvider }),
+      creditRoutes({ ledger: creditLedger, registry }),
       credentialRoutes({
         secrets,
         env: process.env,
         registry,
+        planCredit: () => creditLedger.current(),
         tester: liveTester((m, keys) => languageModelFor(m, keys, endpoints)),
         ...(compute.configured && {
           runpod: {
@@ -2063,6 +2102,7 @@ async function main() {
         workspaceId: owner.workspaceId,
         source: usageSource,
         limits: () => planLimits,
+        credit: () => creditLedger.status(),
       }),
       labRoutes({
         engine,
@@ -2102,6 +2142,8 @@ async function main() {
       bridge: claudeCode.bridge,
       cli: () => claudeCode.service.cliPath(),
       env: () => claudeCode.service.cliEnv(),
+      creditKey: async () => (await secrets.get(DEFAULT_SECRET.anthropic ?? 'ANTHROPIC_API_KEY')) ?? null,
+      onCreditExhausted: () => void creditLedger.markExhausted().catch(() => undefined),
       cwd: resolve(env.ANCILE_DATA_DIR, 'claude-model'),
       mcp: {
         url: `http://${ccHost.includes(':') ? `[${ccHost}]` : ccHost}:${env.ANCILE_PORT}/mcp/claude`,

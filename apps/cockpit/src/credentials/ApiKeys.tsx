@@ -30,6 +30,7 @@ import { Block, matches, SearchContext } from '../routes/settings/rows';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
+import { PlanCreditSetting } from './PlanCredit';
 import {
   type FriendlyProblem,
   friendlyProblem,
@@ -434,6 +435,7 @@ export function CredentialRow({
             <code title={status.workspace_id}>{shortWorkspace(status.workspace_id)}</code>.
           </p>
         ) : null}
+        {meta.id === 'anthropic' && status?.set ? <PlanCreditSetting saved={status.plan_credit} /> : null}
         {status?.set && regions ? (
           <div className="setting__desc credential__saved-region">
             <label htmlFor={`${regionId}-saved`}>Region</label>{' '}

@@ -224,6 +224,12 @@ export const ClaudeCodeBinding = z.object({
    * (see claudeCodeLean). Never changes the person's Claude Code files.
    */
   lean: z.boolean().optional(),
+  /**
+   * CR1: how the bound session was last run. `credit`: with an API key, spending the plan's monthly
+   * API credit. Absent or `plan`: on the plan sign-in. A turn that asks for the other way starts a
+   * new session (it never resumes across), given the thread so far.
+   */
+  pay: z.enum(['plan', 'credit']).optional(),
 });
 export type ClaudeCodeBinding = z.infer<typeof ClaudeCodeBinding>;
 
@@ -389,6 +395,8 @@ export const SendClaudeCodeRequest = z
     /** Source ids to ground this turn on (the notebook's sources by default). */
     source_ids: z.array(z.string()).max(50).optional(),
     model: z.string().nullable().optional(),
+    /** CR1: run this turn with the Anthropic key, on the plan's monthly API credit. */
+    credit: z.boolean().optional(),
     effort: ClaudeCodeEffort.nullable().optional(),
     /**
      * "Continue as a branch": fork the session at the parent even when the

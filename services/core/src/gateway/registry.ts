@@ -31,6 +31,7 @@
  */
 
 import {
+  isCreditModel,
   isLineAlias,
   lineAlias,
   lineOfAlias,
@@ -56,7 +57,8 @@ import type { StoredModel } from '../models/watch/store';
 import { autoLimits } from '../openrouter/auto';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
-import { billingOf, type ClaudeAuth } from './billing';
+import { billingOf, type ClaudeAuth, paidFromCredit } from './billing';
+import { preferCreditFirst } from './credit-routing';
 import { assertSendAllowed, modelAllowedInTestProfile, sendGuardActive } from './e2e-guard';
 import { effortLevels } from './effort';
 import { OFFLINE_MODELS } from './fake';
@@ -163,6 +165,8 @@ export class ModelRegistry {
   private discoveredIds = new Set<string>();
   /** What Claude Code says about its sign-in; null until it has been asked. */
   private claudeAuth: ClaudeAuth | null = null;
+  /** CR1: the plan's monthly API credit. enabled: the Anthropic key draws on it. exhausted: Anthropic said it is gone. first: RT1's goal is on now. */
+  private credit = { enabled: false, exhausted: false, first: false };
 
   constructor(private readonly opts: RegistryOptions) {
     // openrouter/auto is planned for at its smallest plausible window (openrouter/auto.ts).
@@ -532,10 +536,15 @@ export class ModelRegistry {
     this.claudeAuth = auth;
   }
 
+  /** CR1: tell the registry about the plan's monthly API credit (gateway/credit.ts). Models paid from it appear, or step aside, at once. */
+  setCredit(state: { enabled: boolean; exhausted: boolean; first: boolean }): void {
+    this.credit = { ...state };
+  }
+
   /** Who pays for a model, as it is now (roadmap WY1 keeps this with each answer). Null for an unknown id. */
   billingFor(id: string): ModelBilling | null {
     const m = this.get(id);
-    return m ? billingOf(m, this.claudeAuth) : null;
+    return m ? billingOf(m, this.claudeAuth, this.credit.enabled) : null;
   }
 
   all(): ModelConfig[] {
@@ -548,7 +557,11 @@ export class ModelRegistry {
 
   status(m: ModelConfig): ModelInfo['status'] {
     if (!this.enabled(m)) return 'disabled';
-    if (m.provider === 'claude_code' && this.claudeAuth && !this.claudeAuth.signed_in) return 'signed_out';
+    // CR1: the monthly-credit variants exist only while the key is marked as drawing on it.
+    if (isCreditModel(m.id) && !this.credit.enabled) return 'disabled';
+    if (this.credit.exhausted && paidFromCredit(m, this.credit.enabled)) return 'credit_out';
+    if (m.provider === 'claude_code' && !isCreditModel(m.id) && this.claudeAuth && !this.claudeAuth.signed_in)
+      return 'signed_out';
     const secret = secretFor(m);
     if (secret && !this.secretNames.has(secret)) return 'needs_key';
     // Ollama's models answer only once Ollama has said it has them (never, while it has not answered).
@@ -567,6 +580,10 @@ export class ModelRegistry {
   unlistedReason(m: ModelConfig): NonNullable<ModelInfo['unlisted_reason']> | null {
     if (this.customIds.has(m.id)) return null;
     if (m.provider === 'fake') return null;
+    if (m.provider === 'claude_code' && isCreditModel(m.id)) {
+      const key = secretFor(m);
+      return this.credit.enabled && (!key || this.secretNames.has(key)) ? null : 'no_key';
+    }
     if (m.provider === 'claude_code') return this.claudeAuth?.signed_in === true ? null : 'signed_out';
     if (m.provider === NODE_PROVIDER) return null;
     if (m.provider === 'controller') return this.enabled(m) ? null : 'no_node';
@@ -677,7 +694,8 @@ export class ModelRegistry {
         ...(m.price.off_peak && { off_peak: m.price.off_peak }),
       },
       status: this.status(m),
-      billing: billingOf(m, this.claudeAuth),
+      billing: billingOf(m, this.claudeAuth, this.credit.enabled),
+      ...(this.credit.exhausted && paidFromCredit(m, this.credit.enabled) && { credit_exhausted: true }),
       listed: this.listed(m),
       ...(this.unlistedReason(m) && {
         unlisted_reason: this.unlistedReason(m) as NonNullable<ModelInfo['unlisted_reason']>,
@@ -769,11 +787,15 @@ export class ModelRegistry {
     }
     const chosen = explicit ? this.resolve(explicit)?.model : undefined;
     const usable = chosen && canChat(chosen) ? chosen.id : undefined;
-    return resolveChain(
+    const out = resolveChain(
       { taskClass, explicit: usable ?? undefined, generatorFamily: opts.generatorFamily },
       classes,
       ready,
     );
+    // RT1: late in the cycle, with credit left, a model paid from the credit goes ahead of an equal one.
+    return this.credit.first
+      ? preferCreditFirst(out, (m) => paidFromCredit(m, this.credit.enabled), usable ? 1 : 0)
+      : out;
   }
 }
 

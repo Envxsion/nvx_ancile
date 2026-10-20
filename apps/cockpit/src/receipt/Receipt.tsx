@@ -159,7 +159,7 @@ function AnsweredBy({
       </p>
       {billing ? (
         <p className="mute">
-          {billingWords(billing)}
+          {billing.kind === 'credit' ? 'Paid from your monthly credit' : billingWords(billing)}
           {billing.kind === 'plan'
             ? ', counted against its limits'
             : billing.kind === 'local'
