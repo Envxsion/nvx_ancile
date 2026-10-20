@@ -20,6 +20,7 @@
  */
 
 import type { ModelConfig } from '@nvx/contracts';
+import { lineFor } from '../models/watch/lines';
 import { normaliseForMatch } from '../models/watch/listers';
 
 export interface KeyCheckPlan {
@@ -80,4 +81,16 @@ export function offeredBy<T extends Pick<ModelConfig, 'provider_model'>>(
   const out: { offered: T[]; missing: T[] } = { offered: [], missing: [] };
   for (const m of models) (have.has(same(m.provider_model)) ? out.offered : out.missing).push(m);
   return out;
+}
+
+/**
+ * Which of a provider's models a first key switches on. A preview stays off while the provider has a
+ * stable model beside it: a preview is dearer and less settled (Gemini 3.1 Pro preview next to the
+ * Flash models), and it is one switch away in Admin → Models. With nothing but previews, they all stay.
+ */
+export function switchedOnByKey<T extends Pick<ModelConfig, 'provider' | 'provider_model' | 'base_url'>>(
+  models: readonly T[],
+): T[] {
+  const stable = models.filter((m) => !lineFor(m.provider, m.base_url, m.provider_model)?.preview);
+  return stable.length ? stable : [...models];
 }

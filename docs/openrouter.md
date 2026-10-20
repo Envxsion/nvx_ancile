@@ -6,7 +6,7 @@ Code: `services/core/src/openrouter/` (Core), `apps/cockpit/src/openrouter/` (Co
 
 ## Adding OpenRouter models
 
-OpenRouter models are added one at a time, from **Admin → Models → Add a model → OpenRouter** (see [models](models.md#adding-a-model)). `config/models.yaml` ships none, and the catalogue is only ever browsed there, never listed in a picker. A model you add needs your OpenRouter key: until it is saved the model shows as **Needs its key** in Admin → Models and no picker offers it. Saving your first OpenRouter key (in that dialog, in setup or in Settings → API keys) switches on the OpenRouter models you added, and only those.
+OpenRouter models are added one at a time, from **Admin → Models → Add a model → OpenRouter** (see [models](models.md#adding-a-model)). `config/models.yaml` ships three small starters (Llama 3.3 70B Instruct, gpt-oss-20b and Gemma 3 27B, switched on by your first key), and the rest of the catalogue is only ever browsed there, never listed in a picker. A model you add needs your OpenRouter key: until it is saved the model shows as **Needs its key** in Admin → Models and no picker offers it. Saving your first OpenRouter key (in that dialog, in setup or in Settings → API keys) switches on the starters and the OpenRouter models you added, and only those.
 
 ## Why the same model can feel worse
 

@@ -23,6 +23,7 @@ type Capability = ModelConfig['capabilities'][number];
 import { ClassifiedError, retry } from '@nvx/resilience';
 import { tracedFetch } from '../../context';
 import { PROFILES } from '../../gateway/profiles';
+import { familyCapabilities } from './caps';
 import { dateOf, stripDate } from './lines';
 
 export type ListKind = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'compatible';
@@ -156,11 +157,18 @@ export function parseGoogle(body: unknown): { models: Listed[]; next: string | n
     // Embedding, image and audio-only models do not answer a chat turn.
     if (methods.length && !methods.includes('generateContent')) continue;
     const id = name.replace(/^models\//, '');
+    // The list names no input types or tool support: abilities come from the family table, and only
+    // for a family it knows (a model it does not know is not read as having lost anything).
+    const family = familyCapabilities('google', id);
+    const caps = new Set<Capability>(family ?? []);
+    if (m.thinking === true) caps.add('reasoning');
     models.push({
       ...base(id),
       display_name: str(m.displayName) ?? id,
       context_window: posInt(m.inputTokenLimit),
       max_output: posInt(m.outputTokenLimit),
+      capabilities: [...caps],
+      capsKnown: family !== null,
     });
   }
   return { models, next: str(b.nextPageToken) };

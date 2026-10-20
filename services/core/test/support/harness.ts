@@ -87,6 +87,8 @@ export interface HarnessOptions {
   offline?: boolean;
   cedar?: Record<string, string>;
   tester?: ProviderTester;
+  /** Called when a provider's key is saved in setup (the first model check). */
+  onKeySaved?: (provider: string) => void;
   /** What Ollama has pulled (the registry asks it); absent: never asked. */
   ollamaTags?: () => Promise<string[] | null>;
   /** A real git memory repository (seeded from memory-template/) and its routes. */
@@ -471,6 +473,7 @@ export async function harness(opts: HarnessOptions = {}) {
         secrets,
         settings,
         tester: opts.tester ?? (async ({ model }) => ({ model: model?.id ?? 'x' })),
+        ...(opts.onKeySaved && { onKeySaved: opts.onKeySaved }),
         ...(opts.catalogue && { catalogue: opts.catalogue }),
       }),
       credentialRoutes({

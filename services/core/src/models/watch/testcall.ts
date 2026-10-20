@@ -25,6 +25,27 @@ const log = logFor('model-watch');
 
 export const TEST_PROMPT = 'Reply with the single word: ready';
 
+const REFUSAL_WORDS =
+  /(no longer available|not found|does not exist|not supported|deprecated|not permitted|no access|unknown model)/i;
+
+/**
+ * The provider's reason when it refused this model for good (F3c): a 404, a model the key may not use,
+ * or a 400 that says the model is gone. Null for anything that is about the key, the account or the
+ * moment (a rate limit, no credit, an overload, a bad key), which says nothing about the model.
+ */
+export function modelRefusal(err: unknown): string | null {
+  // A one-model chain fails as a ChainFailedError whose last attempt holds the provider's words.
+  const last = (
+    err as { attempts?: { errorClass?: string; detail?: string; code?: string }[] }
+  )?.attempts?.at(-1);
+  const e = last ?? (err as { errorClass?: string; message?: string; code?: string });
+  const message = String((last ? last.detail : (e as { message?: string }).message) ?? '');
+  if (e.errorClass !== 'permanent') return null;
+  if (e.code !== 'provider.model_not_permitted' && !REFUSAL_WORDS.test(message)) return null;
+  // The provider's own sentence when it gave one, else ours. Cut short; the gateway never puts a key in it.
+  return message.replace(/\s+/g, ' ').trim().slice(0, 240) || 'The provider refused this model.';
+}
+
 export function gatewayTestCall(gateway: Gateway): TestCall {
   return async (model, signal) => {
     let text = '';
@@ -51,7 +72,12 @@ export function gatewayTestCall(gateway: Gateway): TestCall {
     } catch (err) {
       const cls = (err as { errorClass?: string })?.errorClass ?? 'unknown';
       log.warn({ model: model.id, error_class: cls }, 'the test call failed');
-      return { ok: false, detail: `${model.display_name} did not answer the test call (${cls}).` };
+      const refused = modelRefusal(err);
+      return {
+        ok: false,
+        detail: `${model.display_name} did not answer the test call (${cls}).`,
+        ...(refused && { refused }),
+      };
     }
     log.info(
       {

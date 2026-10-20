@@ -44,7 +44,7 @@ import { type JsonGetter, type ListKind, list, liveJson } from '../models/watch/
 import { notFound } from '../obs/errors';
 import type { SecretStore } from '../secrets';
 import { SETTING, type SettingsStore } from '../settings';
-import { keyCheckFor, offeredBy } from './key-check';
+import { keyCheckFor, offeredBy, switchedOnByKey } from './key-check';
 import { registerModelRoutes } from './models';
 
 const PROVIDERS: { id: ProviderId; display_name: string; needs_key: boolean }[] = [
@@ -82,6 +82,8 @@ export interface SetupRouteDeps {
   settings: SettingsStore;
   tester: ProviderTester;
   ollamaUrl?: string | undefined;
+  /** A provider's key was saved: read its model list now (F3a). Must not block or throw. */
+  onKeySaved?: (provider: string) => void;
   /** The permission preset changed: reload the policies that depend on it. */
   onPreset?: (preset: 'careful' | 'balanced' | 'hands_off') => Promise<void>;
   /** Where model catalogues come from (tests pass recorded fixtures). */
@@ -364,14 +366,17 @@ export function setupRoutes(deps: SetupRouteDeps) {
       // served from; one it does not have could not answer. Models found in Ollama
       // are on already, and one you turned off stays off.
       const pulled = tested.available ? new Set(tested.available.map(ollamaName)) : null;
-      const ready = candidates.filter(
+      const fits = candidates.filter(
         (m) =>
           !registry.isDiscovered(m.id) &&
           (!pulled || pulled.has(ollamaName(m.provider_model))) &&
           !missing.has(m.id),
       );
+      const ready = req.provider === 'ollama' ? fits : switchedOnByKey(fits);
       enabled = ready.map((m) => m.id);
       await registry.setEnabled(Object.fromEntries(enabled.map((id) => [id, true])));
+      // The first model check and the starters' one-token tests run now, not tomorrow (F3a, F3c).
+      if (key) deps.onKeySaved?.(req.provider);
       if (req.provider === 'ollama') {
         await registry.refreshOllama();
         // What is on because Ollama works: the models above, and those it lists by itself.

@@ -124,6 +124,9 @@ export function toModelView(m: ModelInfo): ModelView {
     ...(m.capabilities.includes('reasoning') && { reasoning: true }),
     ...(m.offline && { note: "Doesn't use AI. For trying NVX Ancile before you add a model" }),
     ...(m.status === 'needs_key' && { note: 'Needs its API key' }),
+    ...(m.status === 'unavailable' && {
+      note: m.unavailable_reason ?? 'Its provider refused it. Test it again in Admin → Models',
+    }),
     ...(m.status === 'signed_out' && { note: 'Sign in to Claude Code first' }),
     ...(m.status === 'not_pulled' && {
       note: 'Not in Ollama yet: download it in Admin → Models, or run ollama pull',

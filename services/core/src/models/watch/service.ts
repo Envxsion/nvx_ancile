@@ -43,6 +43,7 @@ import { notFound } from '../../obs/errors';
 import { logFor } from '../../obs/logger';
 import type { SecretStore } from '../../secrets';
 import { SETTING, type SettingsStore } from '../../settings';
+import { familyCapabilities } from './caps';
 import { diffProvider, type PriceMode } from './diff';
 import { type LineState, newestStable } from './linebook';
 import { compareModels, vendorOf } from './lines';
@@ -66,12 +67,20 @@ export const FIRST_RUN_DELAY_MS = 60_000;
 export const TICK_EVERY_MS = HOUR;
 export const MANUAL_MIN_GAP_MS = 60_000;
 export const TEST_CALL_TIMEOUT_MS = 30_000;
+/** Saves in quick succession (setup, then Settings) become one check. */
+export const KEY_SAVED_DELAY_MS = 2_000;
+
+/** Cheap enough to test without asking: dearer models are tried when the owner presses Test. */
+export const isCheap = (m: ModelConfig) =>
+  m.price.output_per_mtok > 0 && m.price.input_per_mtok <= 1 && m.price.output_per_mtok <= 5;
 
 /** The result of a minimal real request through the normal gateway path. */
 export interface TestResult {
   ok: boolean;
   /** A sentence for the owner when it failed. */
   detail: string | null;
+  /** The provider's reason when it refused this model for good (not a bad key, a limit or an outage). */
+  refused?: string | null;
 }
 export type TestCall = (model: ModelConfig, signal: AbortSignal) => Promise<TestResult>;
 
@@ -112,6 +121,7 @@ export interface ModelWatchDeps {
   newId?: () => string;
   firstRunDelayMs?: number;
   tickEveryMs?: number;
+  keyDelayMs?: number;
 }
 
 /** How one provider's last check went, as saved. */
@@ -192,6 +202,7 @@ export class ModelWatch {
   private busy = false;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly background = new Set<Promise<unknown>>();
+  private readonly keyTimers = new Map<string, unknown>();
 
   constructor(private readonly deps: ModelWatchDeps) {
     this.now = deps.now ?? Date.now;
@@ -224,6 +235,8 @@ export class ModelWatch {
     if (this.tickTimer) this.timers.clearInterval(this.tickTimer);
     this.firstTimer = null;
     this.tickTimer = null;
+    for (const h of this.keyTimers.values()) this.timers.clearTimeout(h);
+    this.keyTimers.clear();
     this.abort.abort();
   }
 
@@ -542,10 +555,11 @@ export class ModelWatch {
       family: sibling?.family ?? row.provider,
       context_window: row.context_window ?? lineCurrent?.context_window ?? d.ctx,
       max_output: row.max_output ?? lineCurrent?.max_output ?? d.max,
-      capabilities:
-        row.caps_known && row.capabilities.length
-          ? row.capabilities
-          : (lineCurrent?.capabilities ?? ['tools']),
+      // What the provider's list says; else the family table; else a model of the same line. Never
+      // "tools" on a guess: a model that cannot is offered tool calls and fails.
+      capabilities: row.caps_known
+        ? row.capabilities
+        : (familyCapabilities(row.provider, row.provider_model) ?? lineCurrent?.capabilities ?? []),
       price: row.price ?? lineCurrent?.price ?? { input_per_mtok: 0, output_per_mtok: 0 },
       enabled: true,
       ...(sibling?.base_url && { base_url: sibling.base_url }),
@@ -782,6 +796,70 @@ export class ModelWatch {
     return this.lineOrThrow(lineId);
   }
 
+  // ---- A key was saved, and models that turn out not to answer (F3a, F3c) ----
+
+  /**
+   * A key for this provider was saved: read its model list now, without waiting for the daily check,
+   * then try its starter models once each. Returns at once. Saves in quick succession (setup, then
+   * Settings) become one check, and a provider read in the last minute is not read again.
+   */
+  keySaved(provider: string): void {
+    if (this.abort.signal.aborted || this.keyTimers.has(provider)) return;
+    const h = this.timers.setTimeout(() => {
+      this.keyTimers.delete(provider);
+      const job = this.afterKey(provider)
+        .catch((err: unknown) => log.warn({ err, provider }, 'the first model check after a key failed'))
+        .finally(() => this.background.delete(job));
+      this.background.add(job);
+    }, this.deps.keyDelayMs ?? KEY_SAVED_DELAY_MS);
+    this.keyTimers.set(provider, h);
+  }
+
+  private async afterKey(provider: string): Promise<void> {
+    await this.load();
+    const reg = this.deps.registry;
+    // A new key may open what the old one could not: forget what was refused for this provider.
+    await reg.clearUnavailable(
+      reg
+        .all()
+        .filter((m) => m.provider === provider)
+        .map((m) => m.id),
+    );
+    const target = (await this.targets()).find((t) => t.provider === provider);
+    if (!target) return;
+    const last = this.checks[provider];
+    const recent =
+      last?.ok && last.attempt_at && this.now() - Date.parse(last.attempt_at) < MANUAL_MIN_GAP_MS;
+    if (!recent) {
+      const run = this.queue.then(() => this.runTargets([target]));
+      this.queue = run.catch(() => undefined);
+      await run;
+    }
+    for (const m of reg.all()) {
+      if (m.provider === provider && reg.isStarter(m.id)) await this.verify(m);
+    }
+  }
+
+  /**
+   * Try a model with one token. A cheap model only: a dear one is tried when the owner presses Test.
+   * A permanent refusal that is about the model (gone, not offered to new users) marks it unavailable
+   * with the provider's words, so no picker offers a model that cannot answer. Anything else (a rate
+   * limit, an outage, a bad key) says nothing about the model and changes nothing.
+   */
+  async verify(model: ModelConfig): Promise<void> {
+    if (!isCheap(model)) return;
+    const res = await this.test(model);
+    const reg = this.deps.registry;
+    if (res.ok) {
+      await reg.clearUnavailable([model.id]);
+      return;
+    }
+    if (!res.refused) return;
+    log.warn({ model: model.id }, 'a provider refused a model for good');
+    await reg.markUnavailable(model.id, res.refused, this.iso());
+    await this.announce('watch');
+  }
+
   // ---- Changes and adding ----
 
   async markSeen(ids: string[]): Promise<void> {
@@ -804,6 +882,14 @@ export class ModelWatch {
     }
     const info = reg.info().find((m) => m.id === modelId);
     if (!info) throw notFound('That model');
+    // One cheap token tells whether it answers at all; the answer does not wait for it.
+    const config = reg.getExact(modelId);
+    if (config && isCheap(config)) {
+      const job = this.verify(config)
+        .catch((err: unknown) => log.warn({ err }, 'testing an added model failed'))
+        .finally(() => this.background.delete(job));
+      this.background.add(job);
+    }
     return info;
   }
 

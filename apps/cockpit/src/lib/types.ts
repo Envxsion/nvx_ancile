@@ -28,7 +28,7 @@ export interface ModelView {
   contextWindow: number;
   note?: string;
   /** From Core: whether it can answer now. Fixtures are always ready. */
-  status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled' | 'signed_out' | 'credit_out';
+  status?: 'ready' | 'needs_key' | 'disabled' | 'not_pulled' | 'signed_out' | 'credit_out' | 'unavailable';
   /** Who pays for an answer (MD3). Absent only in hand-made fixtures. */
   billing?: ModelBilling;
   /** Price per million tokens, in dollars; 0 when not priced (plans, local). */

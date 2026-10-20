@@ -151,6 +151,8 @@ export class ModelRegistry {
   private overrides: Record<string, boolean> = {};
   /** MD2: models you showed or hid beyond a provider's starter three. */
   private shown: Record<string, boolean> = {};
+  /** F3c: models a provider refused for good on a test call, with its reason. */
+  private unavailable: Record<string, { reason: string; at: string }> = {};
   /** MD2: per keyed provider, one current model of each tier (fast, balanced, best), from the live list when it has one. */
   private starters = new Set<string>();
   /** Chip hues chosen for config models. */
@@ -193,11 +195,16 @@ export class ModelRegistry {
     const chains = (await this.opts.settings.get<Record<string, string[]>>(SETTING.routingChains)) ?? {};
     const lineStates = (await this.opts.settings.get<Record<string, LineState>>(SETTING.modelLines)) ?? {};
     const watchAdded = (await this.opts.settings.get<string[]>(SETTING.watchAdded)) ?? [];
+    const unavailable =
+      (await this.opts.settings.get<Record<string, { reason: string; at: string }>>(
+        SETTING.modelUnavailable,
+      )) ?? {};
     await this.lookAtOllama();
     // Applied together, with nothing awaited in between, so chain() never sees half a refresh.
     this.secretNames = secretNames;
     this.overrides = overrides;
     this.shown = shown;
+    this.unavailable = unavailable;
     this.hues = hues;
     this.savedChains = chains;
     this.lineStates = lineStates;
@@ -574,6 +581,7 @@ export class ModelRegistry {
       return 'signed_out';
     const secret = secretFor(m);
     if (secret && !this.secretNames.has(secret)) return 'needs_key';
+    if (this.unavailable[m.id]) return 'unavailable';
     // Ollama's models answer only once Ollama has said it has them (never, while it has not answered).
     if (isLocalOllama(m) && this.opts.ollamaTags && !this.ollamaPulled?.has(ollamaName(m.provider_model)))
       return 'not_pulled';
@@ -609,6 +617,33 @@ export class ModelRegistry {
 
   listed(m: ModelConfig): boolean {
     return this.unlistedReason(m) === null;
+  }
+
+  /** Is this one of its provider's starter models (MD2)? */
+  isStarter(id: string): boolean {
+    return this.starters.has(id);
+  }
+
+  /** F3c: a provider refused this model for good. It is skipped, and says why, until a test passes. */
+  async markUnavailable(id: string, reason: string, at: string): Promise<void> {
+    await this.saveUnavailable({ ...this.unavailable, [id]: { reason, at } });
+  }
+
+  /** Forget a refusal (a passing test, or a new key for its provider). Nothing to do when there is none. */
+  async clearUnavailable(ids: string[]): Promise<void> {
+    if (!ids.some((id) => this.unavailable[id])) return;
+    const next = { ...this.unavailable };
+    for (const id of ids) delete next[id];
+    await this.saveUnavailable(next);
+  }
+
+  unavailableReason(id: string): string | null {
+    return this.unavailable[id]?.reason ?? null;
+  }
+
+  private async saveUnavailable(next: Record<string, { reason: string; at: string }>): Promise<void> {
+    await this.opts.settings.set(SETTING.modelUnavailable, next);
+    this.unavailable = next;
   }
 
   /** Save that a model of a keyed provider is shown (or hidden) beyond the starter three. */
@@ -704,6 +739,7 @@ export class ModelRegistry {
         ...(m.price.off_peak && { off_peak: m.price.off_peak }),
       },
       status: this.status(m),
+      ...(this.unavailable[m.id] && { unavailable_reason: this.unavailable[m.id]?.reason }),
       billing: billingOf(m, this.claudeAuth, this.credit.enabled),
       ...(this.credit.exhausted && paidFromCredit(m, this.credit.enabled) && { credit_exhausted: true }),
       listed: this.listed(m),

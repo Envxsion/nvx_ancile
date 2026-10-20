@@ -241,9 +241,19 @@ describe('models found in Ollama', () => {
 });
 
 describe('OpenRouter models are added one by one', () => {
-  it('ships no OpenRouter model: none is listed until you add it', async () => {
+  it('ships only three cheap starters, off until a key is saved (F3b), never the catalogue', async () => {
     const cfg = await loadConfig(fileURLToPath(new URL('../../../../config', import.meta.url)));
-    expect(cfg.models?.models.filter((m) => m.provider === 'openrouter')).toEqual([]);
+    const shipped = cfg.models?.models.filter((m) => m.provider === 'openrouter') ?? [];
+    expect(shipped.map((m) => m.id)).toEqual([
+      'openrouter/meta-llama__llama-3.3-70b-instruct',
+      'openrouter/openai__gpt-oss-20b',
+      'openrouter/google__gemma-3-27b-it',
+    ]);
+    // The id scheme is the one models you add use: the provider's id with "/" as "__".
+    for (const m of shipped) {
+      expect(m.id).toBe(`openrouter/${m.provider_model.replace('/', '__')}`);
+      expect(m.enabled).toBe(false);
+    }
   });
 
   it('a first OpenRouter key switches on only the models you added, never the catalogue', async () => {

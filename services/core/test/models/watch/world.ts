@@ -5,7 +5,7 @@
  */
 import type { ModelConfig } from '@nvx/contracts';
 import { ModelRegistry } from '../../../src/gateway/registry';
-import { ModelWatch, type TestCall, type Timers } from '../../../src/models/watch/service';
+import { ModelWatch, type TestCall, type TestResult, type Timers } from '../../../src/models/watch/service';
 import { MemoryWatchStore } from '../../../src/models/watch/store';
 import { MemorySecretStore, SecretBox } from '../../../src/secrets';
 import { MemorySettings } from '../../../src/settings';
@@ -90,7 +90,11 @@ export interface World {
   /** OpenRouter's public list. */
   openrouter: { data: Record<string, unknown>[]; fail?: boolean };
   tested: ModelConfig[];
-  testResult: { ok: boolean; detail: string | null };
+  testResult: TestResult;
+  /** A test result for one model, over testResult. */
+  testFor?: (m: ModelConfig) => TestResult | undefined;
+  /** Google's list (the `models` array). */
+  google: Record<string, unknown>[];
 }
 
 export async function world(
@@ -123,11 +127,12 @@ export async function world(
     openrouter: { data: [] },
     tested: [],
     testResult: { ok: true, detail: null },
+    google: [],
     watch: undefined as unknown as ModelWatch,
   };
   const testCall: TestCall = async (m) => {
     w.tested.push(m);
-    return w.testResult;
+    return w.testFor?.(m) ?? w.testResult;
   };
   let n = 0;
   w.watch = new ModelWatch({
@@ -138,6 +143,7 @@ export async function world(
     testCall,
     now: clock.now,
     timers,
+    keyDelayMs: 2_000,
     newId: () => `mchg_${String(++n).padStart(4, '0')}`,
     bundledPricesDate: '2026-10-16',
     publish: (e) => {
@@ -149,6 +155,7 @@ export async function world(
         if (w.openrouter.fail) throw Object.assign(new Error('down'), { status: 503 });
         return { data: w.openrouter.data };
       }
+      if (url.includes('generativelanguage')) return { models: w.google };
       if (w.anthropic.fail) throw Object.assign(new Error('nope'), { status: w.anthropic.fail });
       return { data: w.anthropic.data, has_more: false };
     },

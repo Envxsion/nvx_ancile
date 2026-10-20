@@ -195,3 +195,30 @@ describe('what the key looks like', () => {
     expect(await h.secrets.get('OPENAI_API_KEY')).toBeUndefined();
   });
 });
+
+describe('a saved key starts the first model check (F3a) and leaves a preview off (F3b)', () => {
+  const gmodel = (id: string, provider_model: string) => ({
+    ...model('google', id),
+    provider_model,
+    secret: 'GOOGLE_GENERATIVE_AI_API_KEY',
+  });
+  const KEY = 'AIzaSy-test-key-0000000000000000001';
+
+  it('setup calls onKeySaved only when the key is saved, and switches on the stable models', async () => {
+    const saved: string[] = [];
+    h = await harness({
+      offline: false,
+      models: [gmodel('flash', 'gemini-3.8-flash'), gmodel('pro', 'gemini-3.1-pro-preview')],
+      onKeySaved: (p) => saved.push(p),
+    });
+    await h.call('POST', '/setup/providers/test', { provider: 'google', key: KEY, save: false });
+    expect(saved).toEqual([]);
+    const r = await h.call<{ enabled: string[] }>('POST', '/setup/providers/test', {
+      provider: 'google',
+      key: KEY,
+      save: true,
+    });
+    expect(saved).toEqual(['google']);
+    expect(r.body.enabled).toEqual(['google/flash']);
+  });
+});

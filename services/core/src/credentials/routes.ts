@@ -43,7 +43,7 @@ import { body } from '../http/body';
 import { TYPESAFE_KEY_SECRET } from '../permissions/auto/wire';
 import { GITHUB_TOKEN_SECRET } from '../repos/github';
 import type { SecretStore } from '../secrets';
-import { offeredBy } from '../setup/key-check';
+import { offeredBy, switchedOnByKey } from '../setup/key-check';
 import {
   modelsOf,
   type ProviderTester,
@@ -343,8 +343,8 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
         // Models its own list does not offer to this key stay off, and the answer says which.
         const split = offeredBy(candidates, tested.offered);
         notOffered = split.missing.map((m) => ({ id: m.id, display_name: m.display_name }));
-        if (!wasSet && split.offered.length)
-          await registry.setEnabled(Object.fromEntries(split.offered.map((m) => [m.id, true])));
+        const on = switchedOnByKey(split.offered);
+        if (!wasSet && on.length) await registry.setEnabled(Object.fromEntries(on.map((m) => [m.id, true])));
       } else if (d.check === 'controller') {
         if (!deps.runpod)
           throw new AncileError({

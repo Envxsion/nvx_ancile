@@ -289,6 +289,8 @@ export const EditMessageRequest = z
  * not_pulled: an Ollama model Ollama does not have yet (pull it in Settings → Models).
  * signed_out: a Claude Code model while Claude Code is installed but not signed in.
  * credit_out: a model paid from the plan's monthly API credit, which Anthropic says is spent (CR1).
+ * unavailable: the provider refused a test call for good (for example "no longer available to new
+ * users"); `unavailable_reason` says why. Saving the key again, or a passing Test, clears it.
  */
 export const ModelStatus = z.enum([
   'ready',
@@ -297,6 +299,7 @@ export const ModelStatus = z.enum([
   'not_pulled',
   'signed_out',
   'credit_out',
+  'unavailable',
 ]);
 
 export const ModelInfo = z.object({
@@ -343,6 +346,8 @@ export const ModelInfo = z.object({
    * retired it. Absent when listed.
    */
   unlisted_reason: z.enum(['no_key', 'not_pulled', 'no_node', 'signed_out', 'more', 'retired']).optional(),
+  /** Set with status `unavailable`: the provider's own reason, in a sentence. */
+  unavailable_reason: z.string().optional(),
   /** The secret this model needs, so Settings can ask for exactly that key. */
   secret: z.string().nullable(),
   /** The built-in offline test model: answers without a key or a network. */

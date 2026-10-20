@@ -139,6 +139,14 @@ Once a day, 60 seconds after NVX Ancile starts, and when the computer wakes from
 
 **What is checked.** Each model's id, its context window and output limit, the abilities the provider reports (tools, images, reasoning, JSON), and whether the provider has deprecated or retired it. Providers differ. Anthropic's list has limits, abilities and retirement dates but no prices. OpenAI's list has ids only. Google's has limits. OpenRouter's has prices, limits and abilities. Z.ai has no model list, so nothing is checked there and the page says so.
 
+**The first check.** Saving a provider's key (in setup or Settings → API keys) reads that provider's list straight away, in the background, instead of waiting for the next daily run. Two saves close together make one check, and a provider read in the last minute is not read again. A failure is logged and tried again by the daily schedule; it never stops the save.
+
+**Starter models.** A first key switches on the provider's stable models and leaves a preview off when a stable one sits beside it, so a free-tier Google key starts on Gemini 3.5 Flash-Lite and 3.8 Flash and not on the dearer Pro preview (one switch away in Admin → Models). Google ships those two; OpenRouter ships three small models (Llama 3.3 70B Instruct, gpt-oss-20b, Gemma 3 27B), so a first OpenRouter key answers at once. Their ids write the model's `/` as `__`, the same as a model you add (`openrouter/meta-llama__llama-3.3-70b-instruct`).
+
+**A model that cannot answer.** Right after a key is saved, each cheap starter is tried with one token, and so is any cheap model you add from the check's list. If the provider refuses it for good (for example "no longer available to new users"), the model shows **Not available** with the provider's reason, and no picker offers it. A rate limit, an outage or a bad key says nothing about the model and changes nothing. Saving the key again forgets the refusal and tries once more. A model priced above $1 in or $5 out per million tokens is never tried on its own.
+
+**Abilities.** Where a list carries them (Anthropic, OpenRouter) they are used. Google's carries none, so a table by model family fills in what is known (Gemini 2.5 and later: tools, images, reasoning, JSON; Gemma 3: images only). A model of an unknown family is added with no abilities claimed, not with tools by default.
+
 **When.** Each provider is checked when its last good check is over 24 hours old. A failed check is tried again after 1 hour, then 2, 4, 8 and so on, up to 24 hours. **Check now** asks a provider at most once a minute. Only one check runs at a time.
 
 **A key that cannot list models** is not a rejected key. Some keys are allowed to answer but not to list. The page says "This key can't list models" (`models.list_forbidden`), your answers carry on as before, and prices and lists for that provider stay as shipped.

@@ -72,7 +72,13 @@ import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './cond
 import { SteerBus } from './conductor/steer';
 import { type AncileConfig, ConfigError, loadConfig } from './config/load';
 import { newTraceId, setFetchSpanHook } from './context';
-import { credentialRoutes, ENV_FOR_SECRET, GIT_REMOTE, MEMORY_REMOTE_SECRET } from './credentials/routes';
+import {
+  CREDENTIALS,
+  credentialRoutes,
+  ENV_FOR_SECRET,
+  GIT_REMOTE,
+  MEMORY_REMOTE_SECRET,
+} from './credentials/routes';
 import { takeBackup } from './db/backup';
 import { ensureOwner } from './db/bootstrap';
 import { connect } from './db/client';
@@ -2013,6 +2019,7 @@ async function main() {
         ollamaUrl: env.OLLAMA_BASE_URL,
         tester: liveTester((m, keys) => languageModelFor(m, keys, endpoints)),
         onPreset: applyPreset,
+        onKeySaved: (provider) => modelWatch.keySaved(provider),
       }),
       stateRoutes(stateStore),
       notificationRoutes(notifications),
@@ -2031,6 +2038,8 @@ async function main() {
           },
         }),
         onChange: async (id) => {
+          // A provider's key saved: read its model list now rather than at the next daily check (F3a).
+          if (CREDENTIALS[id].check === 'provider') modelWatch.keySaved(id);
           if (id === 'github') github.forget?.();
           // The backup's "Not set up" follows a remote saved or removed here at once.
           if (id === 'memory_remote') await readSavedRemote();

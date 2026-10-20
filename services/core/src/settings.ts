@@ -82,6 +82,8 @@ export const SETTING = {
   modelLines: 'models.lines',
   /** Ids of models added from the model watch (they are stored with the added models). */
   watchAdded: 'models.watch_added',
+  /** { [modelId]: { reason, at } }: models a provider refused for good on a test call (F3c). */
+  modelUnavailable: 'models.unavailable',
   /** { [provider]: ProviderCheckState }: how the last check of each provider went. */
   watchChecks: 'models.watch.checks',
   /** { openrouter_prices: boolean }: the model watch's own settings. */
