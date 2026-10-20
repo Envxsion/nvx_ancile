@@ -228,8 +228,10 @@ function ComposerImpl({
   // Home and the notebook ask box compose for a thread that does not exist yet.
   const realThread = threadId.startsWith('thr_');
   const model = useCurrentModel(realThread ? threadId : undefined);
-  const models = useModels().data;
-  const notebooks = useNotebooks().data;
+  const modelsQ = useModels();
+  const models = modelsQ.data;
+  const notebooksQ = useNotebooks();
+  const notebooks = notebooksQ.data;
   const sources = useSources(notebookId).data;
   const flows = useFlowList(prefs.menus).data;
   const repos = useRepos().data;
@@ -268,6 +270,21 @@ function ComposerImpl({
     ref.current?.focus();
   }, [nextModel, threadId]);
   const sendOnEnter = prefs.send === 'enter';
+
+  // A message sent before the app knows its model (Home, a notebook ask box) is held, never dropped:
+  // it goes once the models and notebooks have loaded, or says why it cannot.
+  const draftThread = threadId === 'new' || threadId.startsWith('nb-');
+  const gate: SendGate =
+    draftThread && !claudeCode && !isDemo ? gateFor(modelsQ, notebooksQ, model) : 'ready';
+  const [held, setHeld] = useState(false);
+  const [gateError, setGateError] = useState<'failed' | 'missing' | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires when the wait ends; send is the latest closure
+  useEffect(() => {
+    if (!held || gate === 'loading') return;
+    setHeld(false);
+    if (gate === 'ready') void send(undefined, { release: true });
+    else setGateError(gate);
+  }, [held, gate]);
 
   // NVX Ancile's own commands that still make sense next to Claude Code's.
   const extras: AncileExtra[] = useMemo(
@@ -591,9 +608,9 @@ function ComposerImpl({
     });
   };
 
-  const send = async (override?: string, how: { now?: boolean; plain?: boolean } = {}) => {
+  const send = async (override?: string, how: { now?: boolean; plain?: boolean; release?: boolean } = {}) => {
     let value = (override ?? text).trim();
-    if (!value || sending || claudeCode?.readOnly) return;
+    if (!value || sending || (held && !how.release) || claudeCode?.readOnly) return;
     if (images.some((i) => i.state === 'sending')) {
       notify({ level: 'info', title: 'An image is still being attached', body: 'Send again in a moment.' });
       return;
@@ -672,6 +689,16 @@ function ComposerImpl({
         return;
       }
     }
+    // Not ready to pick a model yet: wait for it, or say what is missing. The text stays either way.
+    if (gate === 'loading') {
+      setGateError(null);
+      setHeld(true);
+      return;
+    }
+    if (gate !== 'ready') {
+      setGateError(gate);
+      return;
+    }
     // Ctrl+Enter while Claude Code works: stop it, and the message goes in after (CC6's queue).
     if (how.now && claudeCode?.working) claudeCode.onStop();
     setSending(true);
@@ -734,6 +761,7 @@ function ComposerImpl({
       setText(`${value.slice(0, value.length - (m[1]?.length ?? 0) - 1)}${snip.text}`);
     } else setText(value);
     setDismissedMenu(false);
+    setGateError(null);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -927,7 +955,7 @@ function ComposerImpl({
 
   // While an answer streams a model thread queues one message (CH7); with one already waiting, Send waits.
   const canQueue = busy && !!queue && !queue.queued;
-  const canSend = !!text.trim() && !sending && (!busy || canQueue) && !claudeCode?.readOnly;
+  const canSend = !!text.trim() && !sending && !held && (!busy || canQueue) && !claudeCode?.readOnly;
   const ghost = !claudeCode && prefs.menus && slash ? slash.ghostFor(text, commands) : null;
   const hasEffort = synced && !claudeCode && !!effortLevels?.length;
   const hasThinking = synced && !claudeCode && !!model?.reasoning;
@@ -975,6 +1003,25 @@ function ComposerImpl({
           >
             Turn menus on
           </button>
+        </p>
+      ) : null}
+      {gateError ? (
+        <p className="composer__menu composer__menu-off m-glass" role="alert">
+          <span>{GATE_WORDS[gateError]}</span>
+          {gateError === 'failed' ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setGateError(null);
+                setHeld(true);
+                void modelsQ.refetch();
+                void notebooksQ.refetch();
+              }}
+            >
+              Try again
+            </button>
+          ) : null}
         </p>
       ) : null}
       {menuOpen && menu ? (
@@ -1403,18 +1450,22 @@ function ComposerImpl({
                 type="button"
                 className="send"
                 data-ready={canSend || undefined}
+                data-busy={held || undefined}
+                aria-busy={held || undefined}
                 onClick={() => void send()}
                 disabled={!canSend}
                 aria-label={
-                  busy
-                    ? queue
-                      ? queue.queued
-                        ? 'A message is already queued'
-                        : 'Queue for after this answer'
-                      : 'Wait for the answer to finish'
-                    : claudeCode?.working
-                      ? 'Queue for after this turn'
-                      : 'Send'
+                  held
+                    ? 'Sending when ready'
+                    : busy
+                      ? queue
+                        ? queue.queued
+                          ? 'A message is already queued'
+                          : 'Queue for after this answer'
+                        : 'Wait for the answer to finish'
+                      : claudeCode?.working
+                        ? 'Queue for after this turn'
+                        : 'Send'
                 }
               >
                 <Icon name="send" size={16} />
@@ -1499,6 +1550,28 @@ function CcOption({
       </MenuOption>
     </>
   );
+}
+
+type SendGate = 'ready' | 'loading' | 'failed' | 'missing';
+
+const GATE_WORDS = {
+  failed:
+    'Your models did not load, so this was not sent. Check that NVX Ancile is running, then try again. Your text is kept.',
+  missing:
+    'No model is ready to answer. Add a key in Settings, API keys, or start Ollama, then send again. Your text is kept.',
+} as const;
+
+interface LoadState {
+  data: unknown;
+  isPending: boolean;
+  isError: boolean;
+}
+
+/** What a message to a thread that does not exist yet waits for: the model list and the notebook list. */
+function gateFor(models: LoadState, notebooks: LoadState, model: unknown): SendGate {
+  if ((models.isError && !models.data) || (notebooks.isError && !notebooks.data)) return 'failed';
+  if (models.isPending || notebooks.isPending) return 'loading';
+  return model ? 'ready' : 'missing';
 }
 
 function saveLocal(key: string, text: string): void {

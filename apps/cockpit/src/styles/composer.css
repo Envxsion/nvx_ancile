@@ -163,6 +163,26 @@
   transform: scale(0.92);
 }
 
+/* A message held until the app is ready: the button stays live-coloured and breathes. */
+.send[data-busy]:disabled {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+.send[data-busy] {
+  animation: send-wait 1.2s var(--ease) infinite alternate;
+}
+:root[data-motion='reduced'] .send[data-busy] {
+  animation: none;
+}
+@keyframes send-wait {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
 .composer__drop[data-blocked] {
   box-shadow: inset 0 0 0 1.5px var(--hair-2);
   color: var(--fg-3);
