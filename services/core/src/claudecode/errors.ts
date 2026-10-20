@@ -88,6 +88,9 @@ export function limitFromResult(result: Record<string, unknown> | null): { reset
   return { resetsAt: new Date(n < 1e12 ? n * 1000 : n).toISOString() };
 }
 
+/** How a Claude Code "prompt too long" starts in an attempt's note; the run's error is keyed on it. */
+export const CLAUDE_CODE_PROMPT_TOO_LONG = 'Claude Code said its prompt was too long';
+
 export const ccErrors = {
   /** Claude Code is switched off for this whole Core (ANCILE_CLAUDE_CODE=off, the test profile). */
   off: (reason: string) =>
@@ -97,6 +100,16 @@ export const ccErrors = {
       hint: 'Nothing was read or sent. Start the everyday stack (pnpm start) to use Claude Code.',
       status: 409,
       errorClass: 'permanent',
+    }),
+  /** Claude Code's own setup, not the conversation, filled its window. Compacting the thread would not help. */
+  promptTooLong: (said: string) =>
+    new AncileError({
+      code: 'claude_code.prompt_too_long',
+      title: "Claude Code's own setup filled its window",
+      hint: 'The conversation is small. Try another model, or turn off the connectors in your Claude account (Settings, Connectors on claude.ai) that Claude Code loads.',
+      status: 502,
+      errorClass: 'permanent',
+      detail: said.slice(0, 500),
     }),
   notInstalled: () =>
     new AncileError({

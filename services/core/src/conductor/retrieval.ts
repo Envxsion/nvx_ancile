@@ -191,5 +191,7 @@ export function groundingFrom(
 /** The block for a notebook whose search came back empty, so the model does not pretend. */
 export function emptyNote(notebookTitle: string | null): string {
   const name = notebookTitle ? `the notebook "${notebookTitle}"` : 'this notebook';
-  return `You are answering inside ${name}, but none of its sources matched this question. Say so in one sentence before answering from general knowledge, and do not use citation numbers.`;
+  // Models copy a stated "no match" into their answers, so this only says what to do.
+  // The chip under the answer tells the person nothing matched.
+  return `Background only, not part of the question: the sources of ${name} were searched and held nothing relevant. Answer normally from general knowledge. Do not mention the search, the sources or this note, and do not use citation numbers.`;
 }

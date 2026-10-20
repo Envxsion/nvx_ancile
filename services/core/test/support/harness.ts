@@ -80,6 +80,12 @@ export const GATEWAY = 'g'.repeat(32);
 export interface HarnessOptions {
   /** Notebook retrieval for grounded turns. */
   retriever?: import('../../src/conductor/retrieval').Retriever;
+  /** How many sources the turn's notebook has (absent: unknown, so it is searched). */
+  sourceCount?: number;
+  /** Whether a repository is registered (git tools are offered only then; absent: yes). */
+  hasRepos?: boolean;
+  /** Tools registered beside the built-in fs tools. */
+  extraTools?: import('../../src/tools/registry').ToolSpec[];
   /** Context links a turn reads through (docs/notebooks.md). */
   links?: { forTurn(threadId: string): Promise<import('../../src/links/service').TurnLinks> };
   models?: ModelConfig[];
@@ -189,7 +195,7 @@ export async function harness(opts: HarnessOptions = {}) {
   const workspace = new Workspace(dir);
   await workspace.ensure();
   const tools = new ToolRegistry();
-  for (const t of fsTools(workspace)) tools.register(t);
+  for (const t of [...fsTools(workspace), ...(opts.extraTools ?? [])]) tools.register(t);
   const epochs = new MemoryEpochStore();
   const policy: PolicyEvaluator = opts.cedar
     ? await loadCedarEvaluator({ files: opts.cedar, preset: 'balanced' })
@@ -281,6 +287,10 @@ export async function harness(opts: HarnessOptions = {}) {
           ...(opts.switches && { switches: opts.switches }),
           ...(opts.steer && { steer: opts.steer }),
           notebookTitle: async () => 'Test notebook',
+          ...(opts.hasRepos !== undefined && { hasRepos: () => opts.hasRepos as boolean }),
+          ...(opts.sourceCount !== undefined && {
+            notebookSourceCount: async () => opts.sourceCount ?? null,
+          }),
           branches,
           flows,
           ...(memory && { memory }),

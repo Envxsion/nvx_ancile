@@ -9,6 +9,7 @@ import {
   lessonText,
   ownWords,
   reconcileLocally,
+  staleStatement,
 } from '../../src/memory/capture';
 import { similarity } from '../../src/memory/index';
 
@@ -185,5 +186,25 @@ describe('fail, then succeed', () => {
     ).toBe(
       '**Wrong case in a path.** Symptom: ENOENT. Cause: The file is A.txt. Fix: Listed the folder first. Recognise: ENOENT on a path that looks right.',
     );
+  });
+});
+
+describe('a statement drawn from an edited message', () => {
+  it('is stale when it leans on words only the old wording had', () => {
+    expect(
+      staleStatement(
+        'Favourite animal is the pelican.',
+        'My favourite animal is the walrus',
+        'My favourite animal is the pelican',
+      ),
+    ).toBe(true);
+    expect(
+      staleStatement(
+        'Favourite animal is the walrus.',
+        'My favourite animal is the walrus',
+        'My favourite animal is the pelican',
+      ),
+    ).toBe(false);
+    expect(staleStatement('Anything', 'new words', null)).toBe(false);
   });
 });

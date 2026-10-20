@@ -6,6 +6,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EffectiveScope, ModelConfig } from '@nvx/contracts';
+import { ClassifiedError } from '@nvx/resilience';
 import { describe, expect, it } from 'vitest';
 import type {
   LiveBridge,
@@ -180,6 +181,8 @@ describe('the scope is checked before anything runs', () => {
 class Bridge implements LiveBridge {
   /** What the session's result says; the default is a normal success. */
   result: Record<string, unknown> = { subtype: 'success', is_error: false };
+  /** Messages the session writes before its answer (Claude Code's own error, as an assistant message). */
+  before: Record<string, unknown>[] = [];
   opened: LiveOpenParams[] = [];
   sent: string[] = [];
   replies: LivePermissionReply[] = [];
@@ -214,7 +217,8 @@ class Bridge implements LiveBridge {
           via: 'hook',
         },
       });
-      for (const d of ['Hel', 'lo'])
+      for (const m of this.before) this.msg(handle, m);
+      for (const d of this.before.length ? [] : ['Hel', 'lo'])
         this.msg(handle, {
           type: 'stream_event',
           parent_tool_use_id: null,
@@ -306,9 +310,12 @@ describe('Claude Code as a model (Mode A)', () => {
       persist: false,
       tools: [],
       setting_sources: [],
+      strict_mcp: true,
       model: 'sonnet',
       append_system_prompt: 'Be brief.',
     });
+    // The account's claude.ai connectors never ride along (they once added ~280k tokens).
+    expect(bridge.opened[0]?.env?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     expect(bridge.opened[0]?.mcp_servers?.ancile?.headers?.authorization).toMatch(/^Bearer thr_1\./);
     expect(bridge.sent).toEqual(['Say hello']);
     expect(
@@ -384,7 +391,7 @@ describe('Claude Code as a model (Mode A)', () => {
     };
     const plan = new Bridge();
     await run(mk(plan), 'claude-code/sonnet');
-    expect(plan.opened[0]?.env).toEqual({ DISABLE_TELEMETRY: '1' });
+    expect(plan.opened[0]?.env).toEqual({ DISABLE_TELEMETRY: '1', ENABLE_CLAUDEAI_MCP_SERVERS: 'false' });
     expect(JSON.stringify(plan.opened[0])).not.toContain(KEY);
 
     const credit = new Bridge();
@@ -451,6 +458,48 @@ describe('Claude Code as a model (Mode A)', () => {
       ));
     };
     await expect(go()).rejects.toMatchObject({ errorClass: 'permanent', code: 'provider.auth_failed' });
+  });
+
+  it("never saves Claude Code's own 'Prompt is too long' as the answer, and names it", async () => {
+    const bridge = new Bridge();
+    const said =
+      'Prompt is too long · the request is ~286227 tokens (limit 200000) but this conversation is only ~3598 tokens';
+    bridge.before = [
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        isApiErrorMessage: true,
+        message: { model: '<synthetic>', content: [{ type: 'text', text: said }] },
+      },
+    ];
+    bridge.result = { subtype: 'success', is_error: true, result: said };
+    const client = new ClaudeCodeModelClient({
+      bridge,
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/haiku') as ModelConfig;
+    const seen: string[] = [];
+    const run = async () => {
+      for await (const c of client.stream(
+        model,
+        { messages: [{ role: 'user', content: 'hi' }] },
+        new AbortController().signal,
+      ))
+        if (c.type === 'text') seen.push(c.delta);
+    };
+    const err = await run().catch((e: unknown) => e as ClassifiedError);
+    expect(seen).toEqual([]);
+    expect(err).toBeInstanceOf(ClassifiedError);
+    // Not the conversation's fault, so compacting is no cure: the chain may go on to another model.
+    expect((err as ClassifiedError).errorClass).toBe('permanent');
+    expect((err as ClassifiedError).message).toMatch(/^Claude Code said its prompt was too long/);
   });
 
   it('turns a conversation into one prompt', () => {

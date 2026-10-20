@@ -53,6 +53,7 @@ import {
 import { collectRecoveries, type RecoveryInfo } from '@nvx/resilience';
 import { ulid } from 'ulid';
 import type { JobSwitches } from '../automations/settings';
+import { CLAUDE_CODE_PROMPT_TOO_LONG, ccErrors } from '../claudecode/errors';
 import type { EventBus } from '../events/bus';
 import { executeFlow, type FlowState, type ModelCallResult, provenanceOf } from '../flows/execute';
 import {
@@ -127,6 +128,7 @@ import {
   type Retriever,
 } from './retrieval';
 import type { SteerBus } from './steer';
+import { offeredTools } from './tool-offer';
 
 const log = logFor('conductor');
 
@@ -344,6 +346,11 @@ export interface ConductorDeps {
   /** Passages per turn and per source (config/retrieval.yaml); defaults to 8, at most 4 from one source. */
   retrievalLimits?: RetrievalLimits;
   notebookTitle?: (id: string) => Promise<string | null>;
+  /** How many sources a notebook has (null: unknown). With none, the turn is not searched and no note is added. */
+  /** The thread or its notebook has a repository linked (git and GitHub tools are offered). */
+  /** Whether any repository is registered; without one the git and GitHub tools cannot work and are not offered. */
+  hasRepos?: () => boolean;
+  notebookSourceCount?: (id: string) => Promise<number | null>;
   /** Branch names and summaries; without it, turns are never compacted. */
   branches?: BranchStore;
   /** Memory: injected before each model call, learned from after the turn. */
@@ -998,6 +1005,12 @@ ${noted.stop.forModel}`,
         const sourceIds = scope ? allowedSources(scope, cp.input.sourceIds) : cp.input.sourceIds;
         const ownAllowed = !!notebookId && !(scope?.scope.sources && !sourceIds?.length);
         if (!ownAllowed && !linked.length) return;
+        // A notebook with no sources has nothing to search or to say about: skip the
+        // search, the "nothing matched" note and the chip (models copied the note into answers).
+        if (ownAllowed && !linked.length && notebookId) {
+          const n = await deps.notebookSourceCount?.(notebookId).catch(() => null);
+          if (n === 0) return;
+        }
         // The notebook's title is only for the answer's wording: read it beside the search.
         const titleRead = notebookId
           ? (deps.notebookTitle?.(notebookId).catch(() => null) ?? Promise.resolve(null))
@@ -1628,7 +1641,9 @@ ${noted.stop.forModel}`,
         // CA3: the tools are one epoch's canonical superset for this notebook, whatever
         // the permissions say; a model without the tools capability is offered none.
         const withTools = !!chain[0]?.capabilities.includes('tools');
-        const specs = toolsInScope(deps.tools.list(), cp.input.notebookId);
+        const specs = offeredTools(toolsInScope(deps.tools.list(), cp.input.notebookId), {
+          hasRepos: deps.hasRepos?.() ?? true,
+        });
         // CA4: what earlier messages were sent as, and the epochs answers were written in.
         const sentMap = await deps.repo.sentForms(pathFor(all, cp.input.userMessageId).map((m) => m.id));
         if (cp.frame && !(await epochs.get(cp.frame.epochId))) cp.frame = null;
@@ -2076,7 +2091,7 @@ export function nodeStopped(modelId: string): AncileError {
   });
 }
 
-function describeFailure(
+export function describeFailure(
   err: unknown,
 ): { event: Omit<Extract<RunEvent, { type: 'error' }>, 'seq' | 'at' | 'type'> } | null {
   if (err instanceof NoRouteError) {
@@ -2096,6 +2111,11 @@ function describeFailure(
       ms: 0,
       note: a.detail.slice(0, 300),
     }));
+    const tooLong = err.attempts.find((a) => a.detail.startsWith(CLAUDE_CODE_PROMPT_TOO_LONG));
+    if (tooLong && err.attempts.length === 1) {
+      const e = ccErrors.promptTooLong(tooLong.detail);
+      return { event: { code: e.code, title: e.title, hint: e.hint, attempts } };
+    }
     // The last model's trouble, when its provider's adapter named it (no credit, wrong region...).
     const named = err.attempts.at(-1);
     if (named?.code && named.title && named.hint)

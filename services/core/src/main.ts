@@ -1221,6 +1221,11 @@ async function main() {
           const nb = await notebooks.get(id);
           return nb && nb.workspace_id === owner.workspaceId ? nb.title : null;
         },
+        hasRepos: () => repos.hasAny(),
+        notebookSourceCount: async (id) => {
+          const s = await kn.get<{ sources: number }>(`/notebooks/${encodeURIComponent(id)}/stats`);
+          return typeof s.sources === 'number' ? s.sources : null;
+        },
         branches: branchStore,
         flows,
         memory,

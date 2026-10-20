@@ -103,6 +103,8 @@ export interface OpenParams {
   tools?: string[];
   /** Which settings load; [] none. Absent: user, project and local. */
   setting_sources?: ('user' | 'project' | 'local')[];
+  /** true: only mcp_servers load, not the account's connectors or the person's own servers. */
+  strict_mcp?: boolean;
 }
 
 export interface PermissionReply {
@@ -309,6 +311,7 @@ export class SessionManager {
       includePartialMessages: true,
       // What the interactive CLI loads, so the person's CLAUDE.md, settings, skills and plugins apply.
       settingSources: p.setting_sources ?? ['user', 'project', 'local'],
+      ...(p.strict_mcp && { strictMcpConfig: true }),
       ...(p.tools && { tools: p.tools }),
       ...(p.append_system_prompt && {
         systemPrompt: { type: 'preset', preset: 'claude_code', append: p.append_system_prompt },

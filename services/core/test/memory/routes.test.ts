@@ -165,6 +165,34 @@ describe('memory end to end (ROADMAP Phase 4)', () => {
     expect((await userFile()).content).not.toContain('example.com');
   });
 
+  it('withdraws a waiting proposal when the message it came from is edited', async () => {
+    const thread = await h.newThread();
+    const a = await h.send(thread, 'My favourite animal is the PELICAN.');
+    await h.settle(a.run_id);
+    await h.memory?.settled();
+    const made = await h.memory?.consider({
+      kind: 'preference',
+      targetPath: 'USER.md',
+      section: 'Preferences',
+      text: 'Favourite animal is the pelican.',
+      confidence: 1,
+      evidence: [{ threadId: thread, messageId: a.user_message_id, quote: 'PELICAN' }],
+      provenance: 'tool_output',
+    });
+    expect(made?.status).toBe('proposed');
+    const edited = await h.call<{ run_id: string; user_message_id: string; assistant_message_id: string }>(
+      'POST',
+      `/messages/${a.user_message_id}/edit`,
+      { parts: [{ type: 'text', text: 'My favourite animal is the WALRUS.' }] },
+    );
+    await h.settle(edited.body.run_id);
+    await h.memory?.settled();
+    const now = (await proposals()).find((p) => p.id === made?.id);
+    expect(now?.status).toBe('rejected');
+    // Nothing was written to memory for it.
+    expect((await userFile()).content).not.toMatch(/pelican/i);
+  });
+
   it('a tool that failed and then worked leaves a lesson in FAILURES/', async () => {
     const parts: Part[] = [
       { type: 'tool_call', call_id: 'a', tool: 'fs_read', args: { path: '/workspace/Notes.txt' } },

@@ -11,7 +11,8 @@
  *  How      |  A ModelClient for the `claude_code` provider. A call
  *           |  opens a session through the Claude bridge that writes no
  *           |  transcript, in NVX Ancile's own empty folder, with every
- *           |  built-in tool off and none of the person's settings
+ *           |  built-in tool off, none of the person's settings and
+ *           |  none of the account's MCP connectors (strict_mcp)
  *           |  loaded. When the call comes from a thread, NVX Ancile's
  *           |  MCP server for that thread is its only tools, and each
  *           |  call is decided by the permission gate as
@@ -42,6 +43,7 @@ import {
 } from '@nvx/contracts';
 import { ClassifiedError } from '@nvx/resilience';
 import type { LiveBridge, LiveEvent } from '../claudecode/bridge-protocol';
+import { CLAUDE_CODE_PROMPT_TOO_LONG } from '../claudecode/errors';
 import { threadToken } from '../claudecode/mcp-server';
 import { ANCILE_MCP_SERVER, CLAUDE_CODE_PRINCIPAL, gateRoot, mapTool } from '../claudecode/permission-map';
 import type { ModelRegistry } from '../gateway/registry';
@@ -93,9 +95,12 @@ export function errorResult(m: Record<string, unknown>, sentTokens: number, cred
   // CR1: on the Anthropic key, "credit balance is too low" (or a billing error) is the monthly credit gone.
   if (credit && CREDIT_SPENT_RE.test(said)) return creditSpentError(said);
   if (/too long|context (window|limit)|exceed/i.test(said))
+    // Not 'context_overflow': compacting the thread cannot help, because the
+    // weight is Claude Code's own setup. Another target can answer, so this
+    // one is permanent for the request and the chain moves on.
     return new ClassifiedError(
-      'context_overflow',
-      `Claude Code said its prompt was too long (${said}). NVX Ancile sent it about ${Math.max(1, Math.round(sentTokens / 1000))}k tokens; the rest is Claude Code's own setup.`,
+      'permanent',
+      `${CLAUDE_CODE_PROMPT_TOO_LONG} (${said}). NVX Ancile sent it about ${Math.max(1, Math.round(sentTokens / 1000))}k tokens; the rest is Claude Code's own setup.`,
     );
   const subtype = typeof m.subtype === 'string' && m.subtype !== 'success' ? ` (${m.subtype})` : '';
   return new ClassifiedError(
@@ -221,6 +226,20 @@ type Item = { kind: 'message'; m: Record<string, unknown> } | { kind: 'end'; err
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
+/** Claude Code's own error, written as an assistant message (model "<synthetic>"). */
+function isApiError(m: Record<string, unknown>): boolean {
+  if (m.isApiErrorMessage === true || typeof m.error === 'string') return true;
+  return isObj(m.message) && m.message.model === '<synthetic>';
+}
+
+function textOfMessage(m: Record<string, unknown>): string {
+  const content = isObj(m.message) && Array.isArray(m.message.content) ? m.message.content.filter(isObj) : [];
+  return content
+    .map((b) => (b.type === 'text' && typeof b.text === 'string' ? b.text : ''))
+    .join('')
+    .trim();
+}
+
 export class ClaudeCodeModelClient implements ModelClient {
   constructor(private readonly deps: ModeADeps) {}
 
@@ -267,6 +286,7 @@ export class ClaudeCodeModelClient implements ModelClient {
           persist: false,
           tools: [],
           setting_sources: [],
+          strict_mcp: true,
           permission_mode: 'default',
           ...(model.provider_model && model.provider_model !== 'default' && { model: model.provider_model }),
           ...(req.system && { append_system_prompt: req.system.slice(0, SYSTEM_MAX) }),
@@ -281,12 +301,19 @@ export class ClaudeCodeModelClient implements ModelClient {
               },
             }),
           // The key rides in this session's environment only (see claudecode/bridge.ts).
-          env: { ...(await d.env()), ...(key && { ANTHROPIC_API_KEY: key }) },
+          // ENABLE_CLAUDEAI_MCP_SERVERS=false: the account's claude.ai connectors (hundreds of tool
+          // definitions) would otherwise ride along in every call and overflow a 200k window.
+          env: {
+            ...(await d.env()),
+            ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+            ...(key && { ANTHROPIC_API_KEY: key }),
+          },
         })
       ).handle;
       d.handles.add(handle);
       await d.bridge.send(handle, prompt);
       let streamed = false;
+      let apiError = '';
       for (;;) {
         const next = items.shift();
         if (!next) {
@@ -314,14 +341,23 @@ export class ClaudeCodeModelClient implements ModelClient {
             } else if (ev.delta.type === 'thinking_delta' && typeof ev.delta.thinking === 'string')
               yield { type: 'reasoning', delta: ev.delta.thinking };
           }
+        } else if (m.type === 'assistant' && isApiError(m)) {
+          // Claude Code writes its own errors as a synthetic assistant message
+          // ("Prompt is too long ..."). That is an error, never the reply.
+          apiError = textOfMessage(m) || apiError;
         } else if (m.type === 'assistant' && !streamed && m.parent_tool_use_id == null && isObj(m.message)) {
           const content = Array.isArray(m.message.content) ? m.message.content.filter(isObj) : [];
           for (const b of content)
             if (b.type === 'text' && typeof b.text === 'string') yield { type: 'text', delta: b.text };
         } else if (m.type === 'result') {
-          if (m.is_error === true) {
+          if (m.is_error === true || (apiError && !streamed)) {
             // An error result can say "success" as its subtype; its text says what went wrong.
-            const err = errorResult(m, approx(prompt) + approx(req.system ?? ''), credit);
+            const said = typeof m.result === 'string' && m.result.trim() ? m : { ...m, result: apiError };
+            const err = errorResult(
+              { ...said, is_error: true },
+              approx(prompt) + approx(req.system ?? ''),
+              credit,
+            );
             if (err.code === 'provider.credit_exhausted') d.onCreditExhausted?.();
             throw err;
           }

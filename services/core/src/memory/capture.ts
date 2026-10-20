@@ -116,7 +116,7 @@ export const PROMPTS = {
     id: 'memory.detect-correction',
     output: 'CorrectionDetection',
     fallback:
-      'Decide whether the user corrects the assistant in a way worth remembering for future conversations. Fields: is_correction, durable, scope ("user"|"notebook"|"none"), statement (one short general third-person instruction), confidence.\n\nAssistant said:\n{{assistant_message}}\n\nUser replied:\n{{user_message}}\n{{#edited_from}}\n(The user edited an earlier message. It originally said: {{edited_from}})\n{{/edited_from}}',
+      'Decide whether the user corrects the assistant in a way worth remembering for future conversations. Fields: is_correction, durable, scope ("user"|"notebook"|"none"), statement (one short general third-person instruction), confidence.\n\nAssistant said:\n{{assistant_message}}\n\nUser replied:\n{{user_message}}\n{{#edited_from}}\n(The user edited an earlier message. It originally said: {{edited_from}} That wording is replaced: the statement must come from the reply above only.)\n{{/edited_from}}',
   },
   reconcile: {
     id: 'memory.reconcile',
@@ -135,6 +135,18 @@ export const PROMPTS = {
 /* ---- Heuristics: is a model worth asking? ------------------------------------- */
 
 /** The user's own words: quoted lines, code and pasted blocks removed. */
+/**
+ * True when a statement leans on words that only the superseded wording had:
+ * the user edited PELICAN to WALRUS, and the statement still says pelican.
+ */
+export function staleStatement(statement: string, current: string, original: string | null): boolean {
+  if (!original) return false;
+  const words = (s: string) => new Set(s.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
+  const now = words(current);
+  const old = words(original);
+  return [...words(statement)].some((w) => old.has(w) && !now.has(w));
+}
+
 export function ownWords(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, ' ')

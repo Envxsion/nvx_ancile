@@ -197,6 +197,11 @@ export class RepoService {
     await this.save();
   }
 
+  /** Whether any repository is registered. */
+  hasAny(): boolean {
+    return this.reg.repos.length > 0;
+  }
+
   /** The repository a thread works in: its own link, else its notebook's. Synchronous for permission resources. */
   linkedId(scope: RepoScope | undefined): string | null {
     if (!scope) return null;
