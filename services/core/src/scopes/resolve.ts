@@ -522,6 +522,15 @@ export function checkToolCall(scope: EffectiveScope | ScopeValues, call: ToolCal
   return OK;
 }
 
+/**
+ * The same scope for one call a person allowed to leave a private notebook (Settings → Private
+ * notebooks): only the "nothing leaves this machine" floor is lifted. Network off, denied tools
+ * and tool presets still apply.
+ */
+export function leavingAllowed(scope: EffectiveScope): EffectiveScope {
+  return { ...scope, private: false, scope: { ...scope.scope, data_leaves_machine: true } };
+}
+
 /** The sources retrieval may read: the asked-for ones within the scope, or the scope's own list. */
 export function allowedSources(
   scope: EffectiveScope | ScopeValues,

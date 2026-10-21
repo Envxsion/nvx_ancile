@@ -25,6 +25,7 @@ export const SWITCHABLE_CAPABILITIES = [
   'decisions_off_machine',
   'passive_memory',
   'verdict_cache_global',
+  'factcheck_web',
 ] as const;
 
 /** Floors that scopes enforce today: listed here so everything is in one place, but never switchable. */
@@ -52,6 +53,8 @@ export const PrivacyPolicy = z.object({
   passive_memory: Entry,
   /** Sharing fact-check verdicts across notebooks. */
   verdict_cache_global: Entry,
+  /** Looking up the text of a claim on the web when a fact-check's sources do not cover it. */
+  factcheck_web: Entry,
 });
 export type PrivacyPolicy = z.infer<typeof PrivacyPolicy>;
 
@@ -64,6 +67,7 @@ export const PutPrivacyPolicyRequest = z.object({
       decisions_off_machine: z.object({ allowed_in_private: z.boolean() }).optional(),
       passive_memory: z.object({ allowed_in_private: z.boolean() }).optional(),
       verdict_cache_global: z.object({ allowed_in_private: z.boolean() }).optional(),
+      factcheck_web: z.object({ allowed_in_private: z.boolean() }).optional(),
     })
     .passthrough(),
 });

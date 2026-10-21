@@ -21,7 +21,7 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
 ## How it works
 
 1. **Find the claims.** A small model splits the answer into atomic, checkable claims (numbers, dates, names, causal statements) and skips opinions, advice and sentences about other sentences ("The first sentence contradicts the others"). Each claim keeps its exact position in the text. **The claims are kept with the answer** (and the version of the extraction that found them): checking an unchanged answer again judges the same sentences without asking a model to find them again. They are found again when the answer changed, when the extraction is newer, or when you ask (`reextract` in `POST /messages/:id/factcheck`).
-2. **Gather evidence.** Your notebook's sources are searched first (hybrid search, then reranking). A passage whose relevance is under **0.15** (`thresholds.relevant`) is not evidence and is dropped: relevance is 0.6 × the reranker's score (near 0 for a passage on another subject, near 1 for one that answers the claim) + 0.4 × the share of the claim's words in the passage, and an unrelated passage scores 0 to 0.05 against 0.3 and up for one on the subject. With no passage left, an obvious claim goes to common knowledge (below) and any other reads "Nothing in your sources mentions this" without asking a model. Claims they do not cover are looked up on the web when the notebook's **Check on the web** is on (or you allow it for one check) and the notebook may use the web (see below). Web results are titles, links and snippets, wrapped as untrusted content; each piece of evidence is marked **Source** or **Web**.
+2. **Gather evidence.** Your notebook's sources are searched first (hybrid search, then reranking). A passage whose relevance is under **0.15** (`thresholds.relevant`) is not evidence and is dropped: relevance is 0.6 × the reranker's score (near 0 for a passage on another subject, near 1 for one that answers the claim) + 0.4 × the share of the claim's words in the passage, and an unrelated passage scores 0 to 0.05 against 0.3 and up for one on the subject. With no passage left, an obvious claim goes to common knowledge (below) and any other reads "Nothing in your sources mentions this" without asking a model. A claim they do not cover is looked up on the web by default, when the notebook may use it (see [The web](#the-web-fc4)): "Mount Everest is 8,849 metres tall" needs no source in the notebook. Web results are titles, links and snippets, wrapped as untrusted content; each piece of evidence is marked **Source** or **Web**, and a web one links the page it came from.
 3. **Verify with the right amount of model.** Each claim is triaged by plain rules (`services/core/src/factcheck/triage.ts`), and the decision layer may raise a tier but never lower one:
    - An **obvious** claim (short, no numbers, no names, such as "the sky is blue") goes to a **tiny** model. With no source covering it, the tiny model judges from common knowledge, the claim shows **verified** at a modest 70% confidence, and the card says so. A tiny model is the only checker only for a claim like this, and never in a critical notebook.
    - A claim with **numbers, dates, citations, or legal, medical or financial wording**, a long or many-part claim, a claim you marked critical, and every claim in a critical notebook go to a **standard** model or better.
@@ -92,7 +92,29 @@ It is never an essay: the judge is asked for a small JSON object with at most 70
 
 ## The web (FC4)
 
-**Check on the web** is a switch per notebook (Sources panel), off by default; **Check again with the web** allows it for one check. It is also on for every notebook when `web_search: true` is set in `config/factcheck.yaml`. Needs a web search, which is one of these, tried in this order:
+A claim the notebook's sources do not cover is looked up on the web **by default**, using only the claim's own words. Nothing else of the notebook is sent, and a claim the sources cover is never searched.
+
+| Where | What happens |
+|---|---|
+| A normal notebook | On. **Use the web when sources don't cover a claim** (Sources panel) switches it off for that notebook; a notebook that never touched it follows the default (`web_search: true` in `config/factcheck.yaml`), and one where it was switched off stays off. |
+| A private notebook | Never, unless **Settings → Private notebooks → Fact-check on the web** (`factcheck_web`) is on ([privacy.md](privacy.md)). A search server on this computer (SearXNG) counts as leaving the machine, because it asks public search engines, so it needs that switch too. Even then the scope's other rules hold: network off or `web.search` blocked still stop it. |
+| A notebook that keeps data on this machine (not private) | Never. |
+| Network off, or `web.search` not allowed in the scope | Never, and the card says which rule. |
+
+**Permissions.** A lookup of a claim goes through the permission gate on its real query (`web.search`, `web:search/<claim>`) like any other call, but a fact-check lookup is *eased*: where the gate would only ask, it allows (`eased` in `services/core/src/permissions/gate.ts`). A scope, a policy forbid, a standing "always deny" grant and the Auto mode floors are all still applied first, and chat tools keep their own rules.
+
+| Preset | Fact-check lookups |
+|---|---|
+| Balanced (default) | Allowed without asking. |
+| Auto | Allowed without asking, and without a reviewer call. |
+| Hands-off | Allowed without asking. |
+| Strict (Careful) | Asks once per check, not per claim: the web waits for **Check again with the web** (or **Check this on the web** on a claim), and that one yes covers every claim of the check. Until then the card says "Not checked on the web: Strict permissions ask first." |
+
+An earlier version asked the gate as an ordinary gated call, so under Balanced every lookup was an unanswerable ask and the check read "Not checked on the web: the search was not allowed." That wording now means only that the person's own scope, policy or "always deny" rule forbids it.
+
+**Where the evidence came from.** Each claim's evidence is marked **Source** (your notebook) or **Web**, and a web passage links its page. When the web was off, waiting for Strict, or failed, the claim offers **Check this on the web**: it checks that one claim, within the same permissions and daily cap, and shows the result beside the claim. Nothing is added to a claim that did not need it.
+
+Needs a web search, which is one of these, tried in this order:
 
 | Route | Used when | Model | Price | Free allowance | Source (checked 2026-10-20) |
 |---|---|---|---|---|---|
@@ -105,11 +127,11 @@ A model route is one small call per claim that returns titles, links and snippet
 
 - **Cost.** What a check's lookups cost is added to the check's cost (the card's footer and the receipt) and shown on its own for a whole-answer check in the Evidence tab data (`scope.web_cost_usd`).
 - **Daily cap.** Lookups through a model stop for the day once they have cost `web_daily_cap_usd` (default `0.25`, in `config/factcheck.yaml`; `0` turns them off). SearXNG is not counted. The check carries on with your sources and says "Not checked on the web: the daily web budget is reached." The day is your computer's local day.
-- **Why a check may not use the web:** no search set up, a private notebook or one that keeps data on this machine, network off or `web.search` blocked, the daily budget reached, or the search did not answer. Each is said in one line.
+- **Why a check may not use the web:** no search set up, a private notebook (without the setting) or one that keeps data on this machine, network off or `web.search` blocked, Strict waiting for your yes, the daily budget reached, or the search did not answer. Each is said in one line.
 - A built-in search layer is planned (roadmap WB2, 0.2.0); until then these routes are the way.
 
-- A **private notebook, or one where nothing may leave the machine,** never uses the web, whatever was asked; neither does one with the network off or `web.search` blocked. The check says why on its card and in the Evidence tab.
-- Each search goes through the permission gate on its real query (`web.search`, `web:search/<query>`). If the gate would have to ask, the check carries on without the web, never stalls. At most 8 claims of a check are looked up, only those the sources cover least, with 3 results each. A search that fails costs the check nothing.
+- A **private notebook** uses the web only when Settings → Private notebooks allows it, and one **where nothing may leave the machine** never does, whatever was asked; neither does one with the network off or `web.search` blocked. The check says why on its card and in the Evidence tab.
+- Each search goes through the permission gate on its real query (`web.search`, `web:search/<query>`). If the gate would still have to ask (a critical ask, which a lookup never is), the check carries on without the web, never stalls. At most 8 claims of a check are looked up, only those the sources cover least, with 3 results each. A search that fails costs the check nothing.
 - Web and source evidence are shown side by side, so when the web contradicts your own sources you see both.
 
 ## Citations during generation

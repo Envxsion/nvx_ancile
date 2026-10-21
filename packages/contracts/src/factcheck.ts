@@ -94,7 +94,7 @@ export const FactcheckStatus = z.enum(['running', 'done', 'failed', 'cancelled']
  * Why a check did not look at the web when it was asked to: no search is set up, the notebook keeps
  * data local, the scope blocks it, the daily web budget is spent, or the search did not answer.
  */
-export const WebReason = z.enum(['none', 'private', 'blocked', 'budget', 'failed']);
+export const WebReason = z.enum(['none', 'private', 'blocked', 'budget', 'failed', 'ask']);
 export type WebReason = z.infer<typeof WebReason>;
 
 export const Factcheck = z.object({

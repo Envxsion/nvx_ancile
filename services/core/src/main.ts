@@ -725,7 +725,7 @@ async function main() {
   const runEvents = observeRunEvents(new PgRunEventLog(sql), telemetry);
   const threads = new PgThreadRepo(sql);
   const branchStore = new PgBranchStore(sql);
-  const notebooks = new PgNotebookRepo(sql);
+  const notebooks = new PgNotebookRepo(sql, { webDefault: () => config.factcheck?.web_search !== false });
   // Works with Claude Code (docs/claude-code.md): the person's own CLI, read
   // through the Claude bridge (a separate MIT program holding Anthropic's SDK).
   const claudeCodeStore = new PgClaudeCodeStore(sql);
@@ -1195,10 +1195,13 @@ async function main() {
     webPolicy({
       ...(await webAvailability(factcheckWeb)),
       scope: await scopes.effective({ threadId: a.threadId }).catch(() => null),
-      notebookWeb:
-        config.factcheck?.web_search === true ||
-        (a.notebookId ? ((await notebooks.get(a.notebookId))?.check_on_web ?? false) : false),
+      // On unless the notebook switched it off (config/factcheck.yaml web_search is the default).
+      notebookWeb: a.notebookId
+        ? ((await notebooks.get(a.notebookId))?.check_on_web ?? true)
+        : config.factcheck?.web_search !== false,
       requested: a.requested,
+      strict: presetNow === 'careful',
+      privateWeb: await privacy.allows('factcheck_web', { notebookId: a.notebookId }),
     });
   // The decision layer sorts claims into obvious, ordinary and careful; a miss is `rules`, so the rules decide and nothing blocks.
   setTriageProvider(
@@ -2054,8 +2057,9 @@ async function main() {
                 repo: threads,
                 familyOf,
                 scopeOf: (ref) => scopes.effective(ref),
-                notebookWeb: async (id) =>
-                  config.factcheck?.web_search === true || ((await notebooks.get(id))?.check_on_web ?? false),
+                notebookWeb: async (id) => (await notebooks.get(id))?.check_on_web ?? true,
+                strictWeb: () => presetNow === 'careful',
+                privateWeb: (id) => privacy.allows('factcheck_web', { notebookId: id }),
                 web: factcheckWeb,
                 gate,
                 userId: owner.userId,

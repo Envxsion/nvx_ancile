@@ -17,7 +17,10 @@ thresholds:
   relevant: 0.15        # a source passage less relevant than this is not evidence (relevance = 0.6 x reranker
                         # score + 0.4 x shared words: 0 to 0.05 for another subject, 0.3 and up on the subject).
                         # With none left, an obvious claim goes to common knowledge, any other reads: no source covers it.
-web_search: false       # look claims up on the web in every notebook (needs SEARXNG_URL). Off by default; a notebook turns it on with "Check on the web"
+web_search: true        # a claim the notebook's sources do not cover is looked up on the web (claim text only). This is the default for
+                        # notebooks that never chose; a notebook's "Use the web when sources don't cover a claim" wins. Needs a web
+                        # search: SEARXNG_URL, or a Google, OpenRouter or Anthropic key already set. Never in a private notebook
+                        # unless Settings → Private notebooks allows it
 web_daily_cap_usd: 0.25 # most web lookups through a model may cost in a day (USD). SearXNG is free and not counted. 0: no model lookups
 limits:                 # hard limits on one fact-check. A claim that hits one reads "Not checked: <reason>"
   calls_per_claim: 3    # model calls for one claim: the check, a stronger second look, a repair of a bad reply

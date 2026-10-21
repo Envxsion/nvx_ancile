@@ -27,7 +27,7 @@
 
 import type { EffectiveScope, Tier } from '@nvx/contracts';
 import type { McpToolCheck } from '../mcp/guard';
-import { checkToolCall, type ScopeResolver } from '../scopes';
+import { checkToolCall, leavingAllowed, type ScopeResolver } from '../scopes';
 import type { AutoReview } from './auto';
 import { type DecideDeps, type DecisionResult, decide } from './decide';
 import { normalizeResource } from './normalize';
@@ -50,6 +50,18 @@ export interface GateRequest {
   args?: unknown;
   /** The call this decides, for Auto mode's run events. */
   callId?: string;
+  /**
+   * A gated call that needs nobody's yes: if decide() would only ask, it is allowed. A forbid, a
+   * denying grant, the scope and the Auto floors all still apply, and a critical ask still asks.
+   * Only fact-check web lookups of claim text use this (factcheck/web.ts).
+   */
+  eased?: boolean;
+  /**
+   * The person allowed this for a private notebook in Settings → Private notebooks: the private
+   * notebook's "nothing leaves this machine" floor is not applied to this one call. Network off,
+   * denied tools and tool presets still are.
+   */
+  leaveOk?: boolean;
 }
 
 export interface Gate {
@@ -117,7 +129,8 @@ export function createGate(
       const resource = norm.ok ? norm.resource : req.resource;
 
       // ---- scope: a floor in every preset ----
-      const scope = await effective(req);
+      const found = await effective(req);
+      const scope = found && req.leaveOk && found.private ? leavingAllowed(found) : found;
       if (scope && norm.ok) {
         const s = checkToolCall(scope, { action: req.action, resource });
         if (!s.ok) {
@@ -222,6 +235,18 @@ export function createGate(
         },
         { ...deps, grants: deps.store },
       );
+
+      // ---- an eased call: a gated ask needs nobody's yes (never a critical one) ----
+      if (req.eased && result.outcome === 'ask' && result.tier === 'gated') {
+        const allowed: DecisionResult = {
+          outcome: 'allow',
+          via: 'auto',
+          tier: 'gated',
+          resource: result.resource,
+        };
+        await record(req, allowed);
+        return allowed;
+      }
 
       // ---- Auto mode: settle what decide() would ask about (GATED only; CRITICAL always asks) ----
       if (auto && ctx && result.outcome === 'ask' && result.tier === 'gated' && !req.automation) {

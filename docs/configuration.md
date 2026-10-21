@@ -74,7 +74,7 @@ Secrets at rest (provider keys, tokens) are encrypted with AES-256-GCM under `AN
 | `KNOWLEDGE_OCR` | `false` | Not read: OCR is a setting now (Settings → Sources, `PUT /knowledge/ocr`). |
 | `KNOWLEDGE_CHUNK_TOKENS` / `KNOWLEDGE_CHUNK_OVERLAP` | `512` / `64` | Chunking. |
 | `KNOWLEDGE_CONTEXTUAL_CHUNKS` | `true` | Add a short LLM-written context blurb to each chunk before indexing. |
-| `SEARXNG_URL` | empty | Web search for fact-checks (SearXNG, JSON). Empty: web checks use a model's own web search through a key you already have (Gemini, OpenRouter or Anthropic), within `web_daily_cap_usd` (docs/factcheck.md). Used only for notebooks with **Check on the web** on, or one check you allow, and never for a private notebook (docs/factcheck.md). |
+| `SEARXNG_URL` | empty | Web search for fact-checks (SearXNG, JSON). Empty: web checks use a model's own web search through a key you already have (Gemini, OpenRouter or Anthropic), within `web_daily_cap_usd` (docs/factcheck.md). Used for a claim a notebook's sources do not cover, unless the notebook switched the web off, and never for a private notebook unless Settings → Private notebooks allows it (docs/factcheck.md). |
 
 #### Changing the embedding model
 

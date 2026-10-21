@@ -122,7 +122,7 @@ interface NotebookRow {
   settings: Record<string, unknown> | null;
 }
 
-const nbFromRow = (r: NotebookRow): NotebookRecord => ({
+export const nbFromRow = (r: NotebookRow, webDefault = true): NotebookRecord => ({
   id: r.id,
   workspace_id: r.workspace_id,
   title: r.title,
@@ -136,7 +136,7 @@ const nbFromRow = (r: NotebookRow): NotebookRecord => ({
   created_at: r.created_at.toISOString(),
   updated_at: r.updated_at.toISOString(),
   grounded: r.settings?.grounded === true,
-  check_on_web: r.settings?.check_on_web === true,
+  check_on_web: typeof r.settings?.check_on_web === 'boolean' ? r.settings.check_on_web : webDefault,
   critical: r.settings?.critical === true,
   share_checks: r.settings?.share_checks === true,
 });
@@ -166,20 +166,26 @@ const noteFromRow = (r: NoteRow): NoteRecord => ({
 });
 
 export class PgNotebookRepo implements NotebookRepo {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    /** What a notebook that never chose gets for "use the web" (config/factcheck.yaml web_search). */
+    private readonly opts: { webDefault?: () => boolean } = {},
+  ) {}
+
+  private from = (r: NotebookRow): NotebookRecord => nbFromRow(r, this.opts.webDefault?.() ?? true);
 
   async list(workspaceId: string) {
     const rows = await this.sql<NotebookRow[]>`
       select * from core.notebooks where workspace_id = ${workspaceId} and deleted_at is null
       order by pinned_at desc nulls last, coalesce(last_opened_at, updated_at) desc`;
-    return rows.map(nbFromRow);
+    return rows.map(this.from);
   }
 
   async get(id: string) {
     const rows = await this.sql<
       NotebookRow[]
     >`select * from core.notebooks where id = ${id} and deleted_at is null`;
-    return rows[0] ? nbFromRow(rows[0]) : undefined;
+    return rows[0] ? this.from(rows[0]) : undefined;
   }
 
   async create(n: Parameters<NotebookRepo['create']>[0]) {
@@ -194,7 +200,7 @@ export class PgNotebookRepo implements NotebookRepo {
       values (${n.id}, ${n.workspace_id}, ${n.title}, ${slug}, ${n.description ?? null}, ${n.icon ?? null},
         ${n.color ?? null}, ${`notebooks/${slug}`})
       returning *`;
-    return nbFromRow(rows[0] as NotebookRow);
+    return this.from(rows[0] as NotebookRow);
   }
 
   async patch(id: string, p: NotebookPatch) {
@@ -218,7 +224,7 @@ export class PgNotebookRepo implements NotebookRepo {
         updated_at = case when ${p.opened === true && Object.keys(p).length === 1} then updated_at else now() end
       where id = ${id} and deleted_at is null
       returning *`;
-    return rows[0] ? nbFromRow(rows[0]) : undefined;
+    return rows[0] ? this.from(rows[0]) : undefined;
   }
 
   async remove(id: string) {
@@ -331,7 +337,7 @@ export class MemoryNotebookRepo implements NotebookRepo {
       created_at: at,
       updated_at: at,
       grounded: false,
-      check_on_web: false,
+      check_on_web: true,
       critical: false,
       share_checks: false,
     };

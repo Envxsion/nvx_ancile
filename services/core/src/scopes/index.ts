@@ -29,6 +29,7 @@ export {
   checkEngineAllowed,
   checkToolCall,
   DEFAULT_SCOPE,
+  leavingAllowed,
   networkReach,
   resolveScope,
   type ToolCallShape,

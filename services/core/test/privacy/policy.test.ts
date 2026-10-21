@@ -23,12 +23,19 @@ describe('privacy policy', () => {
       decisions_off_machine: { allowed_in_private: false },
       passive_memory: { allowed_in_private: false },
       verdict_cache_global: { allowed_in_private: false },
+      factcheck_web: { allowed_in_private: false },
     });
   });
 
   it('allows everything in a notebook that is not private', async () => {
     const p = make();
-    for (const c of ['decisions_off_machine', 'passive_memory', 'verdict_cache_global', 'web'] as const)
+    for (const c of [
+      'decisions_off_machine',
+      'passive_memory',
+      'verdict_cache_global',
+      'factcheck_web',
+      'web',
+    ] as const)
       expect(await p.allows(c, { notebookId: 'nb_open' })).toBe(true);
   });
 
@@ -40,6 +47,18 @@ describe('privacy policy', () => {
     expect(a).toMatchObject({ allowed: true, via: 'policy', must_run_local: false });
     await p.update({ decisions_off_machine: { allowed_in_private: false } });
     expect(await p.allows('decisions_off_machine', { private: true })).toBe(false);
+  });
+
+  it('fact-check web lookups are off in a private notebook until switched on, and a local model does not unlock them', async () => {
+    const p = make({ local: true });
+    expect(await p.allows('factcheck_web', { notebookId: 'nb_priv' })).toBe(false);
+    expect(await p.allows('factcheck_web', { private: true, local: true })).toBe(false);
+    expect(await p.allows('factcheck_web', { notebookId: 'nb_open' })).toBe(true);
+    await p.update({ factcheck_web: { allowed_in_private: true } });
+    expect(await p.resolve('factcheck_web', { notebookId: 'nb_priv' })).toMatchObject({
+      allowed: true,
+      via: 'policy',
+    });
   });
 
   it('a local call counts as private; a local model unlocks decisions and passive memory only', async () => {
@@ -95,6 +114,7 @@ describe('privacy routes', () => {
       'decisions_off_machine',
       'passive_memory',
       'verdict_cache_global',
+      'factcheck_web',
       'cloud_models',
       'claude_code',
       'web',

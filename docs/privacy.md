@@ -13,6 +13,7 @@ Contract: `packages/contracts/src/privacy.ts`. Saved in `core.settings` under `p
 | `decisions_off_machine` | Off. Hosted decision models (Jev, hosted Clef and Clef-flash) are not used. A decision model on this computer or on your own GPU node is, and so are the rules. | Yes |
 | `passive_memory` | Off. Nothing is learned from things said in passing, unless a model on this computer or on your own GPU node can run it. | Yes |
 | `verdict_cache_global` | Off. Fact-check verdicts stay in the notebook and are never shared across notebooks. Verdicts are kept per notebook everywhere. | Yes |
+| `factcheck_web` | Off. A fact-check of a claim the notebook's sources do not cover does not look it up on the web. Only the claim's words are sent, to a web search or to a model with web search. A search server on this computer (SearXNG) counts as leaving the machine too, because it asks public search engines. The scope's other rules (network off, blocked tools) still apply when it is on. | Yes |
 | `cloud_models` | Always off (the scope floor). | No |
 | `claude_code` | Always off. | No |
 | `web` | Always off (search and fetch). | No |

@@ -304,7 +304,8 @@ export const FactcheckFile = z.object({
     /** A source passage less relevant than this is not evidence (0 to 1; default 0.15). */
     relevant: z.number().min(0).max(1).optional(),
   }),
-  web_search: z.boolean().default(false),
+  /** Whether notebooks that never chose use the web for claims their sources miss. A notebook's own choice wins. */
+  web_search: z.boolean().default(true),
   /** The most web lookups through a model may cost in a day, in USD. SearXNG is not counted. 0 turns them off. */
   web_daily_cap_usd: z.number().min(0).default(0.25),
   /**

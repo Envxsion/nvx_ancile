@@ -291,6 +291,8 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                 traceId: run.traceId,
               },
               tally,
+              // A private notebook only gets here when Settings → Private notebooks allowed it (webPolicy).
+              ...(scope?.private && { leaveOk: true }),
             })
           : undefined;
         const message = await deps.repo.getMessage(input.messageId);

@@ -119,6 +119,12 @@ const WORDS: Record<PrivacyCapability, { label: string; description: string; det
     detail:
       'Verdicts are kept per notebook. When shared, a claim checked here can answer the same claim elsewhere, and the other way round. Off, a private notebook keeps its verdicts to itself.',
   },
+  factcheck_web: {
+    label: 'Fact-check on the web',
+    description: 'Look up a claim on the web when its sources do not cover it.',
+    detail:
+      'Only the words of the claim are sent, to a web search or to a model with web search. A search server on this computer (SearXNG) counts too, because it asks public search engines. Off, a private notebook is checked against its own sources only and says so.',
+  },
   cloud_models: {
     label: 'Cloud models',
     description: 'Always off. Private notebooks answer with models on this computer.',

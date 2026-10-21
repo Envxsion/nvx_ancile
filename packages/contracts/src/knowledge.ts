@@ -29,8 +29,11 @@ export const Notebook = z.object({
   pinned: z.boolean().default(false),
   /** Grounded mode: every answer here is fact-checked when it finishes. */
   grounded: z.boolean().default(false),
-  /** Fact-checks here may also look claims up on the web (FC4). Never for a private or keep-local notebook. */
-  check_on_web: z.boolean().default(false),
+  /**
+   * Fact-checks here look a claim up on the web when the sources do not cover it (FC4). On unless switched
+   * off. A private notebook only when Settings → Private notebooks allows it; a keep-local one never.
+   */
+  check_on_web: z.boolean().default(true),
   /** Mission-critical: fact-checks here use standard-tier models or better and two independent checkers (TR3). */
   critical: z.boolean().default(false),
   /** Verdicts from this notebook are reused by your other notebooks (SI1). Off keeps them here. */

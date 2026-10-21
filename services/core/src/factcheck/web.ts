@@ -5,17 +5,23 @@
  *  ID       |  core
  * ------------------------------------------------------------------
  *  Purpose  |  Let a fact-check look a claim up on the web when the
- *           |  notebook's sources do not cover it, and say plainly when
- *           |  it may not: a private or keep-local notebook never uses
- *           |  the web.
- *  How      |  webPolicy decides from the notebook's "Check on the web"
- *           |  setting, the one-click allow on this check and the
- *           |  scope (private, nothing leaves this machine, network off,
+ *           |  notebook's sources do not cover it (by default), and say
+ *           |  plainly when it may not: a private notebook uses the web
+ *           |  only when Settings → Private notebooks allows it, a
+ *           |  keep-local one never does.
+ *  How      |  webPolicy decides from the notebook's "Use the web when
+ *           |  sources don't cover a claim" setting (on unless switched
+ *           |  off), the one-click allow on this check, the permission
+ *           |  preset (Strict asks once per check) and the scope
+ *           |  (private, nothing leaves this machine, network off,
  *           |  web.search not allowed). searxngSearch asks SearXNG
  *           |  (SEARXNG_URL) over HTTP through @nvx/resilience and keeps
  *           |  only titles, links and snippets: pages are never opened,
  *           |  so a dead link costs nothing. Each search goes through
- *           |  the permission gate on its real query before it leaves.
+ *           |  the permission gate on its real query before it leaves;
+ *           |  the gate is told the call is eased (claim text only) so
+ *           |  Balanced and Auto do not stop to ask, while a denying
+ *           |  grant, the scope and the Auto floors still apply.
  *           |  The search itself is SearXNG when SEARXNG_URL is set, else a
  *           |  model's own web search (web-models.ts), within a daily cap.
  *  Note     |  Results are data from a stranger. They reach a model
@@ -27,7 +33,7 @@
 import { AncileError, type EffectiveScope, type WebReason } from '@nvx/contracts';
 import { retry } from '@nvx/resilience';
 import type { Gate } from '../permissions/gate';
-import { checkToolCall, keepsLocal } from '../scopes';
+import { checkToolCall, keepsLocal, leavingAllowed } from '../scopes';
 
 export interface WebHit {
   title: string;
@@ -66,6 +72,7 @@ const NOTE = {
   budget: 'Not checked on the web: the daily web budget is reached.',
   failed: 'Not checked on the web: the search did not answer.',
   refused: 'Not checked on the web: the search was not allowed.',
+  ask: 'Not checked on the web: Strict permissions ask first. Choose "Check again with the web" to allow it for this check.',
 } as const;
 
 /** Whether the web can be searched at all right now, for webPolicy. */
@@ -111,10 +118,13 @@ export interface WebDecision {
 }
 
 /**
- * May this check use the web? Wanted when the notebook allows it or this
- * check asked for it. Forbidden (and said so) when the notebook is private,
- * keeps data on this machine, has the network off or does not allow web.search;
- * those are the scope's own rules, followed exactly (docs/scopes.md).
+ * May this check use the web? Wanted when the notebook allows it (on unless
+ * switched off) or this check asked for it. Forbidden (and said so) when the
+ * notebook is private (unless Settings → Private notebooks allows fact-check
+ * lookups), keeps data on this machine, has the network off or does not allow
+ * web.search; those are the scope's own rules, followed exactly (docs/scopes.md).
+ * Under Strict permissions the web is used only when the person asked for it on
+ * this check: that one yes covers every claim of the check.
  */
 export function webPolicy(a: {
   scope: EffectiveScope | null;
@@ -123,19 +133,28 @@ export function webPolicy(a: {
   configured: boolean;
   /** When not configured: no search is set up, or the daily budget is spent. */
   why?: 'none' | 'budget';
+  /** The Strict (careful) preset: a lookup needs the person's yes, once per check. */
+  strict?: boolean;
+  /** Settings → Private notebooks allows fact-check web lookups. */
+  privateWeb?: boolean;
 }): WebDecision {
   const wanted = a.notebookWeb || a.requested === true;
   if (!wanted) return { use: false, note: null, reason: null };
   if (a.scope) {
-    if (keepsLocal(a.scope))
+    const lifted = a.scope.private && a.privateWeb === true;
+    if (!lifted && keepsLocal(a.scope))
       return {
         use: false,
         note: NOTE.private,
         reason: 'private',
       };
-    const check = checkToolCall(a.scope, { action: 'web.search', resource: 'web:search/claim' });
+    const check = checkToolCall(lifted ? leavingAllowed(a.scope) : a.scope, {
+      action: 'web.search',
+      resource: 'web:search/claim',
+    });
     if (!check.ok) return { use: false, note: `Not checked on the web: ${check.reason}.`, reason: 'blocked' };
   }
+  if (a.strict && a.requested !== true) return { use: false, note: NOTE.ask, reason: 'ask' };
   if (!a.configured)
     return {
       use: false,
@@ -166,8 +185,10 @@ export function gatedWeb(a: {
   ctx: WebContext;
   /** Filled in as the check searches: what it cost and what stopped it. */
   tally?: WebTally;
+  /** Settings → Private notebooks allowed the lookup for this private notebook (webPolicy decided). */
+  leaveOk?: boolean;
 }): ((query: string, signal: AbortSignal) => Promise<WebHit[] | null>) | undefined {
-  const { web, gate, userId, ctx, tally } = a;
+  const { web, gate, userId, ctx, tally, leaveOk } = a;
   if (!web) return undefined;
   return async (query, signal) => {
     if (!gate || !userId) return null;
@@ -183,6 +204,9 @@ export function gatedWeb(a: {
       traceId: ctx.traceId,
       tool: 'factcheck.web',
       args: { query },
+      // The claim text only; the person's own setting (or their yes on this check) already covered it.
+      eased: true,
+      ...(leaveOk && { leaveOk: true }),
     });
     if (d.outcome !== 'allow') {
       if (tally) tally.refused += 1;
