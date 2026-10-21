@@ -14,10 +14,10 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#link">{children}</a>,
 }));
 
-import { ARTICLES } from '../src/help/articles';
 import { queryClient } from '../src/lib/query';
 import type { SourceView } from '../src/lib/types';
 import { SourceCard } from '../src/sources/SourceCard';
+import { CORE_ARTICLES as ARTICLES } from './guideCore';
 
 const source: SourceView = {
   id: 'src_1',

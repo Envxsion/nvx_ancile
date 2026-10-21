@@ -41,8 +41,10 @@ import {
   sectionsOf,
   slugOf,
 } from './articles';
+import { GLOSSARY } from './glossary';
 import { loadGuide, useGuideLoaded } from './lazyGuide';
 import { useHelp } from './store';
+import { Term } from './Term';
 import { TOURS } from './tours';
 
 /** "20 Oct 2026" for an ISO date. */
@@ -87,6 +89,50 @@ function guideComponents(article: Article) {
   };
 }
 
+/** The articles to read next, then the glossary words this article explains. */
+function Related({ article, onOpen }: { article: Article; onOpen: (ref: string) => void }) {
+  const links = (article.related ?? []).flatMap((ref) => {
+    const { id, section } = parseRef(ref);
+    const found = articleById(id);
+    if (!found) return [];
+    const heading = section ? sectionsOf(found.article.body).find((x) => x.id === section)?.title : undefined;
+    return [{ ref, label: heading ? `${found.article.title}: ${heading}` : found.article.title }];
+  });
+  const words = GLOSSARY.filter((g) => g.article === article.id);
+  if (!links.length && !words.length) return null;
+  return (
+    <footer className="help__sources">
+      {links.length ? (
+        <>
+          <h3 className="help__sources-h">Related</h3>
+          <ul>
+            {links.map((l) => (
+              <li key={l.ref}>
+                <button type="button" className="link-btn" onClick={() => onOpen(l.ref)}>
+                  {l.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {words.length ? (
+        <>
+          <h3 className="help__sources-h">Words explained here</h3>
+          <p>
+            {words.map((g, i) => (
+              <span key={g.id}>
+                {i ? ', ' : ''}
+                <Term id={g.id} />
+              </span>
+            ))}
+          </p>
+        </>
+      ) : null}
+    </footer>
+  );
+}
+
 function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: string) => void }) {
   const i = ARTICLES.findIndex((a) => a.id === article.id);
   const prev = ARTICLES[i - 1];
@@ -120,6 +166,7 @@ function ArticleView({ article, onOpen }: { article: Article; onOpen: (id: strin
       <Markdown className="md help__body" controls={false} mode="static" components={components}>
         {body}
       </Markdown>
+      <Related article={article} onOpen={onOpen} />
       {article.sources?.length ? (
         <footer className="help__sources">
           <h3 className="help__sources-h">

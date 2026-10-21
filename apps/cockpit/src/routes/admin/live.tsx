@@ -264,7 +264,7 @@ export function LiveDecisions() {
           <th>On</th>
           <th>Outcome</th>
           <th>
-            <Term id="tier">Tier</Term>
+            <Term id="permission-tier">Tier</Term>
           </th>
         </tr>
       </thead>

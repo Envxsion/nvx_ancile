@@ -40,13 +40,14 @@ import {
 import { excludeCopy } from '../src/claudecode/ExcludeFolder';
 import { groupSessions, SessionsBrowser } from '../src/claudecode/SessionsDialog';
 import { ClaudeCodeMarker, CompactionDivider, markerText } from '../src/claudecode/ThreadMarker';
-import { ARTICLES, articleById, ERROR_ARTICLES } from '../src/help/articles';
+import { ERROR_ARTICLES } from '../src/help/articles';
 import { ApiCallError, api, localError } from '../src/lib/api';
 import { keys } from '../src/lib/data';
 import { subagentsOf, toMessageViews } from '../src/lib/mappers';
 import { queryClient } from '../src/lib/query';
 import { useNotify } from '../src/state/notify';
 import { ResultText, SubagentConversation } from '../src/thread/Parts';
+import { CORE_ARTICLES as ARTICLES } from './guideCore';
 
 const mocked = api as unknown as Record<'get' | 'post' | 'put' | 'patch' | 'del', ReturnType<typeof vi.fn>>;
 const wrap = (ui: ReactNode) => render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
@@ -677,7 +678,7 @@ describe("Don't bring in this folder", () => {
 
 describe('the guide', () => {
   it('has the article, and every claude_code error points at it', () => {
-    const a = articleById('claude-code')?.article;
+    const a = ARTICLES.find((x) => x.id === 'claude-code');
     expect(a?.title).toBe('Using Claude Code in NVX Ancile');
     for (const code of [
       'not_installed',

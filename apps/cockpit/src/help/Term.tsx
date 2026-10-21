@@ -75,7 +75,7 @@ export function Term({ id, children }: { id: string; children?: ReactNode }) {
               className="link-btn"
               onClick={() => {
                 setOpen(false);
-                setHelp(true, entry.article);
+                setHelp(true, entry.section ? `${entry.article}#${entry.section}` : entry.article);
               }}
             >
               Read more in the guide

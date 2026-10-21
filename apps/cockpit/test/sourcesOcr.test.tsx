@@ -19,12 +19,12 @@ vi.mock('../src/lib/api', async (importOriginal) => {
   return { ...real, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() } };
 });
 
-import { ARTICLES } from '../src/help/articles';
 import { api } from '../src/lib/api';
 import { toSourceView } from '../src/lib/mappers';
 import { queryClient } from '../src/lib/query';
 import { SourceCard } from '../src/sources/SourceCard';
 import { enginesWords, SourcesGroup } from '../src/sources/SourcesGroup';
+import { CORE_ARTICLES as ARTICLES } from './guideCore';
 
 const mocked = vi.mocked(api);
 

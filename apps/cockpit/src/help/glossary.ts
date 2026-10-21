@@ -17,6 +17,8 @@ export interface GlossaryEntry {
   term: string;
   plain: string;
   article?: string;
+  /** A ### section of that article (its anchor), so "Read more" lands on the place that explains it. */
+  section?: string;
 }
 
 export const GLOSSARY: readonly GlossaryEntry[] = [
@@ -188,11 +190,136 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     article: 'grants',
   },
   {
-    id: 'tier',
-    term: 'Tier',
+    id: 'permission-tier',
+    term: 'Permission tier',
     plain:
       'How careful a tool call needs to be. Reads are low; deletes and sending data are high. Higher tiers ask more.',
     article: 'grants',
+  },
+  {
+    id: 'tier',
+    term: 'Model tier',
+    plain:
+      "How big a job a model is meant for: Frontier, Standard, Small or Tiny. A task asks for a tier and gets the best ready model of it. You can set a model's tier yourself.",
+    article: 'models',
+    section: 'tiers',
+  },
+  {
+    id: 'pinned',
+    term: 'Pinned model',
+    plain:
+      'A model you chose for a message or a thread. If it cannot answer, only a model that costs the same or less steps in, and the answer says so.',
+    article: 'models',
+    section: 'when-a-model-cannot-answer',
+  },
+  {
+    id: 'answered-by',
+    term: 'Answered by line',
+    plain:
+      'A short line in an answer that says a different model wrote it than the one you asked for, and why. Nothing is swapped quietly.',
+    article: 'models',
+    section: 'answered-by-another-model',
+  },
+  {
+    id: 'who-answers',
+    term: 'Who answers',
+    plain:
+      'The one chip in the composer that shows the model, or the flow, that will answer. Open it to pick a model or a flow, or to change one step for this thread.',
+    article: 'flow-and-model',
+    section: 'what-the-chip-does',
+  },
+  {
+    id: 'fit-line',
+    term: 'Fit line',
+    plain:
+      'The line that appears before you switch to a model whose window cannot hold the thread. It offers to summarise for that model, or to pick another. The full thread always stays.',
+    article: 'switching-models',
+    section: 'before-you-switch-the-fit-line',
+  },
+  {
+    id: 'summary-level',
+    term: 'Summary level',
+    plain:
+      'A summary is kept as a page, a paragraph and a line. Each model reads the finest size its window holds.',
+    article: 'switching-models',
+    section: 'summary-levels',
+  },
+  {
+    id: 'decision-model',
+    term: 'Decision model',
+    plain:
+      'A small, fast model that answers a question with a probability instead of writing text. It makes quick choices for Auto mode, flow routers and fact-check sorting.',
+    article: 'spend-less-on-decisions',
+  },
+  {
+    id: 'free-allowance',
+    term: 'Free allowance',
+    plain:
+      'The amount a provider lets you use each day at no charge. NVX Ancile counts it, uses it first, and stops before the edge so you are never billed for it.',
+    article: 'spend-less-on-decisions',
+    section: 'the-free-allowance-in-numbers',
+  },
+  {
+    id: 'private-notebook',
+    term: 'Private notebook',
+    plain:
+      'A notebook whose work stays on this computer. A few extras can be allowed in Settings, and some things are always off.',
+    article: 'private-notebooks',
+  },
+  {
+    id: 'verdict-cache',
+    term: 'Verdict cache',
+    plain:
+      'The record of claims already checked. Asking again for the same claim against the same sources is answered from it, with no model call. It can be shared across notebooks.',
+    article: 'fact-checking',
+    section: 'checked-earlier',
+  },
+  {
+    id: 'triage',
+    term: 'Triage',
+    plain:
+      'Sorting each claim in a fact-check by how much model it needs: tiny for obvious claims, standard or better for numbers and weighty topics, small for the rest.',
+    article: 'fact-checking',
+    section: 'which-model-checks-each-claim',
+  },
+  {
+    id: 'critical-check',
+    term: 'Mission-critical check',
+    plain:
+      'A fact-check where every claim is judged by two Standard or Frontier models from different companies, and counts only if both agree.',
+    article: 'fact-checking',
+    section: 'mission-critical-checks',
+  },
+  {
+    id: 'standard',
+    term: 'Standard (memory)',
+    plain:
+      'A short set of rules for what good looks like, learned from an example you show, such as how a manager writes updates. It is always a suggestion until you approve it.',
+    article: 'memory-learning',
+    section: 'standards-from-examples',
+  },
+  {
+    id: 'passive-memory',
+    term: 'Passive memory',
+    plain:
+      'Remembering things you say in passing. Said once, it waits in the inbox; said again, it is kept with an Undo.',
+    article: 'memory-learning',
+    section: 'things-you-say-in-passing',
+  },
+  {
+    id: 'inbox',
+    term: 'Memory inbox',
+    plain:
+      'Where suggestions wait for your yes: things noticed once, standards from examples, and lessons that have not been seen twice.',
+    article: 'memory-learning',
+  },
+  {
+    id: 'by-purpose',
+    term: 'By purpose',
+    plain:
+      'The part of Usage that says what spend was for: chat answers, fact-checks, memory, decisions, permission checks and more.',
+    article: 'usage',
+    section: 'by-purpose',
   },
   {
     id: 'shadow',
