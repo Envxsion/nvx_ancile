@@ -20,6 +20,9 @@
  * ------------------------------------------------------------------
  */
 
+/** The words a failed wait ends with; the pinned-model error looks for them to explain it plainly. */
+export const NODE_STILL_STARTING = 'GPU node was still starting';
+
 export interface NodeWaking {
   nodeId: string | null;
   etaS: number | null;

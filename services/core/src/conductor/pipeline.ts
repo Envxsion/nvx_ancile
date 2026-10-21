@@ -64,6 +64,7 @@ import {
   type RouteAgain,
   withFlow,
 } from '../flows/turn';
+import { NODE_STILL_STARTING } from '../gateway/compute';
 import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
 import { effortLevels } from '../gateway/effort';
 import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
@@ -2343,7 +2344,10 @@ function pinnedUnavailable(
   const name = was?.display_name ?? pinned;
   const first = err.attempts[0] as FailedAttempt;
   // Plain words from the class, never the provider's own text: that stays in the attempts below.
-  const what = `${name} ${CLASS_WORDS[first.errorClass] ?? 'could not answer'}${first.errorClass === 'transient' ? ' and did not answer when asked again' : ''}.`;
+  // A GPU node that was still starting is not "at capacity": say what happened and that it may be ready soon.
+  const what = first.detail.includes(NODE_STILL_STARTING)
+    ? `${name}'s GPU node was still starting when the wait ran out; it may be ready in a few minutes.`
+    : `${name} ${CLASS_WORDS[first.errorClass] ?? 'could not answer'}${first.errorClass === 'transient' ? ' and did not answer when asked again' : ''}.`;
   const others = err.attempts.length - 1;
   const cheaperTried = err.attempts.slice(1).some((a) => {
     const m = registry.get(a.model);

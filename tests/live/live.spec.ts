@@ -364,6 +364,8 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
       'turn 2 (pod model)',
       POD_MODEL,
       `What was the access word in fact A? Answer with only that word. Also keep in mind fact B: the harbour is called ${FACT_B}.`,
+      // A new pod's first answer waits for the model server to load (often 5 to 10 minutes).
+      14,
     );
     checkReceipt('turn 2', t2, POD_MODEL, podBilling);
     if (DRY)

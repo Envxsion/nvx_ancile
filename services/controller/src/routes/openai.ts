@@ -59,6 +59,13 @@ const ACTIVITY_EVERY_MS = 15_000;
 const MAX_HOLD_S = 600;
 /** How long one readiness probe of a node's /v1/models may take. */
 const PROBE_TIMEOUT_MS = 4_000;
+/**
+ * A new pod's first load pulls the model server's image and the weights: often
+ * 5 to 10 minutes. The estimate counts down from the first "loading" answer, so
+ * Core waits long enough instead of giving up after a minute's estimate.
+ */
+const FIRST_LOAD_S = 600;
+const LOADING_MIN_ETA_S = 60;
 
 /** The node's model list includes the model the route serves. */
 export function listsModel(body: unknown, served: string): boolean {
@@ -97,6 +104,8 @@ export function openaiRoutes(deps: DataPlaneDeps) {
   const lastActivity = new Map<string, number>();
   /** Nodes whose model server has answered with the model, by `${node id} ${endpoint}`. */
   const loaded = new Set<string>();
+  /** When each node was first seen loading, by `${node id} ${endpoint}`, for an honest estimate. */
+  const loadingSince = new Map<string, number>();
 
   /** The node's model server is up and lists the model (one probe, a few seconds at most). */
   const modelLoaded = async (node: NodeRecord, served: string): Promise<boolean> => {
@@ -110,6 +119,7 @@ export function openaiRoutes(deps: DataPlaneDeps) {
       if (!res.ok || isProxyPage(res)) return false;
       if (!listsModel(await res.json().catch(() => null), served)) return false;
       loaded.add(key);
+      loadingSince.delete(key);
       return true;
     } catch {
       return false;
@@ -117,10 +127,14 @@ export function openaiRoutes(deps: DataPlaneDeps) {
   };
 
   const loading = (c: Context<AppEnv>, node: NodeRecord, served: string) => {
+    const key = `${node.id} ${node.endpoint_url}`;
+    const since = loadingSince.get(key) ?? Date.now();
+    loadingSince.set(key, since);
+    const waited = Math.floor((Date.now() - since) / 1000);
     c.header('retry-after', '5');
     return c.json(
       routingError('node_waking', `${node.name} is up; loading ${served}.`, {
-        eta_s: 60,
+        eta_s: Math.max(LOADING_MIN_ETA_S, FIRST_LOAD_S - waited),
         node_id: node.id,
         phase: 'loading',
       }),

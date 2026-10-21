@@ -23,7 +23,7 @@ import { CircuitBreaker, ClassifiedError, classify, FALLBACKABLE, isConnectionEr
 import { currentContext } from '../context';
 import { startSpan } from '../obs/spans';
 import { type CallLedger, COUNTED_ON_MESSAGE } from '../usage/ledger';
-import { type NodeWaking, nodeWakingFrom, waitOrSkip } from './compute';
+import { NODE_STILL_STARTING, type NodeWaking, nodeWakingFrom, waitOrSkip } from './compute';
 import { cannotBeRefusal, isRefusalFinish, looksLikeRefusal } from './refusal';
 import type { GatewayEvent, ModelClient, ModelRequest, StreamChunk } from './types';
 import { priceOf } from './usage';
@@ -208,7 +208,7 @@ export class Gateway {
       if (computeWaitMs <= 0 || Date.now() - started > limit)
         throw new ClassifiedError(
           'capacity',
-          `${model.display_name}'s node did not wake within ${Math.max(1, Math.round(limit / 60_000))} min`,
+          `${model.display_name}'s ${NODE_STILL_STARTING} after ${Math.max(1, Math.round(limit / 60_000))} min`,
         );
       yield {
         type: 'compute_waiting',

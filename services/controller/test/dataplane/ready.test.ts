@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { register } from '../../src/nodes';
 import { FakeProvider } from '../../src/providers/fake';
 import { isProxyPage, listsModel, openaiRoutes } from '../../src/routes/openai';
@@ -59,6 +59,20 @@ const html = (status: number) =>
   });
 
 describe('a node that is up', () => {
+  it("estimates a first load in minutes, counting down, not a minute's guess", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const w = await world(() => html(502));
+      const eta = async () => ((await (await w.chat()).json()) as { error: { eta_s: number } }).error.eta_s;
+      expect(await eta()).toBe(600);
+      vi.setSystemTime(Date.now() + 240_000);
+      expect(await eta()).toBe(360);
+      vi.setSystemTime(Date.now() + 600_000);
+      expect(await eta()).toBe(60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('is not sent the request while its server is still loading the model', async () => {
     let models: Response = html(502);
     const w = await world((url) =>
