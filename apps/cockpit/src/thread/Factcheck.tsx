@@ -110,6 +110,7 @@ export function FactcheckChip({
           <button
             type="button"
             className="fc-chip"
+            data-tour="factcheck-chip"
             data-state="done"
             data-level={level(factcheck.confidence)}
             data-sealed={factcheck.sealed || undefined}

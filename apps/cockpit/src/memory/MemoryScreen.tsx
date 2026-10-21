@@ -61,7 +61,7 @@ export function PassiveControl() {
   const set = useSetPassive();
   const on = settings.data?.passive !== false;
   return (
-    <div className="mem__passive">
+    <div className="mem__passive" data-tour="memory-passive">
       <Switch checked={on} onChange={(v) => set.mutate(v)} label="Learn from things said in passing" />
       <span
         className="mute"
@@ -126,7 +126,7 @@ export function MemoryScreen() {
           Plain markdown in its own git repository. Every change is a commit you can read and undo, and
           nothing from a web page or a tool is kept without your yes.
         </p>
-        <div className="mem__capture">
+        <div className="mem__capture" data-tour="memory-capture">
           <CaptureControl size="sm" />
           <span className="mute mem__capture-desc">{capture?.desc}</span>
         </div>
@@ -140,6 +140,7 @@ export function MemoryScreen() {
             type="button"
             role="tab"
             data-tab={t.id}
+            data-tour={t.id === 'inbox' ? 'memory-inbox' : undefined}
             aria-selected={tab === t.id}
             className="mem-tab"
             onClick={() => setTab(t.id)}

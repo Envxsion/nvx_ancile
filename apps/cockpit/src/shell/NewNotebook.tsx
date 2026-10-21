@@ -11,7 +11,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { hueVar } from '../lib/format';
 import { createNotebook } from '../lib/notebooks';
 import type { Hue } from '../lib/types';

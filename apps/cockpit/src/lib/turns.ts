@@ -23,7 +23,7 @@ import { interruptClaudeCode, sendClaudeCode } from '../claudecode/live';
 import { useCcStore } from '../claudecode/store';
 import { newIdempotencyKey } from '../engines/api';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { notify } from '../state/notify';
 import { busyReason, isThreadBusy, markBusy } from '../thread/busy-store';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';

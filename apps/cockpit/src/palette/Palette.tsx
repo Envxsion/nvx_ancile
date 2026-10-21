@@ -44,7 +44,8 @@ import { modelSections } from './modelSections';
 const SearchFilters = lazyHost(() => import('./SearchFilters'), 'SearchFilters');
 
 import { helpDone, useHelp } from '../help/store';
-import { TOURS, tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
+import { TOURS } from '../help/tours';
 import { useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { api } from '../lib/api';

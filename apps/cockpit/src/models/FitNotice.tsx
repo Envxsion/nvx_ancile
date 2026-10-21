@@ -30,7 +30,7 @@ export function FitNotice({ threadId }: { threadId: string }) {
   if (!ask || ask.threadId !== threadId) return null;
   const clear = () => useFitAsk.setState({ ask: null });
   return (
-    <div className="switch-cost" role="status">
+    <div className="switch-cost" role="status" data-tour="fit-line">
       <span className="switch-cost__text">{fitLine(ask)}</span>
       {ask.after === null ? null : (
         <button

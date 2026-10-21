@@ -126,7 +126,7 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
   const on = notebooks.data?.find((n) => n.id === notebookId)?.grounded === true;
   const [busy, setBusy] = useState(false);
   return (
-    <div className="grounded-row" data-on={on || undefined}>
+    <div className="grounded-row" data-on={on || undefined} data-tour="fc-grounded">
       <Icon name="factcheck" size={14} />
       <div className="grounded-row__text">
         <span className="grounded-row__title">
@@ -156,7 +156,7 @@ function WebRow({ notebookId }: { notebookId: string }) {
   const on = notebooks.data?.find((n) => n.id === notebookId)?.check_on_web !== false;
   const [busy, setBusy] = useState(false);
   return (
-    <div className="grounded-row" data-on={on || undefined}>
+    <div className="grounded-row" data-on={on || undefined} data-tour="fc-web">
       <Icon name="globe" size={14} />
       <div className="grounded-row__text">
         <span className="grounded-row__title">
@@ -187,7 +187,7 @@ function CriticalRow({ notebookId }: { notebookId: string }) {
   const on = notebooks.data?.find((n) => n.id === notebookId)?.critical === true;
   const [busy, setBusy] = useState(false);
   return (
-    <div className="grounded-row" data-on={on || undefined}>
+    <div className="grounded-row" data-on={on || undefined} data-tour="fc-critical">
       <Icon name="seal" size={14} />
       <div className="grounded-row__text">
         <span className="grounded-row__title">
@@ -219,7 +219,7 @@ function ShareChecksRow({ notebookId }: { notebookId: string }) {
   const [busy, setBusy] = useState(false);
   if (!cache.data) return null;
   return (
-    <div className="grounded-row" data-on={on || undefined}>
+    <div className="grounded-row" data-on={on || undefined} data-tour="fc-share">
       <Icon name="link" size={14} />
       <div className="grounded-row__text">
         <span className="grounded-row__title">

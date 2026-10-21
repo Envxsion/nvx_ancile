@@ -30,7 +30,7 @@ import type {
 import { useQuery } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { ApiCallError, api } from './api';

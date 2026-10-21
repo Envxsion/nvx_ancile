@@ -99,10 +99,21 @@ export function Row({
   );
 }
 
-export function Block({ title, children, lede }: { title: string; children: ReactNode; lede?: string }) {
+export function Block({
+  title,
+  children,
+  lede,
+  tour,
+}: {
+  title: string;
+  children: ReactNode;
+  lede?: string;
+  /** A guide tour can light this block (help/tours.ts). */
+  tour?: string;
+}) {
   return (
     // data-rows: hidden when a search leaves it no rows (kit.css).
-    <section className="setting-block" data-rows>
+    <section className="setting-block" data-rows data-tour={tour}>
       <header className="setting-block__head">
         <h2>{title}</h2>
         {lede ? <p className="mute">{lede}</p> : null}

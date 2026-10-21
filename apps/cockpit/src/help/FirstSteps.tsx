@@ -22,7 +22,6 @@ import '../styles/learn.css';
 import { Icon } from '../ui/Icon';
 import { type FirstStep, useFirstSteps } from './steps';
 import { useHelp } from './store';
-import { TOURS } from './tours';
 
 /** Wait (up to 3 s) for a tour target to render after a route change. */
 function whenShown(target: string): Promise<void> {
@@ -70,6 +69,8 @@ export function useRunStep() {
     }
     // With a notebook already there, the notebook tour starts at its sources.
     const first = step.id === 'source' && notebook ? 1 : 0;
+    // The tour text loads only now: it is not part of the first download.
+    const { TOURS } = await import('./tours');
     const target = TOURS[step.tour]?.steps[first]?.target;
     if (target) await whenShown(target);
     startTour(step.tour);

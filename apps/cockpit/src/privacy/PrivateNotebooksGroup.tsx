@@ -67,7 +67,7 @@ export function PrivateNotebooksGroup() {
   if (settings.data && !shown.length && q) return null;
   return (
     <>
-      <Block title="What private notebooks may use" lede={INTRO}>
+      <Block title="What private notebooks may use" lede={INTRO} tour="private-switches">
         {settings.isPending ? (
           <div className="setting" data-stack>
             <Skeleton lines={3} label="Loading private notebook settings" />
@@ -111,6 +111,7 @@ export function PrivateNotebooksGroup() {
       </Block>
       {fixed.length ? (
         <Block
+          tour="private-fixed"
           title="Always off"
           lede="These are fixed for private notebooks. Turn off Private on a notebook to use them there."
         >

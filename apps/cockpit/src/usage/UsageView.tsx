@@ -111,14 +111,16 @@ function Breakdown({
   title,
   rows,
   total,
+  tour,
 }: {
   title: string;
+  tour?: string;
   rows: { key: string; label: string; engine: string; tokens: number; cost: number; answers: number }[];
   total: number;
 }) {
   const billed = useClaudeBilling(rows.some((r) => r.engine === 'claude_code'));
   return (
-    <section className="u-break" aria-label={title}>
+    <section className="u-break" aria-label={title} data-tour={tour}>
       <h3 className="u-h3">{title}</h3>
       <ul>
         {rows.map((r) => (
@@ -228,7 +230,7 @@ export function AncileUsage({ report, provider = '' }: { report: UsageReport; pr
           <Breakdown title="By engine" rows={engines} total={tokens} />
           <Breakdown title="By model" rows={models} total={tokens} />
           {purposes.some((p) => p.purpose !== 'chat') ? (
-            <Breakdown title="By purpose" rows={purposeRows} total={tokens} />
+            <Breakdown title="By purpose" rows={purposeRows} total={tokens} tour="usage-purpose" />
           ) : null}
           {report.by_provider.length ? (
             <Breakdown

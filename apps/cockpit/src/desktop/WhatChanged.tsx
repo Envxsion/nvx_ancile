@@ -18,6 +18,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { useHelp } from '../help/store';
+import { NEWS_OFFER_ID, NEWS_TOUR } from '../help/WhatsNewOffer';
 import { useLayer } from '../keys/dispatch';
 import { isDesktop } from '../lib/runtime';
 import { useDesktopState } from './api';
@@ -38,6 +39,7 @@ export function WhatChangedHost() {
   const running = typeof window === 'undefined' ? undefined : window.__NVX_DESKTOP__?.version;
   // The help progress already keeps the last version whose news was shown (H5).
   const shown = useHelp((s) => s.lastSeenVersion);
+  const toursSeen = useHelp((s) => s.tours);
   const [open, setOpen] = useState(false);
   useLayer(open);
   useEffect(() => {
@@ -59,6 +61,19 @@ export function WhatChangedHost() {
             <p className="what-changed__notes">{last.notes}</p>
           </div>
           <div className="dialog__actions">
+            {last.to.startsWith('0.1.1') && !toursSeen[NEWS_TOUR] ? (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  close();
+                  useHelp.getState().seeHint(NEWS_OFFER_ID);
+                  useHelp.getState().startTour(NEWS_TOUR);
+                }}
+              >
+                Take the tour
+              </button>
+            ) : null}
             <button type="button" className="btn btn--primary" onClick={close}>
               Got it
             </button>

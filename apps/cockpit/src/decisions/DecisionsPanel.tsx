@@ -151,6 +151,7 @@ export default function DecisionsPanel() {
   return (
     <>
       <Block
+        tour="decisions-free"
         title="Decision models"
         lede="Small models that pick a route or judge a check with a probability, not prose. Free allowances are used first, then the cheapest that suits the task."
       >
@@ -197,6 +198,7 @@ export default function DecisionsPanel() {
       {s ? (
         <>
           <Block
+            tour="decisions-routes"
             title="Routes"
             lede="The first ready route that suits the task is used. Move one up to prefer it when prices tie."
           >
@@ -248,6 +250,7 @@ export default function DecisionsPanel() {
           </Block>
 
           <Block
+            tour="decisions-local"
             title="On this computer"
             lede="A decision server on this computer or your own GPU node counts as private, and is used first in private notebooks."
           >
@@ -284,6 +287,7 @@ export default function DecisionsPanel() {
           </Block>
 
           <Block
+            tour="decisions-caps"
             title="Daily spend caps"
             lede="The most each paid provider may cost in a day (UTC). Blank uses $1."
           >

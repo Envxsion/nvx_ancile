@@ -28,7 +28,7 @@ import { withdrawForModelChange } from '../claudecode/live';
 import { patchCc } from '../claudecode/store';
 import { ccName } from '../engines/api';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { askFit } from '../models/fit';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';

@@ -21,7 +21,7 @@ import { safeMode, userCssOn } from '../app/userCss';
 import { type ComputeNode, useComputeStatus, useNodes } from '../compute/data';
 import { UpdatePill, WarmingSegment } from '../desktop/Pills';
 import { live as demoLive } from '../fixtures/demoLive';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { useConnection } from '../lib/connection';
 import { useApprovals, useSystemHealth } from '../lib/data';
 import { usd } from '../lib/format';

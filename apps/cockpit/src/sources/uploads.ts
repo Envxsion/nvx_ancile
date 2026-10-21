@@ -13,7 +13,7 @@
 
 import { create } from 'zustand';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { type UploadHandle, uploadFile } from '../lib/notebooks';
 import { notify } from '../state/notify';
 

@@ -31,13 +31,13 @@ import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 import { useHelp } from './store';
 import {
+  onPlace as isOnPlace,
   listPending,
   NEED_LABEL,
   type PlaceLists,
   paramOf,
   pickFor,
   placeOf,
-  routeMatches,
 } from './tourPlace';
 import { TOURS, type Tour, type TourStep } from './tours';
 
@@ -119,7 +119,7 @@ function ActiveTour({ def, index }: { def: Tour; index: number }) {
     flows: fl.data ?? (fl.isError ? [] : undefined),
   };
   const place = placeOf(def, index);
-  const onPlace = !place || routeMatches(place.route, pathname);
+  const onPlace = !place || isOnPlace(place, pathname);
   const need = place?.needs;
   const pending = !onPlace && !!need && listPending(need, lists);
   const pick = !onPlace && need && !pending ? pickFor(need, lists) : null;
@@ -140,9 +140,11 @@ function ActiveTour({ def, index }: { def: Tour; index: number }) {
     sent.current = stepKey;
     const param = paramOf(place.route);
     void navigate(
-      param && pick
-        ? ({ to: place.route, params: { [param]: pick } } as never)
-        : ({ to: place.route } as never),
+      place.exact
+        ? ({ to: place.exact } as never)
+        : param && pick
+          ? ({ to: place.route, params: { [param]: pick } } as never)
+          : ({ to: place.route } as never),
     );
   }, [place, onPlace, pending, need, pick, stepKey, step, navigate]);
 

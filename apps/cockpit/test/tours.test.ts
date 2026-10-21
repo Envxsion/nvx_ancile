@@ -7,9 +7,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ARTICLES } from '../src/help/articles';
 import { paramOf, pickFor, placeOf, routeMatches } from '../src/help/tourPlace';
 import { TOURS } from '../src/help/tours';
+import { CORE_ARTICLES as ARTICLES } from './guideCore';
 
 const SRC = resolve(__dirname, '../src');
 // Files are read once: the checks walk the same import trees many times.
@@ -84,7 +84,8 @@ const ROUTES = routes();
 const routeFiles = new Set(ROUTES.values());
 const SHELL = closure(join(SRC, 'app/AppShell.tsx'), routeFiles);
 const draws = (files: Iterable<string>, target: string) => {
-  const re = new RegExp(`data-tour=(?:"${target}"|\\{[^}]*'${target}')`);
+  // `data-tour="x"`, or `tour="x"` on a component that passes it on to a data-tour (a settings Block).
+  const re = new RegExp(`(?:data-tour|\\btour)=(?:"${target}"|\\{[^}]*'${target}')`);
   for (const f of files) if (re.test(read(f))) return true;
   return false;
 };
@@ -107,7 +108,12 @@ describe('guide tours', () => {
           const place = placeOf(tour, i);
           if (!place) return;
           expect([...ROUTES.keys()], `${tour.id} step ${i + 1}`).toContain(place.route);
-          expect(!!paramOf(place.route), `${tour.id} step ${i + 1}: needs`).toBe(!!place.needs);
+          // A parameter is filled by picking something (needs) or by a fixed address (exact).
+          expect(!!paramOf(place.route), `${tour.id} step ${i + 1}: needs`).toBe(
+            !!(place.needs ?? place.exact),
+          );
+          if (place.exact)
+            expect(routeMatches(place.route, place.exact), `${tour.id} step ${i + 1}: exact`).toBe(true);
         });
       });
 

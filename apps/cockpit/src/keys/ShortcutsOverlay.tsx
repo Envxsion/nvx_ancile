@@ -16,7 +16,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Kbd } from '../ui/primitives';

@@ -129,7 +129,7 @@ export function MemoryUsed({ used }: { used: NonNullable<Explain['memory_used']>
     return s.length > 70 ? `${s.slice(0, 67).trimEnd()}…` : s;
   };
   return (
-    <p className="rc-used" dir="auto">
+    <p className="rc-used" dir="auto" data-tour="memory-used">
       <span className="mute">Used: </span>
       {shown.map((u, i) => (
         <span key={`${u.path}-${u.key}`}>

@@ -23,6 +23,12 @@ export function placeOf(tour: Tour, i: number): TourPlace | null {
   return tour.start;
 }
 
+/** Is the tour on the screen `place` names? An `exact` address (a settings group) must match as written. */
+export function onPlace(place: TourPlace, pathname: string): boolean {
+  if (place.exact) return pathname.replace(/\/+$/, '') === place.exact;
+  return routeMatches(place.route, pathname);
+}
+
 /** Does `pathname` sit on the route pattern (`/n/$notebookId` matches `/n/abc`)? */
 export function routeMatches(pattern: string, pathname: string): boolean {
   const norm = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p);

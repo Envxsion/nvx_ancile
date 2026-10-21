@@ -18,16 +18,9 @@
  * ------------------------------------------------------------------
  */
 
-export type TourEvent =
-  | 'sent'
-  | 'model-changed'
-  | 'palette-opened'
-  | 'notebook-created'
-  | 'source-added'
-  | 'citation-opened'
-  | 'approval-opened'
-  | 'shortcuts-opened'
-  | 'branched';
+import type { TourEvent } from './tourEvent';
+
+export type { TourEvent };
 
 /** What a route's one parameter is filled with when the tour has to pick. */
 export type TourNeed = 'notebook' | 'thread' | 'flow';
@@ -36,6 +29,8 @@ export type TourNeed = 'notebook' | 'thread' | 'flow';
 export interface TourPlace {
   route: string;
   needs?: TourNeed;
+  /** A fixed address on a route with a parameter, such as the Decisions group of Settings. */
+  exact?: string;
 }
 
 export interface TourStep {
@@ -263,9 +258,228 @@ export const TOURS: Record<string, Tour> = {
       },
     ],
   },
+  'whats-new': {
+    id: 'whats-new',
+    title: 'What is new in 0.1.1',
+    minutes: 3,
+    start: { route: '/' },
+    steps: [
+      {
+        target: 'model-chip',
+        title: 'One chip says who answers',
+        body: 'It shows the model, or the flow when one answers. Press M to pick a model or a flow. With a flow, the menu lists its model steps, and you can change one for this thread only.',
+        placement: 'top',
+      },
+      {
+        target: 'fit-line',
+        at: { route: '/t/$threadId', needs: 'thread' },
+        absent:
+          'This line appears only when you pick a model whose window cannot hold the thread. It offers Switch and summarise or Pick another, and the full thread always stays.',
+        title: 'Told before a switch, not after',
+        body: 'If the thread will not fit the model you picked, this line says so, with the size before and after. Nothing is summarised until you choose.',
+        placement: 'top',
+      },
+      {
+        target: 'factcheck-chip',
+        absent:
+          'Press F on an answer to check it. The score appears here. Hover a claim to see which tier and model checked it.',
+        title: 'Each claim gets the model it needs',
+        body: 'Obvious claims go to a tiny model, numbers and weighty topics to a standard one. A claim your sources miss is looked up on the web by default, and one that could not be settled says Not checked, and why.',
+        placement: 'top',
+      },
+      {
+        target: 'memory-used',
+        absent:
+          'Open the receipt on an answer (press W). When memory shaped the answer, a Used: line says which entries.',
+        title: 'What memory shaped this answer',
+        body: 'The Used: line says in words which memory entries went into the answer. Each links to its file.',
+        placement: 'top',
+      },
+      {
+        target: 'decisions-free',
+        at: { route: '/settings/$group', exact: '/settings/decisions' },
+        title: 'Small models make the quick choices',
+        body: 'Decision models pick routes and sort checks. Free allowances are used first, each with a meter, and the app stops before the edge so you are never billed for it.',
+        placement: 'bottom',
+      },
+      {
+        target: 'decisions-caps',
+        title: 'A daily cap on every paid route',
+        body: 'Paid routes stop at the cap you set, $1 a day if you leave it blank. A decision costs a few millionths of a dollar, so this is a safety net.',
+        placement: 'top',
+      },
+      {
+        target: 'private-switches',
+        at: { route: '/settings/$group', exact: '/settings/private-notebooks' },
+        title: 'What a private notebook may use',
+        body: 'Four switches, all off to begin with: hosted decision models, learning from passing remarks, sharing fact-check verdicts and fact-checking on the web. The ones below them are always off.',
+        placement: 'bottom',
+      },
+      {
+        target: 'usage-purpose',
+        at: { route: '/settings/$group', exact: '/settings/usage' },
+        absent:
+          'By purpose appears once something besides chat has spent tokens: a fact-check, memory learning or a decision.',
+        title: 'What the spend was for',
+        body: 'Every model call is counted under its purpose: chat, fact-checks, memory, decisions, permission checks and more.',
+        placement: 'top',
+      },
+      {
+        target: 'fc-web',
+        at: { route: '/n/$notebookId', needs: 'notebook' },
+        absent:
+          'Open the Sources panel (Alt 1) of a notebook that has sources. The fact-check switches sit above them.',
+        title: 'Fact-check switches live with the sources',
+        body: 'Use the web when sources do not cover a claim, Mission-critical checks (two standard or frontier checkers), and Share checks with other notebooks, which you can undo.',
+        placement: 'left',
+      },
+      {
+        target: 'memory-passive',
+        at: { route: '/admin/$section', exact: '/admin/memory' },
+        title: 'It learns from what you say in passing',
+        body: 'Said once, it waits in the inbox. Said again, it is kept, with Undo. Switch it off here. Private notebooks follow their own setting.',
+        placement: 'bottom',
+      },
+      {
+        target: 'memory-inbox',
+        title: 'Suggestions wait for your yes',
+        body: 'Standards learned from examples, such as how your manager writes updates, always wait here. Use Compare with a standard, in the menu beside Copy, to see how your work differs.',
+        placement: 'bottom',
+      },
+    ],
+  },
+  decisions: {
+    id: 'decisions',
+    title: 'Decision models',
+    minutes: 1,
+    start: { route: '/settings/$group', exact: '/settings/decisions' },
+    steps: [
+      {
+        target: 'decisions-free',
+        title: 'Free first',
+        body: 'Small models pick routes and sort checks. With this on, a route with free allowance left is tried before any paid one. Each meter counts today’s use and when it resets.',
+        placement: 'bottom',
+      },
+      {
+        target: 'decisions-routes',
+        title: 'Routes, in words',
+        body: 'Each route says whether it is ready, resting or out of allowance. Up and Down set which is preferred when prices tie. Add Cloudflare in Settings → API keys.',
+        placement: 'top',
+      },
+      {
+        target: 'decisions-local',
+        title: 'On this computer',
+        body: 'A decision server you run counts as private and costs nothing. It goes first in private notebooks.',
+        placement: 'top',
+      },
+      {
+        target: 'decisions-caps',
+        title: 'A cap for each paid provider',
+        body: 'The most each may cost in a day (UTC). Leave it blank for $1.',
+        placement: 'top',
+      },
+    ],
+  },
+  'private-notebooks': {
+    id: 'private-notebooks',
+    title: 'Private notebooks',
+    minutes: 1,
+    start: { route: '/settings/$group', exact: '/settings/private-notebooks' },
+    steps: [
+      {
+        target: 'private-switches',
+        title: 'Allow a little, for every private notebook',
+        body: 'Each switch is off to begin with. A model on this computer, or on a GPU node you run, counts as private, so it can do these jobs without a switch. A search server on this computer counts as leaving.',
+        placement: 'bottom',
+      },
+      {
+        target: 'private-fixed',
+        title: 'Always off',
+        body: 'Cloud models, Claude Code, web search and hosted Auto reviewers are fixed. To use them, turn off Private on that notebook.',
+        placement: 'top',
+      },
+      {
+        target: 'decisions-local',
+        at: { route: '/settings/$group', exact: '/settings/decisions' },
+        title: 'A local decision server counts as private',
+        body: 'Point this at a server you run, such as Clef-flash with vLLM, and private notebooks can use decision models without any switch.',
+        placement: 'top',
+      },
+    ],
+  },
+  'fact-check': {
+    id: 'fact-check',
+    title: 'Fact-check an answer',
+    minutes: 2,
+    start: { route: '/n/$notebookId', needs: 'notebook' },
+    steps: [
+      {
+        target: 'fc-grounded',
+        absent: 'Open the Sources panel (Alt 1) of a notebook that has sources.',
+        title: 'Check every answer',
+        body: 'Grounded mode checks each answer in this notebook when it finishes. Or press F on any one answer.',
+        placement: 'left',
+      },
+      {
+        target: 'fc-web',
+        title: 'The web, when sources miss',
+        body: 'On by default. Only the claim’s words are searched, and the evidence is marked Web. Under Strict permissions it waits for one yes per check.',
+        placement: 'left',
+      },
+      {
+        target: 'fc-critical',
+        title: 'Two checkers for every claim',
+        body: 'Mission-critical checks use two standard or frontier models from different companies. If two are not ready, you choose which to use.',
+        placement: 'left',
+      },
+      {
+        target: 'fc-share',
+        title: 'Share what was checked',
+        body: 'A claim checked without your own sources can answer the same claim in other notebooks. A notice offers Undo. Checks against your sources never leave.',
+        placement: 'left',
+      },
+      {
+        target: 'factcheck-chip',
+        at: { route: '/t/$threadId', needs: 'thread' },
+        absent: 'Press F on an answer to check it. The score appears here.',
+        title: 'The score, and why',
+        body: 'Click it for the evidence. Hover a claim to see its tier, the model and where the evidence came from. A claim that could not be settled says Not checked, with the reason.',
+        placement: 'top',
+      },
+    ],
+  },
+  memory: {
+    id: 'memory',
+    title: 'How memory learns',
+    minutes: 1,
+    start: { route: '/admin/$section', exact: '/admin/memory' },
+    steps: [
+      {
+        target: 'memory-capture',
+        title: 'How freely it learns',
+        body: 'Learn when sure keeps what it is confident about, with Undo. Always ask sends everything to the inbox. Do not learn leaves memory to you.',
+        placement: 'bottom',
+      },
+      {
+        target: 'memory-passive',
+        title: 'Things said in passing',
+        body: 'Said once, it waits in the inbox. Said a second time, it is kept. Nothing from a web page or a file is ever kept without your yes.',
+        placement: 'bottom',
+      },
+      {
+        target: 'memory-inbox',
+        title: 'The inbox',
+        body: 'Suggestions, standards learned from examples and lessons not yet seen twice wait here. Approve to keep one, choosing where.',
+        placement: 'bottom',
+      },
+      {
+        target: 'memory-used',
+        at: { route: '/t/$threadId', needs: 'thread' },
+        absent: 'Open the receipt on an answer (press W). When memory shaped it, the Used: line appears.',
+        title: 'What an answer used',
+        body: 'The Used: line in the receipt says which entries shaped the answer, each linked to its file.',
+        placement: 'top',
+      },
+    ],
+  },
 };
-
-/** Called where the real action happens, so a waiting tour step moves on. */
-export function tourEvent(name: TourEvent): void {
-  window.dispatchEvent(new CustomEvent(`ancile:tour:${name}`));
-}

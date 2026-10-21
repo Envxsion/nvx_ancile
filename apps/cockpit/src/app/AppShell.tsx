@@ -61,6 +61,7 @@ const WhatChangedHost = lazyHost(() => import('../desktop/WhatChanged'), 'WhatCh
 const EditorsHost = lazyHost(() => import('../editors/EditorsHost'), 'EditorsHost');
 const HelpCentre = lazyHost(() => import('../help/HelpCentre'), 'HelpCentre');
 const TourOverlay = lazyHost(() => import('../help/TourOverlay'), 'TourOverlay');
+const WhatsNewOffer = lazyHost(() => import('../help/WhatsNewOffer'), 'WhatsNewOffer');
 const ShortcutsOverlay = lazyHost(() => import('../keys/ShortcutsOverlay'), 'ShortcutsOverlay');
 const Center = lazyHost(() => import('../notify/Center'), 'Center');
 const Palette = lazyHost(() => import('../palette/Palette'), 'Palette');
@@ -264,6 +265,7 @@ export function AppShell() {
       <WhatChangedHost />
       <HelpCentre />
       <TourOverlay />
+      <WhatsNewOffer />
       <BeamHost />
       <SideAskHost />
       <ClaudeCodeSessionsHost />

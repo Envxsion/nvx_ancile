@@ -17,7 +17,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { m as motion } from 'motion/react';
 import { type DragEvent, useMemo, useRef, useState } from 'react';
 import { helpDone } from '../help/store';
-import { tourEvent } from '../help/tours';
+import { tourEvent } from '../help/tourEvent';
 import { useLayer } from '../keys/dispatch';
 import { useThreads } from '../lib/data';
 import { relative } from '../lib/format';
