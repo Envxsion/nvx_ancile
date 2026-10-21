@@ -2040,6 +2040,7 @@ async function main() {
         memoryEntry: (path, key) => memory.entryUsed(path, key),
         integrity,
         webFor,
+        webStatus: () => factcheckWeb.describe(),
         notebookFlags,
         registry,
         cache: verdictCache,

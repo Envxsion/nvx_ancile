@@ -23,7 +23,7 @@
 import type { ClaimEvidence, ClaimVerdict, FactcheckClaim } from '@nvx/contracts';
 import * as HoverCard from '@radix-ui/react-hover-card';
 import { createContext, type ReactNode, useContext } from 'react';
-import { percent } from '../lib/format';
+import { percent, searchedWith } from '../lib/format';
 import type { CitationView } from '../lib/types';
 import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
@@ -184,7 +184,11 @@ function EvidenceQuote({ e, claim }: { e: ClaimEvidence; claim: string }) {
   return (
     <li className="ev-quote" data-stance={e.stance}>
       <span className="ev-quote__stance">
-        <span className="ev-quote__origin" data-origin={e.origin ?? 'source'}>
+        <span
+          className="ev-quote__origin"
+          data-origin={e.origin ?? 'source'}
+          {...(e.via && { title: searchedWith(e.via) })}
+        >
           {e.origin === 'web' ? 'Web' : 'Source'}
         </span>
         {e.stance === 'supports'

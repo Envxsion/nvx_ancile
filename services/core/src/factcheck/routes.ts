@@ -27,6 +27,7 @@ import {
   AncileError,
   type CitationStatus,
   type EffectiveScope,
+  type FactcheckWebStatus,
   SetVerdictCacheRequest,
   StartFactcheckRequest,
   StartSelectionCheckRequest,
@@ -89,6 +90,8 @@ export interface TrustRouteDeps {
   notebooks?: Pick<NotebookRepo, 'get' | 'patch'>;
   /** Refuses a check when no chat model is ready, or the scope refuses every one, before it starts. */
   preflight?: (a: { threadId: string; generatorFamily: string | null }) => Promise<void>;
+  /** How a web lookup would run now: the chain in order, each route ready or resting and why. */
+  webStatus?: () => Promise<FactcheckWebStatus>;
   /** Checks a highlighted claim and records the card on its message (FC3). */
   selection?: {
     run(input: CheckInput, signal: AbortSignal): Promise<StartSelectionCheckResponse>;
@@ -252,6 +255,13 @@ export function trustRoutes(deps: TrustRouteDeps) {
   r.get('/messages/:id/selection-checks', async (c) => {
     const { m } = await load(c.req.param('id'));
     return c.json({ checks: checksOf(m) });
+  });
+
+  r.get('/factcheck/web', async (c) => {
+    const status = await deps.webStatus?.();
+    return c.json(
+      status ?? { ready: false, via: null, reason: 'none', spent_today_usd: 0, cap_usd: 0, routes: [] },
+    );
   });
 
   r.get('/messages/:id/factcheck', async (c) => {

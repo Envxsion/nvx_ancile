@@ -141,11 +141,12 @@ describe('the web search chain', () => {
       model: 'claude-haiku-5-5',
       tools: [{ type: 'web_search_20250305', max_uses: 1 }],
     });
-    expect(hits).toEqual([
+    expect(hits).toMatchObject([
       {
         title: 'Sundew anemometer',
         url: 'https://weather.example/sundew',
         snippet: 'Reads wind speed in knots.',
+        via: { route: 'anthropic', label: 'Claude Haiku', free: false },
       },
     ]);
   });
@@ -169,7 +170,7 @@ describe('the web search chain', () => {
     const hits = await c.web.search('q', sig());
     expect(c.net.calls.map((x) => x.host)).toContain('openrouter.ai');
     // OpenRouter's own citations stand in when the model wrote no list.
-    expect(hits).toEqual([{ title: 'A', url: 'https://or.example/a', snippet: 'Excerpt A' }]);
+    expect(hits).toMatchObject([{ title: 'A', url: 'https://or.example/a', snippet: 'Excerpt A' }]);
   });
 
   it('says so when every route fails, and when no key or model is ready', async () => {

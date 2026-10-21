@@ -35,7 +35,7 @@ import {
   useLiveClaims,
   useProgress,
 } from '../lib/factcheck';
-import { modelName, percent } from '../lib/format';
+import { modelName, percent, searchedWith } from '../lib/format';
 import { scrollBehavior } from '../lib/motion';
 import { copyText, costLine, followUpDraft, insertIntoComposer } from '../lib/selectionWords';
 import { TIER_WORDS } from '../models/tier';
@@ -101,7 +101,18 @@ function checkWords(c: FactcheckClaim): string {
   const k = c.check;
   if (!k) return c.explanation;
   const parts = [c.explanation];
+  const route = c.evidence.find((e) => e.via)?.via;
+  if (route) parts.push(`${searchedWith(route)}.`);
   if (k.cached) parts.push('Checked earlier; no model was asked now.');
+  else if (k.checkers && k.checkers.length > 1)
+    parts.push(
+      `Checked by ${k.checkers
+        .map(
+          (x) =>
+            `${modelName(x.model_id)} (${x.verdict}${x.confidence !== null ? `, ${percent(x.confidence)}` : ''})`,
+        )
+        .join(' and ')}.`,
+    );
   else if (k.tier_used)
     parts.push(
       `Checked by ${k.model_id ? modelName(k.model_id) : 'a model'} (${TIER_WORDS[k.tier_used].toLowerCase()} tier).`,

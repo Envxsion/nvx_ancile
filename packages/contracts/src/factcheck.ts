@@ -29,6 +29,21 @@ export type ClaimVerdict = z.infer<typeof ClaimVerdict>;
 export const EvidenceStance = z.enum(['supports', 'contradicts', 'neutral']);
 export type EvidenceStance = z.infer<typeof EvidenceStance>;
 
+/**
+ * Which web route answered a lookup and what it cost, so a tooltip can say "Searched with Gemini (free
+ * allowance)" and the receipt can total it. `free` is true when no search fee was charged (SearXNG, or
+ * Gemini inside its free allowance); the tokens a model spent reading the results still count in cost_usd.
+ */
+export const WebVia = z.object({
+  route: z.enum(['searxng', 'google', 'openrouter', 'anthropic']),
+  /** In words: "Gemini", "OpenRouter (Exa)", "Claude Haiku", "SearXNG". */
+  label: z.string(),
+  model_id: z.string().nullable(),
+  cost_usd: z.number(),
+  free: z.boolean(),
+});
+export type WebVia = z.infer<typeof WebVia>;
+
 export const ClaimEvidence = z.object({
   kind: z.enum(['chunk', 'insight', 'url']),
   /** chunk id, insight id, or URL */
@@ -45,6 +60,8 @@ export const ClaimEvidence = z.object({
   score: z.number(),
   /** Where it came from: your sources, or the web (FC4). Absent on checks from before the web was used. */
   origin: z.enum(['source', 'web']).optional(),
+  /** For web evidence: the route that found it and what that lookup cost. */
+  via: WebVia.optional(),
 });
 export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
 
@@ -63,6 +80,16 @@ export const ClaimCheckInfo = z.object({
   degraded: z.array(z.string()).default([]),
   /** Judged from common knowledge by a small model, because the claim is obvious and no source covers it. */
   general_knowledge: z.boolean().default(false),
+  /** Every checker that judged it and what each said (mission-critical: two models). Absent before this was kept. */
+  checkers: z
+    .array(
+      z.object({
+        model_id: z.string(),
+        verdict: z.enum(['supported', 'contradicted', 'insufficient']),
+        confidence: z.number().nullable(),
+      }),
+    )
+    .optional(),
 });
 export type ClaimCheckInfo = z.infer<typeof ClaimCheckInfo>;
 
@@ -97,6 +124,36 @@ export const FactcheckStatus = z.enum(['running', 'done', 'failed', 'cancelled']
 export const WebReason = z.enum(['none', 'private', 'blocked', 'budget', 'failed', 'ask']);
 export type WebReason = z.infer<typeof WebReason>;
 
+/**
+ * GET /factcheck/web: how a lookup on the web would run now. `routes` is the chain in the order it is
+ * tried, each with whether it is ready and, when it is not, why (no model, no key, rested after a failure).
+ */
+export const WebRouteState = z.object({
+  id: z.enum(['searxng', 'google', 'openrouter', 'anthropic']),
+  label: z.string(),
+  state: z.enum(['ready', 'rested', 'no_model', 'no_key']),
+  model_id: z.string().nullable(),
+  /** In words, when the route is rested or missing something. */
+  reason: z.string().nullable(),
+  /** A rested route is tried again after this time. */
+  rested_until: z.string().nullable(),
+  /** Google only: how much of the free allowance is left (month for Gemini 3 and newer, day for 2.x). */
+  free_left: z.number().nullable(),
+});
+export type WebRouteState = z.infer<typeof WebRouteState>;
+
+export const FactcheckWebStatus = z.object({
+  ready: z.boolean(),
+  /** The route a lookup would use first. */
+  via: z.string().nullable(),
+  /** Why none is ready. */
+  reason: z.enum(['none', 'budget']).nullable(),
+  spent_today_usd: z.number(),
+  cap_usd: z.number(),
+  routes: z.array(WebRouteState),
+});
+export type FactcheckWebStatus = z.infer<typeof FactcheckWebStatus>;
+
 export const Factcheck = z.object({
   id: z.string(),
   message_id: z.string(),
@@ -127,6 +184,8 @@ export const Factcheck = z.object({
     web_reason: WebReason.nullable().optional(),
     /** What the web lookups of this check cost (0 with SearXNG); part of the check's cost. */
     web_cost_usd: z.number().optional(),
+    /** Each web lookup of this check: the route that ran and what it cost. */
+    web_lookups: z.array(WebVia).optional(),
   }),
   error: z.object({ code: z.string(), title: z.string(), hint: z.string() }).nullable(),
   /** The check ran in mission-critical mode: standard tier or better, two checkers (TR3). */

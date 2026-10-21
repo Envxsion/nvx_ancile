@@ -27,14 +27,18 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type ModelConfig } from '@nvx/contracts';
-import { retry } from '@nvx/resilience';
+import { AncileError, type FactcheckWebStatus, type ModelConfig, type WebVia } from '@nvx/contracts';
+import { ClassifiedError, classifyStatus, retry } from '@nvx/resilience';
 import { assertSendAllowed } from '../gateway/e2e-guard';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET, profileFor } from '../gateway/profiles';
 import { type CallUsage, priceOf } from '../gateway/usage';
+import { logFor } from '../obs/logger';
+import { startSpan } from '../obs/spans';
 import type { SettingsStore } from '../settings';
 import type { CallLedger } from '../usage/ledger';
-import type { WebHit, WebSearch, WebStatus, WebTally } from './web';
+import { hostName, type WebHit, type WebSearch, type WebStatus, type WebTally } from './web';
+
+const log = logFor('factcheck');
 
 /** core.settings key for the daily ledger of what model lookups cost. */
 export const WEB_SPEND_SETTING = 'factcheck.web_spend';
@@ -84,6 +88,8 @@ export interface RouteResult {
 interface Route {
   id: 'google' | 'openrouter' | 'anthropic';
   label: string;
+  /** The name in a tooltip: "Searched with Gemini". */
+  short: string;
   /** The model that serves this route, when one is ready. */
   pick(models: ModelConfig[]): ModelConfig | undefined;
   /** What a search is expected to cost now, before it runs. */
@@ -101,8 +107,27 @@ interface Route {
 const clean = (v: unknown, max: number): string =>
   typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 
-/** Hits from a model's JSON reply: an array of {title, url, snippet}, public http(s) links only. */
-export function parseHitList(text: string, max = 5): WebHit[] {
+/**
+ * Text the provider itself attached to pages (its citations), by link and by site, for pages the
+ * model's list left bare. A site key is "site:example.org".
+ */
+export type Cited = Map<string, string>;
+
+const siteKey = (urlOrSite: string) => `site:${hostName(urlOrSite).toLowerCase()}`;
+
+/** Remember what a provider cited for a page, under its link and its site (the longest text wins). */
+function remember(cited: Cited, url: string | undefined, text: unknown, site?: string): void {
+  const t = clean(text, 400);
+  if (!t) return;
+  const keys = [
+    ...(url && /^https?:\/\//i.test(url) ? [url, siteKey(url)] : []),
+    ...(site ? [`site:${site.toLowerCase().replace(/^www\./, '')}`] : []),
+  ];
+  for (const k of keys) if ((cited.get(k)?.length ?? 0) < t.length) cited.set(k, t);
+}
+
+/** The model's list as it wrote it: a link and a title, with or without text. Public http(s) links only. */
+function rawHits(text: string): WebHit[] {
   const a = text.indexOf('[');
   const b = text.lastIndexOf(']');
   if (a < 0 || b <= a) return [];
@@ -117,30 +142,40 @@ export function parseHitList(text: string, max = 5): WebHit[] {
   for (const r of list as Record<string, unknown>[]) {
     const url = clean(r?.url, 500);
     if (!/^https?:\/\//i.test(url)) continue;
-    const snippet = clean(r?.snippet, 400);
-    const title = clean(r?.title, 140);
-    if (!snippet && !title) continue;
-    out.push({ title, url, snippet });
+    out.push({ title: clean(r?.title, 140), url, snippet: clean(r?.snippet ?? r?.quote ?? r?.text, 400) });
+  }
+  return out;
+}
+
+/**
+ * Hits that carry text. A page with no snippet is filled from what the provider cited for it (by link,
+ * then by site) and dropped when there is none: a title and a link say nothing about the claim, and
+ * handed to a checker they only produce "the evidence has no information".
+ */
+export function withText(hits: WebHit[], cited: Cited = new Map(), max = 5): WebHit[] {
+  const out: WebHit[] = [];
+  const seen = new Set<string>();
+  for (const h of hits) {
+    if (!/^https?:\/\//i.test(h.url) || seen.has(h.url)) continue;
+    const snippet = h.snippet || cited.get(h.url) || cited.get(siteKey(h.url)) || '';
+    if (!snippet) continue;
+    seen.add(h.url);
+    out.push({ ...h, snippet });
     if (out.length >= max) break;
   }
   return out;
 }
 
-/** Links the provider itself attached, used when the model's own list is missing or unusable. */
-function dedupe(hits: WebHit[], max = 5): WebHit[] {
-  const seen = new Set<string>();
-  const out: WebHit[] = [];
-  for (const h of hits) {
-    if (!/^https?:\/\//i.test(h.url) || seen.has(h.url)) continue;
-    seen.add(h.url);
-    out.push(h);
-    if (out.length >= max) break;
-  }
-  return out;
+/** Hits from a model's JSON reply: an array of {title, url, snippet}. Only pages with text are kept. */
+export function parseHitList(text: string, max = 5): WebHit[] {
+  return withText(rawHits(text), new Map(), max);
 }
 
 const promptFor = (query: string) =>
-  `Search the web for the claim below. List up to 5 of the most relevant pages. Reply with only a JSON array of objects {"title", "url", "snippet"}. The snippet is one or two sentences from the page that bear on the claim. No other text.\n\nClaim to look up: ${query.slice(0, 400)}`;
+  `Search the web for the claim below. List up to 5 of the most relevant pages. Reply with only a JSON array of objects {"title", "url", "snippet"}. The snippet is required: one to three sentences copied from that page, including the figure, date or name that settles the claim. Leave out any page you cannot quote. No other text.\n\nClaim to look up: ${query.slice(0, 400)}`;
+
+/** One route's call may take this long; the chain moves on rather than waiting twice as long. */
+const CALL_TIMEOUT_MS = 15_000;
 
 async function post(
   fetcher: typeof fetch,
@@ -155,12 +190,26 @@ async function post(
         method: 'POST',
         headers: { 'content-type': 'application/json', ...headers },
         body: JSON.stringify(body),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]),
       });
-      if (!res.ok) throw new Error(`${new URL(url).hostname} answered ${res.status}`);
+      if (!res.ok) {
+        // The provider's own words say why (a key not allowed to ground, a model that cannot search).
+        const said = clean(await res.text().catch(() => ''), 200);
+        throw new ClassifiedError(
+          classifyStatus(res.status, said),
+          `${new URL(url).hostname} answered ${res.status}${said ? `: ${said}` : ''}`,
+          { status: res.status },
+        );
+      }
       return res.json();
     },
-    { maxAttempts: 2, baseMs: 300, signal },
+    {
+      maxAttempts: 2,
+      baseMs: 300,
+      signal,
+      // A server error may clear in a moment; a call that hung will hang again, so the next route gets its turn.
+      shouldRetry: (err, cls) => cls === 'transient' && (err as { name?: string })?.name !== 'TimeoutError',
+    },
   );
 }
 
@@ -186,6 +235,7 @@ function geminiFee(m: ModelConfig, l: Ledger): number {
 const google: Route = {
   id: 'google',
   label: 'Gemini with Google Search',
+  short: 'Gemini',
   pick: (ms) =>
     cheapest(
       ms.filter(
@@ -220,23 +270,25 @@ const google: Route = {
     };
     const c = json.candidates?.[0];
     const text = (c?.content?.parts ?? []).map((p) => p.text ?? '').join('');
-    let hits = parseHitList(text);
-    if (!hits.length) {
-      // The model's own list was unusable: fall back to the sources Google attached, with the sentence each supports.
-      const chunks = c?.groundingMetadata?.groundingChunks ?? [];
-      const found: WebHit[] = [];
-      for (const s of c?.groundingMetadata?.groundingSupports ?? [])
-        for (const i of s.groundingChunkIndices ?? []) {
-          const w = chunks[i]?.web;
-          if (w?.uri)
-            found.push({
-              title: clean(w.title, 140),
-              url: clean(w.uri, 500),
-              snippet: clean(s.segment?.text, 400),
-            });
-        }
-      hits = dedupe(found);
-    }
+    // The sentences Google says each source supports (groundingSupports), by the source's site: Google's
+    // chunk links are redirects and its titles are site names, so the site is what matches the model's list.
+    const chunks = c?.groundingMetadata?.groundingChunks ?? [];
+    const cited: Cited = new Map();
+    const found: WebHit[] = [];
+    for (const s of c?.groundingMetadata?.groundingSupports ?? [])
+      for (const i of s.groundingChunkIndices ?? []) {
+        const w = chunks[i]?.web;
+        if (!w?.uri) continue;
+        remember(cited, undefined, s.segment?.text, w.title);
+        found.push({
+          title: clean(w.title, 140),
+          url: clean(w.uri, 500),
+          snippet: clean(s.segment?.text, 400),
+        });
+      }
+    // The model's own list first (it quotes the page); Google's attached sources when that gave no text.
+    let hits = withText(rawHits(text), cited);
+    if (!hits.length) hits = withText(found);
     const usage: CallUsage = {
       inputTokens: num(json.usageMetadata?.promptTokenCount),
       outputTokens:
@@ -249,6 +301,7 @@ const google: Route = {
 const openrouter: Route = {
   id: 'openrouter',
   label: 'OpenRouter web search',
+  short: 'OpenRouter (Exa)',
   pick: (ms) => cheapest(ms.filter((m) => m.provider === 'openrouter' && m.via !== 'controller')),
   estimate: () => TOKEN_ESTIMATE + OPENROUTER_EXA_PER_SEARCH,
   async run(m, key, query, { fetch: f, signal }) {
@@ -279,21 +332,17 @@ const openrouter: Route = {
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
     const msg = json.choices?.[0]?.message;
-    let hits = parseHitList(msg?.content ?? '');
-    if (!hits.length)
-      hits = dedupe(
-        (msg?.annotations ?? []).flatMap((a) =>
-          a.type === 'url_citation' && a.url_citation?.url
-            ? [
-                {
-                  title: clean(a.url_citation.title, 140),
-                  url: clean(a.url_citation.url, 500),
-                  snippet: clean(a.url_citation.content, 400),
-                },
-              ]
-            : [],
-        ),
-      );
+    // What Exa returned for each page (the annotation's content) stands in for a snippet the model left out.
+    const cited: Cited = new Map();
+    const found: WebHit[] = [];
+    for (const a of msg?.annotations ?? []) {
+      const u = a.type === 'url_citation' ? a.url_citation : undefined;
+      if (!u?.url) continue;
+      remember(cited, u.url, u.content);
+      found.push({ title: clean(u.title, 140), url: clean(u.url, 500), snippet: clean(u.content, 400) });
+    }
+    let hits = withText(rawHits(msg?.content ?? ''), cited);
+    if (!hits.length) hits = withText(found);
     const billed = json.usage?.cost;
     const costUsd =
       typeof billed === 'number' && billed > 0
@@ -310,6 +359,7 @@ const openrouter: Route = {
 const anthropic: Route = {
   id: 'anthropic',
   label: 'Claude Haiku with web search',
+  short: 'Claude Haiku',
   pick: (ms) =>
     cheapest(
       ms.filter(
@@ -348,23 +398,24 @@ const anthropic: Route = {
       };
     };
     const blocks = json.content ?? [];
-    let hits = parseHitList(blocks.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join(''));
-    if (!hits.length) {
-      const said = new Map<string, string>();
-      for (const b of blocks)
-        for (const c of b.citations ?? []) if (c.url && c.cited_text) said.set(c.url, c.cited_text);
-      const found: WebHit[] = [];
-      for (const b of blocks)
-        if (b.type === 'web_search_tool_result' && Array.isArray(b.content))
-          for (const r of b.content as { url?: string; title?: string }[])
-            if (r?.url)
-              found.push({
-                title: clean(r.title, 140),
-                url: clean(r.url, 500),
-                snippet: clean(said.get(r.url), 400),
-              });
-      hits = dedupe(found);
-    }
+    // The passages Claude cited (cited_text) are the page's own words; they fill in for a page the list left bare.
+    const cited: Cited = new Map();
+    for (const b of blocks) for (const c of b.citations ?? []) remember(cited, c.url, c.cited_text);
+    const found: WebHit[] = [];
+    for (const b of blocks)
+      if (b.type === 'web_search_tool_result' && Array.isArray(b.content))
+        for (const r of b.content as { url?: string; title?: string }[])
+          if (r?.url)
+            found.push({
+              title: clean(r.title, 140),
+              url: clean(r.url, 500),
+              snippet: cited.get(r.url) ?? '',
+            });
+    let hits = withText(
+      rawHits(blocks.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join('')),
+      cited,
+    );
+    if (!hits.length) hits = withText(found, cited);
     const searches = num(json.usage?.server_tool_use?.web_search_requests);
     const costUsd =
       searches * ANTHROPIC_PER_SEARCH +
@@ -400,6 +451,8 @@ export interface WebChainDeps {
 export interface WebChain extends WebSearch {
   /** Today's spend on model lookups, for Settings and tests. */
   spentToday(): Promise<number>;
+  /** The chain in the order it is tried, each route ready or not and why (GET /factcheck/web). */
+  describe(): Promise<FactcheckWebStatus>;
 }
 
 const budgetError = () =>
@@ -421,6 +474,14 @@ const unavailableError = (cause?: unknown) =>
     cause,
   });
 
+/** A route that failed is left alone this long: a key that is refused stays refused, a hang is not tried again at once. */
+const REST_PERMANENT_MS = 30 * 60_000;
+const REST_TRANSIENT_MS = 5 * 60_000;
+
+/** Why a route failed, in a line (the provider's own words when it gave them). */
+const reasonOf = (err: unknown): string =>
+  (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 240) || 'it failed';
+
 export function webSearchChain(deps: WebChainDeps): WebChain {
   const now = () => (deps.now ?? (() => new Date()))();
   let reserved = 0;
@@ -431,6 +492,17 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
     return run;
   };
   const read = async () => fresh(now(), await deps.settings.get<Ledger>(WEB_SPEND_SETTING));
+  /** Routes that failed lately, and why: skipped until `until`. */
+  const rested = new Map<Route['id'], { until: number; reason: string }>();
+  const restOf = (id: Route['id']) => {
+    const r = rested.get(id);
+    if (!r) return undefined;
+    if (r.until <= now().getTime()) {
+      rested.delete(id);
+      return undefined;
+    }
+    return r;
+  };
   const ready = () => {
     const ms = deps.models();
     return ROUTES.flatMap((route) => {
@@ -449,13 +521,76 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
       return { ready: true, via: (routes[0] as (typeof routes)[number]).route.id };
     },
 
+    async describe(): Promise<FactcheckWebStatus> {
+      const cap = deps.capUsd();
+      const ledger = await read();
+      const ms = deps.models();
+      const routes: FactcheckWebStatus['routes'] = [];
+      if (deps.searxng)
+        routes.push({
+          id: 'searxng',
+          label: 'SearXNG',
+          state: 'ready',
+          model_id: null,
+          reason: null,
+          rested_until: null,
+          free_left: null,
+        });
+      for (const route of ROUTES) {
+        const model = route.pick(ms);
+        const key = model
+          ? await deps.secret(model.secret ?? DEFAULT_SECRET[model.provider] ?? '')
+          : undefined;
+        const rest = restOf(route.id);
+        const free =
+          route.id === 'google' && model
+            ? gemini3(model)
+              ? Math.max(0, GEMINI_3_FREE_MONTH - ledger.g3)
+              : Math.max(0, GEMINI_2_FREE_DAY - ledger.g2)
+            : null;
+        routes.push({
+          id: route.id,
+          label: route.label,
+          state: !model ? 'no_model' : !key ? 'no_key' : rest ? 'rested' : 'ready',
+          model_id: model?.id ?? null,
+          reason: !model
+            ? route.id === 'google'
+              ? 'No Google Flash-Lite model is ready.'
+              : route.id === 'anthropic'
+                ? 'No Claude Haiku model is ready.'
+                : 'No OpenRouter model is ready.'
+            : !key
+              ? 'The key for this model is not set.'
+              : (rest?.reason ?? null),
+          rested_until: rest ? new Date(rest.until).toISOString() : null,
+          free_left: free,
+        });
+      }
+      const first = routes.find((r) => r.state === 'ready');
+      const overCap = !deps.searxng && (cap <= 0 || ledger.usd >= cap);
+      return {
+        ready: !!first && !overCap,
+        via: first?.id ?? null,
+        reason: overCap ? 'budget' : first ? null : 'none',
+        spent_today_usd: ledger.usd,
+        cap_usd: cap,
+        routes,
+      };
+    },
+
     async search(query, signal, tally?: WebTally) {
       if (deps.searxng) return deps.searxng.search(query, signal, tally);
       const routes = ready();
       if (!routes.length) throw unavailableError();
       let overBudget = false;
       let last: unknown;
+      let answered = false;
       for (const { route, model } of routes) {
+        const rest = restOf(route.id);
+        if (rest) {
+          last ??= new Error(`${route.short} is resting after: ${rest.reason}`);
+          continue;
+        }
         const key = await deps.secret(model.secret ?? DEFAULT_SECRET[model.provider] ?? '');
         if (!key) continue;
         // Reserve what this search is expected to cost, so searches running side by side cannot overshoot the cap.
@@ -470,16 +605,22 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
           overBudget = true;
           continue;
         }
+        const span = startSpan(`web search ${route.id}`, 'client', { route: route.id, model: model.id });
         try {
           assertSendAllowed(model);
           const workspace =
             route.id === 'anthropic' ? await deps.secret(ANTHROPIC_WORKSPACE_SECRET) : undefined;
           const r = await route.run(model, key, query, { fetch: deps.fetch ?? fetch, signal, workspace });
+          let free = false;
           await locked(async () => {
             reserved -= est;
             const ledger = await read();
             // Google's grounding fee is not in the reply: it follows from how many free searches are left.
-            if (r.gemini) r.costUsd += geminiFee(model, ledger);
+            if (r.gemini) {
+              const fee = geminiFee(model, ledger);
+              free = fee === 0;
+              r.costUsd += fee;
+            }
             ledger.usd += r.costUsd;
             if (r.gemini === '3') ledger.g3 += 1;
             if (r.gemini === '2') ledger.g2 += 1;
@@ -499,13 +640,44 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
               at: new Date(),
             })
             .catch(() => undefined);
-          return r.hits;
+          span.end('ok', { hits: r.hits.length, cost_usd: r.costUsd, free_allowance: free });
+          answered = true;
+          if (!r.hits.length) {
+            // It answered but quoted nothing from any page: no evidence. The next route may do better.
+            last = new Error(`${route.short} found pages but quoted none of them`);
+            log.info({ route: route.id, model: model.id }, 'web search gave no text to check against');
+            continue;
+          }
+          const via: WebVia = {
+            route: route.id,
+            label: route.short,
+            model_id: model.id,
+            cost_usd: r.costUsd,
+            free,
+          };
+          return r.hits.map((h) => ({ ...h, via }));
         } catch (err) {
           reserved -= est;
-          if (signal.aborted) throw err;
+          if (signal.aborted) {
+            span.end('error', { error: 'stopped' });
+            throw err;
+          }
           last = err;
+          const reason = reasonOf(err);
+          const permanent = (err as { errorClass?: string })?.errorClass === 'permanent';
+          rested.set(route.id, {
+            until: now().getTime() + (permanent ? REST_PERMANENT_MS : REST_TRANSIENT_MS),
+            reason,
+          });
+          span.end('error', { error: reason, rested: true });
+          log.warn(
+            { route: route.id, model: model.id, reason, rested_minutes: permanent ? 30 : 5 },
+            'web search route failed and is rested',
+          );
         }
       }
+      // Answered, but nothing quotable anywhere: an empty result, not a failure.
+      if (answered) return [];
       throw overBudget && !last ? budgetError() : unavailableError(last);
     },
 

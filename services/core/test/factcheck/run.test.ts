@@ -278,3 +278,36 @@ describe('the offline model as a fact-checker', () => {
     expect(fakeVerdict('Owls hunt at night.', ev).stance).toBe('insufficient');
   });
 });
+
+describe('GET /factcheck/web', () => {
+  it('shows the chain in order with each route ready or resting and why', async () => {
+    const status = {
+      ready: true,
+      via: 'anthropic',
+      reason: null,
+      spent_today_usd: 0.01,
+      cap_usd: 0.25,
+      routes: [
+        {
+          id: 'google',
+          label: 'Gemini with Google Search',
+          state: 'rested',
+          model_id: 'google/gemini-3.5-flash-lite',
+          reason: 'generativelanguage.googleapis.com answered 403',
+          rested_until: '2026-10-21T12:30:00.000Z',
+          free_left: 4_999,
+        },
+      ],
+    };
+    h = await harness({ trust: { webStatus: async () => status as never } });
+    const res = await h.call<typeof status>('GET', '/factcheck/web');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(status);
+    await h.close();
+    h = await harness({});
+    expect((await h.call<{ ready: boolean }>('GET', '/factcheck/web')).body).toMatchObject({
+      ready: false,
+      routes: [],
+    });
+  });
+});

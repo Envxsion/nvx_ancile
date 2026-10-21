@@ -32,6 +32,18 @@ export function modelName(id: string | null | undefined): string {
   return modelById(id)?.name ?? prettyModelId(id);
 }
 
+/** Which web route found a piece of evidence, for a tooltip: "Searched with Gemini (free allowance)". */
+export function searchedWith(via: { label: string; cost_usd: number; free: boolean }): string {
+  const cost = via.free
+    ? via.label === 'SearXNG'
+      ? ''
+      : ' (free allowance)'
+    : via.cost_usd > 0
+      ? ` (${usd(via.cost_usd, 3)})`
+      : '';
+  return `Searched with ${via.label}${cost}`;
+}
+
 export function usd(n: number, digits = 2): string {
   return `$${n.toFixed(digits)}`;
 }

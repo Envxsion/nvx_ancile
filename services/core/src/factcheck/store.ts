@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict, WebReason } from '@nvx/contracts';
+import type { ClaimCheckInfo, ClaimEvidence, ClaimVerdict, WebReason, WebVia } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { pgSafe } from '../db/json';
 import type { ExtractedClaim } from './pipeline';
@@ -50,6 +50,7 @@ export interface FactcheckRecord {
     web_note?: string | null;
     web_reason?: WebReason | null;
     web_cost_usd?: number;
+    web_lookups?: WebVia[];
     critical?: boolean;
   };
   error: { code: string; title: string; hint: string } | null;
@@ -143,6 +144,7 @@ const fromRow = (r: FactcheckRow, claims: StoredClaim[]): FactcheckRecord => ({
     web_note: r.scope?.web_note ?? null,
     web_reason: r.scope?.web_reason ?? null,
     ...(r.scope?.web_cost_usd !== undefined && { web_cost_usd: r.scope.web_cost_usd }),
+    ...(r.scope?.web_lookups && { web_lookups: r.scope.web_lookups }),
     critical: r.scope?.critical === true,
   },
   error: r.error,

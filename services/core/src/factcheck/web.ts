@@ -30,7 +30,7 @@
  * ------------------------------------------------------------------
  */
 
-import { AncileError, type EffectiveScope, type WebReason } from '@nvx/contracts';
+import { AncileError, type EffectiveScope, type WebReason, type WebVia } from '@nvx/contracts';
 import { retry } from '@nvx/resilience';
 import { FACTCHECK_WEB_TOOL, type Gate } from '../permissions/gate';
 import { checkToolCall, keepsLocal, leavingAllowed } from '../scopes';
@@ -38,7 +38,10 @@ import { checkToolCall, keepsLocal, leavingAllowed } from '../scopes';
 export interface WebHit {
   title: string;
   url: string;
+  /** Text from the page that bears on the claim. Never empty: a hit with no text is not evidence. */
   snippet: string;
+  /** The route that found it and what that lookup cost. */
+  via?: WebVia;
 }
 
 /** Whether a web search can run now, and when not, why. */
@@ -56,9 +59,18 @@ export interface WebTally {
   budget: boolean;
   /** What the searches cost, in USD (0 with SearXNG). */
   costUsd: number;
+  /** Each lookup that answered: the route and its cost (kept in the check record). */
+  lookups: WebVia[];
 }
 
-export const newTally = (): WebTally => ({ searches: 0, failed: 0, refused: 0, budget: false, costUsd: 0 });
+export const newTally = (): WebTally => ({
+  searches: 0,
+  failed: 0,
+  refused: 0,
+  budget: false,
+  costUsd: 0,
+  lookups: [],
+});
 
 export interface WebSearch {
   search(query: string, signal: AbortSignal, tally?: WebTally): Promise<WebHit[]>;
@@ -214,7 +226,12 @@ export function gatedWeb(a: {
     }
     try {
       const hits = await web.search(query, signal, tally);
-      if (tally) tally.searches += 1;
+      if (tally) {
+        tally.searches += 1;
+        // A checkpoint from before lookups were kept has no list.
+        const via = hits.find((h) => h.via)?.via;
+        if (via) tally.lookups = [...(tally.lookups ?? []), via];
+      }
       return hits;
     } catch (err) {
       if (signal.aborted) throw err;
@@ -245,7 +262,8 @@ export function parseSearx(json: unknown, max = 5): WebHit[] {
     const url = clean(r?.url, 500);
     if (!/^https?:\/\//i.test(url)) continue;
     const snippet = clean(r?.content, 400);
-    if (!snippet && !clean(r?.title, 10)) continue;
+    // A result with no text says nothing about the claim: it is not evidence.
+    if (!snippet) continue;
     out.push({ title: clean(r?.title, 140), url, snippet });
     if (out.length >= max) break;
   }
@@ -273,7 +291,14 @@ export function searxngSearch(opts: {
               signal: AbortSignal.any([signal, AbortSignal.timeout(opts.timeoutMs ?? 8_000)]),
             });
             if (!res.ok) throw new Error(`SearXNG answered ${res.status}`);
-            return parseSearx(await res.json(), opts.max ?? 5);
+            const via: WebVia = {
+              route: 'searxng',
+              label: 'SearXNG',
+              model_id: null,
+              cost_usd: 0,
+              free: true,
+            };
+            return parseSearx(await res.json(), opts.max ?? 5).map((h) => ({ ...h, via }));
           },
           { maxAttempts: 2, baseMs: 300, signal },
         );
