@@ -24,6 +24,7 @@
 import type { CompactionProvenance, CompactResult, ModelConfig, Part, PathBudget } from '@nvx/contracts';
 import { AncileError } from '@nvx/contracts';
 import { ulid } from 'ulid';
+import { citedForHistory } from '../conductor/citations';
 import { ALWAYS_ON, intSetting, type JobSwitches } from '../automations/settings';
 import { servedWindow } from '../gateway/ollama-chat';
 import { replayFor } from '../gateway/replay';
@@ -61,7 +62,8 @@ export function contextWatch(s: JobSwitches = ALWAYS_ON): ContextWatch {
 
 /** Everything a model would read of these parts (text, tool calls and results). */
 export function partsText(parts: Part[], opts: { reasoning?: boolean } = {}): string {
-  return parts
+  // HO1: an earlier turn's [n] markers are named by their sources, so a summary never carries a bare number.
+  return citedForHistory(parts)
     .map((p) => {
       if (p.type === 'text') return p.text;
       // CA1: reasoning a provider needs back (DeepSeek's reasoning_content) is part of what it reads.

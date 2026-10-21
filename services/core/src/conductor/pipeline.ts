@@ -94,7 +94,7 @@ import { contextWatch, prepareTurnContext } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type SentForm, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
-import { applyCitations } from './citations';
+import { applyCitations, citationLabel, relabelCitations } from './citations';
 import { branchKeyFor, historyFor, pathFor, spliceNotes, systemPrompt, withTurnContext } from './context';
 import {
   bridgeTarget,
@@ -627,9 +627,15 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
     const model = cp.answeredBy ? deps.registry.get(cp.answeredBy) : undefined;
     // CA4: what the model was sent of this answer, as text, before citations are tidied.
     // Next turn starts with these bytes. A flow's answer is not built from its parts, so none.
+    // HO1: its [n] markers are written as the sources they named ("Title, p. 4"), because the numbers
+    // restart each turn and a later model would read a number with nothing to point at.
+    const named = new Map(
+      (cp.grounding?.trace.hits ?? []).map((h) => [h.marker, citationLabel(h)] as const),
+    );
+    const sentParts = relabelCitations(cp.parts, named);
     const sent =
       status === 'complete' && !cp.flow
-        ? sentOfAnswer(cp.parts, cp.steered?.length ? spliceNotes(cp.parts, cp.steered) : undefined)
+        ? sentOfAnswer(sentParts, cp.steered?.length ? spliceNotes(sentParts, cp.steered) : undefined)
         : null;
     // Hold the answer to its sources: invented citation numbers go.
     let retrieval: Record<string, unknown> = {};

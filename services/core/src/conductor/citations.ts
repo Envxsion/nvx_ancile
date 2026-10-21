@@ -52,6 +52,50 @@ function segments(text: string): { code: boolean; text: string }[] {
   return out;
 }
 
+/** HO1: how an earlier turn names a passage: "Title, p. 4", never a bare number. */
+export function citationLabel(src: { source_title?: string | undefined; page?: number | null | undefined }): string {
+  const title = (src.source_title ?? 'a source').replace(/[[\]\s]+/g, ' ').trim();
+  const short = title.length > 60 ? `${title.slice(0, 59)}…` : title;
+  return `[${short || 'a source'}${src.page ? `, p. ${src.page}` : ''}]`;
+}
+
+/**
+ * HO1: [n] numbers belong to one turn's passages (they restart at 1 each turn), so in the
+ * history a later model would read "[3]" with nothing to point at, or take it for this
+ * turn's passage 3. Each marker becomes the label of the passage it named. Code is left alone,
+ * and a number with no label stays as it was written.
+ */
+export function relabelCitations(parts: Part[], labels: ReadonlyMap<number, string>): Part[] {
+  if (!labels.size) return parts;
+  return parts.map((p): Part => {
+    if (p.type !== 'text') return p;
+    const text = segments(p.text)
+      .map((s) =>
+        s.code
+          ? s.text
+          : s.text.replace(MARKER, (all, group: string) => {
+              const nums = numbersIn(group);
+              return nums.length && nums.every((n) => labels.has(n))
+                ? nums.map((n) => labels.get(n) as string).join('')
+                : all;
+            }),
+      )
+      .join('');
+    return text === p.text ? p : { ...p, text };
+  });
+}
+
+/** The labels an answer's own citation_ref parts give its markers. */
+export function labelsOfRefs(parts: Part[]): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const p of parts) if (p.type === 'citation_ref' && !out.has(p.marker)) out.set(p.marker, citationLabel(p));
+  return out;
+}
+
+/** An answer as an earlier turn: its markers named by the sources they cited. */
+export const citedForHistory = (parts: Part[]): Part[] =>
+  parts.some((p) => p.type === 'citation_ref') ? relabelCitations(parts, labelsOfRefs(parts)) : parts;
+
 export interface CitationResult {
   parts: Part[];
   trace: RetrievalTrace;
@@ -110,6 +154,7 @@ export function applyCitations(
         char_end: span.char_end,
         quote,
         source_title: hit.source_title,
+        page: hit.page,
         // The whole passage, not the shortened quote: a later look compares it with the source.
         text_sha256: passageHash(span.text),
         // Read through a context link: the citation names the notebook it came from.

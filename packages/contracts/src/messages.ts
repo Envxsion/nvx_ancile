@@ -107,6 +107,8 @@ export const CitationRefPart = z.object({
    * names its source after the source is removed. Absent on older answers.
    */
   source_title: z.string().optional(),
+  /** HO1: the page the passage is on, when the source has pages; later turns cite "Title, p. 4", not "[3]". */
+  page: z.number().int().nullable().optional(),
   /**
    * sha256 (hex) of the whole passage as it was given to the model, so a
    * later look can tell whether the source still says the same thing.

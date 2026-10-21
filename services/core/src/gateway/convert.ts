@@ -168,6 +168,22 @@ function userContent(
   return out;
 }
 
+/** HO1: a tool result replayed as text keeps this many characters, the start and the end. */
+export const TOOL_TEXT_MAX = 4_000;
+const TOOL_TEXT_TAIL = 1_000;
+
+/**
+ * Cut the middle of a long text and say so, so a model never takes the cut for the end:
+ * the start and the end are kept (an error or a total is usually at the end).
+ */
+export function cutMiddle(text: string, max = TOOL_TEXT_MAX, tail = TOOL_TEXT_TAIL): string {
+  if (text.length <= max) return text;
+  const head = max - tail;
+  return `${text.slice(0, head)}
+[cut: ${(text.length - max).toLocaleString('en-GB')} characters left out]
+${text.slice(-tail)}`;
+}
+
 /** A tool exchange as plain text, for a model that cannot take tool parts. */
 export function toolsAsText(parts: Part[]): Part[] {
   return parts.map((p): Part => {
@@ -180,7 +196,7 @@ export function toolsAsText(parts: Part[]): Part[] {
           : typeof p.result === 'string'
             ? p.result
             : JSON.stringify(jsonValue(p.result));
-      return { type: 'text', text: `\n[${p.ok ? 'Result' : 'Failed'}: ${body.slice(0, 4_000)}]\n` };
+      return { type: 'text', text: `\n[${p.ok ? 'Result' : 'Failed'}: ${cutMiddle(body)}]\n` };
     }
     return p;
   });

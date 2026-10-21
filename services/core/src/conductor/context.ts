@@ -20,6 +20,7 @@ import { type ModelConfig, type Part, SteeredNote } from '@nvx/contracts';
 import type { ModelMessage } from '../gateway/types';
 import { ancestorPath, childrenIndex } from '../threads/path';
 import { asTree, type MessageRecord, textOf } from '../threads/repo';
+import { citedForHistory } from './citations';
 import { BUILTIN_SYSTEM, loadPrompt, render, TOOLS_NOTE } from './prompt';
 import { noteMessage } from './steer';
 
@@ -65,10 +66,12 @@ export function historyFor(
       const form = m.id === userMessageId ? undefined : sentOf?.get(m.id);
       const sent = form?.sent;
       const epoch = form?.epoch_id ? { epochId: form.epoch_id } : {};
+      // HO1: an earlier answer's [n] markers are named by their sources (the numbers restart each turn).
+      const parts = m.role === 'assistant' ? citedForHistory(m.parts) : m.parts;
       const whole: ModelMessage = {
         role: m.role,
-        content: textOf(m.parts),
-        parts: m.parts,
+        content: textOf(parts),
+        parts,
         ...(sent && { sent }),
         ...epoch,
       };
