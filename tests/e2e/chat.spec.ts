@@ -95,7 +95,11 @@ test.describe('chat', () => {
   });
 
   test('stop keeps what was written and marks the answer stopped', async ({ page }) => {
-    await newThread(page, '/slow a long and leisurely answer that takes a while to arrive in full');
+    // Long enough (about a minute of words at 150 ms each) that a loaded browser can still reach Stop.
+    await newThread(
+      page,
+      `/slow ${'a long and leisurely answer that takes a while to arrive in full '.repeat(6)}`,
+    );
     await expect(lastAnswer(page)).toContainText('offline test model', { timeout: 15_000 });
     await lastAnswer(page).getByRole('button', { name: 'Stop' }).click();
     await expect(lastAnswer(page).locator('.msg__foot')).toContainText('Stopped', { timeout: 15_000 });
