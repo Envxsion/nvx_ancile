@@ -35,7 +35,7 @@ import { Skeleton } from '../ui/primitives';
 
 import '../styles/decisions.css';
 
-const KEY = ['decisions'] as const;
+const KEY = ['decisions', 'status'] as const;
 const KEYWORDS = 'decisions decision models clef jev cloudflare free allowance perplexity cap local';
 
 const STATE_WORDS: Record<DecisionRouteInfo['state'], string> = {

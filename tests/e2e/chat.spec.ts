@@ -50,10 +50,9 @@ test.describe('chat', () => {
 
   test('falls back when the first model fails, and says so', async ({ page }) => {
     await newThread(page, '/fail 500');
-    await expect(lastAnswer(page)).toContainText(
-      /Answered by Offline echo because Offline test model was unavailable/,
-      { timeout: 15_000 },
-    );
+    await expect(lastAnswer(page)).toContainText(/Answered by Offline echo: upstream exploded/, {
+      timeout: 15_000,
+    });
     await expect(lastAnswer(page)).toContainText("I'm Offline echo, the backup model");
   });
 
@@ -75,7 +74,10 @@ test.describe('chat', () => {
 
   test('a refusal also falls back', async ({ page }) => {
     await newThread(page, '/fail refusal');
-    await expect(lastAnswer(page)).toContainText(/because Offline test model declined/, { timeout: 15_000 });
+    await expect(lastAnswer(page)).toContainText(
+      /Answered by Offline echo: Offline test model declined the request/,
+      { timeout: 15_000 },
+    );
   });
 
   test('m switches model for the next message, and earlier context carries over', async ({ page }) => {

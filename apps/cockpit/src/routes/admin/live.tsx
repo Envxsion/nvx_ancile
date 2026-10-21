@@ -238,8 +238,8 @@ const OUTCOME_WORDS: Record<Decision['outcome'], string> = {
 
 export function LiveDecisions() {
   const decisions = useQuery({
-    queryKey: ['decisions'],
-    queryFn: () => api.get<{ items: Decision[] }>('/decisions?limit=200').then((r) => r.items),
+    queryKey: ['decisions', 'log'],
+    queryFn: () => api.get<{ items: Decision[] }>('/permissions/decisions?limit=200').then((r) => r.items),
   });
   if (decisions.isPending) return <Skeleton lines={6} label="Loading decisions" />;
   if (decisions.isError && !decisions.data)
