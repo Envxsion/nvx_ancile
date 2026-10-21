@@ -47,6 +47,10 @@ Some sessions are not yours: the claude-mem plugin, for example, runs automated 
 - **Don't bring in this folder** on a session adds its folder to the list.
 - What already came in from an excluded folder is put away when NVX Ancile starts and whenever the list changes: a thread whose messages all came from Claude Code is archived (never deleted) and no longer synced. A thread you wrote in from NVX Ancile is left exactly as it is. A notebook NVX Ancile made for that folder is archived too once it has no threads left that are not archived.
 
+## A folder whose notebook you deleted
+
+Deleting the notebook made for a folder dismisses the folder (`core.claude_code_dismissed`): the next sync does not make the notebook again, and the folder's sessions that have no thread (the ones deleted with the notebook, and new ones) are not brought back in as new threads. Sessions whose thread still exists keep syncing. The folder returns when you add it again: map it to a notebook in Settings → Claude Code, import one of its sessions by hand, or start work in it from NVX Ancile. This is separate from Excluded folders, which also hides the folder's sessions from the list.
+
 ## How sessions look in a thread
 
 - Your prompt is your message. Everything Claude Code did in answer (its thinking, each tool call with its result, and its reply) is one answer, so tool calls sit next to their results. That holds when something came between a call and its result (a background task's notification, a hook's note, a command, a stop, or a sync that ran in between): the result still joins its call, and what came between shows after the answer, where it happened.

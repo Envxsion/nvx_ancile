@@ -29,7 +29,7 @@
  *           |  not answer must not stop you deleting a notebook.
  *           |  Knowledge only soft-deletes a source today; its files,
  *           |  chunks and embeddings stay until the purge exists.
- *           |  TODO(phase-6): purge a deleted source's files, chunks
+ *           |  TODO(phase-5): purge a deleted source's files, chunks
  *           |  and embeddings in Knowledge.
  * ------------------------------------------------------------------
  */

@@ -121,7 +121,7 @@ API: [api.md](api.md#notebook-merge-and-context-links). Errors: [errors.md](erro
 
 It answers 200 `{ threads_trashed, sources_deleted, sources_kept }` (`DeleteNotebookResult`). The plain delete answers 204 and keeps its tolerant behaviour: a knowledge service that is down does not stop it.
 
-Knowledge only soft-deletes a source today: its file, chunks and embeddings stay on disk until the purge exists. TODO(phase-6): purge a deleted source's files, chunks and embeddings in Knowledge. The dialog says "deleted" for what leaves the product (search, answers, every notebook), which is true now.
+Knowledge only soft-deletes a source today: its file, chunks and embeddings stay on disk until the purge exists. TODO(phase-5): purge a deleted source's files, chunks and embeddings in Knowledge. The dialog says "deleted" for what leaves the product (search, answers, every notebook), which is true now.
 
 Threads, bulk moves and Undo refuse a notebook that does not exist or was deleted (404 `request.not_found`).
 

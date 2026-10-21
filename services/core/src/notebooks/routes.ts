@@ -394,6 +394,12 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     const dropped = await beforeRemoval(req.drop_id);
     const merged = await kn.post('/sources/merge', req);
     await bury(dropped, 'merged', req.keep_id);
+    // The source that was folded away is gone as far as anything pointing at it is concerned.
+    try {
+      await deps.gone?.({ kind: 'source', id: req.drop_id });
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'removal notice failed');
+    }
     return c.json(merged);
   });
 

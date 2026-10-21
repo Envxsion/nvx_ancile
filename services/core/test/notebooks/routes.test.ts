@@ -441,6 +441,14 @@ describe('what a deleted notebook leaves behind', () => {
     expect((await call('DELETE', '/sources/src_9')).status).toBe(204);
     expect(gone).toEqual([{ kind: 'source', id: 'src_9' }]);
   });
+
+  it('tells Pro about the source a merge folds away', async () => {
+    mount();
+    expect((await call('POST', '/sources/merge', { keep_id: 'src_keep', drop_id: 'src_drop' })).status).toBe(
+      200,
+    );
+    expect(gone).toEqual([{ kind: 'source', id: 'src_drop' }]);
+  });
 });
 
 describe('notes', () => {

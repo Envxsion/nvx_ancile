@@ -57,6 +57,10 @@ A notebook marked private (`PATCH /notebooks/:id/scope { "private": true }`, sto
 - Auto mode asks only local reviewers (a local model, or the rules).
 - What a private notebook may use beyond this floor (hosted decision models, learning in passing, shared fact-check verdicts) is one policy, Settings → Private notebooks (docs/privacy.md).
 
+## When the notebook is deleted
+
+A thread takes its privacy from its notebook, so deleting the notebook first copies the notebook's limits onto every thread in it (live, archived and in the Trash): the private switch becomes "nothing leaves this machine, local models only" on the thread, and each field the notebook's own scope set is added to what the thread already set, the stricter value winning (docs/notebooks.md, Deleting a notebook). A thread that was private stays private after the notebook is gone, and after a trip to the Trash and back. The notebook's own scope row, grants and remembered image hosts are removed afterwards.
+
 ## Private after shared
 
 Making a notebook private, or switching off data leaving the machine for a notebook or a thread, keeps everything here from then on. What went to cloud models before can't be called back, so NVX Ancile says plainly what it was.
