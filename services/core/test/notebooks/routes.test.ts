@@ -174,6 +174,30 @@ describe("a notebook's sources", () => {
   });
 });
 
+describe('deleting a notebook with everything in it', () => {
+  it('deletes only the sources no other notebook uses, and only when asked', async () => {
+    await notebooks.create({ id: 'nbk_gone', workspace_id: WS, title: 'Gone' });
+    await notebooks.create({ id: 'nbk_keep', workspace_id: WS, title: 'Keep' });
+    mount({
+      'GET /notebooks/nbk_gone/sources': [source('src_only'), source('src_shared')],
+      'GET /notebooks/nbk_keep/sources': [source('src_shared')],
+    });
+    expect((await call('DELETE', '/notebooks/nbk_gone?sources=delete')).status).toBe(204);
+    const deletes = calls.filter((c) => c.method === 'DELETE').map((c) => c.path);
+    expect(deletes).toContain('/sources/src_only');
+    expect(deletes).not.toContain('/sources/src_shared');
+    expect(deletes).toContain('/notebooks/nbk_gone/sources/src_shared');
+    expect(await notebooks.get('nbk_gone')).toBeUndefined();
+  });
+
+  it('keeps every source by default', async () => {
+    await notebooks.create({ id: 'nbk_plain', workspace_id: WS, title: 'Plain' });
+    mount({ 'GET /notebooks/nbk_plain/sources': [source('src_only')] });
+    expect((await call('DELETE', '/notebooks/nbk_plain')).status).toBe(204);
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === '/sources/src_only')).toBe(false);
+  });
+});
+
 describe('notes', () => {
   it('writes, edits and removes a note, only in your own notebooks', async () => {
     await notebooks.create({ id: 'nbk_n', workspace_id: WS, title: 'N' });

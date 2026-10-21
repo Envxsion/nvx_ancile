@@ -14,7 +14,14 @@
  * ------------------------------------------------------------------
  */
 
-import type { ContextLevel, Note, Notebook, Source } from '@nvx/contracts';
+import {
+  BULK_MAX,
+  type ContextLevel,
+  type Note,
+  type Notebook,
+  type Source,
+  type ThreadBulkResult,
+} from '@nvx/contracts';
 import { notify } from '../state/notify';
 import { API_BASE, ApiCallError, api, newTraceparent } from './api';
 import { keys } from './data';
@@ -72,9 +79,35 @@ export async function patchNotebook(
   }
 }
 
-export async function deleteNotebook(id: string): Promise<boolean> {
+/**
+ * Delete a notebook. With `everything`, its threads go to the Trash first (30 days, as any
+ * deleted thread) and the sources no other notebook uses are deleted with it.
+ */
+export async function deleteNotebook(
+  id: string,
+  opts: { everything?: boolean; threadIds?: string[] } = {},
+): Promise<boolean> {
   try {
-    await api.del(`/notebooks/${id}`);
+    if (opts.everything) {
+      const ids = opts.threadIds ?? [];
+      let left = 0;
+      for (let i = 0; i < ids.length; i += BULK_MAX) {
+        const r = await api.post<ThreadBulkResult>('/threads/bulk', {
+          action: 'delete',
+          ids: ids.slice(i, i + BULK_MAX),
+        });
+        left += r.skipped.length;
+      }
+      if (left)
+        notify({
+          level: 'info',
+          title:
+            left === 1
+              ? '1 thread was answering, so it stays in your sidebar'
+              : `${left} threads were answering, so they stay in your sidebar`,
+        });
+    }
+    await api.del(`/notebooks/${id}${opts.everything ? '?sources=delete' : ''}`);
     void refreshNotebooks();
     void queryClient.invalidateQueries({ queryKey: keys.threads });
     return true;

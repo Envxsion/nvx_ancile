@@ -162,11 +162,24 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
 
   r.delete('/notebooks/:id', async (c) => {
     const n = await notebook(c.req.param('id'));
-    // Sources stay in the workspace; only this notebook's links go.
+    // Sources stay in the workspace; only this notebook's links go. With ?sources=delete, the
+    // ones no other notebook uses are deleted too (the owner's "delete it with everything in it").
+    const deleteSources = c.req.query('sources') === 'delete';
     const linked = await sourcesOf(n.id).catch(() => []);
+    let alone: Source[] = [];
+    if (deleteSources && linked.length) {
+      const others = (await notebooks.list(workspaceId)).filter((o) => o.id !== n.id);
+      const used = new Set<string>();
+      for (const o of others) for (const s of await sourcesOf(o.id)) used.add(s.id);
+      alone = linked.filter((s) => !used.has(s.id));
+    }
     await Promise.all(
       linked.map((s) => kn.del(`/notebooks/${enc(n.id)}/sources/${enc(s.id)}`).catch(() => undefined)),
     );
+    for (const s of alone) {
+      await kn.del(`/sources/${enc(s.id)}`);
+      await bury(s, 'deleted');
+    }
     await notebooks.remove(n.id);
     // A flow is work: it outlives its notebook, as an inactive workspace draft.
     await deps.flowStore?.orphan('notebook', n.id);

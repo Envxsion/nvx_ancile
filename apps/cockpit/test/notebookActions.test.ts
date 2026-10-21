@@ -75,6 +75,14 @@ describe('notebooks', () => {
     mocked.post.mockRejectedValueOnce(new TypeError('offline'));
     expect(await nb.createNotebook({ title: 'x' })).toBeNull();
   });
+
+  it('with everything, sends its threads to the Trash first, then deletes it with its own sources', async () => {
+    mocked.post.mockResolvedValueOnce({ done: [], skipped: [] });
+    mocked.del.mockResolvedValueOnce(undefined);
+    expect(await nb.deleteNotebook('nbk_1', { everything: true, threadIds: ['thr_a', 'thr_b'] })).toBe(true);
+    expect(mocked.post).toHaveBeenCalledWith('/threads/bulk', { action: 'delete', ids: ['thr_a', 'thr_b'] });
+    expect(mocked.del).toHaveBeenLastCalledWith('/notebooks/nbk_1?sources=delete');
+  });
 });
 
 describe('adding sources', () => {

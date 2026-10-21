@@ -325,6 +325,14 @@
 }
 
 /* Delete a notebook: what happens to each thing in it, one line each. */
+.nbk-del__all {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  cursor: pointer;
+}
+
 .nbk-del__list {
   display: grid;
   gap: 4px;

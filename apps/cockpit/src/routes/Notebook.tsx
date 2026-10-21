@@ -502,6 +502,7 @@ export function NotebookScreen() {
           id: nb.id,
           title: nb.title,
           threads: own.length,
+          threadIds: own.map((t) => t.id),
           sources: items.length,
           notes: nb.notes ?? 0,
         }}
@@ -521,11 +522,21 @@ function DeleteNotebookDialog({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  notebook: { id: string; title: string; threads: number; sources: number; notes: number };
+  notebook: {
+    id: string;
+    title: string;
+    threads: number;
+    threadIds: string[];
+    sources: number;
+    notes: number;
+  };
   onDeleted: () => void;
 }) {
   useLayer(open);
   const [busy, setBusy] = useState(false);
+  // Off by default: deleting a notebook keeps its work unless you say otherwise.
+  const [everything, setEverything] = useState(false);
+  const contents = notebook.threads > 0 || notebook.sources > 0;
   const flows = (useFlowList(open).data ?? []).filter(
     (f) => f.scope === 'notebook' && f.scope_ref === notebook.id,
   );
@@ -538,14 +549,18 @@ function DeleteNotebookDialog({
           <div id="nbk-del-desc" className="dialog__lede">
             <ul className="nbk-del__list">
               <li>
-                {notebook.threads
-                  ? `${count(notebook.threads, 'thread stays', 'threads stay')} in your sidebar, outside any notebook.`
-                  : 'It has no threads.'}
+                {!notebook.threads
+                  ? 'It has no threads.'
+                  : everything
+                    ? `${count(notebook.threads, 'thread goes', 'threads go')} to the Trash, where you can restore them for 30 days.`
+                    : `${count(notebook.threads, 'thread stays', 'threads stay')} in your sidebar, outside any notebook.`}
               </li>
               <li>
-                {notebook.sources
-                  ? `${count(notebook.sources, 'source stays', 'sources stay')} in your workspace for other notebooks.`
-                  : 'It has no sources.'}
+                {!notebook.sources
+                  ? 'It has no sources.'
+                  : everything
+                    ? `${count(notebook.sources, 'source is', 'sources are')} deleted, except any another notebook also uses.`
+                    : `${count(notebook.sources, 'source stays', 'sources stay')} in your workspace for other notebooks.`}
               </li>
               {notebook.notes ? (
                 <li>
@@ -559,6 +574,16 @@ function DeleteNotebookDialog({
                 </li>
               ) : null}
             </ul>
+            {contents ? (
+              <label className="nbk-del__all">
+                <input
+                  type="checkbox"
+                  checked={everything}
+                  onChange={(e) => setEverything(e.target.checked)}
+                />
+                <span>Also delete its threads and sources</span>
+              </label>
+            ) : null}
           </div>
           <div className="dialog__actions">
             <Dialog.Close className="btn btn--ghost">Keep it</Dialog.Close>
@@ -569,7 +594,7 @@ function DeleteNotebookDialog({
               onClick={async () => {
                 if (busy) return;
                 setBusy(true);
-                const ok = await deleteNotebook(notebook.id);
+                const ok = await deleteNotebook(notebook.id, { everything, threadIds: notebook.threadIds });
                 setBusy(false);
                 if (!ok) return;
                 onOpenChange(false);
