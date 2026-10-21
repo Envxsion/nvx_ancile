@@ -474,7 +474,7 @@ Settings → API keys (`/api/v1/credentials`). A value is never echoed in an err
 | Code | HTTP | Title / hint |
 |---|---|---|
 | `credentials.unknown` | 404 | "There is no key by that name." / Pick one from Settings → API keys. |
-| `credentials.from_environment` | 409 | "<Name> is set in the environment." / Change or remove <VARIABLE> where NVX Ancile is started, then restart it. |
+| `credentials.from_environment` | 409 | "<Name> is set in the environment." / Change or remove <VARIABLE> where NVX Ancile is started (usually the `.env` file), then restart it. |
 | `credentials.rejected` | 502 | "<Service> rejected the token." / Check you copied all of it and that it is still active, or make a new one at <where>. Nothing was saved. |
 | `credentials.check_failed` | 502 | "Couldn't reach <service> to check it." / Check your connection, then try again. Nothing was saved. |
 | `credentials.invalid` | 400 | "That doesn't look like a git remote." / Use an address git can push to, such as git@github.com:you/memory.git. For a key checked by its shape only (TypeSafe): "That doesn't look like a <Name> key." / Paste the whole key, with no spaces. |

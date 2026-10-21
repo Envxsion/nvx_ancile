@@ -85,6 +85,11 @@ describe('error mapping', () => {
     expect(mapError(429, '', 'stop').retryable).toBe(true);
     expect(mapError(502, '', 'stop').error.code).toBe('provider_unavailable');
   });
+  it('a refused key from RUNPOD_API_KEY is fixed in .env, not in Admin → Compute', () => {
+    expect(mapError(401, '', 'start').error.suggestion).toMatch(/Admin → Compute/);
+    expect(mapError(401, '', 'start', true).error.suggestion).toMatch(/RUNPOD_API_KEY in your \.env/);
+    expect(mapError(403, '', 'start', true).error.suggestion).toMatch(/only read.*RUNPOD_API_KEY/);
+  });
   it('always carries a provider message and a suggestion', () => {
     const e = mapError(418, '', 'stop').error;
     expect(e.provider_message).toBe('HTTP 418');

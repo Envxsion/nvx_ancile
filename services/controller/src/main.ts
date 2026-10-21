@@ -102,7 +102,8 @@ async function boot() {
   if (env.CONTROLLER_PROVIDER === 'local') first = new LocalNetworkProvider(localSpecs);
   else if (sampleMode) first = await samples();
   else if (!env.RUNPOD_API_KEY) first = new NoProvider();
-  else first = new RunPodProvider({ apiKey: env.RUNPOD_API_KEY, baseUrl: env.RUNPOD_API_BASE });
+  else
+    first = new RunPodProvider({ apiKey: env.RUNPOD_API_KEY, baseUrl: env.RUNPOD_API_BASE, fromEnv: true });
   const provider = new SwitchableProvider(first);
 
   /** Connect RunPod with a key (checked first; sample nodes are cleared), or go back to samples. */

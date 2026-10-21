@@ -194,6 +194,22 @@ describe('what the key looks like', () => {
     expect(r.body.error.title).toBe('That key is for Anthropic, not OpenAI');
     expect(await h.secrets.get('OPENAI_API_KEY')).toBeUndefined();
   });
+
+  it('refuses a RunPod, Hugging Face or GitHub key pasted into a model row, before any call', async () => {
+    h = await harness({ models: [model('openrouter', 'or-test')] });
+    for (const [value, name] of [
+      ['rpa_ABCDEF1234567890', 'RunPod'],
+      ['hf_abcdef1234567890', 'Hugging Face'],
+      ['github_pat_abcdef1234567890', 'GitHub'],
+    ]) {
+      const r = await h.call<{ error: { code: string; title: string } }>('PUT', '/credentials/openrouter', {
+        value,
+      });
+      expect(r.status).toBe(400);
+      expect(r.body.error.title).toBe(`That key is for ${name}, not OpenRouter`);
+    }
+    expect(await h.secrets.get('OPENROUTER_API_KEY')).toBeUndefined();
+  });
 });
 
 describe('a saved key starts the first model check (F3a) and leaves a preview off (F3b)', () => {

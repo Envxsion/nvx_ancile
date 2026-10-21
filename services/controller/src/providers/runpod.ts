@@ -38,6 +38,8 @@ export interface RunPodOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** The key came from RUNPOD_API_KEY, so a refusal is fixed there, not in Admin → Compute. */
+  fromEnv?: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -117,7 +119,18 @@ const KNOWN: { test: RegExp; error: (msg: string) => Omit<OperationError, 'provi
   },
 ];
 
-export function mapError(status: number | null, message: string, action: NodeAction): ProviderError {
+// Where a refused key is replaced: the app, or the environment when it came from there.
+const REPLACE_IN_APP = 'then connect it again in Admin → Compute.';
+const REPLACE_IN_ENV =
+  'then replace RUNPOD_API_KEY in your .env file (or remove it and add the key in Settings → API keys) and restart NVX Ancile.';
+
+export function mapError(
+  status: number | null,
+  message: string,
+  action: NodeAction,
+  fromEnv = false,
+): ProviderError {
+  const replace = fromEnv ? REPLACE_IN_ENV : REPLACE_IN_APP;
   const provider_message = message || (status ? `HTTP ${status}` : 'No response from RunPod');
   for (const k of KNOWN) {
     if (k.test.test(message)) {
@@ -136,14 +149,14 @@ export function mapError(status: number | null, message: string, action: NodeAct
   if (status === 401)
     return e(
       'auth',
-      'RunPod did not accept the API key. Check it in RunPod → Settings → API Keys, then connect it again in Admin → Compute.',
+      `RunPod did not accept the API key. Check it in RunPod → Settings → API Keys, ${replace}`,
       false,
     );
   // A read-only key can list pods but nothing else (checked live, 2026-10-11).
   if (status === 403)
     return e(
       'auth',
-      'This RunPod key can only read. Create one with Read/Write access in RunPod → Settings → API Keys, then connect it again in Admin → Compute.',
+      `This RunPod key can only read. Create one with Read/Write access in RunPod → Settings → API Keys, ${replace}`,
       false,
     );
   if (status === 404)
@@ -222,7 +235,7 @@ export class RunPodProvider implements ComputeProvider {
     } catch (err) {
       throw mapError(null, err instanceof Error ? err.message : String(err), action);
     }
-    if (!res.ok) throw mapError(res.status, await readMessage(res), action);
+    if (!res.ok) throw mapError(res.status, await readMessage(res), action, this.opts.fromEnv);
     return res;
   }
 

@@ -262,10 +262,29 @@ function fromEnvironment(d: Definition): AncileError {
   return new AncileError({
     code: 'credentials.from_environment',
     title: `${d.name} is set in the environment`,
-    hint: `Change or remove ${d.env} where NVX Ancile is started, then restart it.`,
+    hint: `Change or remove ${d.env} where NVX Ancile is started (usually the .env file), then restart it.`,
     status: 409,
     errorClass: 'permanent',
   });
+}
+
+/** Keys that are not model keys but say whose they are by their start. */
+const OTHER_KEY_SHAPES: [prefix: string, owner: CredentialId][] = [
+  ['rpa_', 'runpod'],
+  ['hf_', 'huggingface'],
+  ['github_pat_', 'github'],
+  ['ghp_', 'github'],
+];
+
+/** Whose key this is from its shape alone, when the shape belongs to one service. */
+function keyOwner(value: string): { id: string; name: string } | null {
+  const key = value.trim();
+  const other = OTHER_KEY_SHAPES.find(([prefix]) => key.startsWith(prefix))?.[1];
+  if (other) return { id: other, name: CREDENTIALS[other].name };
+  const shape = recogniseKey(key);
+  return shape?.confirmed
+    ? { id: shape.provider, name: knownProfile(shape.provider)?.name ?? shape.provider }
+    : null;
 }
 
 export const GIT_REMOTE =
@@ -339,6 +358,16 @@ export function credentialRoutes(deps: CredentialRouteDeps) {
     if (env[d.env]?.trim()) throw fromEnvironment(d);
     const { value, workspace_id, region: askedRegion, account_id } = await body(c, SaveCredentialRequest);
     const wasSet = (await secrets.names()).includes(d.secret);
+    // A key pasted into the wrong row says so, before it is sent anywhere.
+    const owner = d.check === 'format' ? null : keyOwner(value);
+    if (owner && owner.id !== id)
+      throw new AncileError({
+        code: 'credentials.invalid',
+        title: `That key is for ${owner.name}, not ${d.name}`,
+        hint: `Paste a ${d.name} key here, or add this one under ${owner.name}. Nothing was saved.`,
+        status: 400,
+        errorClass: 'permanent',
+      });
     let notOffered: { id: string; display_name: string }[] = [];
 
     try {
