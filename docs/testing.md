@@ -57,3 +57,14 @@ The runner checks both keys through `GET /api/v1/credentials`, which only says `
 ### The dry run
 
 `pnpm test:live --dry` runs the same spec against the test profile (`pnpm start:e2e`, ports 7800 and 7801) with `offline/test` standing in for both models and the Controller's sample provider standing in for RunPod. Cache assertions only check "reported or not reported", and the context check is skipped, because the offline model cannot prove either. It starts the test profile if it is not running, checks that the log says "Claude Code is off", and stops it afterwards.
+
+## Recorded provider replies (fact-check web routes)
+
+The parsers for the three fact-check web routes (`services/core/src/factcheck/web-models.ts`) are tested against real, redacted replies in `services/core/test/fixtures/web/<route>.json`. Tests replay them and never touch the network.
+
+To refresh them, with the everyday stack running:
+
+1. `POST /api/v1/diagnostics/web-record` arms the next web lookup of each route. It lives in memory only, expires after 10 minutes and keeps one reply per route. Nothing is recorded unless you arm it.
+2. Run one fact-check with the web on. A route that is resting or has no key is skipped, so its file is simply missing.
+3. `GET /api/v1/diagnostics/web-record` lists what was written, in `<data dir>/diagnostics/web/`.
+4. Read each file. The key, call ids and encrypted blobs are masked and headers are never kept, but check anyway. Then copy the files to `services/core/test/fixtures/web/`.

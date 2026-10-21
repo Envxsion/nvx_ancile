@@ -29,6 +29,7 @@
 
 import { AncileError, type FactcheckWebStatus, type ModelConfig, type WebVia } from '@nvx/contracts';
 import { ClassifiedError, classifyStatus, retry } from '@nvx/resilience';
+import type { WebRecorder } from '../diagnostics/web-record';
 import { assertSendAllowed } from '../gateway/e2e-guard';
 import { ANTHROPIC_WORKSPACE_SECRET, DEFAULT_SECRET, profileFor } from '../gateway/profiles';
 import { type CallUsage, priceOf } from '../gateway/usage';
@@ -446,6 +447,8 @@ export interface WebChainDeps {
   searxng?: WebSearch | null | undefined;
   fetch?: typeof fetch;
   now?: () => Date;
+  /** Dev only: keeps the next real reply of each route (diagnostics/web-record.ts). */
+  recorder?: WebRecorder | undefined;
 }
 
 export interface WebChain extends WebSearch {
@@ -610,7 +613,9 @@ export function webSearchChain(deps: WebChainDeps): WebChain {
           assertSendAllowed(model);
           const workspace =
             route.id === 'anthropic' ? await deps.secret(ANTHROPIC_WORKSPACE_SECRET) : undefined;
-          const r = await route.run(model, key, query, { fetch: deps.fetch ?? fetch, signal, workspace });
+          const real = deps.fetch ?? fetch;
+          const f = deps.recorder?.wrap(route.id, model.provider_model, query, key, real) ?? real;
+          const r = await route.run(model, key, query, { fetch: f, signal, workspace });
           let free = false;
           await locked(async () => {
             reserved -= est;

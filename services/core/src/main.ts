@@ -93,6 +93,7 @@ import { buildChecks } from './diagnostics/checks';
 import { clientErrorRoutes } from './diagnostics/client-errors';
 import { diagnosticRoutes, PgDiagnosticStore } from './diagnostics/routes';
 import { DiagnosticRunner } from './diagnostics/runner';
+import { WebRecorder, webRecordRoutes } from './diagnostics/web-record';
 import { ClaudeCodeEngine, Engines, GatewayEngine, scopeFromDb } from './engines';
 import { claudeHooks } from './engines/claude';
 import { gatewayContextHook } from './engines/gateway';
@@ -1183,7 +1184,9 @@ async function main() {
   const factcheckJudges = new JudgeSlots(async () => (await claudeCode.service.settings()).factcheck_judges);
   // Fact-checks on the web (FC4): the notebook's setting, this check's allow, and the scope's keep-local rules.
   // SearXNG when SEARXNG_URL is set; else a small web search through a key you already have, within a daily cap.
+  const webRecorder = new WebRecorder(dataDir);
   const factcheckWeb = webSearchChain({
+    recorder: webRecorder,
     models: () => registry.readyChat(),
     secret: (name) => secrets.get(name),
     settings,
@@ -1882,6 +1885,7 @@ async function main() {
       }),
       healthRoutes({ supervisor: () => supervisor }),
       diagnosticRoutes({ runner: diagnostics }),
+      webRecordRoutes({ recorder: webRecorder }),
       clientErrorRoutes(),
       themeRoutes(dataDir),
       automationRoutes({
