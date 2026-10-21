@@ -72,7 +72,7 @@ export const MAX_CLAIMS = 25;
  * Which extraction found the claims kept for an answer. Raise it when the prompt or the rules that
  * decide what a claim is change: the claims kept by an older one are found again, not reused.
  */
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 
 /**
  * A sentence about other sentences, or about the answer itself ("The first sentence contradicts the
@@ -614,11 +614,23 @@ Answer:
 Reply with one JSON object and nothing else: { "claims": [{ "text": string, "char_start": integer, "char_end": integer, "importance": 1 or 0.5 or 0.2, "checkable": true or false }] }
 Return JSON matching ClaimList.`;
 
+/** Sentences that state something: three words or more, not a question. */
+export function declarativeSentences(text: string): number {
+  return text
+    .split(/(?<=[.!?])\s+|[\r\n]+/)
+    .map((x) => x.trim())
+    .filter((x) => x.split(/\s+/).length >= 3 && !x.endsWith('?')).length;
+}
+
+/** Said to the model when its first reading found nothing in an answer that plainly states things. */
+const STRICT_NOTE =
+  'Your first reading of this answer found no claims, but it states facts. Only a sentence about the answer itself or about other sentences is skipped; every other sentence that states something that could be true or false is a claim, even when a note or caveat follows it. Find them and reply with the same JSON.';
+
 export async function extractClaims(
   deps: StepDeps,
   input: { answer: string; question: string; allow?: JudgeOpts['allow']; budget?: ClaimBudget | undefined },
   signal: AbortSignal,
-): Promise<{ claims: ExtractedClaim[]; modelId: string }> {
+): Promise<{ claims: ExtractedClaim[]; modelId: string; retried: boolean }> {
   const template = await loadPrompt(deps.promptsDir, 'factcheck.extract-claims', EXTRACT_FALLBACK);
   // The answer goes in after rendering, untouched, so offsets into the prompt's copy are offsets into it.
   const slot = '@@ancile:answer@@';
@@ -627,13 +639,28 @@ export async function extractClaims(
     () => input.answer,
   );
   const chain = judgeChain(deps.registry, 'utility', { allow: input.allow });
-  const { value, modelId } = await structured(deps, chain, prompt, RawClaims, signal, {
-    normalize: tolerantClaims,
-    jsonSchema: CLAIMS_JSON_SCHEMA,
-    shape: CLAIMS_SHAPE,
-    budget: input.budget,
-  });
-  return { claims: validateClaims(input.answer, value.claims), modelId };
+  const ask = async (text: string) => {
+    const { value, modelId } = await structured(deps, chain, text, RawClaims, signal, {
+      normalize: tolerantClaims,
+      jsonSchema: CLAIMS_JSON_SCHEMA,
+      shape: CLAIMS_SHAPE,
+      budget: input.budget,
+    });
+    return { claims: validateClaims(input.answer, value.claims), modelId };
+  };
+  const first = await ask(prompt);
+  // No claims in an answer with several statements is a miss, not a finding: ask once more, plainly.
+  if (first.claims.length > 0 || declarativeSentences(input.answer) < 2) return { ...first, retried: false };
+  try {
+    const again = await ask(`${prompt}
+
+${STRICT_NOTE}`);
+    return { ...again, retried: true };
+  } catch (err) {
+    // A stop or a limit ends the check as before; any other failure leaves the first (empty) reading standing.
+    if (signal.aborted || err instanceof CheckLimit) throw err;
+    return { ...first, retried: true };
+  }
 }
 
 /* ---- Gather ----------------------------------------------------------------- */
@@ -641,6 +668,13 @@ export async function extractClaims(
 export interface Gathered {
   evidence: (ClaimEvidence & { text: string })[];
   coverage: number;
+  /**
+   * The web was not searched yet because the claim is obvious and no source covers it: common knowledge
+   * is asked first, and the web only when that is unsure (handler.ts). Cleared once it has been searched.
+   */
+  webDeferred?: boolean;
+  /** The web was searched for this claim (with or without a result). */
+  webTried?: boolean;
 }
 
 /** A web search the check may run: the query goes through the permission gate before it leaves. */
@@ -661,7 +695,7 @@ export function webQuery(claim: string): string {
   return t.length > 200 ? t.slice(0, 200).replace(/\s\S*$/, '') : t;
 }
 
-const webEvidence = (h: WebHit): Gathered['evidence'][number] => ({
+export const webEvidence = (h: WebHit): Gathered['evidence'][number] => ({
   kind: 'url',
   ref: h.url,
   source_id: null,
@@ -673,8 +707,29 @@ const webEvidence = (h: WebHit): Gathered['evidence'][number] => ({
   stance: 'neutral' as Stance,
   score: 0.5,
   origin: 'web',
+  ...(h.via && { via: h.via }),
   text: `${h.title}\n${h.snippet}`.slice(0, EVIDENCE_CHARS),
 });
+
+/**
+ * Look one claim up on the web: its evidence, or none. A result with no text is dropped, never handed to a
+ * checker (a title and a link only make it say "the evidence has no information"). A search that fails or
+ * is refused is none; a stop is not swallowed.
+ */
+export async function lookupWebEvidence(
+  web: WebLookup,
+  claim: string,
+  signal: AbortSignal,
+): Promise<Gathered['evidence']> {
+  const hits = await web(webQuery(claim), signal).catch((err) => {
+    if (signal.aborted) throw err;
+    return null;
+  });
+  return (hits ?? [])
+    .filter((h) => h.snippet.trim().length > 0)
+    .slice(0, WEB_HITS_PER_CLAIM)
+    .map(webEvidence);
+}
 
 export async function gatherEvidence(
   deps: StepDeps,
@@ -689,6 +744,12 @@ export async function gatherEvidence(
     minRelevance?: number | undefined;
     /** True: this claim needs no web lookup (an earlier verdict answers it from the sources alone). */
     skipWeb?: ((index: number, g: Gathered) => Promise<boolean>) | undefined;
+    /**
+     * True: this claim is obvious, so common knowledge judges it first. When no source covers it the
+     * web is not searched here; the claim is marked `webDeferred` and the handler searches only if the
+     * small model is unsure.
+     */
+    obvious?: ((claim: string) => boolean) | undefined;
   },
 ): Promise<Gathered[]> {
   if (!input.claims.length) return [];
@@ -742,7 +803,15 @@ export async function gatherEvidence(
     const wanting = out
       .map((g, i) => ({ g, i }))
       .filter(({ g }) => g.evidence.length === 0 || g.coverage < WEB_WHEN_COVERAGE)
-      .sort((a, b) => a.g.coverage - b.g.coverage);
+      .sort((a, b) => a.g.coverage - b.g.coverage)
+      // Obvious and uncovered: common knowledge first (cheaper, quicker); the web only if that is unsure.
+      .filter(({ g, i }) => {
+        if (g.evidence.length === 0 && input.obvious?.(input.claims[i] ?? '')) {
+          g.webDeferred = true;
+          return false;
+        }
+        return true;
+      });
     // A claim an earlier verdict already answers is not looked up again: a re-run waits for no search.
     const keep = await Promise.all(
       wanting.map(async ({ g, i }) => !(await input.skipWeb?.(i, g).catch(() => false))),
@@ -755,11 +824,9 @@ export async function gatherEvidence(
       while (next < order.length) {
         signal.throwIfAborted();
         const { g, i } = order[next++] as (typeof order)[number];
-        const hits = await input.web?.(webQuery(input.claims[i] ?? ''), signal).catch((err) => {
-          if (signal.aborted) throw err;
-          return null;
-        });
-        if (hits?.length) g.evidence.push(...hits.slice(0, WEB_HITS_PER_CLAIM).map(webEvidence));
+        g.webTried = true;
+        if (input.web)
+          g.evidence.push(...(await lookupWebEvidence(input.web, input.claims[i] ?? '', signal)));
       }
     };
     await Promise.all(Array.from({ length: Math.min(WEB_PARALLEL, order.length) }, worker));
@@ -1018,6 +1085,8 @@ export async function verifyClaim(
 export interface Checked extends Verified {
   /** Every checker's verdict, when more than one asked (mission-critical mode). */
   verdicts: VerifierVerdict[];
+  /** Who judged and what each said (more than one in mission-critical mode). */
+  checkers?: { model_id: string; verdict: VerifierVerdict; confidence: number | null }[];
   /** The tier it started at when it was sent up, else null. */
   escalatedFrom: ModelTier | null;
   /** Answered from an earlier check; nothing was asked of a model. */
@@ -1097,6 +1166,10 @@ export async function checkClaim(
     budget?: ClaimBudget | undefined;
     /** The cache was already asked for this claim: its answer (null: nothing kept). Absent: ask here. */
     known?: Checked | null | undefined;
+    /** Keep this verdict for next time only when this says so (an unsure first look is not kept: the web comes next). */
+    recordIf?: ((out: Checked) => boolean) | undefined;
+    /** False: never send the claim to a stronger model, whatever the first answer (default true). */
+    escalate?: boolean | undefined;
   },
   signal: AbortSignal,
 ): Promise<Checked> {
@@ -1137,6 +1210,7 @@ export async function checkClaim(
       ...first,
       verdict: worst(all.map((v) => v.verdict)),
       verdicts: all.map((v) => v.verdict),
+      checkers: all.map((v) => ({ model_id: v.modelId, verdict: v.verdict, confidence: v.confidence })),
       // The least sure of them: the claim holds only as far as the doubtful checker.
       confidence: all.reduce<number | null>(
         (m, v) => (v.confidence === null ? m : m === null ? v.confidence : Math.min(m, v.confidence)),
@@ -1164,7 +1238,7 @@ export async function checkClaim(
     let hops = 0;
     let v = await verifyClaim(deps, { ...ask, tier, floor: input.triage.floor, general }, signal);
     for (;;) {
-      if (!v.modelId) break;
+      if (!v.modelId || input.escalate === false) break;
       used.add(v.modelId);
       const next = escalateTo({
         tier: v.tier ?? tier,
@@ -1206,7 +1280,7 @@ export async function checkClaim(
       cached: null,
     };
   }
-  if (deps.cache && out.modelId) {
+  if (deps.cache && out.modelId && (input.recordIf?.(out) ?? true)) {
     await deps.cache
       .record({
         ...cacheArgs,
@@ -1246,6 +1320,37 @@ export async function checkClaim(
         .catch(() => undefined);
   }
   return out;
+}
+
+/** Common knowledge was not sure: the small model could not say, or said it was under 60% sure. */
+export const unsureGeneral = (c: Pick<Checked, 'verdict' | 'confidence'>): boolean =>
+  c.verdict === 'insufficient' || (c.confidence !== null && c.confidence < 0.6);
+
+/**
+ * The order of evidence for one claim: sources, then common knowledge for an obvious claim, then the web.
+ * A claim held back from the web (obvious, no source covers it) is judged from common knowledge first, with
+ * no stronger model and nothing kept; only when that is unsure is the web searched, and then the claim is
+ * judged on what came back. One the decision layer says is not obvious after all is searched first.
+ * `ask(true)` is the first look at a held-back claim, `ask(false)` any other.
+ */
+export async function checkWebLast(a: {
+  earlier: Checked | null | undefined;
+  g: Gathered;
+  obvious: boolean;
+  /** Search the web for this claim now and add what comes back to `g.evidence`. */
+  search: () => Promise<void>;
+  ask: (firstLook: boolean) => Promise<Checked>;
+}): Promise<Checked> {
+  if (a.earlier) return a.earlier;
+  if (a.g.webDeferred && !a.obvious) await a.search();
+  const held = a.g.webDeferred === true && a.g.evidence.length === 0;
+  let v = await a.ask(held);
+  if (held && unsureGeneral(v)) {
+    await a.search();
+    // Pages with text came back: judge the claim on them. Otherwise the common-knowledge answer stands.
+    if (a.g.evidence.length > 0) v = await a.ask(false);
+  }
+  return v;
 }
 
 /** Thrown when mission-critical mode has no two independent checkers and the person has not chosen. */

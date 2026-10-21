@@ -204,6 +204,11 @@ describe('mission-critical mode', () => {
     expect(out.verdict).toBe('contradicted');
     expect(out.verdicts).toHaveLength(2);
     expect(r.asked).not.toContain('openai/nano');
+    // Both checkers are kept with what each said, not only the first.
+    expect(out.checkers?.map((c) => [c.model_id, c.verdict]).sort()).toEqual([
+      ['anthropic/opus', 'contradicted'],
+      ['openai/sol', 'supported'],
+    ]);
   });
 
   it('stops and asks when two independent checkers are not both ready', async () => {

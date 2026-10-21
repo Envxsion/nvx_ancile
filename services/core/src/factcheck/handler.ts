@@ -90,12 +90,17 @@ import {
   type Checked,
   cachedCheck,
   checkClaim,
+  checkWebLast,
+  declarativeSentences,
   EXTRACTOR_VERSION,
   extractClaims,
   type Gathered,
   gatherEvidence,
+  lookupWebEvidence,
   NeedsChoice,
   type StepDeps,
+  unsureGeneral,
+  WEB_MAX_QUERIES,
   type WebLookup,
 } from './steps';
 import type { FactcheckRecord, FactcheckStore } from './store';
@@ -313,7 +318,13 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           // a model does not find the same ones twice, and two checks should judge the same sentences.
           const kept = input.reextract ? undefined : await deps.store.extractionFor(input.messageId);
           let claims: ExtractedClaim[];
-          if (kept && kept.answer_sha === answerSha && kept.version === EXTRACTOR_VERSION) {
+          // An empty list kept for an answer that states several things is a miss, not an answer: ask again.
+          if (
+            kept &&
+            kept.answer_sha === answerSha &&
+            kept.version === EXTRACTOR_VERSION &&
+            (kept.claims.length > 0 || declarativeSentences(answer) < 2)
+          ) {
             claims = kept.claims;
           } else {
             const parent = message.parent_id ? await deps.repo.getMessage(message.parent_id) : undefined;
@@ -324,6 +335,8 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                 ctx.signal,
               )
             ).claims;
+            // Whatever extractClaims returns is final: an empty list for an answer with several statements
+            // was already asked a second time, plainly, and the second reading agreed.
             await deps.store
               .saveExtraction({
                 message_id: input.messageId,
@@ -360,6 +373,8 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
             web: webLookup,
             signal: ctx.signal,
             minRelevance: relevantAt(deps.config?.thresholds),
+            // An obvious claim no source covers is judged from common knowledge first; the web only if that is unsure.
+            obvious: (text) => triageClaim(text, { critical: input.critical === true }).obvious,
             // A claim an earlier verdict already answers from its sources is not looked up on the web.
             ...(!input.again && {
               skipWeb: async (k: number, g: Gathered) => {
@@ -424,6 +439,16 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           return m ? [m] : [];
         });
 
+        // The web for a claim that was held back (obvious, no source covers it). At most WEB_MAX_QUERIES in all.
+        const searched = () => gathered.filter((g) => g?.webTried).length;
+        const searchLater = async (i: number, g: Gathered): Promise<void> => {
+          g.webDeferred = false;
+          if (!webLookup || searched() >= WEB_MAX_QUERIES) return;
+          g.webTried = true;
+          g.evidence.push(
+            ...(await lookupWebEvidence(webLookup, (claims[i] as ExtractedClaim).text, ctx.signal)),
+          );
+        };
         const todo = () => cp.outcomes.flatMap((o, i) => (o ? [] : [i]));
         let remaining = todo();
         while (remaining.length) {
@@ -439,28 +464,35 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
               const t = triage[i] as Triage;
               let v: Awaited<ReturnType<typeof checkClaim>>;
               try {
-                const earlier = known.get(i);
-                v =
-                  earlier ??
-                  (await checkClaim(
-                    deps,
-                    {
-                      claim: claim.text,
-                      evidence: g.evidence,
-                      triage: t,
-                      critical: input.critical === true,
-                      generatorFamily: input.generatorFamily,
-                      generatorModelId: input.generatorModelId ?? null,
-                      allow,
-                      chosen,
-                      notebookId: input.notebookId,
-                      sharing: input.sharing === true,
-                      again: input.again,
-                      budget: budget.forClaim(i),
-                      ...(probed && { known: null }),
-                    },
-                    ctx.signal,
-                  ));
+                v = await checkWebLast({
+                  earlier: known.get(i),
+                  g,
+                  obvious: t.obvious,
+                  search: () => searchLater(i, g),
+                  ask: (firstLook) =>
+                    checkClaim(
+                      deps,
+                      {
+                        claim: claim.text,
+                        evidence: g.evidence,
+                        triage: t,
+                        critical: input.critical === true,
+                        generatorFamily: input.generatorFamily,
+                        generatorModelId: input.generatorModelId ?? null,
+                        allow,
+                        chosen,
+                        notebookId: input.notebookId,
+                        sharing: input.sharing === true,
+                        again: input.again,
+                        budget: budget.forClaim(i),
+                        // The first look at a held-back claim is common knowledge alone: no stronger model, and
+                        // nothing kept if it is unsure, because the web is asked next.
+                        ...(firstLook && { escalate: false, recordIf: (c: Checked) => !unsureGeneral(c) }),
+                        ...(probed && { known: null }),
+                      },
+                      ctx.signal,
+                    ),
+                });
               } catch (err) {
                 // A limit, or a claim no checker could answer in the format asked for: said plainly, and the
                 // rest of the answer is still checked. Anything else (every model down) fails the run.
@@ -489,6 +521,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                       cached: v.cached,
                       degraded: v.degraded,
                       general_knowledge: v.general,
+                      ...(v.checkers && v.checkers.length > 1 && { checkers: v.checkers }),
                     }
                   : undefined;
               return {
@@ -551,6 +584,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
           ...(input.web && {
             scope: {
               web_cost_usd: tally.costUsd,
+              web_lookups: tally.lookups ?? [],
               ...(tallyOutcome(tally) && {
                 web_note: tallyOutcome(tally)?.note ?? null,
                 web_reason: tallyOutcome(tally)?.reason ?? null,

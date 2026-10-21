@@ -2,7 +2,7 @@
 id: factcheck.extract-claims
 task_class: utility
 output: ClaimList   # { claims: [{ text, char_start, char_end, importance, checkable }] }
-version: 2
+version: 3
 variables: [message_text, question]
 notes: >
   VeriScore-style: only verifiable claims. Offsets must index into
@@ -14,7 +14,7 @@ A claim is:
 - a single fact that could be true or false: a number, a date, a name, a causal statement, a quotation, a property of something.
 - self-contained: resolve pronouns ("it", "they") so the claim makes sense alone. The text field may be rewritten for that; the offsets still point at the span in the original answer.
 
-Not claims (set checkable: false or omit): opinions, advice, hedged speculation, statements about the future, definitions the answer is introducing, anything about the conversation itself, and sentences about other sentences or about the answer as a whole ("The first sentence contradicts the others", "This answer mixes true and false claims"): they are commentary, so leave them out altogether.
+Not claims (set checkable: false or omit): opinions, advice, hedged speculation, statements about the future, definitions the answer is introducing, anything about the conversation itself, and sentences about other sentences or about the answer as a whole ("The first sentence contradicts the others", "This answer mixes true and false claims"): they are commentary, so leave them out altogether. Leave out only those sentences: a note or caveat added after the facts never makes the facts before it commentary, and every other sentence that states something is still a claim.
 
 importance: 1 for claims the answer depends on, 0.5 for supporting detail, 0.2 for incidental remarks.
 
