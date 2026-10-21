@@ -393,6 +393,10 @@
   text-decoration-style: dotted;
   text-decoration-color: rgb(var(--ok-rgb) / 0.7);
 }
+.claim[data-verdict='partly'] {
+  text-decoration-style: dashed;
+  text-decoration-color: rgb(var(--warn-rgb) / 0.85);
+}
 .claim[data-verdict='unverified'] {
   text-decoration-style: dotted;
   text-decoration-color: var(--mute-3);
@@ -410,6 +414,9 @@
 .claim[data-verdict='verified'] .claim__glyph {
   color: var(--ok);
 }
+.claim[data-verdict='partly'] .claim__glyph {
+  color: var(--warn);
+}
 .claim[data-verdict='unverified'] .claim__glyph {
   color: var(--mute);
 }
@@ -426,6 +433,9 @@
 }
 .verdict[data-verdict='verified'] {
   color: var(--ok);
+}
+.verdict[data-verdict='partly'] {
+  color: var(--warn);
 }
 .verdict[data-verdict='unverified'] {
   color: var(--mute);

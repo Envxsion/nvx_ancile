@@ -508,7 +508,9 @@ export const claims = core.table('claims', {
   charStart: integer('char_start').notNull(),
   charEnd: integer('char_end').notNull(),
   importance: real('importance').notNull().default(1),
-  verdict: text('verdict', { enum: ['verified', 'unverified', 'contradicted', 'not_checkable'] }).notNull(),
+  verdict: text('verdict', {
+    enum: ['verified', 'partly', 'unverified', 'contradicted', 'not_checkable'],
+  }).notNull(),
   confidence: real('confidence').notNull(),
   support: real('support').notNull(),
   agreement: real('agreement').notNull(),

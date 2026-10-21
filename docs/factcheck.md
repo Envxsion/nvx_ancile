@@ -12,9 +12,12 @@ Each checked claim is underlined in place:
 
 | State | Mark | Meaning |
 |---|---|---|
-| Verified | faint green dotted underline, ✓ icon | Your evidence supports it, and nothing credible contradicts it |
-| Unverified | grey dotted underline, ? icon | Not enough evidence either way |
-| Contradicted | red wavy underline, ! icon | Evidence says otherwise. A warning shows both sides. |
+| Holds (`verified`) | faint green dotted underline, ✓ icon | Your evidence supports it, and nothing credible contradicts it |
+| Partly holds (`partly`) | amber dashed underline, i icon | Mostly right, with a difference worth knowing: a number rounded, approximate wording, a minor outdated detail, or true only in part. The card says what differs, in one sentence (the nuance). |
+| Can't tell (`unverified`) | grey dotted underline, ? icon | Not enough evidence either way |
+| Doesn't hold (`contradicted`) | red wavy underline, ! icon | The substance is wrong. A warning shows both sides. |
+
+The four words are the same ones the highlighted-claim check uses (Holds, Partly holds, Doesn't hold, Can't tell). The stored values stay `verified`, `partly`, `unverified`, `contradicted`; records from before `partly` existed read as they always did.
 
 Icons go with the colours, so the state never depends on colour alone. Hover or focus a claim to see the evidence: the source excerpt highlighted, and both sides for contradictions. Click through to open the source at that passage.
 
@@ -28,7 +31,7 @@ Icons go with the colours, so the state never depends on colour alone. Hover or 
    - Everything else goes to a **small** model.
    The model is the best ready one of that tier in any provider, from **a different family than the one that answered** when one is ready. If only the writer's family is ready, the check **still runs** and the claim's tooltip says so; there is no "no second opinion" stop. A check of your own words has no writer.
    A claim goes **up one tier** when the model is unsure (under 60%) or contradicts the answer, and again if needed, **twice at most**. The tooltip shows the tier, the model and where it started. A claim no source covers and that is not obvious is left unverified without asking a model.
-   **The verdict follows the checker, the number sits beside it.** If every checker says *supported* and a passage backs it, the claim is **verified**, whatever the passage's retrieval score; *contradicted* is **contradicted**; *insufficient* is **unverified**. A checker that supports a claim but says it is under 50% sure (`thresholds.verified`) leaves it unverified. The confidence below is shown beside the verdict and does not decide it.
+   **The verdict follows the checker, the number sits beside it.** If every checker says *supported* and a passage backs it, the claim is **verified**, whatever the passage's retrieval score; *partly* (every checker says supported or partly, and at least one partly) is **partly**; *contradicted* is **contradicted**; *insufficient* is **unverified**. Two checkers that disagree this way, one supported and one partly, give **partly**. Contradicted is only for a substance that is wrong: the checker is told a number rounded to the claim's own precision (8,849 for 8,848.86), approximate wording or a minor outdated detail is *partly* or *supported*, never *contradicted*, and it must give a short `nuance` ("The source gives 8,848.86 m; the claim rounds it."). Low confidence still sends a claim up a tier, whatever it said. A checker that supports a claim but says it is under 50% sure (`thresholds.verified`) leaves it unverified. The confidence below is shown beside the verdict and does not decide it.
    **Checked earlier.** A verdict is kept with the claim, the sources' fingerprints and the mode. Asked again, an unchanged claim against unchanged sources is answered from the cache without a model, and the card shows "Checked earlier (date, model)" with **Re-check**. The kept verdict carries how it was reached (the model, the tier, the tier it started at when it was sent up, what routing settled for), so the card reads the same as on the day. A re-run looks for kept verdicts first, before the decision layer sorts the claims and before the web is searched: a claim a kept verdict answers from its sources is neither sorted nor looked up. Source-backed verdicts last until a source changes; web-only verdicts a week; common-knowledge verdicts 90 days. Verdicts stay **in the notebook** that made them. **Share checks with other notebooks** (in the notebook's sources panel) lets a claim checked without your own sources answer the same claim elsewhere, and the other way round; switching it off withdraws them. Checks against your own sources never leave the notebook, and a private notebook shares only when Settings → Private notebooks allows it.
    **Mission-critical.** The check keeps every checker with its verdict (`check.checkers`) and the tooltip names both. Turn on **Mission-critical checks** for a notebook, or ask for one check, and every claim is checked by two standard or frontier models of different families, and counts only if both agree. If two such models are not both ready, **nothing runs**: the panel lists every ready chat model, the writer's provider included ("Sonnet writes, Opus checks" is fine), suggests two, and runs the check on the ones you pick ("Check with these"). A pick below standard tier is allowed and noted.
 4. **Score.**
@@ -62,7 +65,7 @@ retrieval  = quality of the evidence found: top reranker scores × how much of t
 confidence = 0.5 × support + 0.3 × agreement + 0.2 × retrieval
 ```
 
-The message score is the importance-weighted average across claims: claims the answer depends on count most. Hovering the score explains it in words, for example: "Strong support from 2 sources; verifier agrees; evidence covers most of the claim." Weights and thresholds are in `config/factcheck.yaml`.
+The message score is the importance-weighted average across claims: claims the answer depends on count most. **A partly claim counts as a half-pass:** its confidence is halved before it is averaged (`PARTLY_CREDIT` in `score.ts`), and an answer with a partly claim does not earn the seal, which needs every checkable claim to hold. `counts.partly` and the summary ("2 of 3 claims verified and 1 holds in part") carry it. Hovering the score explains it in words, for example: "Strong support from 2 sources; verifier agrees; evidence covers most of the claim." Weights and thresholds are in `config/factcheck.yaml`.
 
 ### Worked example
 

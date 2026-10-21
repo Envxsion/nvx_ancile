@@ -100,6 +100,22 @@ const CONTRADICTED = new Set([
   'disproved',
   'doesnt hold',
 ]);
+const PARTLY = new Set([
+  'partly',
+  'partially',
+  'partial',
+  'partly holds',
+  'partly true',
+  'partly correct',
+  'partially true',
+  'partially correct',
+  'mostly',
+  'mostly true',
+  'mostly correct',
+  'mostly supported',
+  'partially supported',
+  'mixed',
+]);
 const INSUFFICIENT = new Set([
   'insufficient',
   'insufficient evidence',
@@ -114,19 +130,19 @@ const INSUFFICIENT = new Set([
   'cant tell',
   'not enough information',
   'not enough info',
-  'partly',
-  'partial',
-  'mixed',
   'nei',
 ]);
 
 /** supported, contradicted or insufficient from the usual ways a model says it; undefined when it says none. */
-export function coerceStance(v: unknown): 'supported' | 'contradicted' | 'insufficient' | undefined {
+export function coerceStance(
+  v: unknown,
+): 'supported' | 'partly' | 'contradicted' | 'insufficient' | undefined {
   if (v === true) return 'supported';
   if (v === false) return 'contradicted';
   if (typeof v !== 'string') return undefined;
   const w = norm(v);
   if (SUPPORTED.has(w)) return 'supported';
+  if (PARTLY.has(w)) return 'partly';
   if (CONTRADICTED.has(w)) return 'contradicted';
   if (INSUFFICIENT.has(w)) return 'insufficient';
   return undefined;
@@ -134,7 +150,7 @@ export function coerceStance(v: unknown): 'supported' | 'contradicted' | 'insuff
 
 function itemStance(v: unknown): 'supports' | 'contradicts' | 'neutral' | undefined {
   const s = coerceStance(v);
-  if (s === 'supported') return 'supports';
+  if (s === 'supported' || s === 'partly') return 'supports';
   if (s === 'contradicted') return 'contradicts';
   if (s === 'insufficient') return 'neutral';
   return undefined;
@@ -154,7 +170,7 @@ function confidenceOf(v: unknown): number | undefined {
   return n <= 100 ? n / 100 : undefined;
 }
 
-export const VERDICT_FIELDS = ['stance', 'evidence', 'rationale', 'confidence'] as const;
+export const VERDICT_FIELDS = ['stance', 'evidence', 'rationale', 'confidence', 'nuance'] as const;
 
 /** A claim verdict as the schema expects it, from a reply that may be dressed differently. */
 export function tolerantVerdict(raw: unknown): unknown {
@@ -179,8 +195,10 @@ export function tolerantVerdict(raw: unknown): unknown {
       })
     : [];
   const confidence = confidenceOf(v.confidence);
+  const nuance = v.nuance ?? v.caveat ?? v.difference ?? v.note;
   return {
     ...(stance && { stance }),
+    ...(typeof nuance === 'string' && nuance.trim() && { nuance }),
     evidence,
     rationale: typeof rationale === 'string' ? rationale : rationale == null ? '' : String(rationale),
     ...(confidence !== undefined && { confidence }),

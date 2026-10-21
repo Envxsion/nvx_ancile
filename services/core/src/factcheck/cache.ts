@@ -42,6 +42,8 @@ export interface CachedVerdict {
   escalated_from?: ModelTier | null;
   /** Where routing settled for less than it wanted; absent on older entries. */
   degraded?: string[];
+  /** For a "partly" verdict: what differs, in one sentence; absent on older entries. */
+  nuance?: string;
 }
 
 export interface CacheEntry {

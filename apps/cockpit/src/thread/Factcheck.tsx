@@ -94,14 +94,17 @@ export function FactcheckChip({
     );
 
   const { verified, unverified, contradicted } = factcheck.counts;
-  const checkable = verified + unverified + contradicted;
+  const partly = factcheck.counts.partly ?? 0;
+  const checkable = verified + partly + unverified + contradicted;
   const label = factcheck.sealed
     ? 'Every claim verified'
     : checkable === 0
       ? 'Nothing to check'
       : contradicted
         ? `${contradicted} contradicted`
-        : `${verified} of ${checkable} verified`;
+        : partly
+          ? `${verified} of ${checkable} hold, ${partly} in part`
+          : `${verified} of ${checkable} verified`;
   const prev = factcheck.previous;
   return (
     <>
@@ -141,6 +144,11 @@ export function FactcheckChip({
               <li data-verdict="verified">
                 <span data-num>{verified}</span> verified
               </li>
+              {partly ? (
+                <li data-verdict="partly">
+                  <span data-num>{partly}</span> partly hold
+                </li>
+              ) : null}
               <li data-verdict="unverified">
                 <span data-num>{unverified}</span> unverified
               </li>

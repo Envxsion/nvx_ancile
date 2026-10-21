@@ -168,7 +168,7 @@ export interface EscalationInput {
   /** The tier it was just checked at. */
   tier: ModelTier;
   hops: number;
-  verdict: 'supported' | 'contradicted' | 'insufficient';
+  verdict: 'supported' | 'partly' | 'contradicted' | 'insufficient';
   /** The model's own confidence in [0, 1], when it gave one. */
   confidence: number | null;
   critical: boolean;

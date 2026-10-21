@@ -35,6 +35,9 @@
 .claim[data-verdict='contradicted']:hover {
   background: rgb(var(--fail-rgb) / 0.08);
 }
+.claim[data-verdict='partly']:hover {
+  background: rgb(var(--warn-rgb) / 0.08);
+}
 .claim[data-verdict='verified']:hover {
   background: rgb(var(--ok-rgb) / 0.07);
 }
@@ -184,6 +187,9 @@ button.fc-chip:active {
 }
 .fc-card__counts li[data-verdict='verified'] [data-num] {
   color: var(--ok);
+}
+.fc-card__counts li[data-verdict='partly'] [data-num] {
+  color: var(--warn);
 }
 .fc-card__counts li[data-verdict='unverified'] [data-num] {
   color: var(--mute);

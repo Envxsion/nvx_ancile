@@ -842,11 +842,11 @@ export async function gatherEvidence(
 
 /** The JSON the verify prompts ask for, as an example and as JSON Schema (for the provider's JSON mode). */
 export const VERDICT_SHAPE =
-  '{"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}';
+  '{"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9,"nuance":""}';
 export const VERDICT_JSON_SCHEMA = {
   type: 'object',
   properties: {
-    stance: { type: 'string', enum: ['supported', 'contradicted', 'insufficient'] },
+    stance: { type: 'string', enum: ['supported', 'partly', 'contradicted', 'insufficient'] },
     evidence: {
       type: 'array',
       items: {
@@ -862,13 +862,15 @@ export const VERDICT_JSON_SCHEMA = {
     },
     rationale: { type: 'string' },
     confidence: { type: 'number' },
+    /** One plain sentence on what is off; required when stance is "partly", an empty string otherwise. */
+    nuance: { type: 'string' },
   },
-  required: ['stance', 'evidence', 'rationale', 'confidence'],
+  required: ['stance', 'evidence', 'rationale', 'confidence', 'nuance'],
   additionalProperties: false,
 };
 
 export const RawVerdict = z.object({
-  stance: z.enum(['supported', 'contradicted', 'insufficient']),
+  stance: z.enum(['supported', 'partly', 'contradicted', 'insufficient']),
   evidence: z
     .array(
       z.object({
@@ -881,9 +883,11 @@ export const RawVerdict = z.object({
   rationale: z.string().default(''),
   /** How sure the model is, 0 to 1. Optional: models that leave it out are not second-guessed. */
   confidence: z.coerce.number().min(0).max(1).optional(),
+  /** For "partly": one plain sentence on what is off ("The source gives 8,848.86 m; the claim rounds it."). */
+  nuance: z.string().default(''),
 });
 
-const VERIFY_FALLBACK = `Judge the claim strictly against the evidence: supported, contradicted or insufficient. For each piece of evidence you relied on, give its ref, the shortest exact quote and whether it supports or contradicts.
+const VERIFY_FALLBACK = `Judge the claim strictly against the evidence: supported, partly, contradicted or insufficient. Use partly when the claim is mostly right but rounded, approximate, slightly outdated or true only in part, and say what differs in "nuance". A rounded number, approximate wording or a minor outdated detail is never contradicted. For each piece of evidence you relied on, give its ref, the shortest exact quote and whether it supports or contradicts.
 
 Claim:
 {{claim}}
@@ -892,11 +896,12 @@ Evidence:
 {{evidence}}
 
 Reply with one JSON object and nothing else, with exactly these fields:
-- "stance": a string, one of "supported", "contradicted", "insufficient"
+- "stance": a string, one of "supported", "partly", "contradicted", "insufficient"
 - "evidence": a list; each item is { "ref": the evidence number such as "E1", "quote": the exact words, "stance": "supports" or "contradicts" }. An empty list when none.
 - "rationale": a string, one or two sentences
 - "confidence": a number from 0 to 1
-Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}
+- "nuance": a string; when stance is "partly", one plain sentence on what differs, otherwise ""
+Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9,"nuance":""}
 Do not put the object inside another key.
 Return JSON matching ClaimVerdict.`;
 
@@ -961,19 +966,22 @@ export interface Verified {
   degraded: string[];
   /** Judged from common knowledge, not from evidence. */
   general: boolean;
+  /** For a "partly" verdict: one plain sentence on what differs. */
+  nuance?: string;
 }
 
-const GENERAL_FALLBACK = `This claim is obvious and widely known. Say whether it is true from common knowledge alone: supported, contradicted or insufficient. If there is any doubt, say insufficient.
+const GENERAL_FALLBACK = `This claim is obvious and widely known. Say whether it is true from common knowledge alone: supported, partly, contradicted or insufficient. If there is any doubt, say insufficient.
 
 Claim:
 {{claim}}
 
 Reply with one JSON object and nothing else, with exactly these fields:
-- "stance": a string, one of "supported", "contradicted", "insufficient"
+- "stance": a string, one of "supported", "partly", "contradicted", "insufficient"
 - "evidence": a list; each item is { "ref": the evidence number such as "E1", "quote": the exact words, "stance": "supports" or "contradicts" }. Always an empty list here.
 - "rationale": a string, one or two sentences
 - "confidence": a number from 0 to 1
-Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9}
+- "nuance": a string; when stance is "partly", one plain sentence on what differs, otherwise ""
+Example: {"stance":"supported","evidence":[{"ref":"E1","quote":"Everest is 8,849 m tall.","stance":"supports"}],"rationale":"E1 gives the same height.","confidence":0.9,"nuance":""}
 Do not put the object inside another key.
 Return JSON matching ClaimVerdict.`;
 
@@ -1056,7 +1064,11 @@ export async function verifyClaim(
     const target = Number.isInteger(n) ? evidence[n - 1] : undefined;
     const source = Number.isInteger(n) ? input.evidence[n - 1] : undefined;
     if (!target || !source) continue;
-    const s = v.stance ?? (value.stance === 'contradicted' ? 'contradicts' : 'supports');
+    // A passage behind a "partly" verdict backs the claim in part: it is never counted as contradicting it.
+    const s =
+      value.stance === 'partly' && (v.stance === 'contradicts' || v.stance === 'contradicted')
+        ? 'supports'
+        : (v.stance ?? (value.stance === 'contradicted' ? 'contradicts' : 'supports'));
     target.stance =
       s === 'supports' || s === 'supported' ? 'supports' : s === 'neutral' ? 'neutral' : 'contradicts';
     // A quote the verifier copied exactly is narrower than ours: use it.
@@ -1071,9 +1083,11 @@ export async function verifyClaim(
       target.quote = q;
     }
   }
+  const nuance = value.stance === 'partly' ? value.nuance.trim() || value.rationale.trim() || null : null;
   return {
     verdict: value.stance,
     rationale: value.rationale.trim(),
+    ...(nuance && { nuance }),
     evidence,
     modelId,
     tier,
@@ -1097,12 +1111,15 @@ export interface Checked extends Verified {
   cached: { at: string; model_id: string | null; scope: 'notebook' | 'global' } | null;
 }
 
-const worst = (vs: VerifierVerdict[]): VerifierVerdict =>
+/** Several checkers in one: any contradiction wins, then any doubt; supports + partly reads partly. */
+export const worst = (vs: VerifierVerdict[]): VerifierVerdict =>
   vs.includes('contradicted')
     ? 'contradicted'
     : vs.every((v) => v === 'supported')
       ? 'supported'
-      : 'insufficient';
+      : vs.every((v) => v === 'supported' || v === 'partly')
+        ? 'partly'
+        : 'insufficient';
 
 export interface CheckDeps extends StepDeps {
   cache?: VerdictCache | undefined;
@@ -1139,6 +1156,7 @@ export async function cachedCheck(
     // How the verdict was reached is part of what is kept: where it started, and what routing settled for.
     degraded: v.degraded ?? [],
     general: v.general,
+    ...(v.nuance && { nuance: v.nuance }),
     verdicts: [v.stance],
     escalatedFrom: v.escalated_from ?? null,
     cached: { at: hit.entry.created_at, model_id: hit.entry.model_id, scope: hit.scope },
@@ -1213,6 +1231,9 @@ export async function checkClaim(
     out = {
       ...first,
       verdict: worst(all.map((v) => v.verdict)),
+      ...(all.some((v) => v.nuance) && {
+        nuance: [...new Set(all.map((v) => v.nuance).filter(Boolean))].join(' '),
+      }),
       verdicts: all.map((v) => v.verdict),
       checkers: all.map((v) => ({ model_id: v.modelId, verdict: v.verdict, confidence: v.confidence })),
       // The least sure of them: the claim holds only as far as the doubtful checker.
@@ -1296,6 +1317,7 @@ export async function checkClaim(
           general: out.general,
           escalated_from: out.escalatedFrom,
           degraded: out.degraded,
+          ...(out.nuance && { nuance: out.nuance }),
         },
         tier: out.tier,
         modelId: out.modelId,
@@ -1317,6 +1339,7 @@ export async function checkClaim(
             general: out.general,
             escalated_from: out.escalatedFrom,
             degraded: out.degraded,
+            ...(out.nuance && { nuance: out.nuance }),
           },
           tier: out.tier,
           modelId: out.modelId,

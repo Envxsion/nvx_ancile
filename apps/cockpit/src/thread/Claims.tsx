@@ -6,8 +6,9 @@
  * ------------------------------------------------------------------
  *  Purpose  |  Fact-check verdicts drawn under the words they judge,
  *           |  and citation markers that open the exact source span.
- *  How      |  Verified: faint dotted ok line. Unverified: dotted mute
- *           |  line. Contradicted: wavy fail line. Each also carries a
+ *  How      |  Holds: faint dotted ok line. Partly holds: dashed warn
+ *           |  line, with what differs (the nuance) on the card. Can't
+ *           |  tell: dotted mute line. Doesn't hold: wavy fail line. Each also carries a
  *           |  tiny glyph and an accessible name, so colour is never
  *           |  the only signal (DESIGN.md §10, §13.4).
  *           |  Live claims are marked into the markdown before it is
@@ -29,9 +30,10 @@ import { useUi } from '../state/ui';
 import { Icon } from '../ui/Icon';
 
 const VERDICT = {
-  verified: { label: 'Verified', icon: 'check', describe: 'Supported by your sources' },
-  unverified: { label: 'Unverified', icon: 'question', describe: 'Not enough evidence either way' },
-  contradicted: { label: 'Contradicted', icon: 'alert', describe: 'Your sources say otherwise' },
+  verified: { label: 'Holds', icon: 'check', describe: 'Supported by the evidence' },
+  partly: { label: 'Partly holds', icon: 'info', describe: 'Mostly right, with a difference worth knowing' },
+  unverified: { label: "Can't tell", icon: 'question', describe: 'Not enough evidence either way' },
+  contradicted: { label: "Doesn't hold", icon: 'alert', describe: 'The evidence says otherwise' },
   not_checkable: { label: 'Not checkable', icon: 'quote', describe: 'An opinion, advice or a prediction' },
 } as const;
 
@@ -292,6 +294,11 @@ function EvidencePopover({
             </div>
           ) : null}
           <EvidenceList claim={claim} limit={2} />
+          {claim.verdict === 'partly' && claim.check?.nuance ? (
+            <p className="ev-card__why" data-nuance>
+              {claim.check.nuance}
+            </p>
+          ) : null}
           {claim.rationale ? <p className="ev-card__why">{claim.rationale}</p> : null}
           <button
             type="button"
