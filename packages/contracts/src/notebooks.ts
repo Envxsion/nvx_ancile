@@ -115,6 +115,20 @@ export const MergeInstructionsChoice = z.discriminatedUnion('choice', [
 ]);
 export type MergeInstructionsChoice = z.infer<typeof MergeInstructionsChoice>;
 
+/**
+ * DELETE /notebooks/:id?contents=delete: what went with the notebook. Without `contents` the
+ * delete answers 204 and the threads and sources stay in the workspace.
+ */
+export const DeleteNotebookResult = z.object({
+  /** Every thread of the notebook, live and archived, now in the Trash for 30 days. */
+  threads_trashed: z.number().int().min(0),
+  /** Sources only this notebook used, deleted. */
+  sources_deleted: z.number().int().min(0),
+  /** Sources another notebook also uses, kept for it. */
+  sources_kept: z.number().int().min(0),
+});
+export type DeleteNotebookResult = z.infer<typeof DeleteNotebookResult>;
+
 /** POST /notebooks/:id/merge: merge `from_id` into this notebook. */
 export const MergeNotebookRequest = z
   .object({
@@ -238,8 +252,11 @@ export const ExplainLink = z.object({
   to_kind: z.enum(['notebook', 'thread', 'pack']),
   to_id: z.string(),
   title: z.string(),
-  /** used: it gave passages or a summary. empty: nothing matched. refused: a scope said no. */
-  state: z.enum(['used', 'empty', 'refused']),
+  /**
+   * used: it gave passages or a summary. empty: nothing matched. refused: a scope said no.
+   * missing: the notebook or thread it pointed at has been deleted.
+   */
+  state: z.enum(['used', 'empty', 'refused', 'missing']),
   passages: z.number().int(),
   cited: z.number().int(),
   code: ScopeDenyCode.nullable(),

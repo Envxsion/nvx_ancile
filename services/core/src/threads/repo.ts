@@ -184,6 +184,11 @@ export interface ThreadRepo {
   listThreads(workspaceId: string, opts?: ListThreads): Promise<ThreadListRow[]>;
   /** Threads by id, deleted ones too (the Trash and Undo need them). Other workspaces' are left out. */
   statesOf(workspaceId: string, ids: string[]): Promise<ThreadState[]>;
+  /**
+   * Every thread in a notebook, whatever its state: live, archived and in the Trash. Deleting a
+   * notebook needs all of them, not a page of the rail.
+   */
+  inNotebook(workspaceId: string, notebookId: string): Promise<ThreadState[]>;
   /** Set exactly these fields and nothing else, not even updated_at. False: no such thread. */
   setFields(workspaceId: string, id: string, fields: ThreadFields): Promise<boolean>;
   /** The Trash, newest deletion first. */
@@ -415,10 +420,19 @@ export class PgThreadRepo implements ThreadRepo {
     return rows.map(stateFromRow);
   }
 
+  async inNotebook(workspaceId: string, notebookId: string) {
+    const rows = await this.sql<ThreadRow[]>`
+      select * from core.threads where workspace_id = ${workspaceId} and notebook_id = ${notebookId}
+      order by created_at, id`;
+    return rows.map(stateFromRow);
+  }
+
   async setFields(workspaceId: string, id: string, f: ThreadFields) {
     const has = (k: keyof ThreadFields) => f[k] !== undefined;
+    // placed_at is Sync's signal that a thread moved: a move must not touch updated_at (the rail's order).
     const rows = await this.sql`
       update core.threads set
+        placed_at = case when ${has('notebook_id')} and notebook_id is distinct from ${f.notebook_id ?? null} then now() else placed_at end,
         notebook_id = case when ${has('notebook_id')} then ${f.notebook_id ?? null} else notebook_id end,
         archived_at = case when ${has('archived_at')} then ${f.archived_at ?? null}::timestamptz else archived_at end,
         pinned_at = case when ${has('pinned_at')} then ${f.pinned_at ?? null}::timestamptz else pinned_at end,
@@ -740,6 +754,20 @@ export class MemoryThreadRepo implements ThreadRepo {
           ]
         : [];
     });
+  }
+
+  async inNotebook(workspaceId: string, notebookId: string) {
+    return [...this.threads.values()]
+      .filter((t) => t.workspace_id === workspaceId && t.notebook_id === notebookId)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        notebook_id: t.notebook_id,
+        archived_at: t.archived_at,
+        pinned_at: t.pinned_at,
+        updated_at: t.updated_at,
+        deleted_at: t.deleted_at ?? null,
+      }));
   }
 
   async setFields(workspaceId: string, id: string, f: ThreadFields) {

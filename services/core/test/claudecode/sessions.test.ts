@@ -1150,4 +1150,71 @@ describe('first-run import order and pacing', () => {
   });
 });
 
+describe('a deleted folder notebook', () => {
+  /** Import one session from C:\\Code\\app, then delete its notebook and put its thread in the Trash. */
+  async function deleteFolderNotebook(dismiss: boolean) {
+    w.sessions.set('s1', { info: info('s1', { cwd: 'C:\\Code\\app' }), chain: basicChain() });
+    const imp = (await svc.importSessions({ session_ids: ['s1'] })).imported[0];
+    const nbId = imp?.notebook_id as string;
+    if (dismiss) await svc.dismissNotebook(nbId);
+    await notebooks.remove(nbId);
+    await threads.setFields(WS, imp?.thread_id as string, { deleted_at: '2026-10-02T00:00:00.000Z' });
+    return nbId;
+  }
+
+  it('comes back at the next sync when nothing records that it was deleted (the bug)', async () => {
+    const nbId = await deleteFolderNotebook(false);
+    svc.kick();
+    await svc.idle();
+    // The notebook was made again and the session came in as a new thread.
+    const books = await notebooks.list(WS);
+    expect(books.map((b) => b.id)).not.toContain(nbId);
+    expect(books).toHaveLength(1);
+    expect(await threads.listThreads(WS)).toHaveLength(1);
+  });
+
+  it('stays gone: a sync neither recreates the notebook nor re-imports its sessions', async () => {
+    await deleteFolderNotebook(true);
+    svc.kick();
+    await svc.idle();
+    expect(await notebooks.list(WS)).toEqual([]);
+    expect(await threads.listThreads(WS)).toEqual([]);
+    expect(await svc.projects()).toEqual([]);
+    // Also for a session that starts after the delete.
+    w.sessions.set('s2', { info: info('s2', { cwd: 'C:\\Code\\app' }), chain: chainOf('s2') });
+    svc.kick();
+    await svc.idle();
+    expect(await threads.listThreads(WS)).toEqual([]);
+    expect(await notebooks.list(WS)).toEqual([]);
+    // Another folder is not affected.
+    w.sessions.set('s3', { info: info('s3', { cwd: 'C:\\Code\\other' }), chain: chainOf('s3') });
+    svc.kick();
+    await svc.idle();
+    expect(await threads.listThreads(WS)).toHaveLength(1);
+  });
+
+  it('returns when the person imports a session from the folder by hand', async () => {
+    await deleteFolderNotebook(true);
+    const r = await svc.importSessions({ session_ids: ['s1'] });
+    expect(r.failed).toEqual([]);
+    expect((await notebooks.list(WS)).map((b) => b.title)).toEqual(['app']);
+    // And a later sync keeps it up to date again.
+    w.sessions.set('s2', { info: info('s2', { cwd: 'C:\\Code\\app' }), chain: chainOf('s2') });
+    svc.kick();
+    await svc.idle();
+    expect((await threads.listThreads(WS)).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('returns when the folder is mapped to a notebook again in Settings', async () => {
+    await deleteFolderNotebook(true);
+    const nb = await notebooks.create({ id: 'nbk_new', workspace_id: WS, title: 'App again' });
+    await svc.putProject({ cwd: 'C:\\Code\\app', notebook_id: nb.id });
+    svc.kick();
+    await svc.idle();
+    const list = await threads.listThreads(WS);
+    expect(list).toHaveLength(1);
+    expect(list[0]?.notebook_id).toBe('nbk_new');
+  });
+});
+
 void ({} as GlobalEvent);

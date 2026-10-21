@@ -35,6 +35,8 @@ export interface ScopeStore {
   /** The thread's notebook; undefined when the thread does not exist. */
   threadNotebook(threadId: string): Promise<string | null | undefined>;
   notebookExists(notebookId: string): Promise<boolean>;
+  /** The notebook is deleted: its own scope patch goes (its threads took what they need first). */
+  forgetNotebook(notebookId: string): Promise<void>;
   /** Your own tool presets (never the built-in ones), by name. */
   listPresets(): Promise<ToolPreset[]>;
   /** Insert or replace one of your own presets. */
@@ -46,7 +48,7 @@ export interface ScopeStore {
 }
 
 /** A stored preset row read back; rules that no longer parse allow no tool (fail closed). */
-function presetFromRow(r: {
+export function presetFromRow(r: {
   id: string;
   name: string;
   description: string;
@@ -87,7 +89,7 @@ export function mergeStored(current: ScopePatch, patch: ScopePatch): ScopePatch 
 }
 
 /** A stored patch read back: anything no longer valid is dropped, never trusted. */
-function parsePatch(raw: unknown): ScopePatch {
+export function parsePatch(raw: unknown): ScopePatch {
   const r = ScopePatch.safeParse(raw ?? {});
   if (r.success) return r.data;
   const out: Record<string, unknown> = {};
@@ -131,6 +133,10 @@ export class MemoryScopeStore implements ScopeStore {
 
   async notebookExists(notebookId: string) {
     return this.notebooks.has(notebookId);
+  }
+
+  async forgetNotebook(notebookId: string) {
+    this.patches.delete(`notebook:${notebookId}`);
   }
 
   private readonly presets = new Map<string, ToolPreset>();
@@ -197,6 +203,10 @@ export class PgScopeStore implements ScopeStore {
   async notebookExists(notebookId: string) {
     const [r] = await this.sql<{ n: number }[]>`select 1 as n from core.notebooks where id = ${notebookId}`;
     return !!r;
+  }
+
+  async forgetNotebook(notebookId: string) {
+    await this.sql`delete from core.scopes where level = 'notebook' and ref_id = ${notebookId}`;
   }
 
   async listPresets() {

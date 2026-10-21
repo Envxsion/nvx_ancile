@@ -70,15 +70,26 @@ export async function bulkThreads(deps: BulkDeps, req: ThreadBulkRequest): Promi
   const skip = (id: string, title: string, reason: BulkSkip['reason'], hint: string) =>
     skipped.push({ id, title, reason, hint });
 
-  if (req.action === 'move' && req.notebook_id && deps.notebookExists) {
-    if (!(await deps.notebookExists(req.notebook_id)))
-      throw new AncileError({
-        code: 'request.not_found',
-        title: 'That notebook was not found',
-        hint: 'It may have been deleted. Refresh the view and try again.',
-        status: 404,
-        errorClass: 'permanent',
-      });
+  if (deps.notebookExists) {
+    // A move goes to a notebook that is there; so does an Undo, which would otherwise put a thread
+    // back into a notebook deleted since (and give it that notebook's limits no longer).
+    const wanted =
+      req.action === 'move'
+        ? [req.notebook_id]
+        : req.action === 'revert'
+          ? req.states
+              .filter((s) => s.notebook_id !== current.get(s.id)?.notebook_id)
+              .map((s) => s.notebook_id)
+          : [];
+    for (const nb of new Set(wanted))
+      if (nb && !(await deps.notebookExists(nb)))
+        throw new AncileError({
+          code: 'request.not_found',
+          title: 'That notebook was not found',
+          hint: 'It may have been deleted. Refresh the view and try again.',
+          status: 404,
+          errorClass: 'permanent',
+        });
   }
   const priv =
     req.action === 'move' && req.notebook_id && deps.notebookPrivate

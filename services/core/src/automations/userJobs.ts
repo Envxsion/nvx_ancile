@@ -31,7 +31,7 @@ import { ulid } from 'ulid';
 import type { EventBus } from '../events/bus';
 import type { KnowledgeClient } from '../knowledge/client';
 import { startTurn, type TurnDeps } from '../threads/service';
-import type { JobContext, JobHandler, JobResult } from './runner';
+import { type JobContext, type JobHandler, type JobResult, TargetGone } from './runner';
 
 export interface UserJobDeps {
   turn: TurnDeps;
@@ -47,8 +47,11 @@ export interface UserJobDeps {
 
 const enc = encodeURIComponent;
 
+/** What it works on is gone: the runner pauses the automation with this reason rather than failing every run. */
 function gone(what: string, fix: string): Error {
-  return new Error(`${what} no longer exists. ${fix}`);
+  return new TargetGone(
+    `${what} no longer exists. Paused until you ${fix.charAt(0).toLowerCase()}${fix.slice(1)}`,
+  );
 }
 
 export function userJobs(deps: UserJobDeps): Record<UserAutomationKind, JobHandler> {

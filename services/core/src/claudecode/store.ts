@@ -73,6 +73,15 @@ export interface ClaudeCodeStore {
     created?: boolean,
   ): Promise<ProjectBinding>;
   removeProject(workspaceId: string, cwd: string): Promise<boolean>;
+  /**
+   * A notebook was deleted: every folder bound to it is marked dismissed (and unbound), so a sync
+   * neither makes the notebook again nor brings the folder's sessions back. Returns the folders.
+   */
+  dismissNotebook(workspaceId: string, notebookId: string): Promise<string[]>;
+  /** The folders (as cwdKey) a sync leaves alone until they are added again. */
+  dismissed(workspaceId: string): Promise<Set<string>>;
+  /** The person added the folder again: sync may bring it in. False when it was not dismissed. */
+  undismiss(workspaceId: string, cwd: string): Promise<boolean>;
   /** Sessions whose thread still exists (archived threads included). */
   sessions(workspaceId: string): Promise<SessionBinding[]>;
   putSession(workspaceId: string, s: SessionBinding): Promise<void>;
@@ -162,6 +171,33 @@ export class PgClaudeCodeStore implements ClaudeCodeStore {
       delete from core.claude_code_projects where workspace_id = ${workspaceId} and cwd_key = ${cwdKey(cwd, this.platform)}
       returning cwd`;
     return r.length > 0;
+  }
+
+  async dismissNotebook(workspaceId: string, notebookId: string) {
+    return this.sql.begin(async (tx) => {
+      await tx`
+        insert into core.claude_code_dismissed (workspace_id, cwd_key, cwd)
+        select workspace_id, cwd_key, cwd from core.claude_code_projects
+        where workspace_id = ${workspaceId} and notebook_id = ${notebookId}
+        on conflict (workspace_id, cwd_key) do update set cwd = excluded.cwd, dismissed_at = now()`;
+      const rows = await tx<{ cwd: string }[]>`
+        delete from core.claude_code_projects
+        where workspace_id = ${workspaceId} and notebook_id = ${notebookId} returning cwd`;
+      return rows.map((r) => r.cwd);
+    });
+  }
+
+  async dismissed(workspaceId: string) {
+    const rows = await this.sql<{ cwd_key: string }[]>`
+      select cwd_key from core.claude_code_dismissed where workspace_id = ${workspaceId}`;
+    return new Set(rows.map((r) => r.cwd_key));
+  }
+
+  async undismiss(workspaceId: string, cwd: string) {
+    const rows = await this.sql`
+      delete from core.claude_code_dismissed
+      where workspace_id = ${workspaceId} and cwd_key = ${cwdKey(cwd, this.platform)} returning cwd`;
+    return rows.length > 0;
   }
 
   async sessions(workspaceId: string) {
@@ -272,6 +308,31 @@ export class MemoryClaudeCodeStore implements ClaudeCodeStore {
 
   async removeProject(workspaceId: string, cwd: string) {
     return this.proj.delete(`${workspaceId}|${cwdKey(cwd, this.platform)}`);
+  }
+
+  private readonly gone = new Set<string>();
+
+  async dismissNotebook(workspaceId: string, notebookId: string) {
+    const folders: string[] = [];
+    for (const [k, p] of [...this.proj]) {
+      if (p.ws !== workspaceId || p.notebook_id !== notebookId) continue;
+      this.gone.add(`${workspaceId}|${p.cwd_key}`);
+      this.proj.delete(k);
+      folders.push(p.cwd);
+    }
+    return folders;
+  }
+
+  async dismissed(workspaceId: string) {
+    return new Set(
+      [...this.gone]
+        .filter((k) => k.startsWith(`${workspaceId}|`))
+        .map((k) => k.slice(workspaceId.length + 1)),
+    );
+  }
+
+  async undismiss(workspaceId: string, cwd: string) {
+    return this.gone.delete(`${workspaceId}|${cwdKey(cwd, this.platform)}`);
   }
 
   async sessions(workspaceId: string) {

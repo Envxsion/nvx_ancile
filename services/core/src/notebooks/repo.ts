@@ -16,6 +16,10 @@
 
 import type { Note } from '@nvx/contracts';
 import type { Sql } from 'postgres';
+import type { LinkStore } from '../links/store';
+import { inheritInStore, inheritIntoThreads } from '../scopes/inherit';
+import type { ScopeStore } from '../scopes/store';
+import type { MemoryThreadRepo } from '../threads/repo';
 
 export interface NotebookRecord {
   id: string;
@@ -227,13 +231,33 @@ export class PgNotebookRepo implements NotebookRepo {
     return rows[0] ? this.from(rows[0]) : undefined;
   }
 
+  /**
+   * Delete the notebook and settle everything that pointed at it, in one transaction: its limits
+   * (private, local only, any scope patch) move onto each of its threads first, then the threads
+   * leave, its notes and links go, and its own scope rows, grants and image hosts are dropped.
+   * Either all of that happens or none of it does.
+   */
   async remove(id: string) {
-    const rows = await this.sql`
-      update core.notebooks set deleted_at = now() where id = ${id} and deleted_at is null returning id`;
-    if (!rows.length) return false;
-    // Threads stay; they just leave the notebook.
-    await this.sql`update core.threads set notebook_id = null where notebook_id = ${id}`;
-    return true;
+    return this.sql.begin(async (tx) => {
+      const live = await tx`select id from core.notebooks where id = ${id} and deleted_at is null for update`;
+      if (!live.length) return false;
+      // First, while the threads still know their notebook and its scope row still exists.
+      await inheritIntoThreads(tx as unknown as Sql, id);
+      // Threads stay (trashed and archived ones too); they just leave the notebook. placed_at is
+      // the signal Sync reads, because a move must not reorder the rail by touching updated_at.
+      await tx`update core.threads set notebook_id = null, placed_at = now() where notebook_id = ${id}`;
+      await tx`update core.notes set deleted_at = now() where notebook_id = ${id} and deleted_at is null`;
+      await tx`
+        delete from core.context_links
+        where (from_kind = 'notebook' and from_id = ${id}) or (to_kind = 'notebook' and to_id = ${id})`;
+      await tx`delete from core.scopes where level = 'notebook' and ref_id = ${id}`;
+      await tx`delete from core.image_remote_hosts where scope_key = ${id}`;
+      await tx`
+        update core.grants set revoked_at = now()
+        where scope = 'notebook' and scope_ref = ${id} and revoked_at is null`;
+      await tx`update core.notebooks set deleted_at = now() where id = ${id}`;
+      return true;
+    });
   }
 
   async notes(notebookId: string) {
@@ -290,8 +314,20 @@ export class MemoryNotebookRepo implements NotebookRepo {
   readonly books = new Map<string, NotebookRecord & { deleted_at?: string | null }>();
   readonly noteMap = new Map<string, NoteRecord>();
   private tick = 0;
-  /** Threads leave a deleted notebook; tests pass the thread repo's hook. */
+  /** What a deleted notebook has to settle beyond its own record; absent in the tests that need none of it. */
+  private partners: {
+    threads?: MemoryThreadRepo;
+    scopes?: ScopeStore;
+    links?: Pick<LinkStore, 'removeForEnd'>;
+  } = {};
+  /** Anything else a test wants to happen when a notebook is deleted. */
   onRemove?: (notebookId: string) => Promise<void>;
+
+  /** Tell this repo about the stores a real delete reaches (the Postgres repo does it in SQL). */
+  wire(p: MemoryNotebookRepo['partners']): this {
+    this.partners = p;
+    return this;
+  }
 
   private stamp() {
     return new Date(Date.UTC(2026, 9, 7, 12, 0, 0, this.tick++)).toISOString();
@@ -366,6 +402,19 @@ export class MemoryNotebookRepo implements NotebookRepo {
   async remove(id: string) {
     const b = this.books.get(id);
     if (!b || b.deleted_at) return false;
+    const { threads, scopes, links } = this.partners;
+    if (threads) {
+      // Every thread in it, whatever its state: live, archived or in the Trash.
+      const ids = [...threads.threads.values()].filter((t) => t.notebook_id === id).map((t) => t.id);
+      if (scopes) {
+        await inheritInStore(scopes, id, ids);
+        await scopes.forgetNotebook(id);
+      }
+      for (const tid of ids) await threads.setFields(b.workspace_id, tid, { notebook_id: null });
+    }
+    for (const n of this.noteMap.values())
+      if (n.notebook_id === id && !n.deleted_at) n.deleted_at = this.stamp();
+    await links?.removeForEnd({ kind: 'notebook', id });
     b.deleted_at = this.stamp();
     await this.onRemove?.(id);
     return true;

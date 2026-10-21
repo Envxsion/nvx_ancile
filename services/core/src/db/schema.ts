@@ -149,6 +149,8 @@ export const threads = core.table(
     deletedAt: ts('deleted_at'),
     /** When the thread was last opened: an answer newer than this is unread in the rail. */
     seenAt: ts('seen_at'),
+    /** When the thread last changed notebook; Sync reads it because a move leaves updated_at alone. */
+    placedAt: ts('placed_at'),
     createdAt: created(),
     updatedAt: updated(),
   },
@@ -554,6 +556,20 @@ export const claudeCodeProjects = core.table(
       .references(() => notebooks.id),
     createdAt: created(),
     updatedAt: updated(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.cwdKey] })],
+);
+
+/** A folder whose notebook was deleted: sync leaves it (and its sessions) alone until it is added again. */
+export const claudeCodeDismissed = core.table(
+  'claude_code_dismissed',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    cwdKey: text('cwd_key').notNull(),
+    cwd: text('cwd').notNull(),
+    dismissedAt: ts('dismissed_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.workspaceId, t.cwdKey] })],
 );

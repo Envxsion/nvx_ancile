@@ -5,14 +5,18 @@
  * another workspace is never found; a Knowledge that is down shows 0 sources
  * rather than failing the list.
  */
-import type { Note, Notebook, Source } from '@nvx/contracts';
+import type { DeleteNotebookResult, Note, Notebook, Source } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { KnowledgeClient } from '../../src/knowledge/client';
+import { MemoryLinkStore } from '../../src/links/store';
 import { MemoryNotebookRepo } from '../../src/notebooks/repo';
 import { notebookRoutes } from '../../src/notebooks/routes';
 import { errorHandler } from '../../src/obs/errors';
+import type { ProRemoval } from '../../src/pro/types';
+import { getEffectiveScope } from '../../src/scopes';
 import { MemoryThreadRepo } from '../../src/threads/repo';
+import { ThreadBackedScopes } from './delete-fakes';
 
 const WS = 'wsp_test';
 
@@ -55,9 +59,18 @@ const source = (id: string, title = id): Source => ({ id, title }) as Source;
 
 let notebooks: MemoryNotebookRepo;
 let threads: MemoryThreadRepo;
+let scopes: ThreadBackedScopes;
+let links: MemoryLinkStore;
 let app: Hono;
 let calls: Call[];
 let orphaned: string[];
+/** Threads a run is answering in. */
+let busy: Set<string>;
+/** Folders the Claude Code module was told to dismiss, by notebook. */
+let dismissed: string[];
+/** What Pro was told is gone. */
+let gone: ProRemoval[];
+let cleared: string[];
 
 function mount(answers: Record<string, unknown> = {}) {
   const f = fakeKn(answers);
@@ -73,6 +86,10 @@ function mount(answers: Record<string, unknown> = {}) {
       threads,
       kn: f.kn,
       flowStore: { orphan: async (_kind: string, id: string) => void orphaned.push(id) } as never,
+      verdictCache: { clear: async (id: string) => void cleared.push(id) },
+      runs: { activeForThread: async (id: string) => (busy.has(id) ? [{} as never] : []) },
+      claudeCode: { dismissNotebook: async (id: string) => void dismissed.push(id) },
+      gone: (e) => void gone.push(e),
     }) as unknown as Hono,
   );
 }
@@ -92,6 +109,13 @@ async function call<T>(method: string, path: string, body?: unknown) {
 beforeEach(() => {
   notebooks = new MemoryNotebookRepo();
   threads = new MemoryThreadRepo();
+  scopes = new ThreadBackedScopes(threads, notebooks);
+  links = new MemoryLinkStore();
+  notebooks.wire({ threads, scopes, links });
+  busy = new Set();
+  dismissed = [];
+  gone = [];
+  cleared = [];
   mount();
 });
 
@@ -175,26 +199,247 @@ describe("a notebook's sources", () => {
 });
 
 describe('deleting a notebook with everything in it', () => {
-  it('deletes only the sources no other notebook uses, and only when asked', async () => {
+  const wsThread = (id: string, notebook: string | null, extra: object = {}) =>
+    threads.createThread({ id, workspace_id: WS, notebook_id: notebook, title: id, ...extra });
+
+  it('deletes only the sources no other notebook uses, and counts what it did', async () => {
     await notebooks.create({ id: 'nbk_gone', workspace_id: WS, title: 'Gone' });
     await notebooks.create({ id: 'nbk_keep', workspace_id: WS, title: 'Keep' });
     mount({
       'GET /notebooks/nbk_gone/sources': [source('src_only'), source('src_shared')],
       'GET /notebooks/nbk_keep/sources': [source('src_shared')],
     });
-    expect((await call('DELETE', '/notebooks/nbk_gone?sources=delete')).status).toBe(204);
+    const r = await call<DeleteNotebookResult>('DELETE', '/notebooks/nbk_gone?contents=delete');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ threads_trashed: 0, sources_deleted: 1, sources_kept: 1 });
     const deletes = calls.filter((c) => c.method === 'DELETE').map((c) => c.path);
     expect(deletes).toContain('/sources/src_only');
     expect(deletes).not.toContain('/sources/src_shared');
     expect(deletes).toContain('/notebooks/nbk_gone/sources/src_shared');
     expect(await notebooks.get('nbk_gone')).toBeUndefined();
+    expect(gone).toEqual([
+      { kind: 'source', id: 'src_only' },
+      { kind: 'notebook', id: 'nbk_gone' },
+    ]);
+    expect(cleared).toEqual(['nbk_gone']);
+    expect(orphaned).toEqual(['nbk_gone']);
   });
 
-  it('keeps every source by default', async () => {
+  it('still takes ?sources=delete as the older name for it', async () => {
+    await notebooks.create({ id: 'nbk_old', workspace_id: WS, title: 'Old' });
+    const r = await call<DeleteNotebookResult>('DELETE', '/notebooks/nbk_old?sources=delete');
+    expect(r.status).toBe(200);
+    expect(r.body.threads_trashed).toBe(0);
+  });
+
+  it('trashes every thread of the notebook, archived ones too, and not the others', async () => {
+    await notebooks.create({ id: 'nbk_all', workspace_id: WS, title: 'All' });
+    await notebooks.create({ id: 'nbk_other', workspace_id: WS, title: 'Other' });
+    await wsThread('thr_live', 'nbk_all');
+    await wsThread('thr_arch', 'nbk_all');
+    await threads.setFields(WS, 'thr_arch', { archived_at: '2026-10-01T00:00:00.000Z' });
+    await wsThread('thr_old', 'nbk_all');
+    await threads.setFields(WS, 'thr_old', { deleted_at: '2026-10-02T00:00:00.000Z' });
+    await wsThread('thr_else', 'nbk_other');
+    const r = await call<DeleteNotebookResult>('DELETE', '/notebooks/nbk_all?contents=delete');
+    expect(r.status).toBe(200);
+    // The one already in the Trash is not counted twice.
+    expect(r.body.threads_trashed).toBe(2);
+    const trash = await threads.listTrash(WS);
+    expect(trash.map((t) => t.id).sort()).toEqual(['thr_arch', 'thr_live', 'thr_old']);
+    expect(await threads.getThread('thr_else')).toBeDefined();
+    // They have left the notebook, so a restore puts them back outside it.
+    expect(trash.every((t) => t.notebook_id === null)).toBe(true);
+  });
+
+  it('refuses with 409 while a thread is answering, and changes nothing', async () => {
+    await notebooks.create({ id: 'nbk_busy', workspace_id: WS, title: 'Busy' });
+    await wsThread('thr_a', 'nbk_busy');
+    await wsThread('thr_b', 'nbk_busy');
+    busy.add('thr_b');
+    mount({ 'GET /notebooks/nbk_busy/sources': [source('src_1')] });
+    const r = await call<{ error: { code: string; title: string; detail?: string } }>(
+      'DELETE',
+      '/notebooks/nbk_busy?contents=delete',
+    );
+    expect(r.status).toBe(409);
+    expect(r.body.error.code).toBe('notebook.delete_blocked');
+    expect(r.body.error.detail).toContain('thr_b');
+    expect(await notebooks.get('nbk_busy')).toBeDefined();
+    expect(await threads.getThread('thr_a')).toBeDefined();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(dismissed).toEqual([]);
+  });
+
+  it('fails with 503 and changes nothing when Knowledge cannot be read', async () => {
+    await notebooks.create({ id: 'nbk_down', workspace_id: WS, title: 'Down' });
+    await wsThread('thr_1', 'nbk_down');
+    mount({ 'GET /notebooks/nbk_down/sources': new Error('knowledge is down') });
+    const r = await call<{ error: { code: string } }>('DELETE', '/notebooks/nbk_down?contents=delete');
+    expect(r.status).toBe(503);
+    expect(r.body.error.code).toBe('notebook.delete_needs_knowledge');
+    expect(await notebooks.get('nbk_down')).toBeDefined();
+    expect(await threads.getThread('thr_1')).toBeDefined();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('does not swallow a failed unlink: the notebook stays so a retry finishes the job', async () => {
+    await notebooks.create({ id: 'nbk_half', workspace_id: WS, title: 'Half' });
+    await notebooks.create({ id: 'nbk_keep', workspace_id: WS, title: 'Keep' });
+    mount({
+      'GET /notebooks/nbk_half/sources': [source('src_shared')],
+      'GET /notebooks/nbk_keep/sources': [source('src_shared')],
+      'DELETE /notebooks/nbk_half/sources/src_shared': new Error('knowledge refused'),
+    });
+    const r = await call('DELETE', '/notebooks/nbk_half?contents=delete');
+    expect(r.status).toBe(500);
+    expect(await notebooks.get('nbk_half')).toBeDefined();
+    expect(gone).toEqual([]);
+  });
+
+  it('takes the notebook last: a failed source delete leaves it, its notes and its links', async () => {
+    await notebooks.create({ id: 'nbk_fail', workspace_id: WS, title: 'Fail' });
+    await notebooks.createNote({
+      id: 'not_1',
+      notebook_id: 'nbk_fail',
+      kind: 'human',
+      title: 'N',
+      content_md: 'x',
+    });
+    mount({
+      'GET /notebooks/nbk_fail/sources': [source('src_only')],
+      'DELETE /sources/src_only': new Error('knowledge refused'),
+    });
+    expect((await call('DELETE', '/notebooks/nbk_fail?contents=delete')).status).toBe(500);
+    expect(await notebooks.get('nbk_fail')).toBeDefined();
+    expect(await notebooks.getNote('not_1')).toBeDefined();
+    expect(dismissed).toEqual([]);
+  });
+
+  it('keeps every source and every thread by default (the plain delete)', async () => {
     await notebooks.create({ id: 'nbk_plain', workspace_id: WS, title: 'Plain' });
+    await wsThread('thr_p', 'nbk_plain');
     mount({ 'GET /notebooks/nbk_plain/sources': [source('src_only')] });
     expect((await call('DELETE', '/notebooks/nbk_plain')).status).toBe(204);
     expect(calls.some((c) => c.method === 'DELETE' && c.path === '/sources/src_only')).toBe(false);
+    const t = await threads.getThread('thr_p');
+    expect(t).toBeDefined();
+    expect(t?.notebook_id).toBeNull();
+    expect(gone).toEqual([{ kind: 'notebook', id: 'nbk_plain' }]);
+  });
+
+  it('the plain delete still works when Knowledge is down', async () => {
+    await notebooks.create({ id: 'nbk_tol', workspace_id: WS, title: 'Tolerant' });
+    mount({ 'GET /notebooks/nbk_tol/sources': new Error('down') });
+    expect((await call('DELETE', '/notebooks/nbk_tol')).status).toBe(204);
+    expect(await notebooks.get('nbk_tol')).toBeUndefined();
+  });
+});
+
+describe('what a deleted notebook leaves behind', () => {
+  const thread = (id: string, notebook: string | null) =>
+    threads.createThread({ id, workspace_id: WS, notebook_id: notebook, title: id });
+
+  it('a thread from a private notebook stays private, and stays so after the Trash and a restore', async () => {
+    await notebooks.create({ id: 'nbk_priv', workspace_id: WS, title: 'Secret' });
+    await scopes.setPrivate('nbk_priv', true);
+    await thread('thr_p', 'nbk_priv');
+    await thread('thr_trashed', 'nbk_priv');
+    await threads.setFields(WS, 'thr_trashed', { deleted_at: '2026-10-02T00:00:00.000Z' });
+    const before = await getEffectiveScope(scopes, { threadId: 'thr_p' });
+    expect(before.private).toBe(true);
+
+    expect((await call('DELETE', '/notebooks/nbk_priv')).status).toBe(204);
+
+    for (const id of ['thr_p', 'thr_trashed']) {
+      const eff = await getEffectiveScope(scopes, { threadId: id });
+      expect(eff.notebook_id).toBeNull();
+      expect(eff.scope.data_leaves_machine).toBe(false);
+      expect(eff.scope.engines).toEqual(['gateway_local']);
+    }
+    // Trash it and restore it: the limits are on the thread, so they come back with it.
+    await threads.setFields(WS, 'thr_p', { deleted_at: '2026-10-03T00:00:00.000Z' });
+    await threads.setFields(WS, 'thr_p', { deleted_at: null });
+    const again = await getEffectiveScope(scopes, { threadId: 'thr_p' });
+    expect(again.scope.data_leaves_machine).toBe(false);
+    expect(again.scope.engines).toEqual(['gateway_local']);
+  });
+
+  it('copies a notebook-level scope patch onto its threads, the stricter value winning', async () => {
+    await notebooks.create({ id: 'nbk_lim', workspace_id: WS, title: 'Limited' });
+    await scopes.mergePatch('notebook', 'nbk_lim', {
+      network: false,
+      tools_deny: ['shell.run'],
+      engines: ['gateway_local', 'gateway_cloud'],
+    });
+    await thread('thr_plain', 'nbk_lim');
+    await thread('thr_own', 'nbk_lim');
+    await scopes.mergePatch('thread', 'thr_own', { engines: ['gateway_local'], tools_deny: ['fs.write'] });
+    await call('DELETE', '/notebooks/nbk_lim');
+    const plain = await getEffectiveScope(scopes, { threadId: 'thr_plain' });
+    expect(plain.scope.network).toBe(false);
+    expect(plain.scope.tools_deny).toEqual(['shell.run']);
+    expect(plain.scope.engines).toEqual(['gateway_local', 'gateway_cloud']);
+    const own = await getEffectiveScope(scopes, { threadId: 'thr_own' });
+    // What the thread chose for itself is kept, and the notebook's limits are added to it.
+    expect(own.scope.engines).toEqual(['gateway_local']);
+    expect(own.scope.tools_deny.sort()).toEqual(['fs.write', 'shell.run']);
+    expect(own.scope.network).toBe(false);
+  });
+
+  it('deletes its notes with it, and the note routes no longer find them', async () => {
+    await notebooks.create({ id: 'nbk_notes', workspace_id: WS, title: 'Notes' });
+    const made = await call<Note>('POST', '/notebooks/nbk_notes/notes', { title: 'Idea', content_md: 'x' });
+    expect((await call('DELETE', '/notebooks/nbk_notes')).status).toBe(204);
+    expect(await notebooks.getNote(made.body.id)).toBeUndefined();
+    expect(await notebooks.notes('nbk_notes')).toEqual([]);
+    expect((await call('PATCH', `/notes/${made.body.id}`, { title: 'y' })).status).toBe(404);
+  });
+
+  it('removes context links that end at the notebook, from either side', async () => {
+    await notebooks.create({ id: 'nbk_l', workspace_id: WS, title: 'L' });
+    await notebooks.create({ id: 'nbk_m', workspace_id: WS, title: 'M' });
+    await links.create({
+      id: 'lnk_in',
+      workspace_id: WS,
+      from_kind: 'thread',
+      from_id: 'thr_x',
+      to_kind: 'notebook',
+      to_id: 'nbk_l',
+      kind: 'sources',
+    });
+    await links.create({
+      id: 'lnk_out',
+      workspace_id: WS,
+      from_kind: 'notebook',
+      from_id: 'nbk_l',
+      to_kind: 'notebook',
+      to_id: 'nbk_m',
+      kind: 'sources',
+    });
+    await links.create({
+      id: 'lnk_keep',
+      workspace_id: WS,
+      from_kind: 'thread',
+      from_id: 'thr_x',
+      to_kind: 'notebook',
+      to_id: 'nbk_m',
+      kind: 'sources',
+    });
+    await call('DELETE', '/notebooks/nbk_l');
+    expect([...links.rows.keys()]).toEqual(['lnk_keep']);
+  });
+
+  it('marks the Claude Code folder dismissed before the notebook goes', async () => {
+    await notebooks.create({ id: 'nbk_cc', workspace_id: WS, title: 'Folder' });
+    await call('DELETE', '/notebooks/nbk_cc');
+    expect(dismissed).toEqual(['nbk_cc']);
+  });
+
+  it('tells Pro when a single source is deleted', async () => {
+    mount();
+    expect((await call('DELETE', '/sources/src_9')).status).toBe(204);
+    expect(gone).toEqual([{ kind: 'source', id: 'src_9' }]);
   });
 });
 

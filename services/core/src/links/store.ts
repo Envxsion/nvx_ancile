@@ -42,6 +42,8 @@ export interface LinkStore {
   outgoing(ends: LinkEnd[]): Promise<LinkRecord[]>;
   /** Links that read from this end, oldest first. */
   incoming(end: LinkEnd): Promise<LinkRecord[]>;
+  /** Every link that starts or ends at this thread or notebook, for when it is deleted. Returns how many. */
+  removeForEnd(end: LinkEnd): Promise<number>;
 }
 
 const sortOld = (a: LinkRecord, b: LinkRecord) =>
@@ -87,6 +89,19 @@ export class MemoryLinkStore implements LinkStore {
       .sort(sortOld)
       .map((r) => ({ ...r }));
   }
+
+  async removeForEnd(end: LinkEnd) {
+    let n = 0;
+    for (const [id, r] of this.rows)
+      if (
+        (r.from_kind === end.kind && r.from_id === end.id) ||
+        (r.to_kind === end.kind && r.to_id === end.id)
+      ) {
+        this.rows.delete(id);
+        n++;
+      }
+    return n;
+  }
 }
 
 interface LinkRow extends Omit<LinkRecord, 'created_at'> {
@@ -131,5 +146,13 @@ export class PgLinkStore implements LinkStore {
       select * from core.context_links where to_kind = ${end.kind} and to_id = ${end.id}
       order by created_at, id`;
     return rows.map(fromRow);
+  }
+
+  async removeForEnd(end: LinkEnd) {
+    const rows = await this.sql`
+      delete from core.context_links
+      where (from_kind = ${end.kind} and from_id = ${end.id}) or (to_kind = ${end.kind} and to_id = ${end.id})
+      returning id`;
+    return rows.length;
   }
 }

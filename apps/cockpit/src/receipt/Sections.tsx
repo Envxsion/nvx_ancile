@@ -91,6 +91,7 @@ const LINK_STATE: Record<Explain['links'][number]['state'], string> = {
   used: 'Used',
   empty: 'Nothing matched',
   refused: 'Not read',
+  missing: 'Deleted',
 };
 
 /** Which links (and context packs) this answer drew on, and which a scope kept out. */

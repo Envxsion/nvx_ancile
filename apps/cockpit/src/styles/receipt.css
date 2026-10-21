@@ -276,7 +276,8 @@ button.rc-step__row:focus-visible {
   gap: 4px 8px;
   align-items: center;
 }
-.rc-links li[data-state='refused'] {
+.rc-links li[data-state='refused'],
+.rc-links li[data-state='missing'] {
   color: var(--mute);
 }
 

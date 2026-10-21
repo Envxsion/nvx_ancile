@@ -289,6 +289,9 @@ export function threadRoutes(deps: ThreadRouteDeps) {
   r.post('/threads', async (c) => {
     const req = await body(c, CreateThreadRequest);
     if (req.model) assertChatModel(deps.registry, req.model);
+    // A thread is never made in a notebook that is not there (deleted, or someone else's).
+    if (req.notebook_id && deps.notebookExists && !(await deps.notebookExists(req.notebook_id)))
+      throw notFound('That notebook');
     const t = await repo.createThread({
       id: `thr_${ulid()}`,
       workspace_id: deps.workspaceId,

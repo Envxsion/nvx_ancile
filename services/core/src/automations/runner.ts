@@ -53,6 +53,14 @@ export interface JobResult {
   href?: string;
 }
 
+/**
+ * A job found that the notebook or flow it works on is gone. The automation is paused with that
+ * reason, once, instead of failing at every run until someone notices.
+ */
+export class TargetGone extends Error {
+  readonly pauses = true;
+}
+
 export interface JobContext {
   id: string;
   title: string;
@@ -87,6 +95,8 @@ export interface RunnerExtras {
   linked?: Record<string, LinkedJob>;
   /** After a job's switch, schedule or settings changed here (BuiltinSettings.refresh). */
   onChange?: (id: string) => void | Promise<void>;
+  /** An automation was paused because what it works on is gone: tell the person (a notice). */
+  onPaused?: (a: { id: string; title: string }, reason: string) => void | Promise<void>;
   /**
    * True while your own scheduled automations should wait (the desktop window
    * is hidden to the tray and Pro's background mode is off). They stay due and
@@ -495,6 +505,32 @@ export class AutomationRunner {
       return result.status;
     } catch (err) {
       const ms = Math.round(performance.now() - started);
+      if (err instanceof TargetGone) {
+        await this.store.patch(row.id, {
+          enabled: false,
+          next_run_at: null,
+          last_run_at: this.now().toISOString(),
+          last_status: 'skipped',
+          last_error: err.message,
+          last_detail: null,
+          last_href: null,
+          last_duration_ms: ms,
+          runs: row.runs + 1,
+        });
+        log.warn(
+          { automation: row.id, kind: row.kind },
+          `automation ${row.kind} paused: what it works on is gone`,
+        );
+        try {
+          await this.extras.onPaused?.({ id: row.id, title }, err.message);
+        } catch (e) {
+          log.warn(
+            { err: e instanceof Error ? e.message : String(e) },
+            'could not tell the person an automation was paused',
+          );
+        }
+        return 'skipped';
+      }
       // What failed is shown in Admin: no remote's or link's credentials in it.
       const message = redactRemote(err instanceof Error ? err.message : String(err));
       await this.store.patch(row.id, {

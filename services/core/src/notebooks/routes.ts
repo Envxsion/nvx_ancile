@@ -14,7 +14,8 @@
  *           |  multipart with the workspace and notebook attached.
  *  Note     |  Counts on the notebook list come from three places; a
  *           |  knowledge service that is down shows 0 sources rather
- *           |  than failing the whole list.
+ *           |  than failing the whole list. Deleting a notebook is
+ *           |  notebooks/delete.ts.
  * ------------------------------------------------------------------
  */
 
@@ -46,8 +47,12 @@ import { body } from '../http/body';
 import type { KnowledgeClient } from '../knowledge/client';
 import type { TombstoneStore } from '../knowledge/integrity';
 import { badRequest, notFound } from '../obs/errors';
+import { log } from '../obs/logger';
+import type { ProRemoval } from '../pro/types';
+import type { RunStore } from '../runs/engine';
 import { ancestorPath } from '../threads/path';
 import { asTree, type ThreadRepo, textOf } from '../threads/repo';
+import { sourcesOf as listSources, NotebookDeleter } from './delete';
 import type { NotebookMergeService } from './merge';
 import type { NotebookRecord, NotebookRepo } from './repo';
 
@@ -64,6 +69,12 @@ export interface NotebookRouteDeps {
   tombstones?: TombstoneStore;
   /** Merging one notebook into another (docs/notebooks.md); absent: the routes answer 404. */
   merge?: NotebookMergeService;
+  /** Deleting a notebook with its contents refuses while a thread of it is answering. */
+  runs?: Pick<RunStore, 'activeForThread'>;
+  /** A folder bound to a deleted notebook is marked dismissed, so Claude Code sync leaves it gone. */
+  claudeCode?: { dismissNotebook(notebookId: string): Promise<unknown> };
+  /** Told when a notebook or a source is removed, for whoever keeps copies (Pro). */
+  gone?: (e: ProRemoval) => Promise<unknown> | unknown;
 }
 
 type Stats = { sources: number; ready: number; chunks: number };
@@ -81,10 +92,7 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
   };
 
   /** The knowledge service lists as a bare array; the API always answers { items }. */
-  const sourcesOf = async (id: string): Promise<Source[]> => {
-    const r = await kn.get<Source[] | { items: Source[] }>(`/notebooks/${enc(id)}/sources`);
-    return Array.isArray(r) ? r : r.items;
-  };
+  const sourcesOf = (id: string): Promise<Source[]> => listSources(kn, id);
 
   const stats = (id: string): Promise<Stats> =>
     kn.get<Stats>(`/notebooks/${enc(id)}/stats`).catch(() => ({ sources: 0, ready: 0, chunks: 0 }));
@@ -162,28 +170,22 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
 
   r.delete('/notebooks/:id', async (c) => {
     const n = await notebook(c.req.param('id'));
-    // Sources stay in the workspace; only this notebook's links go. With ?sources=delete, the
-    // ones no other notebook uses are deleted too (the owner's "delete it with everything in it").
-    const deleteSources = c.req.query('sources') === 'delete';
-    const linked = await sourcesOf(n.id).catch(() => []);
-    let alone: Source[] = [];
-    if (deleteSources && linked.length) {
-      const others = (await notebooks.list(workspaceId)).filter((o) => o.id !== n.id);
-      const used = new Set<string>();
-      for (const o of others) for (const s of await sourcesOf(o.id)) used.add(s.id);
-      alone = linked.filter((s) => !used.has(s.id));
-    }
-    await Promise.all(
-      linked.map((s) => kn.del(`/notebooks/${enc(n.id)}/sources/${enc(s.id)}`).catch(() => undefined)),
-    );
-    for (const s of alone) {
-      await kn.del(`/sources/${enc(s.id)}`);
-      await bury(s, 'deleted');
-    }
-    await notebooks.remove(n.id);
-    // A flow is work: it outlives its notebook, as an inactive workspace draft.
-    await deps.flowStore?.orphan('notebook', n.id);
-    await deps.verdictCache?.clear(n.id);
+    const deleter = new NotebookDeleter({
+      workspaceId,
+      notebooks,
+      threads: deps.threads,
+      kn,
+      ...(deps.runs && { runs: deps.runs }),
+      ...(deps.flowStore && { flowStore: deps.flowStore }),
+      ...(deps.verdictCache && { verdictCache: deps.verdictCache }),
+      ...(deps.tombstones && { tombstones: deps.tombstones }),
+      ...(deps.claudeCode && { claudeCode: deps.claudeCode }),
+      ...(deps.gone && { gone: deps.gone }),
+    });
+    // ?contents=delete: "delete it with everything in it". ?sources=delete is the older name for it.
+    if (c.req.query('contents') === 'delete' || c.req.query('sources') === 'delete')
+      return c.json(await deleter.withContents(n));
+    await deleter.plain(n);
     return c.body(null, 204);
   });
 
@@ -411,6 +413,11 @@ export function notebookRoutes(deps: NotebookRouteDeps) {
     const gone = await beforeRemoval(c.req.param('id'));
     await kn.del(`/sources/${enc(c.req.param('id'))}`);
     await bury(gone, 'deleted');
+    try {
+      await deps.gone?.({ kind: 'source', id: c.req.param('id') });
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'removal notice failed');
+    }
     return c.body(null, 204);
   });
 

@@ -189,7 +189,11 @@ describe('reading through links in a turn', () => {
     await links.create({ kind: 'thread', id: 'thr_1' }, { to_kind: 'notebook', to_id: 'nbk_b' });
     notebooks.delete('nbk_b');
     const t = await links.forTurn('thr_1');
-    expect(t.skipped).toEqual([expect.objectContaining({ to_id: 'thr_2', state: 'empty' })]);
+    expect(t.skipped).toEqual([
+      expect.objectContaining({ to_id: 'thr_2', state: 'empty' }),
+      // A link whose far end was deleted is named, not dropped without a word.
+      expect.objectContaining({ to_id: 'nbk_b', state: 'missing', code: null }),
+    ]);
     expect(t.notebooks).toEqual([]);
     expect((await links.forTurn('thr_nope')).skipped).toEqual([]);
   });

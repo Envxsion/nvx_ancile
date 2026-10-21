@@ -296,7 +296,11 @@ export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: st
       );
       return rows.map((r): ProSyncChange => {
         const id = String(r.id);
-        const updatedAt = iso(r.updated_at ?? r.deleted_at ?? r.created_at);
+        // A thread that moved (or left a deleted notebook) keeps its updated_at so the rail does not
+        // reorder; placed_at says when it moved, and counts as the change time if it is later.
+        const stamp = iso(r.updated_at ?? r.deleted_at ?? r.created_at);
+        const placed = r.placed_at ? iso(r.placed_at) : '';
+        const updatedAt = placed > stamp ? placed : stamp;
         return isLocal(name, id, r, local)
           ? { id, updatedAt, local: true }
           : { id, updatedAt, data: pick(name, r) };
@@ -368,7 +372,7 @@ export function sqlSyncSource(sql: Sql, owner: { userId: string; workspaceId: st
         );
       },
     },
-    threads: table('threads', 'updated_at > $1 or deleted_at > $1', ws),
+    threads: table('threads', 'updated_at > $1 or deleted_at > $1 or placed_at > $1', ws),
     // Messages have no updated_at: a day's look-back catches answers that
     // finished after they were created; unchanged ones are skipped by hash.
     messages: {

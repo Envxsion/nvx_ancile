@@ -99,6 +99,32 @@ The public repository holds only the seam: the contract (`packages/contracts/src
 
 API: [api.md](api.md#notebook-merge-and-context-links). Errors: [errors.md](errors.md#notebooks-and-context-links).
 
+## Deleting a notebook
+
+`DELETE /api/v1/notebooks/:id` soft-deletes the notebook. What happens to everything that pointed at it:
+
+- **Its threads stay** (live, archived and in the Trash) and leave the notebook. **They keep its limits.** A thread takes its privacy from its notebook, so before it leaves, Core copies the notebook's private switch (as "data stays on this machine, local models only") and any scope the notebook set onto each thread, in the same transaction. A limit the thread already had is kept, and where both set one the stricter wins; nothing gets wider. A thread from a private notebook therefore stays private, also after a trip to the Trash and back. The dialog says so for a private notebook. Sync is told the thread moved through `threads.placed_at`, because the move must not touch `updated_at` and reorder the rail.
+- **Its notes** are deleted with it (`core.notes.deleted_at`); the note routes and Pro's search no longer find them.
+- **Its context links**, in either direction, are removed. A link from somewhere else that points at a notebook deleted before this fix is reported as skipped in the Why view (state `missing`) instead of being dropped without a word.
+- **Its scope row, its permission grants and its remembered image hosts** are removed (grants are revoked, not erased) after its limits have moved onto the threads.
+- **Its checked claims** are cleared and **its flows** become inactive workspace drafts.
+- **A Claude Code folder bound to it** is marked dismissed (`core.claude_code_dismissed`). Sync neither makes the notebook again nor brings the folder's sessions back in as new threads until you add the folder again: map it in Settings, import one of its sessions by hand, or start work in it. Sessions that still have a live thread keep syncing.
+- **Automations** that use the notebook (or a flow that no longer exists) are paused once, with a notice, the next time they run, instead of failing at every run.
+- **Pro** is told (`ProHooks.removed`): context pack items and attachments, notebook settings (commands, effort defaults, local model presets) that name it are dropped.
+
+**With everything in it** (`?contents=delete`, the older `?sources=delete` is the same) Core does the rest as well, whole, so the Cockpit does not have to guess which threads it has loaded:
+
+1. It reads first and changes nothing until it has it all: every thread of the notebook, live and archived; whether any is answering (409 `notebook.delete_blocked`, naming them); and the sources of this and every other notebook (the knowledge service must answer, or 503 `notebook.delete_needs_knowledge`).
+2. Every live thread goes to the Trash (30 days, as any deleted thread). It is reversible, so it goes first; if one began answering meanwhile, the ones that moved are put back and the request is refused.
+3. The sources no other notebook uses are deleted (a tombstone is written after each delete succeeds, so answers that cited it still name it); the others are unlinked. A failure here stops the delete, and the notebook is still there to try again.
+4. Its claims are cleared, flows orphaned, folder dismissed, and the notebook is removed last.
+
+It answers 200 `{ threads_trashed, sources_deleted, sources_kept }` (`DeleteNotebookResult`). The plain delete answers 204 and keeps its tolerant behaviour: a knowledge service that is down does not stop it.
+
+Knowledge only soft-deletes a source today: its file, chunks and embeddings stay on disk until the purge exists. TODO(phase-6): purge a deleted source's files, chunks and embeddings in Knowledge. The dialog says "deleted" for what leaves the product (search, answers, every notebook), which is true now.
+
+Threads, bulk moves and Undo refuse a notebook that does not exist or was deleted (404 `request.not_found`).
+
 ## The coding lab and your project
 
 - **Project instructions (LB2).** When a lab works for a repository you registered and linked (Repositories), its `AGENTS.md` or `CLAUDE.md` go to the engine with your prompt as your own instructions for that project. In each folder `AGENTS.md` is used, and `CLAUDE.md` only when there is no `AGENTS.md` there. The repository root comes first, then the folders on the way down to the ones your prompt names; a deeper file comes later and wins where they disagree. Each file is cut at 12 KB and the total at 24 KB, and a cut or an omitted file is said in the text the engine reads. A link out of the repository is not followed. Text inside sources, fetched pages or tool results is data and never comes through this route. The step records which files were used (`provenance.lab.instructions`).

@@ -80,6 +80,8 @@ export const TOKEN = 'x'.repeat(32);
 export const GATEWAY = 'g'.repeat(32);
 
 export interface HarnessOptions {
+  /** The notebooks that exist, as far as the thread routes can tell (absent: not checked). */
+  threadNotebooks?: string[];
   /** Notebook retrieval for grounded turns. */
   retriever?: import('../../src/conductor/retrieval').Retriever;
   /** How many sources the turn's notebook has (absent: unknown, so it is searched). */
@@ -444,6 +446,9 @@ export async function harness(opts: HarnessOptions = {}) {
         branches,
         flowStore,
         sendLocks,
+        ...(opts.threadNotebooks && {
+          notebookExists: async (id: string) => opts.threadNotebooks?.includes(id) ?? false,
+        }),
         ...(opts.switches && { switches: opts.switches }),
         afterSend: branchSuggester({
           gateway,

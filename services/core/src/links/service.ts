@@ -317,7 +317,23 @@ export class LinkService {
       const via = link.from_kind;
       const to: LinkEnd = { kind: link.to_kind, id: link.to_id };
       const title = await this.titleOf(to);
-      if (title === null) continue;
+      if (title === null) {
+        // The place it pointed at is gone: say so in the Why view rather than reading nothing silently.
+        out.skipped.push({
+          link_id: link.id,
+          kind: link.kind,
+          via,
+          to_kind: link.to_kind,
+          to_id: link.to_id,
+          title: '(deleted)',
+          state: 'missing',
+          passages: 0,
+          cited: 0,
+          code: null,
+          reason: 'It was deleted, so nothing was read from it',
+        });
+        continue;
+      }
       const linked = await this.scopeOf(to);
       const ok = checkLinkRead(readerScope, linked, this.named(to, title), reader);
       const base = {

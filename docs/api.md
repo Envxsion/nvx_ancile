@@ -189,7 +189,12 @@ POST   /api/v1/threads/thr_…/links     { "to_kind": "notebook", "to_id": "nbk_
 GET    /api/v1/notebooks/nbk_…/links   → ContextLinkList
 POST   /api/v1/notebooks/nbk_…/links   { "to_kind": "thread", "to_id": "thr_…" } → 201 ContextLink
 DELETE /api/v1/context-links/lnk_…     → 204
+
+DELETE /api/v1/notebooks/nbk_…                    → 204 (its threads and sources stay in the workspace)
+DELETE /api/v1/notebooks/nbk_…?contents=delete    → 200 DeleteNotebookResult { threads_trashed, sources_deleted, sources_kept }
 ```
+
+`?contents=delete` (the older `?sources=delete` is the same) sends every thread of the notebook, live and archived, to the Trash, deletes the sources no other notebook uses and unlinks the rest, in Core. It is refused with 409 `notebook.delete_blocked` while any of its threads is answering and with 503 `notebook.delete_needs_knowledge` when Knowledge cannot be read, in both cases with nothing changed. Either way the notebook's threads keep its privacy and scope limits, and its notes, context links, scope row and grants go with it (docs/notebooks.md, Deleting a notebook). `POST /threads`, `POST /threads/bulk` `move` and a `revert` that would put a thread into a notebook answer 404 `request.not_found` when that notebook does not exist or is deleted. An `ExplainLink.state` of `missing` means the notebook or thread a link pointed at has been deleted.
 
 A link to a notebook reads its sources (`kind: sources`); a link to a thread sees its summary (`kind: summary`). Each `ContextLink` carries `status`: `{ ok: true }`, or `{ ok: false, code, reason }` when a scope refuses a read now. Making a link the scopes refuse is 403 with the scope's own code (`scope.private_notebook`, `scope.data_stays_local`, `scope.context_links_off`, `scope.engine_not_allowed`, `scope.model_not_allowed`).
 

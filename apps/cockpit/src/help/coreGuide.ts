@@ -484,7 +484,9 @@ A row marked **Set in the environment** comes from a variable where NVX Ancile i
 
 Threads started inside a notebook are **grounded**: before the model answers, NVX Ancile finds the passages in the notebook's sources that best match the question and gives them to the model, which cites them by number.
 
-Move an existing thread into a notebook from its menu (right-click it in the sidebar).`,
+Move an existing thread into a notebook from its menu (right-click it in the sidebar).
+
+To delete a notebook, open its menu and choose **Delete notebook**. Its threads stay in your sidebar, outside any notebook, and they keep the notebook's privacy: a thread from a private notebook still never leaves this computer. Its notes go with it, and so do its links to other notebooks. Its sources stay in your workspace for other notebooks. Tick **Also delete its threads and sources** to send its threads to the Trash (you can restore them for 30 days) and delete the sources no other notebook uses. If a thread in it is answering, stop it or wait first.`,
       },
       {
         id: 'sources',

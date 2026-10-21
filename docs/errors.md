@@ -216,6 +216,8 @@ Merging notebooks and context links (docs/notebooks.md). A link refused by a sco
 | `notebook.merge_conflict` | 409 | "One of the notebooks changed while merging." / Nothing was merged. Look at both notebooks again and try once more. On undo: "This merge cannot be undone now" / The notebook it was merged into has been deleted. Restore it first. |
 | `notebook.merge_undone` | 409 | "This merge was already undone." / Nothing to do. |
 | `notebook.merge_expired` | 409 | "This merge can no longer be undone." / A merge can be undone for 7 days. Move threads and sources back by hand instead. |
+| `notebook.delete_blocked` | 409 | "A thread in this notebook is answering." (or "N threads in this notebook are answering.") / Stop them or wait for them to finish, then delete the notebook again. Nothing was changed. The detail names the threads. (Deleting a notebook with everything in it.) |
+| `notebook.delete_needs_knowledge` | 503 | "The sources could not be checked, so nothing was deleted." / Deleting a notebook with its contents needs the knowledge service. Check Health, then try again. Nothing was changed. |
 | `link.self` | 422 | "A thread or notebook cannot link to itself." / Choose another notebook or thread to draw on. |
 | `link.own_notebook` | 422 | "This thread already reads its own notebook's sources." / Link it to another notebook instead. |
 | `link.exists` | 409 | "<The notebook or thread> is already linked here." / It is in the list of links already. |

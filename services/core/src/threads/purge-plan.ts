@@ -209,6 +209,39 @@ export const PURGE_PLAN: readonly PurgeEntry[] = [
     column: 'thread_id',
     why: "The thread's own content. Before it goes, its billed answers are rolled up into core.usage_archive, which the Usage report and the month-to-date budget read, so past spend does not change.",
   },
+  // ---- rows keyed by level and id, with no foreign key ----
+  {
+    table: 'core.scopes',
+    action: 'delete',
+    by: 'raw',
+    column: 'ref_id',
+    where: "level = 'thread' and ref_id = any($1)",
+    why: "The thread's own scope: what it narrowed, and the limits it took from a deleted notebook. Nothing else reads it once the thread is gone.",
+  },
+  {
+    table: 'core.scope_shared_history',
+    action: 'delete',
+    by: 'raw',
+    column: 'ref_id',
+    where: "level = 'thread' and ref_id = any($1)",
+    why: 'What had already left this machine before the thread became local only: counts per destination, about a thread that no longer exists.',
+  },
+  {
+    table: 'core.grants',
+    action: 'delete',
+    by: 'raw',
+    column: 'scope_ref',
+    where: "scope = 'thread' and scope_ref = any($1)",
+    why: 'A permission granted for this thread alone has no thread left to apply to. What was decided stays in core.decisions.',
+  },
+  {
+    table: 'core.image_remote_hosts',
+    action: 'delete',
+    by: 'raw',
+    column: 'scope_key',
+    where: "scope_key in (select 'thread:' || x from unnest($1::text[]) as x)",
+    why: 'Hosts whose images were loaded in a thread outside any notebook (scope_key thread:<id>).',
+  },
   // ---- chat imports (SU1) ----
   {
     table: 'core.chat_import_items',

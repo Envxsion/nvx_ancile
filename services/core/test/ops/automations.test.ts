@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { cronWords, nextRun, parseCron, scheduleProblem } from '../../src/automations/cron';
 import { AutomationRunner, MemoryAutomationStore } from '../../src/automations/runner';
+import { userJobs } from '../../src/automations/userJobs';
 import { type CheckSpec, DiagnosticRunner } from '../../src/diagnostics/runner';
 
 const at = (s: string) => new Date(s);
@@ -115,6 +116,68 @@ describe('automations', () => {
     expect(v?.last_error).toBe('disk is read-only');
     await runner.setEnabled('cleanup', false);
     expect((await runner.views())[0]?.next_run_at).toBeNull();
+  });
+});
+
+describe('an automation whose notebook was deleted', () => {
+  it('is paused once with a notice, instead of failing at every run', async () => {
+    let now = at('2026-10-08T08:59:00');
+    const notices: { title: string; reason: string }[] = [];
+    let exists = true;
+    const store = new MemoryAutomationStore();
+    const runner = new AutomationRunner({}, {}, store, () => now, {
+      userHandlers: userJobs({
+        turn: {} as never,
+        workspaceId: 'wsp_test',
+        // Only the notebook check runs before the notebook is found missing, so no turn is needed.
+        notebookTitle: async () => (exists ? 'Pumps' : null),
+        flowExists: async () => true,
+      }),
+      onPaused: (a, reason) => void notices.push({ title: a.title, reason }),
+    });
+    const made = await runner.create({
+      kind: 'ask_model',
+      title: 'Check pump links',
+      cron: '0 9 * * *',
+      config: { prompt: 'Any news?', notebook_id: 'nbk_pumps' },
+      enabled: true,
+    });
+    exists = false;
+    now = at('2026-10-08T09:00:10');
+    await runner.tick();
+    const v = (await runner.views()).find((x) => x.id === made.id);
+    expect(v?.enabled).toBe(false);
+    expect(v?.next_run_at).toBeNull();
+    expect(v?.last_status).toBe('skipped');
+    expect(v?.last_error).toMatch(/notebook it uses no longer exists/);
+    expect(notices).toEqual([
+      { title: 'Check pump links', reason: expect.stringMatching(/pick another notebook/) },
+    ]);
+    // The next day it does not run, fail or tell anyone again.
+    now = at('2026-10-09T09:00:10');
+    await runner.tick();
+    expect(notices).toHaveLength(1);
+    expect((await runner.views()).find((x) => x.id === made.id)?.runs).toBe(1);
+  });
+
+  it('still fails a run that goes wrong for another reason', async () => {
+    const store = new MemoryAutomationStore();
+    const runner = new AutomationRunner({}, {}, store, undefined, {
+      userHandlers: {
+        notify: async () => {
+          throw new Error('the bus is down');
+        },
+      },
+    });
+    const made = await runner.create({
+      kind: 'notify',
+      title: 'Nudge',
+      cron: '0 9 * * *',
+      config: { title: 'x' },
+      enabled: true,
+    });
+    expect(await runner.runNow(made.id)).toBe('failed');
+    expect((await runner.views()).find((x) => x.id === made.id)?.enabled).toBe(true);
   });
 });
 

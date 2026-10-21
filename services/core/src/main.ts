@@ -218,7 +218,7 @@ import { proPackHost } from './pro/packs';
 import { lockedProRoutes, ownerIdentity, proRoutes } from './pro/routes';
 import { proServices } from './pro/services';
 import { sqlSyncSource } from './pro/sync-source';
-import type { ProHooks } from './pro/types';
+import type { ProHooks, ProRemoval } from './pro/types';
 import { GhCliClient, GitHubAccessor, GitHubRestClient, savedToken } from './repos/github';
 import { repoRoutes } from './repos/routes';
 import { RepoService } from './repos/service';
@@ -297,6 +297,11 @@ const serviceName = (id: string) => SERVICE_NAMES[id] ?? id.charAt(0).toUpperCas
 async function main() {
   /** Pro's part in answering (set once Pro has loaded; absent in the free build). */
   let proHooks: ProHooks | undefined;
+  // Something was removed for good (a notebook, a purged thread, a deleted source): Pro drops the
+  // copies and pointers it kept. Read when it happens, like every hook, and never allowed to fail the removal.
+  const proRemoved = async (e: ProRemoval) => {
+    await proHooks?.removed?.(e);
+  };
   let env: ReturnType<typeof loadEnv>;
   try {
     env = loadEnv();
@@ -1141,6 +1146,7 @@ async function main() {
     afterPurge: async (id) => {
       await flowStore.orphan('thread', id);
       await imageStore.deleteThread(id);
+      await proRemoved({ kind: 'thread', id }).catch(() => undefined);
     },
   });
   const flows = new FlowsService({
@@ -1568,6 +1574,16 @@ async function main() {
       linked: { memory_capture: memoryCaptureLink({ memory, settings }) },
       // A switch or a setting changed here reaches the features (and the knowledge service) at once.
       onChange: () => builtinSettings.refresh(),
+      // What an automation worked on was deleted: it is paused, and you are told once.
+      onPaused: (a, reason) =>
+        events.publish({
+          type: 'notification',
+          id: `ntf_${a.id}_paused`,
+          level: 'warn',
+          title: `${a.title} was paused`,
+          body: reason,
+          action: { label: 'Open automations', href: '/admin/automations' },
+        }),
       userHandlers: userJobs({
         turn: {
           repo: threads,
@@ -1932,7 +1948,10 @@ async function main() {
         },
       }),
       threadRoutes({
-        afterDelete: (id) => imageStore.deleteThread(id),
+        afterDelete: async (id) => {
+          await imageStore.deleteThread(id);
+          await proRemoved({ kind: 'thread', id }).catch(() => undefined);
+        },
         repo: threads,
         runs: runStore,
         worker,
@@ -1995,6 +2014,9 @@ async function main() {
         tombstones,
         merge: notebookMerge,
         verdictCache,
+        runs: runStore,
+        claudeCode: claudeCode.service,
+        gone: proRemoved,
       }),
       linkRoutes(contextLinks),
       privacyRoutes(privacy),

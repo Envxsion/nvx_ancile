@@ -77,6 +77,19 @@ describe('purge plan', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('also clears the rows keyed by a thread’s id without a foreign key: its scope, shared history, grants and image hosts', () => {
+    const thread = (t: string) => PURGE_PLAN.find((e) => e.table === `core.${t}`);
+    expect(thread('scopes')).toMatchObject({ action: 'delete', by: 'raw' });
+    expect(thread('scopes')?.where).toContain("level = 'thread'");
+    expect(thread('scope_shared_history')?.where).toContain("level = 'thread'");
+    expect(thread('grants')?.where).toContain("scope = 'thread'");
+    expect(thread('image_remote_hosts')?.where).toContain("'thread:'");
+    // They run before the thread row itself goes.
+    const order = PURGE_PLAN.map((e) => e.table);
+    for (const t of ['scopes', 'scope_shared_history', 'grants', 'image_remote_hosts'])
+      expect(order.indexOf(`core.${t}`)).toBeLessThan(order.indexOf('core.threads'));
+  });
+
   it('only names tables and columns that exist', () => {
     const byName = new Map(tables.map((t) => [t.name, new Set(t.columns.map((c) => c.name))]));
     const migrated = readdirSync(MIGRATIONS)

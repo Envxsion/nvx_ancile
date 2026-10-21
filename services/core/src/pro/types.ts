@@ -323,8 +323,23 @@ export interface ProPackHost {
   ): Promise<{ ok: true } | { ok: false; code: string; reason: string }>;
 }
 
+/**
+ * Something Core removed for good that Pro may hold a copy of or a pointer to: a notebook was
+ * deleted, a thread was purged from the Trash, or a source was deleted. Ids only, never content.
+ */
+export type ProRemoval =
+  | { kind: 'notebook'; id: string }
+  | { kind: 'thread'; id: string }
+  | { kind: 'source'; id: string };
+
 /** Points in Core's own work where Pro may take part. Each is optional and may not fail Core. */
 export interface ProHooks {
+  /**
+   * Core removed a notebook, a thread or a source: Pro drops what it kept that refers to it
+   * (context pack items and attachments, beams, shadow results, eval items, notebook settings).
+   * Best effort: an error is logged and never undoes the removal.
+   */
+  removed?(e: ProRemoval): Promise<void>;
   /** Context packs attached to this thread or its notebook, for one turn. Core checks every scope. */
   turnContext?(q: {
     threadId: string;

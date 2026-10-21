@@ -412,9 +412,27 @@ export class ClaudeCodeService {
     return (await this.excluded())(cwd);
   }
 
-  /** The notebook a folder's sessions go to, for a thread started in NVX Ancile. */
-  notebookForFolder(cwd: string): Promise<string | null> {
+  /**
+   * The notebook a folder's sessions go to, for a thread started in NVX Ancile. Starting work in a
+   * folder is adding it again, so a folder whose notebook was deleted comes back here.
+   */
+  async notebookForFolder(cwd: string): Promise<string | null> {
+    await this.deps.store.undismiss(this.deps.workspaceId, cwd);
     return this.notebookFor(cwd);
+  }
+
+  /**
+   * Its notebook was deleted: the folders bound to it are dismissed, so a sync neither makes the
+   * notebook again nor brings the folder's sessions back in as new threads. They return when the
+   * person adds the folder again (Settings, importing a session, or starting work in it).
+   */
+  async dismissNotebook(notebookId: string): Promise<string[]> {
+    const folders = await this.deps.store.dismissNotebook(this.deps.workspaceId, notebookId);
+    if (folders.length) {
+      log.info({ folders: folders.length }, 'Claude Code folders dismissed with their deleted notebook');
+      this.emit('sessions', { detail: 'notebooks' });
+    }
+    return folders;
   }
 
   /** "Don't bring in this folder": add it to the excluded folders and tidy up. */
@@ -759,6 +777,7 @@ export class ClaudeCodeService {
         errorClass: 'permanent',
       });
     await this.deps.store.putProject(this.deps.workspaceId, p.cwd, p.notebook_id);
+    await this.deps.store.undismiss(this.deps.workspaceId, p.cwd);
     return p;
   }
 
@@ -773,6 +792,8 @@ export class ClaudeCodeService {
       const ws = this.deps.workspaceId;
       const projects = await this.deps.store.projects(ws);
       const key = cwdKey(cwd, this.platform);
+      // A folder whose notebook was deleted stays without one until it is added again.
+      if ((await this.deps.store.dismissed(ws)).has(key)) return null;
       const hit = projects.find((p) => p.cwd_key === key);
       if (hit && (await this.deps.notebooks.get(hit.notebook_id))) return hit.notebook_id;
       const books = await this.deps.notebooks.list(ws);
@@ -971,6 +992,8 @@ export class ClaudeCodeService {
         const info = byId.get(id) ?? (await this.deps.source.sessionInfo(id));
         if (!info) throw ccErrors.sessionNotFound(id);
         if (isExcluded(info.cwd)) throw ccErrors.folderExcluded(info.cwd ?? '');
+        // Importing by hand is adding the folder again.
+        if (info.cwd) await this.deps.store.undismiss(this.deps.workspaceId, info.cwd);
         const r = await this.syncSession(info, req.notebook_id ?? undefined);
         result.imported.push({
           session_id: id,
@@ -1579,9 +1602,13 @@ export class ClaudeCodeService {
       (await this.deps.store.sessions(this.deps.workspaceId)).map((b) => [b.session_id, b]),
     );
     const isExcluded = await this.excluded();
+    const dismissed = await this.deps.store.dismissed(this.deps.workspaceId);
     const todo = infos.filter((i) => {
       if (isExcluded(i.cwd)) return false;
       const b = bound.get(i.sessionId);
+      // A folder whose notebook was deleted is not brought back in: its sessions that have no
+      // thread (deleted with the notebook, or never imported) stay out. Ones still bound keep syncing.
+      if (!b && i.cwd && dismissed.has(cwdKey(i.cwd, this.platform))) return false;
       return !b || b.last_modified < i.lastModified || b.mapper_version < MAPPER_VERSION;
     });
     if (!todo.length) return;

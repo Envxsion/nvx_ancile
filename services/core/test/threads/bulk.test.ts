@@ -117,6 +117,34 @@ describe('POST /threads/bulk', () => {
     ).toBe(400);
   });
 
+  it('refuses a notebook that does not exist or was deleted: to start a thread, to move into, and to undo into', async () => {
+    h = await harness({ threadNotebooks: ['nbk_live'] });
+    expect((await h.call('POST', '/threads', { title: 'x', notebook_id: 'nbk_live' })).status).toBe(201);
+    const made = await h.call<{ error: { code: string } }>('POST', '/threads', {
+      title: 'y',
+      notebook_id: 'nbk_deleted',
+    });
+    expect(made.status).toBe(404);
+    expect(made.body.error.code).toBe('request.not_found');
+    expect((await list(h)).map((t) => t.title)).toEqual(['x']);
+
+    const [a] = (await threads(h, 1)) as string[] as [string];
+    const move = await h.call('POST', '/threads/bulk', {
+      action: 'move',
+      ids: [a],
+      notebook_id: 'nbk_deleted',
+    });
+    expect(move.status).toBe(404);
+    // Undo would put a thread back in a notebook that has since been deleted.
+    const before = (await h.repo.statesOf(WORKSPACE_ID, [a]))[0];
+    const undo = await h.call('POST', '/threads/bulk', {
+      action: 'revert',
+      states: [{ ...before, notebook_id: 'nbk_deleted' }],
+    });
+    expect(undo.status).toBe(404);
+    expect((await h.repo.statesOf(WORKSPACE_ID, [a]))[0]?.notebook_id).toBeNull();
+  });
+
   it('keeps Claude Code threads out of a private notebook and moves the rest', async () => {
     h = await harness();
     const plain = await h.newThread({ title: 'Plain' });
