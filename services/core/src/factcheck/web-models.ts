@@ -127,21 +127,60 @@ function remember(cited: Cited, url: string | undefined, text: unknown, site?: s
   for (const k of keys) if ((cited.get(k)?.length ?? 0) < t.length) cited.set(k, t);
 }
 
+/** Where the JSON value that starts at `from` (a bracket) ends, skipping strings; -1 when it never closes. */
+function closeOf(text: string, from: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '[' || ch === '{') depth++;
+    else if (ch === ']' || ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The first JSON array in a model's reply (or an object holding one, or a single page object), however it
+ * is wrapped: in a code fence, after a sentence, or followed by more prose.
+ */
+function listIn(text: string): Record<string, unknown>[] {
+  const objects = (v: unknown[]) =>
+    v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object');
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '[' && text[i] !== '{') continue;
+    const end = closeOf(text, i);
+    if (end < 0) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(text.slice(i, end + 1));
+    } catch {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      const items = objects(value);
+      if (items.length) return items;
+    } else if (value && typeof value === 'object') {
+      const o = value as Record<string, unknown>;
+      const inner = Object.values(o).find((x) => Array.isArray(x) && objects(x).length > 0);
+      if (inner) return objects(inner as unknown[]);
+      if (typeof o.url === 'string') return [o];
+    }
+  }
+  return [];
+}
+
 /** The model's list as it wrote it: a link and a title, with or without text. Public http(s) links only. */
 function rawHits(text: string): WebHit[] {
-  const a = text.indexOf('[');
-  const b = text.lastIndexOf(']');
-  if (a < 0 || b <= a) return [];
-  let list: unknown;
-  try {
-    list = JSON.parse(text.slice(a, b + 1));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(list)) return [];
   const out: WebHit[] = [];
-  for (const r of list as Record<string, unknown>[]) {
-    const url = clean(r?.url, 500);
+  for (const r of listIn(text)) {
+    const url = clean(r?.url ?? r?.link, 500);
     if (!/^https?:\/\//i.test(url)) continue;
     out.push({ title: clean(r?.title, 140), url, snippet: clean(r?.snippet ?? r?.quote ?? r?.text, 400) });
   }
@@ -175,8 +214,8 @@ export function parseHitList(text: string, max = 5): WebHit[] {
 const promptFor = (query: string) =>
   `Search the web for the claim below. List up to 5 of the most relevant pages. Reply with only a JSON array of objects {"title", "url", "snippet"}. The snippet is required: one to three sentences copied from that page, including the figure, date or name that settles the claim. Leave out any page you cannot quote. No other text.\n\nClaim to look up: ${query.slice(0, 400)}`;
 
-/** One route's call may take this long; the chain moves on rather than waiting twice as long. */
-const CALL_TIMEOUT_MS = 15_000;
+/** One attempt may take this long (the model searches, then writes); a hung call is not retried. */
+export const CALL_TIMEOUT_MS = 25_000;
 
 async function post(
   fetcher: typeof fetch,
@@ -482,8 +521,12 @@ const REST_PERMANENT_MS = 30 * 60_000;
 const REST_TRANSIENT_MS = 5 * 60_000;
 
 /** Why a route failed, in a line (the provider's own words when it gave them). */
-const reasonOf = (err: unknown): string =>
-  (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 240) || 'it failed';
+const reasonOf = (err: unknown): string => {
+  const e = err as { name?: string; message?: string } | undefined;
+  if (e?.name === 'TimeoutError' || /aborted due to timeout/i.test(e?.message ?? ''))
+    return `it did not answer within ${CALL_TIMEOUT_MS / 1000} s`;
+  return (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 240) || 'it failed';
+};
 
 export function webSearchChain(deps: WebChainDeps): WebChain {
   const now = () => (deps.now ?? (() => new Date()))();

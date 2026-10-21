@@ -1,0 +1,133 @@
+{
+  "route": "anthropic",
+  "query": "The Amazon is the longest river in South America.",
+  "model": "claude-haiku-5-5",
+  "recorded": "2026-10-21",
+  "response": {
+    "model": "claude-haiku-5-5",
+    "id": "[redacted]",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "[redacted]"
+      },
+      {
+        "type": "server_tool_use",
+        "id": "[redacted]",
+        "name": "web_search",
+        "input": {
+          "query": "Amazon longest river in South America"
+        }
+      },
+      {
+        "type": "web_search_tool_result",
+        "tool_use_id": "srvtoolu-[redacted]",
+        "content": [
+          {
+            "type": "web_search_result",
+            "title": "The Longest Rivers in South America",
+            "url": "https://www.worldatlas.com/articles/the-longest-rivers-in-south-america.html",
+            "encrypted_content": "[redacted]",
+            "page_age": "3148 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "The Longest Rivers in South America including Photos and Location - Discovery UK",
+            "url": "https://www.discoveryuk.com/travel-and-exploration/the-longest-rivers-in-south-america/",
+            "encrypted_content": "[redacted]",
+            "page_age": "1350 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "Longest rivers in South America - Global Geografia",
+            "url": "https://www.globalgeografia.com/en/south-america/longest-rivers-south-america.htm",
+            "encrypted_content": "[redacted]",
+            "page_age": null
+          },
+          {
+            "type": "web_search_result",
+            "title": "12 Longest Rivers in South America: Listed by Length (Quick Stats)",
+            "url": "https://storyteller.travel/rivers-in-south-america/",
+            "encrypted_content": "[redacted]",
+            "page_age": "398 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "South America Longest Rivers",
+            "url": "https://www.mappr.co/river-maps/shouth-america/",
+            "encrypted_content": "[redacted]",
+            "page_age": "9 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "What is the longest river in South America?",
+            "url": "https://blogpatagonia.australis.com/longest-river-south-america/",
+            "encrypted_content": "[redacted]",
+            "page_age": "259 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "What is the longest river in south america?- HotBot Topics",
+            "url": "https://www.hotbot.com/answers/what-is-the-longest-river-in-south-america",
+            "encrypted_content": "[redacted]",
+            "page_age": "806 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "The Longest River in South America",
+            "url": "https://www.whatarethe7continents.com/longest-river-south-america/",
+            "encrypted_content": "[redacted]",
+            "page_age": "3279 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "graphsearch.epfl.ch",
+            "url": "https://graphsearch.epfl.ch/en/concept/1701",
+            "encrypted_content": "[redacted]",
+            "page_age": null
+          }
+        ],
+        "caller": {
+          "type": "direct"
+        }
+      },
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "[redacted]"
+      },
+      {
+        "type": "text",
+        "text": "```json\n[\n  {\"title\": \"The Longest Rivers in South America including Photos and Location - Discovery UK\", \"url\": \"https://www.discoveryuk.com/travel-and-exploration/the-longest-rivers-in-south-america/\", \"snippet\": \"Rising in the Andes, it flows for 4,345 miles, easily making it South America’s longest river.\"},\n  {\"title\": \"12 Longest Rivers in South America: Listed by Length (Quick Stats)\", \"url\": \"https://storyteller.travel/rivers-in-south-america/\", \"snippet\": \"The Amazon River is the longest at 3,977 miles (6,400 km).\"},\n  {\"title\": \"What is the longest river in South America?\", \"url\": \"https://blogpatagonia.australis.com/longest-river-south-america/\", \"snippet\": \"Stretching somewhere between 6,400 and 6,992 kilometres, the Amazon is South America’s longest river.\"},\n  {\"title\": \"The Longest River in South America\", \"url\": \"https://www.whatarethe7continents.com/longest-river-south-america/\", \"snippet\": \"The longest river in South America is the interminable Amazon river.\"},\n  {\"title\": \"South America Longest Rivers\", \"url\": \"https://www.mappr.co/river-maps/shouth-america/\", \"snippet\": \"The Amazon river system is the longest of its kind in South America.\"}\n]\n```"
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 14990,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 1514,
+      "output_tokens_details": {
+        "thinking_tokens": 1007
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard",
+      "server_tool_use": {
+        "web_search_requests": 1,
+        "web_fetch_requests": 0
+      }
+    },
+    "diagnostics": null
+  }
+}

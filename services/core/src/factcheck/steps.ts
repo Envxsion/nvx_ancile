@@ -681,6 +681,10 @@ export interface Gathered {
 export type WebLookup = (query: string, signal: AbortSignal) => Promise<WebHit[] | null>;
 
 /** The most claims one check looks up on the web: a cap on time and on what leaves this machine. */
+/** What a claim says when no evidence was found and the web was not searched, and when it was searched and gave no text. */
+export const NO_SOURCE_TEXT = 'Nothing in your sources mentions this.';
+export const NO_WEB_TEXT = 'The web had nothing quotable on this.';
+
 export const WEB_MAX_QUERIES = 8;
 /** Web results kept for a claim. */
 export const WEB_HITS_PER_CLAIM = 3;
@@ -1003,7 +1007,7 @@ export async function verifyClaim(
   if (!input.evidence.length && !general)
     return {
       verdict: 'insufficient',
-      rationale: 'Nothing in your sources mentions this.',
+      rationale: NO_SOURCE_TEXT,
       evidence: [],
       modelId: '',
       tier: null,

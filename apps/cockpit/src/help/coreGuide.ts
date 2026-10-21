@@ -28,14 +28,6 @@
 import type { Chapter } from './articles';
 import { GLOSSARY } from './glossary';
 
-/*
- * RECONCILE(web-route): the one section of the guide that depends on how the
- * fact-check web lookup is built (services/core/src/factcheck/web*). It is
- * written to the behaviour at 21 Oct 2026: sources, then general knowledge for
- * obvious claims, then the web; empty web snippets dropped; the route used shown
- * in the evidence tooltip. If the lookup order, the routes, the cap or the tooltip
- * change, change this text and docs/factcheck.md "The web (FC4)" together.
- */
 const FACTCHECK_WEB_ROUTE = `### How the web is searched
 
 A lookup needs a web search. NVX Ancile tries these in order, and a route that fails hands over to the next:
@@ -45,11 +37,12 @@ A lookup needs a web search. NVX Ancile tries these in order, and a route that f
 3. **OpenRouter's web search**, if an OpenRouter key is ready. It uses the cheapest ready OpenRouter model.
 4. **Anthropic's web search**, if an Anthropic key is ready. It uses the cheapest ready Haiku.
 
-Nothing needs installing if you already have one of those keys. Each lookup is one small call per claim that returns titles, links and snippets; a result with an empty snippet is dropped. Hover a piece of web evidence to see which route found it.
+Nothing needs installing if you already have one of those keys. Each lookup is one small call per claim that returns titles, links and quoted text, and a model's reply is read wherever it puts its list (a code fence is fine). A result with no text is dropped, and a route that finds pages but nothing to quote hands over to the next. A call is given 25 seconds and is not tried twice. When no route finds anything quotable, the claim reads "The web had nothing quotable on this." Hover a piece of web evidence to see which route found it.
 
 - **Cost.** What the lookups cost is added to the check's cost on the card and the receipt.
-- **Daily cap.** Lookups through a model stop for the day once they have cost 25 cents (you can change it in the fact-check settings file). The check carries on with your sources and says "Not checked on the web: the daily web budget is reached."
+- **Daily cap.** Lookups through a model stop for the day once they have cost 25 cents. Change web_daily_cap_usd in config/factcheck.yaml. The check carries on with your sources and says "Not checked on the web: the daily web budget is reached."
 - **At most 8 claims** of a check are looked up, the ones your sources cover least, with 3 results each.
+- **A route that fails rests** for a few minutes and the next one is used. A Google key without billing may have no grounding quota, so that route rests and the next takes over.
 - **If none is available**, the check says "Not checked on the web: no search is set up." and offers **Set up web search**.`;
 
 export const CORE_CHAPTERS: Chapter[] = [
@@ -616,6 +609,7 @@ A claim that could not be settled says why, in one line, and the others carry on
 - **Limits**: "3 model calls did not settle it", "the check reached its limit of 20 model calls", "the check ran out of time" and "the check reached its spending limit".
 - **The web was not used**: no search is set up, a private notebook, a notebook that keeps data on this machine, network off or web search blocked, Strict waiting for your yes, the daily web budget reached, or the search did not answer.
 - **Nothing in your sources mentions this**: the claim is not obvious, and the web was not an option.
+- **The web had nothing quotable on this**: the web was searched, but no page came back with text to check against.
 
 ### Limits for each check
 

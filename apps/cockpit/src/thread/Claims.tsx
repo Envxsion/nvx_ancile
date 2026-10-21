@@ -241,7 +241,14 @@ export function EvidenceList({ claim, limit }: { claim: FactcheckClaim; limit?: 
   const list = (shown.length ? shown : claim.evidence).slice(0, limit ?? 6);
   // Contradictions first: they are the reason to look.
   list.sort((a, b) => Number(b.stance === 'contradicts') - Number(a.stance === 'contradicts'));
-  if (!list.length) return <p className="ev-none">Nothing in your sources mentions this.</p>;
+  if (!list.length)
+    return (
+      <p className="ev-none">
+        {claim.rationale === 'The web had nothing quotable on this.'
+          ? claim.rationale
+          : 'Nothing in your sources mentions this.'}
+      </p>
+    );
   return (
     <ul className="ev-quotes">
       {list.map((e) => (

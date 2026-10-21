@@ -98,6 +98,8 @@ import {
   gatherEvidence,
   lookupWebEvidence,
   NeedsChoice,
+  NO_SOURCE_TEXT,
+  NO_WEB_TEXT,
   type StepDeps,
   unsureGeneral,
   WEB_MAX_QUERIES,
@@ -529,7 +531,11 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                 evidence: v.evidence,
                 coverage: g.coverage,
                 verdict: v.verdict,
-                rationale: v.rationale,
+                // Searched the web and nothing came back to quote: say so, not "your sources".
+                rationale:
+                  g.webTried && v.rationale === NO_SOURCE_TEXT && v.evidence.length === 0
+                    ? NO_WEB_TEXT
+                    : v.rationale,
                 verdicts: v.verdicts,
                 confidence: v.confidence,
                 general: v.general,
