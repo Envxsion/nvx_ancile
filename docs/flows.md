@@ -58,15 +58,14 @@ The most specific choice wins:
 
 With no flow, the thread's model answers, or your default.
 
-### Changing the model while a flow answers
+### Who answers
 
-Pick a model (`m`, the model chip or the status bar) in a thread a flow answers and NVX Ancile asks how it should take part:
+The composer has one chip, **Who answers**. It shows one name: a model, or the flow when one answers. Where the choice comes from (this thread, this notebook, the workspace) is said inside its menu, not on the chip.
 
-- **Just the next message.** The model answers your next message alone; then the flow answers again.
-- **This thread instead of the flow.** The flow is paused in this thread only (the flow chip reads **Flow paused**); other threads in the notebook keep it. Turn it back on from the flow chip.
-- **Inside the flow.** Open the flow and choose which step uses the model. For one thread only, use the flow chip's **Change one step here only**: the notebook's flow stays as it is.
+- **No flow answering.** The chip opens the model list (`m`, or Ctrl+K then `@`). Under **Flows** it also lists the flows you can pick, each with where it lives. Choose **Answer with Flow 1** and the chip shows the flow's name. Choose a model and it shows the model.
+- **A flow answering.** The chip opens a menu. Each model step of the flow is listed and can be switched **for this thread only**; the flow itself is untouched, and **Use the flow's choice** puts a step back. A step whose model cannot answer (key missing, switched off, not downloaded) says so and names the fallback that steps in. **Use one model instead** opens the model list; choosing a model pauses the flow in this thread only, and other threads in the notebook keep it. **Use another flow**, **Open the flow editor**, **Turn the flow off in this thread** and **Wake it now** (for a sleeping GPU node) are in the same menu. To turn a paused flow back on, choose it again under **Flows**.
 
-The model switcher never changes a flow's steps by itself. While a flow answers, the model chip is dimmed: it is the model for plain chat, used when no flow does.
+There is no "this message, this thread or the flow" question. For one message only, put an `@model` in the message.
 
 ### Edge cases
 

@@ -37,6 +37,7 @@ import { useFlows } from '../flows/api';
 import { searchHelp } from '../help/articles';
 import { loadGuide, useGuideLoaded } from '../help/lazyGuide';
 import { filterQuery, type SearchFilter } from '../lib/searchFilter';
+import { flowSource, flowsFor, setThreadFlow, useFlowList, useResolvedFlow } from '../thread/flowActions';
 import { lazyHost } from '../ui/lazyHost';
 import { modelSections } from './modelSections';
 
@@ -48,7 +49,7 @@ import { useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
 import { api } from '../lib/api';
 import { compactNow } from '../lib/branching';
-import { threadQuery, useModels, useNotebooks, useThreads } from '../lib/data';
+import { threadQuery, useModels, useNotebooks, useThread, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
 import { partsText } from '../lib/mappers';
 import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFromRoute } from '../lib/models';
@@ -243,6 +244,11 @@ export function Palette() {
   const modelGroups = useModelGroups(threadId, currentModel ?? null);
   const [olderOpen, setOlderOpen] = useState<ReadonlySet<string>>(() => new Set());
   const warmOf = useWarmMarks(threadId, open);
+  // FX1: the flows this thread could be answered by, beside the models (thread/WhoAnswers.tsx).
+  const realThread = !!threadId?.startsWith('thr_');
+  const answerNotebook = useThread(realThread ? threadId : undefined).data?.notebookId ?? null;
+  const answerFlows = flowsFor(useFlowList(open && realThread).data, answerNotebook);
+  const answering = useResolvedFlow(open && realThread ? threadId : undefined).data;
   // Why Claude Code cannot answer here, for its separate "Set up Claude Code" row.
   const ccSetup = useClaudeCodeSetup(threadId);
   const navigate = useNavigate();
@@ -960,6 +966,37 @@ export function Palette() {
                     </Command.Group>
                   ) : null}
 
+                  {show('models') && (scope === 'models' || typed) && realThread && answerFlows.length ? (
+                    <Command.Group heading="Flows">
+                      {answerFlows.map((f) => {
+                        const now = answering?.flow?.id === f.id;
+                        const off = answering?.paused?.id === f.id;
+                        return (
+                          <Command.Item
+                            key={f.id}
+                            value={`flow answer with ${f.name}`}
+                            onSelect={() =>
+                              run(() =>
+                                // The flow this thread set aside is turned back on by following it again.
+                                threadId
+                                  ? void setThreadFlow(threadId, { flow_id: off ? null : f.id })
+                                  : undefined,
+                              )
+                            }
+                          >
+                            <Icon name="tree" size={15} />
+                            <span className="palette__label">Answer with {f.name}</span>
+                            <span className="mute palette__meta">
+                              {[flowSource(f, answerNotebook), off ? 'paused here' : '']
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                            {now ? <span className="palette__current">Current</span> : null}
+                          </Command.Item>
+                        );
+                      })}
+                    </Command.Group>
+                  ) : null}
                   {show('models') && (scope === 'models' || typed)
                     ? modelRows.sections.map((sec) => (
                         <Command.Group key={sec.key} heading={sec.heading}>

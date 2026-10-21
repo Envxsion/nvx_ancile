@@ -544,7 +544,8 @@
     background var(--d-micro) var(--ease),
     color var(--d-micro) var(--ease);
 }
-.composer__model:hover {
+.composer__model:hover,
+.composer__model[data-state='open'] {
   background: var(--chalk);
   color: var(--fg);
 }

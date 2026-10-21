@@ -1017,14 +1017,14 @@ Every answer records which flow and path made it. Open the **receipt** on the an
       {
         id: 'flow-and-model',
         title: 'Models and flows together',
-        summary: 'What changing the model does while a flow answers, and the other cases where they meet.',
-        keywords: 'change model switch flow paused override step regenerate which answers precedence',
-        body: `When a flow answers a thread and you pick a model (M, the model chip or the status bar), NVX Ancile asks how the model should take part:
-- **Just the next message**: it answers your next message alone, then the flow answers again.
-- **This thread instead of the flow**: the flow is paused in this thread only. The flow chip reads **Flow paused**; choose **Turn it back on** there.
-- **Inside the flow**: open the flow and choose which step uses the model. For one thread only, the flow chip's **Change one step here only** leaves the notebook's flow untouched.
-
-While a flow answers, the model chip is dimmed: it is the model for plain chat.
+        summary: 'The Who answers chip, and the other cases where models and flows meet.',
+        keywords:
+          'change model switch flow paused override step regenerate which answers precedence who answers chip',
+        body: `The composer has one chip, **Who answers**. It shows a model, or the flow's name when a flow answers. Open it to see more.
+- **Pick a flow**: open the model list (M) and choose **Answer with** a flow under **Flows**. Each flow says where it lives.
+- **While a flow answers**: the menu lists the flow's model steps. Switch one for this thread only and the flow stays as it is. A step whose model cannot answer says what steps in.
+- **Use one model instead**: choose a model and the flow is paused in this thread only. Choose the flow again to turn it back on.
+- **One message only**: put an @model in the message.
 
 **Other cases**
 - **Regenerate** goes through the flow that made the answer. **Regenerate with another model** answers alone, without the flow.

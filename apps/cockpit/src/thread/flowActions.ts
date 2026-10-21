@@ -32,6 +32,7 @@ import { ApiCallError, api } from '../lib/api';
 import { keys } from '../lib/data';
 import { queryClient } from '../lib/query';
 import { attachRun } from '../lib/run';
+import type { ModelView } from '../lib/types';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 
@@ -181,6 +182,76 @@ export async function setThreadFlow(
     report(error, 'Saving the thread’s flow');
     return false;
   }
+}
+
+/** Sentinel the thread stores to mean "no flow here, even if the notebook has one". */
+export const FLOW_OFF = 'off';
+
+/** Where the flow that answers comes from, in the words the Who answers menu leads with. */
+export const FROM_WORDS: Record<string, string> = {
+  message: 'From this message',
+  thread: 'From this thread',
+  notebook: 'From this notebook',
+  workspace: 'From the workspace',
+  none: 'No flow',
+};
+
+/** Where a flow in the list lives, said quietly beside its name. */
+export function flowSource(f: Pick<FlowSummary, 'scope' | 'scope_ref'>, notebookId: string | null): string {
+  if (f.scope === 'workspace') return 'Workspace';
+  if (f.scope === 'notebook') return f.scope_ref && f.scope_ref === notebookId ? 'This notebook' : 'Notebook';
+  return 'This thread';
+}
+
+/**
+ * The flows this conversation could be answered by: the workspace's, this notebook's and
+ * its own. Another notebook's flow is not offered here.
+ */
+export function flowsFor(
+  flows: readonly FlowSummary[] | undefined,
+  notebookId: string | null,
+): FlowSummary[] {
+  return (flows ?? []).filter(
+    (f) => f.scope === 'workspace' || (f.scope === 'notebook' && !!notebookId && f.scope_ref === notebookId),
+  );
+}
+
+/** Use one model instead of the flow: the flow is paused in this thread, nowhere else. */
+export async function pauseFlowForModel(threadId: string, model: ModelView, flowName: string): Promise<void> {
+  try {
+    await api.patch(`/threads/${threadId}`, { model: model.id, flow_id: FLOW_OFF });
+    void queryClient.invalidateQueries({ queryKey: flowKeys.resolve(threadId) });
+    void queryClient.invalidateQueries({ queryKey: keys.thread(threadId) });
+    notify({
+      level: 'success',
+      title: `${model.name} answers this thread`,
+      body: `${flowName} is paused here only. Choose it again from the chip to turn it back on.`,
+    });
+  } catch (error) {
+    report(error, 'Changing the model');
+  }
+}
+
+/**
+ * Switch one model step of the flow for this thread only (null puts the flow's own choice
+ * back). Choices made for another flow do not carry over: they start again from this one's.
+ */
+export async function setNodeModel(
+  threadId: string,
+  flowId: string,
+  nodeId: string,
+  model: string | null,
+): Promise<boolean> {
+  const t = await api.get<{ settings?: Record<string, unknown> }>(`/threads/${threadId}`).catch(() => null);
+  const saved = t?.settings as
+    | { flow_overrides?: FlowNodeOverrides; flow_overrides_flow?: string | null }
+    | undefined;
+  const next: FlowNodeOverrides = {
+    ...(saved?.flow_overrides_flow === flowId ? (saved.flow_overrides ?? {}) : {}),
+  };
+  if (model) next[nodeId] = { ...(next[nodeId] ?? {}), model };
+  else delete next[nodeId];
+  return setThreadFlow(threadId, { flow_overrides: next, flow_overrides_flow: flowId });
 }
 
 /** The models a resolved flow would call, for wake hints and the chip. */

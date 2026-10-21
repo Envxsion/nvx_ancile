@@ -64,7 +64,7 @@ test.describe('command palette', () => {
     await page.keyboard.type('@echo');
     await palette.getByRole('option', { name: /Offline echo/ }).click();
     // The model lives in the composer; the status bar is off by default.
-    await expect(page.getByRole('button', { name: /Offline echo.*Change model/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Offline echo.*Change who answers/ })).toBeVisible();
   });
 
   test('single-key shortcuts are inactive while typing', async ({ page }) => {

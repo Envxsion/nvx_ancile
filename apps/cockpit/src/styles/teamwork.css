@@ -403,48 +403,7 @@
   animation: none;
 }
 
-/* ---- Flow chip in the composer, route marks, memory tray --------------- */
-
-.flow-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 200px;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: var(--r-pill);
-  font-size: var(--t-small);
-  color: var(--fg-2);
-  box-shadow: inset 0 0 0 1px var(--hair-2);
-  transition:
-    background var(--d-micro) var(--ease),
-    color var(--d-micro) var(--ease);
-}
-.flow-chip:hover,
-.flow-chip[data-state='open'] {
-  background: var(--chalk);
-  color: var(--fg);
-}
-.flow-chip[data-from='thread'],
-.flow-chip[data-from='message'] {
-  color: var(--fg);
-  box-shadow: inset 0 0 0 1px rgb(var(--gilt-rgb) / 0.45);
-}
-/* The thread turned its flow off: a dashed edge reads as "set aside", not gone. */
-.flow-chip[data-from='paused'] {
-  color: var(--fg-2);
-  box-shadow: none;
-  outline: 1px dashed var(--edge-2);
-  outline-offset: -1px;
-}
-.flow-chip__name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.flow-chip__wake {
-  color: var(--warn);
-}
+/* ---- Route marks, memory tray --------------- */
 
 .msg__route {
   display: inline-flex;

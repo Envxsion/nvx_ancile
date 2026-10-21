@@ -65,14 +65,13 @@ import { usePref, usePrefs } from '../state/prefs';
 import { useUi } from '../state/ui';
 import { Icon, type IconName } from '../ui/Icon';
 import { lazyHost } from '../ui/lazyHost';
-import { BarLabel, HueChip, Tip } from '../ui/primitives';
+import { Tip } from '../ui/primitives';
 import type { DropAsk, PendingFile } from './AttachPanel';
-import { shortModelName, useComposerBar } from './composerBar';
-import { FlowChip } from './FlowChip';
-import { useFlowList, useResolvedFlow } from './flowActions';
-import { ModelChoiceDialog, useModelChoice } from './ModelChoice';
+import { useComposerBar } from './composerBar';
+import { useFlowList } from './flowActions';
 import { htmlToMarkdown } from './pasteMarkdown';
 import type { Slash } from './slash';
+import { WhoAnswers } from './WhoAnswers';
 
 // The command table (names, descriptions, how typed text is read) loads the first time a line starts
 // with a slash, so an idle composer does not carry it.
@@ -222,7 +221,6 @@ function ComposerImpl({
   const root = useRef<HTMLDivElement>(null);
   const isDemo = useUi((s) => s.demo);
   const demoData = useDemoData(isDemo);
-  const openPalette = useUi((s) => s.openPalette);
   const openDrawer = useUi((s) => s.openDrawer);
   const setShortcuts = useUi((s) => s.setShortcuts);
   // Home and the notebook ask box compose for a thread that does not exist yet.
@@ -245,8 +243,6 @@ function ComposerImpl({
   // Save drafts (Admin → Automations): off keeps a draft on this device only.
   const autosave = draftAutosave(useAutomations(realThread && !isDemo).data);
   const synced = realThread && !isDemo && autosave.on;
-  // Which flow answers here, so the model chip can say when it is not the one answering.
-  const resolved = useResolvedFlow(synced ? threadId : undefined).data;
   // Before a thread exists (Home, a notebook page): the flow its notebook,
   // or the workspace, would use, so the chip can say so before you send.
   const allFlows = useFlowList(!synced && !isDemo).data;
@@ -255,20 +251,6 @@ function ComposerImpl({
     : ((notebookId
         ? allFlows?.find((f) => f.active && f.scope === 'notebook' && f.scope_ref === notebookId)
         : undefined) ?? allFlows?.find((f) => f.active && f.scope === 'workspace'));
-  const flowAnswers: { name: string } | null = resolved?.flow ?? upcoming ?? null;
-  // "Just the next message" from the model choice: the model rides on this
-  // message as an @model chip, and answers instead of the flow, once.
-  const nextModel = useModelChoice((s) => (synced ? s.next[threadId] : undefined));
-  useEffect(() => {
-    if (!nextModel) return;
-    const m = useModelChoice.getState().takeNext(threadId);
-    if (!m) return;
-    setPicked((p) => [
-      ...p.filter((x) => x.kind !== 'model' && x.kind !== 'flow'),
-      { kind: 'model', id: m.id, label: m.name, hue: m.hue },
-    ]);
-    ref.current?.focus();
-  }, [nextModel, threadId]);
   const sendOnEnter = prefs.send === 'enter';
 
   // A message sent before the app knows its model (Home, a notebook ask box) is held, never dropped:
@@ -963,10 +945,9 @@ function ComposerImpl({
   // Chips fit the width: whole labels, short ones, then icons with a tooltip.
   const chips = claudeCode
     ? (claudeCode.chips ?? 3)
-    : 1 + (synced ? 1 : 0) + (scope ? 1 : 0) + (hasEffort ? 1 : 0) + (hasThinking ? 1 : 0);
+    : 1 + (scope ? 1 : 0) + (hasEffort ? 1 : 0) + (hasThinking ? 1 : 0);
   const bar = useComposerBar(root, chips);
   const sendKeys = sendOnEnter ? 'enter' : isMac ? 'meta+enter' : 'ctrl+enter';
-  const modelName = modelPick?.label ?? model?.name ?? null;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a drop target for files; the textarea and buttons inside are the controls
@@ -1365,45 +1346,14 @@ function ComposerImpl({
           claudeCode.bar
         ) : (
           <>
-            <Tip
-              label={
-                modelPick
-                  ? `${modelPick.label} answers this message${flowAnswers ? `, instead of ${flowAnswers.name}` : ''}`
-                  : flowAnswers
-                    ? `${flowAnswers.name} answers here. This model answers when no flow does`
-                    : 'Change model'
-              }
-              binding="model.switch"
-            >
-              <button
-                type="button"
-                className="composer__model"
-                data-tour="model-chip"
-                data-overridden={modelPick ? true : undefined}
-                data-idle={!modelPick && flowAnswers ? true : undefined}
-                aria-label={
-                  modelPick
-                    ? `${modelPick.label} for this message. Change model`
-                    : flowAnswers
-                      ? `${model?.name ?? 'No model'}, not used while ${flowAnswers.name} answers. Change model`
-                      : `${model?.name ?? 'No model'}. Change model`
-                }
-                onClick={() => openPalette('models')}
-              >
-                {modelName ? (
-                  <HueChip hue={modelPick?.hue ?? model?.hue ?? 'chalk'}>
-                    <BarLabel full={modelName} short={shortModelName(modelName)} />
-                  </HueChip>
-                ) : (
-                  <>
-                    <Icon name="model" size={12} />
-                    <BarLabel full="Choose a model" short="Model" />
-                  </>
-                )}
-              </button>
-            </Tip>
-            {synced ? <ModelChoiceDialog /> : null}
-            {synced ? <FlowChip threadId={threadId} notebookId={notebookId} /> : null}
+            <WhoAnswers
+              threadId={threadId}
+              notebookId={notebookId}
+              synced={synced}
+              model={model}
+              pick={modelPick ? { label: modelPick.label, hue: modelPick.hue ?? 'chalk' } : undefined}
+              upcoming={upcoming}
+            />
             {hasEffort && effortLevels ? <EffortChip threadId={threadId} levels={effortLevels} /> : null}
             {hasThinking ? <ThinkingChip threadId={threadId} /> : null}
           </>

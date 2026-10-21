@@ -116,7 +116,7 @@ describe('the effort chip', () => {
   it('is not there for a model that ignores effort', async () => {
     seed([model()]);
     composer();
-    await screen.findByRole('button', { name: /Change model/ });
+    await screen.findByRole('button', { name: /Change who answers/ });
     expect(chip()).toBeNull();
   });
 

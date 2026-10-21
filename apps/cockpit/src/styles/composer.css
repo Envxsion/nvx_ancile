@@ -245,7 +245,6 @@
   flex: none;
 }
 .composer__bar > .composer__model,
-.composer__bar > .flow-chip,
 .composer__bar > .effort-chip,
 .composer__bar > .scope-pick,
 .composer__bar > .cc-pick {
@@ -255,7 +254,7 @@
   overflow: hidden;
 }
 /* One height for everything on the bar. */
-.composer__bar > :is(.flow-chip, .scope-pick, .effort-chip) {
+.composer__bar > :is(.scope-pick, .effort-chip) {
   height: 28px;
   padding: 0 10px;
 }
@@ -290,12 +289,12 @@
   display: inline;
 }
 /* Icons only: a round 28px key, the chevron gone, the tooltip says what it is. */
-.composer[data-bar='icon'] .composer__bar > :is(.cc-pick, .flow-chip, .effort-chip, .composer__model) {
+.composer[data-bar='icon'] .composer__bar > :is(.cc-pick, .effort-chip, .composer__model) {
   justify-content: center;
   width: 28px;
   padding: 0;
 }
-.composer[data-bar='icon'] .composer__bar :is(.cc-pick__chev, .model-badge, .flow-chip__wake) {
+.composer[data-bar='icon'] .composer__bar :is(.cc-pick__chev, .model-badge, .composer__wake) {
   display: none;
 }
 .composer[data-bar='icon'] .composer__model .hue-chip {
@@ -306,52 +305,13 @@
   padding: 0;
 }
 
-/* A flow answers this thread: the model chip is what answers when no flow does. */
-.composer__model[data-idle] .hue-chip {
-  opacity: 0.55;
+/* A flow answers: the chip carries the flow's name with its icon; a sleeping GPU node adds a clock. */
+.composer__model[data-answers='flow'] {
+  gap: 5px;
 }
-
-/* --- A model, while a flow answers (thread/ModelChoice.tsx) --------------- */
-
-.model-choice {
-  width: min(520px, calc(100vw - 32px));
-}
-.model-choice__options {
-  display: grid;
-  gap: 8px;
-  margin-top: 14px;
-}
-.model-choice__option {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 10px;
-  align-items: start;
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  background: var(--wash);
-  box-shadow: inset 0 0 0 1px var(--hair);
-  color: var(--fg);
-  text-align: left;
-  transition: background var(--d-short) var(--ease);
-}
-.model-choice__option:hover {
-  background: var(--wash-2);
-}
-.model-choice__option:focus-visible {
-  outline-offset: 2px;
-}
-.model-choice__option > svg {
-  margin-top: 2px;
-  color: var(--fg-2);
-}
-.model-choice__option > span {
-  display: grid;
-  gap: 2px;
-  font-size: var(--t-small);
-}
-.model-choice__option strong {
-  font-size: var(--t-ui);
-  font-weight: 560;
+.composer__wake {
+  display: inline-flex;
+  color: var(--warn);
 }
 
 /* --- Reasoning effort chip (thread/EffortChip.tsx) ------------------------- */

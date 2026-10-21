@@ -13,9 +13,10 @@
  *           |  that can (lib/defaultModel.ts). Switching inside a thread
  *           |  saves the setting on the thread, so earlier context
  *           |  carries over and the next message uses the new model.
- *           |  When a flow answers the thread, switching asks first:
- *           |  the next message, the thread instead of the flow, or a
- *           |  step inside it (thread/ModelChoice.tsx).
+ *           |  When a flow answers the thread, choosing a model is
+ *           |  "use one model instead": the flow is paused in this
+ *           |  thread, nowhere else. Switching one step of the flow is
+ *           |  in the Who answers menu (thread/WhoAnswers.tsx).
  * ------------------------------------------------------------------
  */
 
@@ -31,8 +32,7 @@ import { tourEvent } from '../help/tours';
 import { askFit } from '../models/fit';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
-import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
-import { useModelChoice } from '../thread/ModelChoice';
+import { flowKeys, pauseFlowForModel, type ResolvedFlow } from '../thread/flowActions';
 import { ApiCallError, api } from './api';
 import { canAnswer, keys, useModels, useThread } from './data';
 import { pickDefaultModel } from './defaultModel';
@@ -135,17 +135,11 @@ export async function chooseModel(model: ModelView, threadId?: string, fitted = 
     useUi.getState().setModel(model.id);
     return;
   }
-  // A flow answers this thread: a model here could mean one message, the
-  // thread instead of the flow, or a step inside it. Ask (DESIGN.md §16.3).
+  // A flow answers this thread: choosing a model means "use one model instead".
+  // The flow is paused in this thread only; the chip says so and the palette turns it back on.
   const resolved = queryClient.getQueryData<ResolvedFlow>(flowKeys.resolve(threadId));
   if (resolved?.flow) {
-    const t = queryClient.getQueryData<ThreadView>(keys.thread(threadId));
-    useModelChoice.getState().open({
-      threadId,
-      model,
-      flow: { id: resolved.flow.id, name: resolved.flow.name, from: resolved.from },
-      notebookId: t?.notebookId ?? null,
-    });
+    await pauseFlowForModel(threadId, model, resolved.flow.name);
     return;
   }
   // Optimistic: the next send reads the cached thread, so it must change
