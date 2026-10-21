@@ -170,6 +170,8 @@ export interface FlowRuntime {
   decideRoute?(q: {
     text: string;
     notebookId: string | null;
+    /** The thread, whose own limits count when it has left a private notebook. */
+    threadId?: string | null;
     routes: { label: string; when?: string }[];
     instructions: string;
     multi: boolean;
@@ -1090,6 +1092,7 @@ export async function executeFlow(state: FlowState, rt: FlowRuntime): Promise<Fl
             .decideRoute({
               text: rt.input.text,
               notebookId: rt.input.notebookId,
+              threadId: rt.input.threadId,
               routes: n.params.routes.map((r) => ({ label: r.label, ...(r.when && { when: r.when }) })),
               instructions: n.params.instructions,
               multi: n.params.multi,

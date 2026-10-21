@@ -645,7 +645,13 @@ async function main() {
   const scopeStore = new PgScopeStore(sql);
   const scopes = scopeResolver(scopeStore);
   // What private notebooks may use beyond the floor (docs/privacy.md); every feature asks this one object.
-  const privacy = new PrivacyPolicies({ settings, isPrivate: (id) => scopeStore.isPrivate(id) });
+  const privacy = new PrivacyPolicies({
+    settings,
+    isPrivate: (id) => scopeStore.isPrivate(id),
+    // A thread that left a private notebook keeps its limits on itself (scopes/inherit.ts).
+    threadPrivate: async (id) =>
+      (await scopeStore.getPatch('thread', id)).patch.data_leaves_machine === false,
+  });
   // Decision models (docs/decisions.md): one router for Auto review, flow routers, fact-check triage and the rest.
   const freeCounters = new Counters(settings);
   const decisions = new DecisionRouter({
@@ -1162,7 +1168,7 @@ async function main() {
       decideRoute(
         decisions,
         { text: q.text, routes: q.routes, instructions: q.instructions, multi: q.multi, context: q.context },
-        { notebookId: q.notebookId },
+        { notebookId: q.notebookId, threadId: q.threadId ?? null },
       ),
     monthSpendUsd: async () => {
       const now = new Date();
@@ -1210,7 +1216,7 @@ async function main() {
         : config.factcheck?.web_search !== false,
       requested: a.requested,
       strict: presetNow === 'careful',
-      privateWeb: await privacy.allows('factcheck_web', { notebookId: a.notebookId }),
+      privateWeb: await privacy.allows('factcheck_web', { notebookId: a.notebookId, threadId: a.threadId }),
     });
   // The decision layer sorts claims into obvious, ordinary and careful; a miss is `rules`, so the rules decide and nothing blocks.
   setTriageProvider(
@@ -1218,7 +1224,7 @@ async function main() {
       decisionTriage(decisions, {
         tiers: DECISION_TRIAGE_TIERS,
         fallbackTier: 'rules',
-        ctx: { notebookId: ctx.notebookId ?? null },
+        ctx: { notebookId: ctx.notebookId ?? null, threadId: ctx.threadId ?? null },
       }),
     ),
   );
@@ -2086,7 +2092,8 @@ async function main() {
                 scopeOf: (ref) => scopes.effective(ref),
                 notebookWeb: async (id) => (await notebooks.get(id))?.check_on_web ?? true,
                 strictWeb: () => presetNow === 'careful',
-                privateWeb: (id) => privacy.allows('factcheck_web', { notebookId: id }),
+                privateWeb: (id, threadId) =>
+                  privacy.allows('factcheck_web', { notebookId: id, threadId: threadId ?? null }),
                 web: factcheckWeb,
                 gate,
                 userId: owner.userId,

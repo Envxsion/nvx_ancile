@@ -69,7 +69,8 @@ export class DecisionReviewer implements Reviewer {
     const res = await this.router.decide('auto_review', request, {
       only: this.local ? 'local' : 'hosted',
       // The scope already decided whether anything may leave; a private scope only reaches the local reviewer.
-      private: input.scope?.private ?? false,
+      // Private notebook, or a thread that kept its notebook's limits (data may not leave the machine).
+      private: (input.scope?.private ?? false) || input.scope?.scope.data_leaves_machine === false,
       ...(this.local && { local: true }),
       ...(signal && { signal }),
     });

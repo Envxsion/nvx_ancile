@@ -46,6 +46,11 @@ export const PRIVACY_SETTING = 'privacy.policy';
 export interface PrivacyContext {
   /** The notebook the work belongs to. Looked up when `private` is not given. */
   notebookId?: string | null;
+  /**
+   * The thread the work belongs to. A thread that came out of a private notebook keeps that notebook's
+   * limits on itself (scopes/inherit.ts) and has no notebook any more, so its own limits count as private.
+   */
+  threadId?: string | null;
   /** Already known (from an EffectiveScope): skips the lookup. */
   private?: boolean;
   /** This very call runs on a model or node on this machine or the person's own GPU node. */
@@ -153,6 +158,8 @@ export interface PrivacyDeps {
   settings: SettingsStore;
   /** Is this notebook private? Wire to ScopeStore.isPrivate. */
   isPrivate?: (notebookId: string) => Promise<boolean>;
+  /** Does this thread keep everything on this machine by its own scope (data_leaves_machine off)? One lookup. */
+  threadPrivate?: (threadId: string) => Promise<boolean>;
   /**
    * Could a model on this machine, or on the person's own GPU node, serve `capability`?
    * Hook for the decision-model work: the default says no.
@@ -200,7 +207,8 @@ export class PrivacyPolicies {
   async resolve(capability: PrivacyCapability, ctx: PrivacyContext = {}): Promise<PrivacyAnswer> {
     const priv =
       ctx.private ??
-      (ctx.notebookId && this.deps.isPrivate ? await this.deps.isPrivate(ctx.notebookId) : false);
+      ((ctx.notebookId && this.deps.isPrivate ? await this.deps.isPrivate(ctx.notebookId) : false) ||
+        (ctx.threadId && this.deps.threadPrivate ? await this.deps.threadPrivate(ctx.threadId) : false));
     const localAvailable =
       priv && LOCAL_FALLBACK.includes(capability) ? await this.localHook(capability) : false;
     return allowsUnder(await this.policy(), capability, { private: priv, local: ctx.local, localAvailable });

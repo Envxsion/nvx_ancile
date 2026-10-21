@@ -44,6 +44,8 @@ export interface TriageContext {
   critical: boolean;
   /** The notebook, so the decision layer applies its privacy rules. */
   notebookId?: string | null;
+  /** The thread, whose own limits count when it has left a private notebook. */
+  threadId?: string | null;
 }
 
 /** What a decision model may be asked (DM1). It sees the claim text only. */
@@ -70,7 +72,7 @@ const LABEL_TIER: Record<string, Partial<Pick<Triage, 'tier' | 'critical'>>> = {
 };
 
 /** What the decision layer's claim sorter offers (decisions/ask.ts decisionTriage, built per call). */
-export type ClaimSorter = (ctx: { notebookId?: string | null }) => {
+export type ClaimSorter = (ctx: { notebookId?: string | null; threadId?: string | null }) => {
   classify(claims: string[]): Promise<string[]>;
 };
 
@@ -82,7 +84,10 @@ export type ClaimSorter = (ctx: { notebookId?: string | null }) => {
 export function fromDecisions(sorter: ClaimSorter): TriageProvider {
   return {
     async triage(claims, ctx) {
-      const labels = await sorter({ notebookId: ctx.notebookId ?? null }).classify(claims);
+      const labels = await sorter({
+        notebookId: ctx.notebookId ?? null,
+        threadId: ctx.threadId ?? null,
+      }).classify(claims);
       return labels.map((l) => LABEL_TIER[l] ?? null);
     },
   };

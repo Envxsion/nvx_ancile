@@ -309,7 +309,7 @@ export interface SelectionDeps extends StepDeps {
   /** The permission preset is Strict: a lookup needs the person's yes on this check. */
   strictWeb?: () => boolean;
   /** Settings → Private notebooks allows fact-check web lookups. */
-  privateWeb?: (notebookId: string) => Promise<boolean>;
+  privateWeb?: (notebookId: string | null, threadId?: string) => Promise<boolean>;
   web?: WebSearch | null;
   gate?: Gate;
   userId?: string;
@@ -469,7 +469,7 @@ export async function checkSelection(
     notebookWeb: thread.notebook_id ? ((await deps.notebookWeb?.(thread.notebook_id)) ?? false) : false,
     requested: input.web,
     strict: deps.strictWeb?.() === true,
-    privateWeb: thread.notebook_id ? ((await deps.privateWeb?.(thread.notebook_id)) ?? false) : false,
+    privateWeb: (await deps.privateWeb?.(thread.notebook_id, thread.id)) ?? false,
     ...(await webAvailability(deps.web)),
   });
   const tally = newTally();

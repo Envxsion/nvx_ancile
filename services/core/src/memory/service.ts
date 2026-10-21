@@ -1234,9 +1234,14 @@ export class MemoryService {
   }
 
   /** Must a call about this notebook run on this machine? (A private notebook never reaches a cloud model.) */
-  private async localOnlyFor(notebookId: string | null | undefined): Promise<boolean> {
-    if (!notebookId || !this.privacy) return false;
-    const a = await this.privacy.resolve('cloud_models', { notebookId }).catch(() => null);
+  private async localOnlyFor(
+    notebookId: string | null | undefined,
+    threadId?: string | null,
+  ): Promise<boolean> {
+    if (!(notebookId || threadId) || !this.privacy) return false;
+    const a = await this.privacy
+      .resolve('cloud_models', { notebookId: notebookId ?? null, threadId: threadId ?? null })
+      .catch(() => null);
     return !!a && !a.allowed;
   }
 
@@ -1326,8 +1331,11 @@ export class MemoryService {
 
     // Private notebooks: only if the person allowed it, or a local model can do it.
     let localOnly = false;
-    if (thread.notebook_id && this.privacy) {
-      const a = await this.privacy.resolve('passive_memory', { notebookId: thread.notebook_id });
+    if (this.privacy) {
+      const a = await this.privacy.resolve('passive_memory', {
+        notebookId: thread.notebook_id,
+        threadId: thread.id,
+      });
       if (!a.allowed) return none('private');
       localOnly = a.must_run_local;
     }
@@ -1578,6 +1586,7 @@ export class MemoryService {
           (
             await threads.getThread(m.thread_id).catch(() => undefined)
           )?.notebook_id,
+          m.thread_id,
         )) && { localOnly: true }),
       })
       .catch(() => null);

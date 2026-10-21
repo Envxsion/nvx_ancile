@@ -129,7 +129,10 @@ const TTL: Record<CacheBasis, { kind: CacheEntry['ttl_kind']; ms: number | null 
 /* ---- The service ------------------------------------------------------------- */
 
 export interface PrivacyGate {
-  allows(capability: PrivacyCapability, ctx: { notebookId?: string | null }): Promise<boolean>;
+  allows(
+    capability: PrivacyCapability,
+    ctx: { notebookId?: string | null; threadId?: string | null },
+  ): Promise<boolean>;
 }
 
 export interface Hit {
@@ -145,9 +148,11 @@ export class VerdictCache {
   ) {}
 
   /** May this notebook give verdicts to, and take them from, the global cache right now? */
-  async mayShare(notebookId: string): Promise<boolean> {
+  async mayShare(notebookId: string, threadId?: string | null): Promise<boolean> {
     if (!notebookId) return false;
-    return this.privacy ? await this.privacy.allows('verdict_cache_global', { notebookId }) : true;
+    return this.privacy
+      ? await this.privacy.allows('verdict_cache_global', { notebookId, ...(threadId && { threadId }) })
+      : true;
   }
 
   /** An earlier verdict for this claim and evidence: this notebook's, else (when sharing) the global one. */

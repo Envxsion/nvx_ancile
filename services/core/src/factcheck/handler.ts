@@ -422,7 +422,11 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
             }),
           );
         if (!cp.triage) {
-          const rules = { critical: input.critical === true, notebookId: input.notebookId };
+          const rules = {
+            critical: input.critical === true,
+            notebookId: input.notebookId,
+            threadId: input.threadId,
+          };
           const asked = claims.flatMap((c, i) => (c.checkable && !known.has(i) ? [i] : []));
           const decided = await triageClaims(
             asked.map((i) => (claims[i] as ExtractedClaim).text),
