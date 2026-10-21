@@ -214,6 +214,11 @@ export const summaries = core.table(
     content: text('content').notNull(),
     tokens: integer('tokens').notNull(),
     modelId: text('model_id').notNull(),
+    // HO1: the size of this summary of the cut, and the window class it was made for (0: unknown).
+    level: text('level', { enum: ['page', 'paragraph', 'line'] })
+      .notNull()
+      .default('page'),
+    forWindow: integer('for_window').notNull().default(0),
     createdAt: created(),
   },
   (t) => [index('summaries_upto').on(t.uptoMessageId, t.kind)],

@@ -53,7 +53,10 @@ function segments(text: string): { code: boolean; text: string }[] {
 }
 
 /** HO1: how an earlier turn names a passage: "Title, p. 4", never a bare number. */
-export function citationLabel(src: { source_title?: string | undefined; page?: number | null | undefined }): string {
+export function citationLabel(src: {
+  source_title?: string | undefined;
+  page?: number | null | undefined;
+}): string {
   const title = (src.source_title ?? 'a source').replace(/[[\]\s]+/g, ' ').trim();
   const short = title.length > 60 ? `${title.slice(0, 59)}…` : title;
   return `[${short || 'a source'}${src.page ? `, p. ${src.page}` : ''}]`;
@@ -88,7 +91,8 @@ export function relabelCitations(parts: Part[], labels: ReadonlyMap<number, stri
 /** The labels an answer's own citation_ref parts give its markers. */
 export function labelsOfRefs(parts: Part[]): Map<number, string> {
   const out = new Map<number, string>();
-  for (const p of parts) if (p.type === 'citation_ref' && !out.has(p.marker)) out.set(p.marker, citationLabel(p));
+  for (const p of parts)
+    if (p.type === 'citation_ref' && !out.has(p.marker)) out.set(p.marker, citationLabel(p));
   return out;
 }
 

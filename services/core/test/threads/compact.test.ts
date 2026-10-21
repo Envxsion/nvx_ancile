@@ -40,6 +40,8 @@ const summary = (upto: string): SummaryRecord => ({
   content: 'Short summary.',
   tokens: 4,
   model_id: 'x',
+  level: 'page',
+  for_window: 0,
   created_at: '2026-10-07T00:00:00Z',
 });
 

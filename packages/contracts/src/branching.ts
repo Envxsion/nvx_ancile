@@ -84,6 +84,13 @@ export const BranchTree = z.object({
 });
 export type BranchTree = z.infer<typeof BranchTree>;
 
+/**
+ * HO1: a compaction is kept at three sizes for the same cut, so each model reads the
+ * finest one its window holds. `page` is the full summary, `paragraph` and `line` shorter.
+ */
+export const SummaryLevel = z.enum(['page', 'paragraph', 'line']);
+export type SummaryLevel = z.infer<typeof SummaryLevel>;
+
 /** GET /threads/:id/context-budget (DESIGN.md §8.4). */
 export const PathBudget = z.object({
   head_id: z.string().nullable(),
@@ -95,6 +102,8 @@ export const PathBudget = z.object({
     retrieval: z.number().int(),
     history: z.number().int(),
     reserve_output: z.number().int(),
+    /** HO1: the tools block the request declares. Absent when the caller could not count it. */
+    tools: z.number().int().optional(),
   }),
   total: z.number().int(),
   ratio: z.number(),
@@ -106,6 +115,8 @@ export const PathBudget = z.object({
       upto_message_id: z.string(),
       replaced_messages: z.number().int(),
       tokens: z.number().int(),
+      /** HO1: the size of summary this model reads. Absent on older servers (read as page). */
+      level: SummaryLevel.optional(),
     })
     .nullable(),
   /** Messages a compaction now could replace (everything but the latest turns). */
@@ -114,10 +125,32 @@ export const PathBudget = z.object({
   warn_at: z.number().optional(),
   /** The share where the path is compacted by itself before sending (§8.4). */
   compacts_at: z.number().optional(),
+  /**
+   * HO1: would this whole thread, as it is, fit this model? Asked before switching to it.
+   * `needs_summary` is false when it fits as it is. `tokens_now` and `tokens_after` are the
+   * request's estimate as it stands and as it would be sent after summarising (null: no
+   * summary can make it fit). `level` is what the model would read: `full` is every turn.
+   */
+  fit: z
+    .object({
+      needs_summary: z.boolean(),
+      tokens_now: z.number().int(),
+      tokens_after: z.number().int().nullable(),
+      level: z.enum(['full', 'page', 'paragraph', 'line']),
+      /** A summary that makes it fit already exists, so switching costs no model call. */
+      summary_ready: z.boolean(),
+    })
+    .optional(),
 });
 export type PathBudget = z.infer<typeof PathBudget>;
 
-export const CompactRequest = z.object({ head: z.string().optional() }).strict();
+export const CompactRequest = z
+  .object({
+    head: z.string().optional(),
+    /** HO1: the model the summary is made for (its window sets which sizes are kept); default: the thread's. */
+    model: z.string().optional(),
+  })
+  .strict();
 export const CompactResult = z.object({
   summary_id: z.string(),
   upto_message_id: z.string(),
@@ -127,6 +160,8 @@ export const CompactResult = z.object({
   model_id: z.string().nullable(),
   /** An existing summary already covered this prefix; nothing new was written. */
   reused: z.boolean(),
+  /** HO1: the sizes kept for this cut. Absent on older servers (one, page). */
+  levels: z.array(SummaryLevel).optional(),
 });
 export type CompactResult = z.infer<typeof CompactResult>;
 

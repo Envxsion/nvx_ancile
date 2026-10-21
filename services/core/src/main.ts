@@ -67,6 +67,7 @@ import { startComputeBridge } from './compute/bridge';
 import { controllerClient } from './compute/controller';
 import { computeRoutes, connectRunPod, disconnectRunPod, providerSync } from './compute/routes';
 import { type EndContextSwitch, endContextOn, PgEpochStore } from './conductor/epoch';
+import { declaredTools, requestOverhead } from './conductor/overhead';
 import { chatTurnHandler } from './conductor/pipeline';
 import { capPerSource, DEFAULT_LIMITS, fetchK, knowledgeRetriever } from './conductor/retrieval';
 import { SteerBus } from './conductor/steer';
@@ -1956,6 +1957,25 @@ async function main() {
         registry,
         promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
         switches: builtinSettings,
+        // HO1: the fit check counts the system text, the tools block and the pinned memory as a turn does.
+        overhead: async ({ model, notebookId }) =>
+          requestOverhead({
+            promptsDir: resolve(env.ANCILE_PROMPTS_DIR),
+            model,
+            specs: declaredTools(tools.list(), { notebookId, hasRepos: repos.hasAny() }),
+            memory: model
+              ? await memory
+                  .pack({
+                    notebookId,
+                    modelId: model.id,
+                    contextWindow: model.context_window,
+                    query: '',
+                    part: 'pinned',
+                  })
+                  .then((p) => p.tokens)
+                  .catch(() => 0)
+              : 0,
+          }),
       }),
       // Room on the disk before a source is added (system/disk.ts).
       sourceDiskGuard({ dataDir }),

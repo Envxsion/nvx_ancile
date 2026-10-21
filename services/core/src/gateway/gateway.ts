@@ -234,7 +234,16 @@ export class Gateway {
     chain: ModelConfig[],
     req: ModelRequest,
     signal: AbortSignal,
-    opts: { computeWaitMs?: number; purpose?: string } = {},
+    opts: {
+      computeWaitMs?: number;
+      purpose?: string;
+      /**
+       * HO1: before each model is asked, the caller may fit the request to it: the same request, a
+       * rebuilt one (a window that differs needs a different summary size), or `skip` when this model
+       * cannot hold the thread. A skip is a fallback with a plain reason, never a failed call.
+       */
+      fit?: (model: ModelConfig, req: ModelRequest) => Promise<ModelRequest | { skip: string }>;
+    } = {},
   ): AsyncGenerator<GatewayEvent> {
     const purpose = opts.purpose ?? this.purpose;
     const attempts: FailedAttempt[] = [];
@@ -249,17 +258,28 @@ export class Gateway {
       if (signal.aborted) throw signal.reason ?? new Error('aborted');
       const model = chain[i] as ModelConfig;
       const next = chain[i + 1];
+      let fitted = req;
+      if (opts.fit && shown === '') {
+        const f = await opts.fit(model, req);
+        if ('skip' in f) {
+          attempts.push({ model: model.id, errorClass: 'context_overflow', detail: f.skip });
+          if (!next) throw new ChainFailedError(attempts);
+          yield { type: 'fallback', from: model.id, to: next.id, reason: 'context_overflow', detail: f.skip };
+          continue;
+        }
+        fitted = f;
+      }
       const continuing = shown !== '';
       const effective: ModelRequest = continuing
         ? {
-            ...req,
+            ...fitted,
             messages: [
-              ...req.messages,
+              ...fitted.messages,
               { role: 'assistant', content: shown },
               { role: 'user', content: CONTINUE_INSTRUCTION },
             ],
           }
-        : req;
+        : fitted;
 
       let iterator: AsyncIterator<StreamChunk> | undefined;
       const held: StreamChunk[] = [];

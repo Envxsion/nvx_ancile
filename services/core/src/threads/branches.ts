@@ -16,7 +16,7 @@
  * ------------------------------------------------------------------
  */
 
-import type { Branch, BranchColor } from '@nvx/contracts';
+import type { Branch, BranchColor, SummaryLevel } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 
 export interface SummaryRecord {
@@ -27,8 +27,16 @@ export interface SummaryRecord {
   content: string;
   tokens: number;
   model_id: string;
+  /** HO1: the size of this summary of the cut (page is the full one, line the shortest). */
+  level: SummaryLevel;
+  /** HO1: the window class (tokens) of the model it was made for; 0 when not recorded. */
+  for_window: number;
   created_at: string;
 }
+
+/** What a summary needs to be saved; level and window default to a page for an unknown window. */
+export type NewSummary = Omit<SummaryRecord, 'created_at' | 'level' | 'for_window'> &
+  Partial<Pick<SummaryRecord, 'level' | 'for_window'>>;
 
 export interface BranchStore {
   list(threadId: string, opts?: { archived?: boolean }): Promise<Branch[]>;
@@ -41,7 +49,7 @@ export interface BranchStore {
   /** Move every live name whose head is one of `from` to `to`. */
   advance(threadId: string, from: string[], to: string): Promise<void>;
   summaries(threadId: string, kind?: SummaryRecord['kind']): Promise<SummaryRecord[]>;
-  addSummary(s: Omit<SummaryRecord, 'created_at'>): Promise<SummaryRecord>;
+  addSummary(s: NewSummary): Promise<SummaryRecord>;
 }
 
 /* ---- Postgres ------------------------------------------------------------- */
@@ -131,10 +139,11 @@ export class PgBranchStore implements BranchStore {
     return rows.map(summaryFromRow);
   }
 
-  async addSummary(s: Omit<SummaryRecord, 'created_at'>) {
+  async addSummary(s: NewSummary) {
     const rows = await this.sql<SummaryRow[]>`
-      insert into core.summaries (id, thread_id, upto_message_id, kind, content, tokens, model_id)
-      values (${s.id}, ${s.thread_id}, ${s.upto_message_id}, ${s.kind}, ${s.content}, ${s.tokens}, ${s.model_id})
+      insert into core.summaries (id, thread_id, upto_message_id, kind, content, tokens, model_id, level, for_window)
+      values (${s.id}, ${s.thread_id}, ${s.upto_message_id}, ${s.kind}, ${s.content}, ${s.tokens}, ${s.model_id},
+        ${s.level ?? 'page'}, ${s.for_window ?? 0})
       returning *`;
     return summaryFromRow(rows[0] as SummaryRow);
   }
@@ -194,8 +203,13 @@ export class MemoryBranchStore implements BranchStore {
       .map((s) => ({ ...s }));
   }
 
-  async addSummary(s: Omit<SummaryRecord, 'created_at'>) {
-    const rec = { ...s, created_at: this.stamp() };
+  async addSummary(s: NewSummary) {
+    const rec: SummaryRecord = {
+      ...s,
+      level: s.level ?? 'page',
+      for_window: s.for_window ?? 0,
+      created_at: this.stamp(),
+    };
     this.sums.push(rec);
     return { ...rec };
   }

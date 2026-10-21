@@ -67,6 +67,7 @@ import {
 import { sentOfAnswer, sentText, toSdkMessages } from '../gateway/convert';
 import { effortLevels } from '../gateway/effort';
 import { ChainFailedError, type FailedAttempt, type Gateway } from '../gateway/gateway';
+import { servedWindow } from '../gateway/ollama-chat';
 import { canChat, type ModelRegistry, type Need } from '../gateway/registry';
 import { NoRouteError } from '../gateway/router';
 import type { LocalModelOptions, ModelMessage, ModelRequest, StreamChunk, ToolDef } from '../gateway/types';
@@ -90,7 +91,7 @@ import {
 import type { RunEventInput } from '../runs/events';
 import { allowedSources, type ScopeResolver } from '../scopes';
 import type { BranchStore } from '../threads/branches';
-import { contextWatch, prepareTurnContext } from '../threads/compact';
+import { contextWatch, prepareTurnContext, reserveFor } from '../threads/compact';
 import { ancestorPath } from '../threads/path';
 import { asTree, type MessageRecord, type SentForm, type ThreadRepo, textOf } from '../threads/repo';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
@@ -117,7 +118,9 @@ import {
 } from './epoch';
 import { explainLinks, searchWithLinks } from './links';
 import { type LoopState, noteResult } from './loopguard';
+import { declaredTools, requestOverhead } from './overhead';
 import { noteCall, noteRecovery, recoveryOf, stopOf, usageOut } from './receipt';
+import { refitFor, requestTokens } from './refit';
 import {
   capPerSource,
   DEFAULT_LIMITS,
@@ -227,6 +230,8 @@ export interface TurnCheckpoint {
   retrieved?: boolean;
   grounding?: Grounding | null;
   retrievalError?: { code: string; title: string } | null;
+  /** HO1: models further down the chain the request was rebuilt for (a smaller window), and at what size. */
+  refit?: { model_id: string; level: string; tokens_before: number; tokens_after: number }[];
   /** Compaction was considered for this turn (DESIGN.md §8.4); absent on older checkpoints. */
   compactionChecked?: boolean;
   compaction?: (CompactionProvenance & { note: string; skipThrough: string }) | null;
@@ -629,9 +634,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
     // Next turn starts with these bytes. A flow's answer is not built from its parts, so none.
     // HO1: its [n] markers are written as the sources they named ("Title, p. 4"), because the numbers
     // restart each turn and a later model would read a number with nothing to point at.
-    const named = new Map(
-      (cp.grounding?.trace.hits ?? []).map((h) => [h.marker, citationLabel(h)] as const),
-    );
+    const named = new Map((cp.grounding?.trace.hits ?? []).map((h) => [h.marker, citationLabel(h)] as const));
     const sentParts = relabelCitations(cp.parts, named);
     const sent =
       status === 'complete' && !cp.flow
@@ -681,6 +684,7 @@ export function chatTurnHandler(deps: ConductorDeps): RunHandler {
           rerun_of: { run_id: cp.input.replay.fromRunId, from_step: cp.input.replay.fromStep },
         }),
         ...(cp.compaction && { compaction: compactionOut(cp.compaction) }),
+        ...(cp.refit?.length && { refit: cp.refit }),
         ...(cp.engineContext && { engine_context: cp.engineContext }),
         ...(links.length && { links }),
         ...(cp.flow && { flow: provenanceOf(cp.flow) }),
@@ -1204,6 +1208,17 @@ ${noted.stop.forModel}`,
         } catch (err) {
           if (!(err instanceof NoRouteError)) throw err;
         }
+        // HO1: what the request carries besides the turns, counted for real, not guessed at 600 tokens.
+        const oh = await requestOverhead({
+          promptsDir: deps.promptsDir,
+          model,
+          specs: declaredTools(deps.tools.list(), {
+            notebookId: cp.input.notebookId,
+            hasRepos: deps.hasRepos?.() ?? true,
+          }),
+          memory: model ? ((await readPack(model))?.tokens ?? 0) : 0,
+          instructions: cp.input.instructions,
+        });
         const prepared = await prepareTurnContext(
           {
             gateway: deps.gateway,
@@ -1216,7 +1231,9 @@ ${noted.stop.forModel}`,
             messages: all,
             userMessageId: cp.input.userMessageId,
             model,
-            system: 600,
+            system: oh.system,
+            memory: oh.memory,
+            tools: oh.tools,
             retrieval: cp.grounding?.block ? approxTokens(cp.grounding.block) : 0,
             signal: ctx.signal,
             watch: contextWatch(deps.switches),
@@ -1862,6 +1879,55 @@ ${noted.stop.forModel}`,
               );
           }
         }
+        // HO1: the request was built for the first model. A model with a smaller window further down the
+        // chain gets the thread at the size its window reads, or is skipped with the reason.
+        const fit = async (m: ModelConfig, r: ModelRequest): Promise<ModelRequest | { skip: string }> => {
+          const watch = contextWatch(deps.switches);
+          const window = servedWindow(m);
+          if (!watch.on || !(window > 0) || requestTokens(m, r) + reserveFor(m) <= window) return r;
+          const refit =
+            engine?.history || !deps.branches
+              ? null
+              : await refitFor({
+                  model: m,
+                  req: r,
+                  all,
+                  threadId: cp.input.threadId,
+                  userMessageId: cp.input.userMessageId,
+                  sentMap,
+                  tail: spliceNotes(cp.parts, cp.steered),
+                  block: frame.block,
+                  oldNote: cp.compaction?.note ?? '',
+                  endContext: frame.endContext,
+                  watch,
+                  deps: {
+                    gateway: deps.gateway,
+                    registry: deps.registry,
+                    promptsDir: deps.promptsDir,
+                    branches: deps.branches,
+                  },
+                  signal: ctx.signal,
+                }).catch((err: unknown) => {
+                  log.warn({ err }, 'the request could not be rebuilt for a model with a smaller window');
+                  return null;
+                });
+          if (refit && refit.tokens_after + reserveFor(m) <= window) {
+            cp.refit = [
+              ...(cp.refit ?? []),
+              {
+                model_id: m.id,
+                level: refit.level,
+                tokens_before: refit.tokens_before,
+                tokens_after: refit.tokens_after,
+              },
+            ];
+            log.info({ model: m.id, level: refit.level, after: refit.tokens_after }, 'request refitted');
+            return refit.req;
+          }
+          return {
+            skip: `${m.display_name}'s ${Math.max(1, Math.round(window / 1000))}k window cannot hold this thread, so it was skipped.`,
+          };
+        };
         let current: ModelConfig | undefined;
         const callStarted = Date.now();
         const attemptsBefore = cp.attempts.length;
@@ -1878,7 +1944,7 @@ ${noted.stop.forModel}`,
         };
         cp.stop = null;
         for await (const ev of watched(
-          deps.gateway.stream(chain, req, ctx.signal, { purpose: 'chat' }),
+          deps.gateway.stream(chain, req, ctx.signal, { purpose: 'chat', fit }),
           recorder('model'),
         )) {
           switch (ev.type) {

@@ -19,6 +19,7 @@ import {
 } from '../../src/automations/runner';
 import { userJobs } from '../../src/automations/userJobs';
 import { MemoryEpochStore } from '../../src/conductor/epoch';
+import { declaredTools, requestOverhead } from '../../src/conductor/overhead';
 import { chatTurnHandler } from '../../src/conductor/pipeline';
 import { credentialRoutes } from '../../src/credentials/routes';
 import { MemoryEventBus } from '../../src/events/bus';
@@ -463,6 +464,13 @@ export async function harness(opts: HarnessOptions = {}) {
         promptsDir: PROMPTS_DIR,
         now: () => clock.now,
         ...(opts.switches && { switches: opts.switches }),
+        overhead: async ({ model, notebookId }) =>
+          requestOverhead({
+            promptsDir: PROMPTS_DIR,
+            model,
+            specs: declaredTools(tools.list(), { notebookId, hasRepos: opts.hasRepos ?? true }),
+            memory: 0,
+          }),
       }),
       permissionRoutes({
         store: perms,

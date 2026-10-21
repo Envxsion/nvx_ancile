@@ -198,7 +198,7 @@ describe('compare and merge', () => {
 });
 
 describe('compaction', () => {
-  const tiny = { ...fakeModel('tiny', 'script'), context_window: 1_400, max_output: 100 };
+  const tiny = { ...fakeModel('tiny', 'script'), context_window: 1_700, max_output: 100 };
   const opts = {
     models: [tiny],
     taskClasses: { 'chat.default': ['fake/tiny'], utility: ['fake/tiny'] },
@@ -242,12 +242,22 @@ describe('compaction', () => {
   });
 
   it('compacts by itself past the critical line', async () => {
-    h = await harness({ ...opts, models: [{ ...tiny, context_window: 1_000 }] });
+    h = await harness({ ...opts, models: [{ ...tiny, context_window: 1_050 }] });
     const { t, ids } = await line(h, 4);
-    const last = await turn(h, t, 'And a fifth question about seals', ids[3]?.reply ?? null);
+    const last = await turn(
+      h,
+      t,
+      `And a fifth question about seals ${'and gaskets '.repeat(30)}`,
+      ids[3]?.reply ?? null,
+    );
     const reply = (await h.repo.getMessage(last.assistant_message_id)) as Message;
     expect(reply.provenance).toMatchObject({ compaction: { auto: true } });
-    expect(await h.branches.summaries(t, 'compaction')).toHaveLength(1);
+    // HO1: one cut, kept at three sizes (page, paragraph, line).
+    expect((await h.branches.summaries(t, 'compaction')).map((s) => s.level)).toEqual([
+      'page',
+      'paragraph',
+      'line',
+    ]);
   });
 
   it('says when there is nothing to compact', async () => {

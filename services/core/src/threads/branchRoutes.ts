@@ -27,13 +27,16 @@ import {
   CreateBranchRequest,
   type DeleteMessageResult,
   MergeThreadsRequest,
+  type ModelConfig,
   PatchBranchRequest,
 } from '@nvx/contracts';
 import { Hono } from 'hono';
 import { ulid } from 'ulid';
 import type { AppEnv } from '../app';
 import type { JobSwitches } from '../automations/settings';
+import type { RequestOverhead } from '../conductor/overhead';
 import { currentContext, newTraceId } from '../context';
+import { servedWindow } from '../gateway/ollama-chat';
 import { body } from '../http/body';
 import { badRequest, notFound } from '../obs/errors';
 import type { RunStore } from '../runs/engine';
@@ -57,6 +60,11 @@ export interface BranchRouteDeps extends UtilityDeps {
   now?: () => number;
   /** The built-in automations' switches (Watch the context window); absent: all on. */
   switches?: JobSwitches;
+  /**
+   * HO1: what a request to this model carries besides the turns (system text, tools block, memory),
+   * counted as the turn counts it. Absent: only the conversation is counted.
+   */
+  overhead?: (q: { model: ModelConfig | undefined; notebookId: string | null }) => Promise<RequestOverhead>;
 }
 
 export function branchFromStreaming(): AncileError {
@@ -162,19 +170,32 @@ export function branchRoutes(deps: BranchRouteDeps) {
     return c.json(buildTree(t.id, msgs, await branches.list(t.id), t.active_head_id));
   });
 
+  /** The model that would answer: the asked-for one, or the thread's. A model nobody can use reads as none. */
+  const modelFor = (asked: string | null): ModelConfig | undefined => {
+    try {
+      return deps.registry.chain('chat.default', asked)[0];
+    } catch {
+      return undefined;
+    }
+  };
+
   r.get('/threads/:id/context-budget', async (c) => {
     const t = await thread(c.req.param('id'));
     const { byId, kids } = await tree(t.id);
     const head = headOf(t, kids, byId, c.req.query('head') ?? undefined);
-    const model = deps.registry.chain('chat.default', c.req.query('model') ?? t.settings.model ?? null)[0];
+    // HO1: also asked before a switch (?model=): would the thread fit that model, and at what size?
+    const model = modelFor(c.req.query('model') ?? t.settings.model ?? null);
     const path = head ? ancestorPath(byId, head) : [];
+    const oh = deps.overhead
+      ? await deps.overhead({ model, notebookId: t.notebook_id ?? null })
+      : { system: 600, tools: 0, memory: 0 };
     return c.json(
       pathBudget({
         headId: head,
         path,
         summaries: await branches.summaries(t.id, 'compaction'),
         model,
-        system: 600,
+        ...oh,
         watch: contextWatch(deps.switches),
       }),
     );
@@ -190,6 +211,11 @@ export function branchRoutes(deps: BranchRouteDeps) {
       threadId: t.id,
       messages: await repo.messages(t.id),
       headId: head,
+      // HO1: the window the summary is made for (it is kept at every size either way).
+      window: (() => {
+        const m = modelFor(req.model ?? t.settings.model ?? null);
+        return m ? servedWindow(m) : 0;
+      })(),
       signal: AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(120_000)]),
     });
     return c.json(result, result.reused ? 200 : 201);

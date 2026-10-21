@@ -24,7 +24,9 @@ describe('a cut tool result', () => {
     const out = cutMiddle(body);
     expect(out.startsWith('START')).toBe(true);
     expect(out.endsWith('END')).toBe(true);
-    expect(out).toContain(`[cut: ${(body.length - TOOL_TEXT_MAX).toLocaleString('en-GB')} characters left out]`);
+    expect(out).toContain(
+      `[cut: ${(body.length - TOOL_TEXT_MAX).toLocaleString('en-GB')} characters left out]`,
+    );
     expect(out.length).toBeLessThan(body.length);
   });
 
