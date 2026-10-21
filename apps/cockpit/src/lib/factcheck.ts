@@ -293,17 +293,19 @@ export function useExplain(messageId: string | null | undefined) {
   });
 }
 
-/** Let fact-checks in a notebook look claims up on the web (off by default; never for a private notebook). */
+/** Let fact-checks in a notebook look claims up on the web (on by default; a private notebook only if Settings allows). */
 export async function setCheckOnWeb(notebookId: string, on: boolean): Promise<boolean> {
   try {
     await api.patch(`/notebooks/${notebookId}`, { check_on_web: on });
     await queryClient.invalidateQueries({ queryKey: ['notebooks'] });
     notify({
       level: 'success',
-      title: on ? 'Fact-checks here can use the web' : 'Fact-checks here use your sources only',
+      title: on
+        ? 'Fact-checks here use the web for claims your sources miss'
+        : 'Fact-checks here use your sources only',
       body: on
-        ? 'Claims your sources do not cover are looked up on the web. Each search asks permission first.'
-        : 'You can still allow the web for one check at a time.',
+        ? 'Only the claim is searched, within your daily web limit.'
+        : 'You can still check one claim, or one answer, on the web.',
     });
     return true;
   } catch (err) {

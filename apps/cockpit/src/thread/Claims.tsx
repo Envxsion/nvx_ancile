@@ -202,7 +202,13 @@ function EvidenceQuote({ e, claim }: { e: ClaimEvidence; claim: string }) {
       </blockquote>
       <span className="ev-quote__foot">
         <cite>
-          {e.source_title}
+          {e.origin === 'web' && /^https?:\/\//i.test(e.ref) ? (
+            <a href={e.ref} target="_blank" rel="noreferrer noopener">
+              {e.source_title}
+            </a>
+          ) : (
+            e.source_title
+          )}
           {e.page != null ? `, p. ${e.page}` : ''}
         </cite>
         {canOpen ? (

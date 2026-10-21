@@ -40,6 +40,7 @@ import { scrollBehavior } from '../lib/motion';
 import { copyText, costLine, followUpDraft, insertIntoComposer } from '../lib/selectionWords';
 import { TIER_WORDS } from '../models/tier';
 import { notify } from '../state/notify';
+import { useSelectionCheck } from '../state/selectionCheck';
 import { useUi } from '../state/ui';
 import { EvidenceList, ScoreRing, VerdictMark } from '../thread/Claims';
 import { FactcheckChip } from '../thread/Factcheck';
@@ -118,10 +119,13 @@ function ClaimCard({
   c,
   focused,
   onRecheck,
+  onWeb,
 }: {
   c: FactcheckClaim;
   focused: boolean;
   onRecheck?: () => void;
+  /** Check just this claim on the web; absent when the web was used or cannot be. */
+  onWeb?: (box: DOMRect) => void;
 }) {
   return (
     <li className="claim-card" data-verdict={c.verdict} data-claim={c.id} data-focused={focused || undefined}>
@@ -135,6 +139,17 @@ function ClaimCard({
       </div>
       <p className="claim-card__claim">{c.text}</p>
       {c.verdict !== 'not_checkable' ? <EvidenceList claim={c} /> : null}
+      {onWeb && c.verdict !== 'not_checkable' && !c.evidence.some((e) => e.origin === 'web') ? (
+        <p className="claim-card__score">
+          <button
+            type="button"
+            className="link-btn"
+            onClick={(e) => onWeb(e.currentTarget.getBoundingClientRect())}
+          >
+            Check this on the web
+          </button>
+        </p>
+      ) : null}
       {c.rationale ? <p className="claim-card__why">{c.rationale}</p> : null}
       {c.verdict !== 'not_checkable' ? <p className="claim-card__score">{c.explanation}</p> : null}
       {c.check?.cached ? (
@@ -482,7 +497,7 @@ export function EvidencePanel() {
           <button type="button" className="link-btn" onClick={() => void startFactcheck(m.id)}>
             {f.status === 'failed' ? 'Try again' : 'Check again'}
           </button>
-          {f.status === 'done' && !f.scope.web && !f.scope.web_note ? (
+          {f.status === 'done' && !f.scope.web && (!f.scope.web_note || f.scope.web_reason === 'ask') ? (
             <>
               {' '}
               <button
@@ -528,6 +543,23 @@ export function EvidencePanel() {
             c={c}
             focused={focused === c.id}
             onRecheck={() => void startFactcheck(m.id, { again: true })}
+            {...(!f.scope.web && [undefined, null, 'ask', 'failed'].includes(f.scope.web_reason)
+              ? {
+                  onWeb: (box: DOMRect) =>
+                    useSelectionCheck.getState().openCard(
+                      {
+                        messageId: m.id,
+                        threadId: params.threadId ?? '',
+                        text: c.text,
+                        box,
+                        range: null,
+                        via: 'menu',
+                        at: null,
+                      },
+                      { web: true, again: true },
+                    ),
+                }
+              : {})}
           />
         ))}
       </ul>

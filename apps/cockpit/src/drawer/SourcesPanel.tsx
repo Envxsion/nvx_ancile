@@ -150,26 +150,27 @@ function GroundedRow({ notebookId }: { notebookId: string }) {
   );
 }
 
-/** Whether a fact-check here may look claims up on the web (roadmap FC4). Off unless you turn it on. */
+/** Whether a fact-check here looks a claim up on the web when its sources do not cover it (roadmap FC4). On unless you turn it off. */
 function WebRow({ notebookId }: { notebookId: string }) {
   const notebooks = useNotebooks();
-  const on = notebooks.data?.find((n) => n.id === notebookId)?.check_on_web === true;
+  const on = notebooks.data?.find((n) => n.id === notebookId)?.check_on_web !== false;
   const [busy, setBusy] = useState(false);
   return (
     <div className="grounded-row" data-on={on || undefined}>
       <Icon name="globe" size={14} />
       <div className="grounded-row__text">
         <span className="grounded-row__title">
-          Check on the web
-          <Hint id="check-on-web" title="Check on the web">
-            Claims your sources miss are looked up on the web and marked Web. Never in a private notebook.
+          Use the web when sources don't cover a claim
+          <Hint id="check-on-web" title="Use the web when sources don't cover a claim">
+            Only the claim's words are searched, and the evidence is marked Web. A private notebook does this
+            only if Settings, Private notebooks allows it.
           </Hint>
         </span>
       </div>
       <Switch
         checked={on}
         disabled={busy}
-        label="Let fact-checks in this notebook use the web"
+        label="Use the web when sources do not cover a claim"
         onChange={async (next) => {
           setBusy(true);
           await setCheckOnWeb(notebookId, next);
