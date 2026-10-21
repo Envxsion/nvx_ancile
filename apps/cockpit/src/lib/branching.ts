@@ -190,9 +190,17 @@ export async function archiveBranch(threadId: string, b: Branch): Promise<void> 
   }
 }
 
-export async function compactNow(threadId: string, head?: string | null): Promise<CompactResult | null> {
+/** `model`: the window the summary is made for (a switch to a smaller model); default, the thread's. */
+export async function compactNow(
+  threadId: string,
+  head?: string | null,
+  model?: string,
+): Promise<CompactResult | null> {
   try {
-    const r = await api.post<CompactResult>(`/threads/${threadId}/compact`, head ? { head } : {});
+    const r = await api.post<CompactResult>(`/threads/${threadId}/compact`, {
+      ...(head && { head }),
+      ...(model && { model }),
+    });
     await refreshThread(threadId);
     const saved = Math.max(0, r.tokens_before - r.tokens_after);
     notify({

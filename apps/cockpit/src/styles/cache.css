@@ -29,6 +29,24 @@
 .switch-cost__text {
   min-width: 0;
 }
+.switch-cost__act {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+.switch-cost__act:hover {
+  background: var(--lift);
+  color: var(--fg-1);
+}
+.switch-cost__act:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
 .switch-cost__close {
   display: inline-grid;
   flex: none;

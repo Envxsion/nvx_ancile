@@ -28,6 +28,7 @@ import { patchCc } from '../claudecode/store';
 import { ccName } from '../engines/api';
 import { helpDone } from '../help/store';
 import { tourEvent } from '../help/tours';
+import { askFit } from '../models/fit';
 import { notify } from '../state/notify';
 import { useUi } from '../state/ui';
 import { flowKeys, type ResolvedFlow } from '../thread/flowActions';
@@ -99,7 +100,8 @@ export function chooseInClaudeCodeThread(threadId: string, entry: { id: string; 
 const boundToClaudeCode = (threadId: string) =>
   !useUi.getState().demo && !!queryClient.getQueryData<ThreadView>(keys.thread(threadId))?.claudeCode;
 
-export async function chooseModel(model: ModelView, threadId?: string): Promise<void> {
+/** `fitted`: the person already chose to summarise for this model (models/fit.ts), so it is not asked again. */
+export async function chooseModel(model: ModelView, threadId?: string, fitted = false): Promise<void> {
   if (threadId && boundToClaudeCode(threadId) && canAnswer(model)) {
     chooseInClaudeCodeThread(threadId, model);
     return;
@@ -120,6 +122,8 @@ export async function chooseModel(model: ModelView, threadId?: string): Promise<
     });
     return;
   }
+  // HO1: a thread the model's window will not hold waits for the person's word (models/FitNotice.tsx).
+  if (threadId && !fitted && !useUi.getState().demo && (await askFit(threadId, model))) return;
   // LM1: an Ollama model starts loading as soon as it is picked, so the first message does not wait.
   // Fetched on the first pick, so it is not part of the first download.
   void import('../models/warming').then((m) => m.warmOnPick(model));
