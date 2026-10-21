@@ -62,10 +62,14 @@ fetch() { # url dest
 # The helpers sit beside this script, unless it was piped in (curl … | bash),
 # when there is no "beside": fetch them next to the volume instead.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo /nonexistent)"
-if [ ! -f "$HERE/healthcheck.sh" ] || [ ! -f "$HERE/watchdog.sh" ]; then
+# Every helper this script uses is listed here: a piped run has only what it fetches.
+HELPERS="healthcheck.sh watchdog.sh vllm-defaults.sh"
+missing=0
+for f in $HELPERS; do [ -f "$HERE/$f" ] || missing=1; done
+if [ "$missing" = 1 ]; then
   HERE="$VOLUME/ancile-node"
   mkdir -p "$HERE"
-  for f in healthcheck.sh watchdog.sh; do
+  for f in $HELPERS; do
     fetch "$SCRIPTS_URL/$f" "$HERE/$f" \
       || { echo "could not fetch $f from $SCRIPTS_URL" >&2; exit 1; }
   done

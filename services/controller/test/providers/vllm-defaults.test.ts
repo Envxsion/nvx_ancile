@@ -61,3 +61,13 @@ describe('the node status page', () => {
     expect(boot).toContain('$DEFAULT_ARGS $ANCILE_VLLM_ARGS');
   });
 });
+
+describe('the node script piped into bash (curl … | bash)', () => {
+  it('fetches every helper it uses, since a piped run has nothing beside it', () => {
+    const boot = readFileSync(join(NODE_DIR, 'bootstrap.sh'), 'utf8');
+    const used = new Set([...boot.matchAll(/\$HERE\/([\w.-]+\.sh)/g)].map((m) => m[1]));
+    const fetched = new Set((/^HELPERS="([^"]+)"/m.exec(boot)?.[1] ?? '').split(/\s+/));
+    expect(used.size).toBeGreaterThan(0);
+    for (const f of used) expect(fetched, `${f} is used but not fetched`).toContain(f);
+  });
+});
