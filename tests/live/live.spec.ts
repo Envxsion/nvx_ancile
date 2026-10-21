@@ -29,6 +29,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, expect, test } from '@playwright/test';
 
 /** What the runner passes in. Nothing here is a secret except the Controller token, which is never printed. */
@@ -51,6 +52,8 @@ const POD_MODEL = env('LIVE_POD_MODEL');
 const HF_MODEL = env('LIVE_HF_MODEL', 'Qwen/Qwen2.5-1.5B-Instruct');
 const SERVED_NAME = env('LIVE_SERVED_NAME', 'qwen2.5-1.5b');
 const MAX_POD_USD_HOUR = Number(env('LIVE_MAX_POD_USD_HOUR', '0.60'));
+// The node bootstrap serves its status page here when ANCILE_STATUS_PORT is set.
+const STATUS_PORT = 8001;
 const READY_MINUTES = 10;
 const SHOTS = process.env.LIVE_SHOTS === '1';
 
@@ -162,6 +165,7 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
     healthy: boolean;
     hourly_rate: number;
     provider: string;
+    provider_ref: string;
   }
   const nodeNow = async (id: string): Promise<Node | undefined> =>
     (await controller<{ items: Node[] }>('GET', '/nodes')).items.find((n) => n.id === id);
@@ -229,10 +233,12 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
                 ANCILE_SERVED_NAME: SERVED_NAME,
                 // The prefix is about 8,000 tokens and the thread carries all of it to the pod.
                 ANCILE_VLLM_ARGS: '--max-model-len 16384',
+                // The node's status page (its own log, the node key taken out), read if a turn fails.
+                ANCILE_STATUS_PORT: String(STATUS_PORT),
               },
               container_disk_gb: 30,
               volume_gb: 10,
-              ports: ['8000/http'],
+              ports: ['8000/http', `${STATUS_PORT}/http`],
             },
           },
         });
@@ -441,6 +447,7 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
   {
     // Whatever happened above, the pod is stopped and the notebook goes to the Trash.
     const failures: string[] = [];
+    if (failure && nodeId && !DRY) await nodeStatus(nodeId);
     if (nodeId) {
       try {
         await endPod(nodeId);
@@ -471,6 +478,25 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
     if (failure) throw failure;
     if (failures.length) throw new Error(failures.join('\n'));
     if (nodeId) expect(podEnded, 'the node was stopped at the end').toBe(true);
+  }
+
+  /** After a failure, the node's own status page: what its setup script and vLLM said. */
+  async function nodeStatus(id: string): Promise<void> {
+    try {
+      const ref = (await nodeNow(id))?.provider_ref;
+      if (!ref) return;
+      const res = await request.fetch(`https://${ref}-${STATUS_PORT}.proxy.runpod.net/index.txt`, {
+        timeout: 20_000,
+      });
+      const text = res.ok() ? await res.text() : `(the status page answered ${res.status()})`;
+      mkdirSync('test-results/live', { recursive: true });
+      writeFileSync('test-results/live/node-status.txt', text);
+      console.error(
+        `[live] The node's status page, last 40 lines:\n${text.split('\n').slice(-40).join('\n')}`,
+      );
+    } catch (e) {
+      say(`Could not read the node's status page: ${(e as Error).message}`);
+    }
   }
 
   /** Terminate the node (it stops billing for compute and storage), and wait until the Controller agrees. */
