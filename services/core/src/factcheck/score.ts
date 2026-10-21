@@ -10,13 +10,19 @@
  *           |  good the retrieval behind it was.
  *  How      |  confidence = w_s·support + w_a·agreement + w_r·retrieval
  *           |  support    = squash(Σ rerank_score × stance)
- *           |  agreement  = 1 agree · 0.5 insufficient · 0 contradicted
+ *           |  agreement  = 1 agree · 0.75 partly · 0.5 insufficient · 0 contradicted
  *           |  retrieval  = mean(top-3 rerank) × coverage
  *           |  The verdict is not read off that number. It follows the
  *           |  checker's stance: contradicted if it (or the evidence it
  *           |  marked) contradicts; verified if every checker says
  *           |  supported, a passage backs the claim and the checker is
  *           |  not under `verified` sure of itself; else unverified.
+ *           |  "Partly" (mostly right with a nuance: rounded, approximate,
+ *           |  a minor outdated detail, true only in part) is a verdict of
+ *           |  its own between verified and contradicted. Every checker
+ *           |  must say supported or partly, and at least one partly, on
+ *           |  the same evidence test as verified. In the message score a
+ *           |  partly claim counts half (PARTLY_CREDIT); it never seals.
  *           |  A passage that states a claim outright is verified at
  *           |  whatever its retrieval score, and the number is shown
  *           |  beside the verdict, not instead of it.
@@ -24,8 +30,11 @@
  */
 
 export type Stance = 'supports' | 'contradicts' | 'neutral';
-export type VerifierVerdict = 'supported' | 'contradicted' | 'insufficient';
-export type ClaimVerdict = 'verified' | 'unverified' | 'contradicted' | 'not_checkable';
+export type VerifierVerdict = 'supported' | 'partly' | 'contradicted' | 'insufficient';
+export type ClaimVerdict = 'verified' | 'partly' | 'unverified' | 'contradicted' | 'not_checkable';
+
+/** How much of a pass a "partly" claim earns in the answer's score: half. */
+export const PARTLY_CREDIT = 0.5;
 
 export interface Evidence {
   stance: Stance;
@@ -82,7 +91,9 @@ export function contradictionMass(evidence: Evidence[]): number {
 export function agreementScore(v: VerifierVerdict | VerifierVerdict[]): number {
   const list = Array.isArray(v) ? v : [v];
   if (list.length === 0) return 0.5;
-  const each = list.map((x): number => (x === 'supported' ? 1 : x === 'insufficient' ? 0.5 : 0));
+  const each = list.map((x): number =>
+    x === 'supported' ? 1 : x === 'partly' ? 0.75 : x === 'insufficient' ? 0.5 : 0,
+  );
   return each.reduce((a, b) => a + b, 0) / each.length;
 }
 
@@ -130,13 +141,13 @@ export function scoreClaim(
   if (contradictionMass(input.evidence) >= thresholds.contradict || verdicts.includes('contradicted'))
     verdict = 'contradicted';
   else if (
-    verdicts.every((v) => v === 'supported') &&
+    verdicts.every((v) => v === 'supported' || v === 'partly') &&
     // A passage the checker leaned on, or one that plainly bears on the claim (it may name no ref).
     (input.evidence.some((e) => e.stance === 'supports') ||
       input.evidence.some((e) => clamp01(e.score) >= 0.5)) &&
     (input.checkerConfidence == null || input.checkerConfidence >= thresholds.verified)
   )
-    verdict = 'verified';
+    verdict = verdicts.includes('partly') ? 'partly' : 'verified';
   return { verdict, confidence, support, agreement, retrieval };
 }
 
@@ -145,7 +156,8 @@ export function messageConfidence(claims: { importance: number; score: ClaimScor
   const checkable = claims.filter((c) => c.score.verdict !== 'not_checkable' && c.importance > 0);
   const w = checkable.reduce((s, c) => s + c.importance, 0);
   if (w === 0) return null;
-  return checkable.reduce((s, c) => s + c.importance * c.score.confidence, 0) / w;
+  const credit = (c: { score: ClaimScore }) => (c.score.verdict === 'partly' ? PARTLY_CREDIT : 1);
+  return checkable.reduce((s, c) => s + c.importance * c.score.confidence * credit(c), 0) / w;
 }
 
 /** The breakdown in words, for the tooltip on the score chip. */
@@ -153,6 +165,8 @@ export function explainScore(s: ClaimScore): string {
   if (s.verdict === 'not_checkable')
     return 'This is an opinion or a prediction, so there is nothing to check it against.';
   const pct = (x: number) => `${Math.round(x * 100)}%`;
+  if (s.verdict === 'partly')
+    return `Mostly right, with a difference worth knowing. Support ${pct(s.support)}, and the passages found were ${s.retrieval >= 0.6 ? 'a close' : 'a loose'} match (${pct(s.retrieval)}). Overall confidence ${pct(s.confidence)}; it counts as half a pass in the answer's score.`;
   const src =
     s.support >= 0.6
       ? 'Your sources support it well'

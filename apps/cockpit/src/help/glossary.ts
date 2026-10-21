@@ -60,7 +60,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: 'fact-check',
     term: 'Fact-check',
     plain:
-      'A second pass that checks each statement in an answer against your sources and marks it supported, unsupported or contradicted.',
+      'A second pass that checks each statement in an answer against your sources and marks it as holding, partly holding, not holding, or too uncertain to tell.',
     article: 'fact-checking',
   },
   {

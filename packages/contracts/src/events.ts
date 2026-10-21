@@ -291,7 +291,7 @@ export const RunEvent = z.discriminatedUnion('type', [
     text: z.string(),
     checkable: z.boolean(),
     /** For `judged`: the verdict, the judge's reason and the quotes it relied on. */
-    verdict: z.enum(['verified', 'unverified', 'contradicted', 'not_checkable']).optional(),
+    verdict: z.enum(['verified', 'partly', 'unverified', 'contradicted', 'not_checkable']).optional(),
     rationale: z.string().optional(),
     judge: z.string().nullable().optional(),
     quotes: z

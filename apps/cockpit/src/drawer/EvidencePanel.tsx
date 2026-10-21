@@ -49,7 +49,13 @@ import { Icon } from '../ui/Icon';
 import { LoadFailed } from '../ui/LoadFailed';
 import { EmptyState, Skeleton } from '../ui/primitives';
 
-const ORDER: Record<ClaimVerdict, number> = { contradicted: 0, unverified: 1, verified: 2, not_checkable: 3 };
+const ORDER: Record<ClaimVerdict, number> = {
+  contradicted: 0,
+  partly: 1,
+  unverified: 2,
+  verified: 3,
+  not_checkable: 4,
+};
 
 function DemoEvidence() {
   const focused = useUi((s) => s.focusedClaim);
@@ -126,7 +132,7 @@ function checkWords(c: FactcheckClaim): string {
 const dateWords = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-function ClaimCard({
+export function ClaimCard({
   c,
   focused,
   onRecheck,
@@ -159,6 +165,11 @@ function ClaimCard({
           >
             Check this on the web
           </button>
+        </p>
+      ) : null}
+      {c.verdict === 'partly' && c.check?.nuance ? (
+        <p className="claim-card__why" data-nuance>
+          {c.check.nuance}
         </p>
       ) : null}
       {c.rationale ? <p className="claim-card__why">{c.rationale}</p> : null}

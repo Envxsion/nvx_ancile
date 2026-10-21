@@ -81,7 +81,7 @@ describe('fact-check runs', () => {
     expect(f.status).toBe('done');
     expect(f.claims.map((c) => c.verdict)).toEqual(['verified', 'contradicted', 'not_checkable']);
     for (const c of f.claims) expect(answer.slice(c.char_start, c.char_end)).toBe(c.text);
-    expect(f.counts).toEqual({ verified: 1, unverified: 0, contradicted: 1, not_checkable: 1 });
+    expect(f.counts).toEqual({ verified: 1, partly: 0, unverified: 0, contradicted: 1, not_checkable: 1 });
     expect(f.sealed).toBe(false);
     expect(f.summary).toMatch(/^1 of 2 claims verified and 1 contradicted/);
     // The contradicting passage is shown with its exact quote and where it lives.

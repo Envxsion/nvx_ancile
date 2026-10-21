@@ -524,6 +524,7 @@ export function factcheckHandler(deps: FactcheckDeps): RunHandler {
                       degraded: v.degraded,
                       general_knowledge: v.general,
                       ...(v.checkers && v.checkers.length > 1 && { checkers: v.checkers }),
+                      ...(v.verdict === 'partly' && v.nuance && { nuance: v.nuance }),
                     }
                   : undefined;
               return {

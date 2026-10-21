@@ -57,6 +57,20 @@ function overlap(claim: string[], text: string): number {
 }
 
 const numbers = (s: string) => new Set(s.match(/\d+(?:[.,]\d+)*/g) ?? []);
+/** A number as written ("8,849" or "8,848.86") as a value and its decimal places. */
+const parsed = (n: string) => {
+  const plain = n.replace(/,(?=\d{3}\b)/g, '');
+  const dot = plain.indexOf('.');
+  return { value: Number(plain.replace(',', '.')), places: dot < 0 ? 0 : plain.length - dot - 1 };
+};
+/** The claim's number is the passage's rounded to the claim's own precision: 8,849 for 8,848.86. */
+const roundedFrom = (claimNum: string, theirs: Set<string>): boolean => {
+  const c = parsed(claimNum);
+  return [...theirs].some((t) => {
+    const p = parsed(t);
+    return p.places > c.places && Number(p.value.toFixed(c.places)) === c.value;
+  });
+};
 const NEGATION = /\b(not|never|no|none|cannot|can't|isn't|aren't|doesn't|don't|won't|without)\b/i;
 const HEDGE =
   /\b(I think|I believe|in my opinion|should|might|may|probably|perhaps|could|will|would|recommend|suggest|consider)\b/i;
@@ -118,7 +132,7 @@ export function fakeClaims(answer: string): FakeClaim[] {
 function bestSentence(text: string, claim: string[]): string {
   let best = '';
   let score = -1;
-  for (const s of text.match(/[^.!?\n]+[.!?]*/g) ?? []) {
+  for (const s of text.match(/[^\n]+?(?:[.!?]+(?=\s|$)|$)/g) ?? []) {
     const t = s.trim();
     if (t.length < 3 || t.startsWith('#')) continue;
     const o = overlap(claim, t);
@@ -134,7 +148,7 @@ export function fakeVerdict(claim: string, evidence: { ref: string; text: string
   const terms = contentTerms(claim);
   const nums = numbers(claim);
   const negated = NEGATION.test(claim);
-  const judged: { ref: string; quote: string; stance: 'supports' | 'contradicts' }[] = [];
+  const judged: { ref: string; quote: string; stance: 'supports' | 'contradicts'; rounded?: boolean }[] = [];
   for (const e of evidence) {
     const quote = bestSentence(e.text, terms);
     const words = terms.filter((t) => !/^\d/.test(t));
@@ -142,19 +156,43 @@ export function fakeVerdict(claim: string, evidence: { ref: string; text: string
     const theirs = numbers(quote);
     // A number the claim states that the passage, stating numbers of its own,
     // does not: "1933" against "14 June 1932" clashes though "14" is shared.
-    const numberClash = nums.size > 0 && theirs.size > 0 && [...nums].some((n) => !theirs.has(n));
+    const off = nums.size > 0 && theirs.size > 0 ? [...nums].filter((n) => !theirs.has(n)) : [];
+    // Off only by rounding: the passage is more precise, and the claim is it rounded. Partly, not wrong.
+    const rounded = off.length > 0 && off.every((n) => roundedFrom(n, theirs));
+    const numberClash = off.length > 0 && !rounded;
     const negationClash = negated !== NEGATION.test(quote);
-    judged.push({ ref: e.ref, quote, stance: numberClash || negationClash ? 'contradicts' : 'supports' });
+    judged.push({
+      ref: e.ref,
+      quote,
+      stance: numberClash || negationClash ? 'contradicts' : 'supports',
+      ...(rounded && !negationClash && { rounded: true }),
+    });
   }
   const against = judged.filter((j) => j.stance === 'contradicts');
-  const stance = against.length ? 'contradicted' : judged.length ? 'supported' : 'insufficient';
+  const roundedOnly = !against.length && judged.length > 0 && judged.every((j) => j.rounded);
+  const stance = against.length
+    ? 'contradicted'
+    : roundedOnly
+      ? 'partly'
+      : judged.length
+        ? 'supported'
+        : 'insufficient';
+  const nuance =
+    stance === 'partly' ? `${judged[0]?.ref} gives a more precise figure; the claim rounds it.` : '';
   const rationale =
-    stance === 'contradicted'
-      ? `${against[0]?.ref} says otherwise: its numbers or its negation differ from the claim. (Offline test model: word overlap, not understanding.)`
-      : stance === 'supported'
-        ? `${judged[0]?.ref} states this in nearly the same words. (Offline test model: word overlap, not understanding.)`
-        : 'No passage shares enough of the claim to settle it. (Offline test model: word overlap, not understanding.)';
-  return { stance, evidence: judged, rationale };
+    stance === 'partly'
+      ? `${judged[0]?.ref} agrees apart from rounding. (Offline test model: word overlap, not understanding.)`
+      : stance === 'contradicted'
+        ? `${against[0]?.ref} says otherwise: its numbers or its negation differ from the claim. (Offline test model: word overlap, not understanding.)`
+        : stance === 'supported'
+          ? `${judged[0]?.ref} states this in nearly the same words. (Offline test model: word overlap, not understanding.)`
+          : 'No passage shares enough of the claim to settle it. (Offline test model: word overlap, not understanding.)';
+  return {
+    stance,
+    evidence: judged.map(({ rounded: _r, ...e }) => e),
+    rationale,
+    nuance,
+  };
 }
 
 /* ---- Dispatch -------------------------------------------------------------- */
@@ -172,8 +210,10 @@ export const FIELDS = {
     'rationale',
     'confidence',
     'supported',
+    'partly',
     'contradicted',
     'insufficient',
+    'nuance',
   ],
   SelectionCheck: ['verdict', 'headline', 'corrected', 'evidence', 'closing'],
 } as const;
@@ -215,7 +255,13 @@ function selectionReply(prompt: string): string {
     lines.push({ text: 'Nothing in the evidence settles this.', ref: '', stance: 'neutral' as never });
   const against = v.evidence.find((e) => e.stance === 'contradicts');
   const verdict =
-    v.stance === 'contradicted' ? 'doesnt_hold' : v.stance === 'supported' ? 'holds' : 'cant_tell';
+    v.stance === 'contradicted'
+      ? 'doesnt_hold'
+      : v.stance === 'supported'
+        ? 'holds'
+        : v.stance === 'partly'
+          ? 'partly'
+          : 'cant_tell';
   return JSON.stringify({
     verdict,
     headline: v.rationale,

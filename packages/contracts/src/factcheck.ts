@@ -23,7 +23,12 @@ import { Recovered, Usage } from './messages';
 import { ExplainLink } from './notebooks';
 import { EffectiveScope } from './scopes';
 
-export const ClaimVerdict = z.enum(['verified', 'unverified', 'contradicted', 'not_checkable']);
+/**
+ * A claim's verdict. In the Cockpit: verified "Holds", partly "Partly holds" (mostly right with a nuance:
+ * rounded, approximate, a minor outdated detail, true only in part), contradicted "Doesn't hold", unverified
+ * "Can't tell". `partly` is newer than the rest; records stored before it never carry it and read as before.
+ */
+export const ClaimVerdict = z.enum(['verified', 'partly', 'unverified', 'contradicted', 'not_checkable']);
 export type ClaimVerdict = z.infer<typeof ClaimVerdict>;
 
 export const EvidenceStance = z.enum(['supports', 'contradicts', 'neutral']);
@@ -85,11 +90,16 @@ export const ClaimCheckInfo = z.object({
     .array(
       z.object({
         model_id: z.string(),
-        verdict: z.enum(['supported', 'contradicted', 'insufficient']),
+        verdict: z.enum(['supported', 'partly', 'contradicted', 'insufficient']),
         confidence: z.number().nullable(),
       }),
     )
     .optional(),
+  /**
+   * For a "partly" verdict: one plain sentence on what is off ("The source gives 8,848.86 m; the claim
+   * rounds it."). Absent on every other verdict and on checks from before graded verdicts.
+   */
+  nuance: z.string().nullable().optional(),
 });
 export type ClaimCheckInfo = z.infer<typeof ClaimCheckInfo>;
 
@@ -165,11 +175,13 @@ export const Factcheck = z.object({
   claims: z.array(FactcheckClaim),
   counts: z.object({
     verified: z.number().int(),
+    /** Claims that hold in part. Absent on checks from before graded verdicts (read as 0). */
+    partly: z.number().int().default(0),
     unverified: z.number().int(),
     contradicted: z.number().int(),
     not_checkable: z.number().int(),
   }),
-  /** Every checkable claim verified and none contradicted: the answer earns the seal. */
+  /** Every checkable claim verified (none partly, unverified or contradicted): the answer earns the seal. */
   sealed: z.boolean(),
   /** The message-level score in words. */
   summary: z.string(),

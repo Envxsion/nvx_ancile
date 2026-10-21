@@ -542,7 +542,7 @@ When every statement in an answer is backed by a citation, it carries a small gi
         title: 'Fact-checking an answer',
         summary: 'Check each claim against your sources and, when they do not cover it, the web.',
         keywords:
-          'fact check verify claim evidence contradicted confidence grounded mode seal true false tier triage tiny small standard frontier general knowledge web search not checked critical mission-critical checkers share checks cached checked earlier re-check limits strict cap cost cancelled',
+          'fact check verify claim evidence contradicted partly holds partial nuance rounded approximate confidence grounded mode seal true false tier triage tiny small standard frontier general knowledge web search not checked critical mission-critical checkers share checks cached checked earlier re-check limits strict cap cost cancelled',
         related: [
           'highlight-fact-check',
           'private-notebooks#fact-check-on-the-web',
@@ -557,13 +557,16 @@ When every statement in an answer is backed by a citation, it carries a small gi
 
 Press **F** on an answer, or choose **Fact-check** under it. Each claim is then underlined where it sits in the answer:
 
-- a faint dotted green line: **verified**, the evidence states it
-- a dotted grey line: **unverified**, there is not enough evidence either way
-- a wavy red line: **contradicted**, the evidence says otherwise, and both sides are shown
+- a faint dotted green line: **holds**, the evidence states it
+- an amber dashed line: **partly holds**, it is mostly right with a difference worth knowing, and the card says what differs
+- a dotted grey line: **can't tell**, there is not enough evidence either way
+- a wavy red line: **doesn't hold**, the evidence says otherwise, and both sides are shown
+
+"Partly holds" is for a number that is rounded ("8,849 metres" where the source says 8,848.86), approximate wording, a minor outdated detail, or something true only in part. It is not a failure: a claim is only marked as not holding when its substance is wrong. In the answer's score a partly claim counts as half a pass, and an answer with one does not earn the seal.
 
 Opinions, advice and predictions are left alone: there is nothing to check them against. Hover or focus a claim to see the passage behind its verdict, and open it in the source. The score under the answer is a weighted mean of every claim's confidence; hover it for the breakdown in words. An answer whose every checkable claim is verified earns the gilt seal.
 
-The verdict follows the checker's stance, and the number sits beside it. If every checker says supported and a passage backs it, the claim is verified. A checker that supports a claim but is under 50% sure leaves it unverified.
+The verdict follows the checker's stance, and the number sits beside it. If every checker says supported and a passage backs it, the claim holds; if one says partly and none disagrees, it partly holds. A checker that supports a claim but is under 50% sure leaves it unverified.
 
 ### Grounded mode
 

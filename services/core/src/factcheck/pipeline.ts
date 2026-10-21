@@ -83,17 +83,19 @@ export function scoreOutcome(o: ClaimOutcome, cfg: ScoreConfig = DEFAULT_SCORE_C
   const score: ClaimScore =
     o.general && o.claim.checkable && o.verdict === 'supported' && o.evidence.length === 0
       ? { verdict: 'verified', confidence: 0.7, support: 0.6, agreement: 1, retrieval: 0 }
-      : scoreClaim(
-          {
-            checkable: o.claim.checkable,
-            evidence: o.evidence,
-            verifier: o.verdicts?.length ? o.verdicts : o.verdict,
-            coverage: o.coverage,
-            checkerConfidence: o.confidence,
-          },
-          cfg.weights,
-          cfg.thresholds,
-        );
+      : o.general && o.claim.checkable && o.verdict === 'partly' && o.evidence.length === 0
+        ? { verdict: 'partly', confidence: 0.6, support: 0.5, agreement: 0.75, retrieval: 0 }
+        : scoreClaim(
+            {
+              checkable: o.claim.checkable,
+              evidence: o.evidence,
+              verifier: o.verdicts?.length ? o.verdicts : o.verdict,
+              coverage: o.coverage,
+              checkerConfidence: o.confidence,
+            },
+            cfg.weights,
+            cfg.thresholds,
+          );
   return {
     ...o.claim,
     evidence: o.evidence,
@@ -122,14 +124,20 @@ export function toStored(c: CheckedClaim, id: string): StoredClaim {
 }
 
 export function countVerdicts(claims: { verdict: StoredClaim['verdict'] }[]): FactsheetCounts {
-  const counts: FactsheetCounts = { verified: 0, unverified: 0, contradicted: 0, not_checkable: 0 };
+  const counts: FactsheetCounts = {
+    verified: 0,
+    partly: 0,
+    unverified: 0,
+    contradicted: 0,
+    not_checkable: 0,
+  };
   for (const c of claims) counts[c.verdict] += 1;
   return counts;
 }
 
 /** Earned only when there was something to check and every checkable claim held. */
 export function isSealed(counts: FactsheetCounts): boolean {
-  return counts.verified > 0 && counts.unverified === 0 && counts.contradicted === 0;
+  return counts.verified > 0 && counts.partly === 0 && counts.unverified === 0 && counts.contradicted === 0;
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -144,12 +152,14 @@ export function summarise(r: {
   if (r.status === 'cancelled') return 'The fact-check was stopped.';
   if (r.status === 'failed') return 'The fact-check did not finish.';
   const { verified, unverified, contradicted, not_checkable } = r.counts;
-  const checkable = verified + unverified + contradicted;
+  const partly = r.counts.partly ?? 0;
+  const checkable = verified + partly + unverified + contradicted;
   if (checkable === 0)
     return not_checkable
       ? 'Nothing here could be checked: it is opinion, advice or prediction.'
       : 'This answer makes no claims that can be checked.';
   const parts = [`${verified} of ${checkable} ${checkable === 1 ? 'claim' : 'claims'} verified`];
+  if (partly) parts.push(`${partly} ${partly === 1 ? 'holds' : 'hold'} in part`);
   if (contradicted) parts.push(`${contradicted} contradicted by your sources`);
   if (unverified) parts.push(`${unverified} without enough evidence`);
   const head = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
@@ -164,6 +174,8 @@ export function messageScore(claims: CheckedClaim[]): number | null {
 function commonKnowledgeWords(c: StoredClaim): string {
   if (c.verdict === 'verified')
     return 'No source covers this. It is common knowledge, and a small model agreed.';
+  if (c.verdict === 'partly')
+    return 'No source covers this. A small model judged it mostly right from common knowledge, with a difference worth knowing.';
   if (c.verdict === 'contradicted')
     return 'No source covers this. A small model judged it wrong from common knowledge.';
   return 'No source covers this, and a small model could not say.';
