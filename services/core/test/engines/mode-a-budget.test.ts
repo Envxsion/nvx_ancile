@@ -40,7 +40,8 @@ describe('Claude Code as a model', () => {
     expect(prompt.endsWith('latest?')).toBe(true);
     expect(prompt).toContain('answer 59');
     expect(prompt).not.toContain('question 0 ');
-    expect(prompt).toMatch(/\(\d+ earlier messages left out to keep this short\.\)/);
+    expect(prompt).toMatch(/\(\d+ earlier messages did not fit here and are left out\./);
+    expect(prompt).toContain('do not guess what they said');
   });
 
   it('keeps a short conversation whole', () => {

@@ -185,6 +185,8 @@ class Bridge implements LiveBridge {
   before: Record<string, unknown>[] = [];
   opened: LiveOpenParams[] = [];
   sent: string[] = [];
+  /** The images that went with each prompt (HO1). */
+  images: { mime: string; data: string }[][] = [];
   replies: LivePermissionReply[] = [];
   closed: string[] = [];
   private fns = new Set<(e: LiveEvent) => void>();
@@ -192,8 +194,9 @@ class Bridge implements LiveBridge {
     this.opened.push(p);
     return { handle: 'hA' };
   }
-  async send(handle: string, text: string) {
+  async send(handle: string, text: string, opts?: { images?: { mime: string; data: string }[] }) {
     this.sent.push(text);
+    if (opts?.images) this.images.push(opts.images);
     setTimeout(() => {
       this.push({
         event: 'session.permission',
@@ -332,6 +335,41 @@ describe('Claude Code as a model (Mode A)', () => {
     expect(bridge.replies[1]).toMatchObject({ behavior: 'allow' }); // the notebook's search
     expect(handles.size).toBe(0);
     expect(bridge.closed).toEqual(['hA']);
+  });
+
+  it('passes the conversation images to Claude as image input (HO1)', async () => {
+    const bridge = new Bridge();
+    const client = new ClaudeCodeModelClient({
+      bridge,
+      cli: async () => ({ path: 'claude', version: '2.1.300' }),
+      env: async () => ({}),
+      cwd: join(tmpdir(), 'ancile-claude-model'),
+      gate: (root) =>
+        createGate({ policy: new BuiltinPolicy(), store: new MemoryPermissionStore(), workspaceRoot: root }),
+      userId: 'usr_1',
+      workspaceId: 'w',
+      handles: new Set<string>(),
+      images: async (id) => (id === 'img_1' ? { bytes: Buffer.from('PNGDATA'), mime: 'image/png' } : null),
+    });
+    const model = claudeCodeModels().find((m) => m.id === 'claude-code/sonnet') as ModelConfig;
+    for await (const _ of client.stream(
+      model,
+      {
+        messages: [
+          {
+            role: 'user',
+            content: '',
+            parts: [
+              { type: 'text', text: 'What is in this? ' },
+              { type: 'image', url: '/api/v1/images/img_1', mime: 'image/png', image_id: 'img_1' },
+            ],
+          },
+        ],
+      },
+      new AbortController().signal,
+    ));
+    expect(bridge.images).toEqual([[{ mime: 'image/png', data: Buffer.from('PNGDATA').toString('base64') }]]);
+    expect(bridge.sent[0]).toContain('[Image 1 attached]');
   });
 
   it('says what Claude Code said when its result is an error, even one marked success', async () => {

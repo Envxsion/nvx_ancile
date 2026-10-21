@@ -2283,6 +2283,11 @@ async function main() {
       workspaceId: owner.workspaceId,
       handles: modeAHandles,
       observe: (m) => planLimits.observe(m),
+      // HO1: the conversation's images go to Claude as image input.
+      images: async (id) => {
+        const got = await imageStore.get(id);
+        return got ? { bytes: got.bytes, mime: got.record.mime } : null;
+      },
     }),
   );
   // Claude Code as a model: offered while Claude Code is installed and verified.

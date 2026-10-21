@@ -20,11 +20,16 @@
  *           |  anything else is refused (a model call cannot wait for a
  *           |  person). The prompt is the request's messages (the
  *           |  assembled context: summary, last turns, recall and
- *           |  passages), cut newest first to MODE_A_PROMPT_TOKENS,
- *           |  never the whole branch; the system prompt goes in the
- *           |  appended note. Its window is MODE_A_WINDOW, so threads
- *           |  and flow steps budget and compact to it as for any
- *           |  gateway model: a fresh session per call reads it all.
+ *           |  passages), cut newest first to what the model's window
+ *           |  holds; the system prompt goes in the appended note.
+ *           |  HO1: earlier tool steps travel as one-line digests
+ *           |  (digest.ts), citations as their sources, and images go
+ *           |  in as image input (Claude sees them). Each model's
+ *           |  window is its real one from the lineup, at most 200k
+ *           |  (the 1M window needs the [1m] alias, not offered), less
+ *           |  CLAUDE_CODE_OVERHEAD for Claude Code's own setup, so
+ *           |  threads and flow steps budget and compact to it as for
+ *           |  any gateway model: a fresh session per call reads it all.
  *  Note     |  Free in chat and routing; inside Pro's Beam and Flow
  *           |  lab it is Pro (pro/answers.ts allowModel). Usage counts
  *           |  against Claude Code's own account; NVX Ancile prices it
@@ -46,10 +51,13 @@ import type { LiveBridge, LiveEvent } from '../claudecode/bridge-protocol';
 import { CLAUDE_CODE_PROMPT_TOO_LONG } from '../claudecode/errors';
 import { threadToken } from '../claudecode/mcp-server';
 import { ANCILE_MCP_SERVER, CLAUDE_CODE_PRINCIPAL, gateRoot, mapTool } from '../claudecode/permission-map';
+import { fileText } from '../gateway/convert';
+import { type ImageBytes, imagesFor } from '../gateway/providers';
 import type { ModelRegistry } from '../gateway/registry';
-import type { ModelClient, ModelRequest, StreamChunk } from '../gateway/types';
+import type { ModelClient, ModelMessage, ModelRequest, StreamChunk } from '../gateway/types';
 import { logFor } from '../obs/logger';
 import type { Gate } from '../permissions/gate';
+import { digestParts } from './digest';
 
 const log = logFor('claude-code-model');
 
@@ -78,11 +86,40 @@ export function creditSpentError(detail: string): ClassifiedError {
     hint: 'It renews at the start of the next cycle. Until then this model is skipped: pick another, or buy credit in the Claude Console.',
   });
 }
-/** The window NVX Ancile budgets Claude Code calls to (each call is a fresh session). */
-export const MODE_A_WINDOW = 32_000;
-/** The most of the conversation one call's prompt carries, in tokens (about 4 characters each). */
+/**
+ * What Claude Code puts in a call by itself, in tokens: its own system prompt and the definitions of
+ * NVX Ancile's tools (the account's connectors are off, the built-in tools are off). A documented
+ * margin, not a measurement: a call opens a live session, which this repository's tests never do.
+ * TODO(phase-2): read it once per Claude Code version from the session's `context_usage`.
+ */
+export const CLAUDE_CODE_OVERHEAD = 20_000;
+/** The window Claude Code's aliases run: the 1M window needs the [1m] alias, which is not offered. */
+export const CLAUDE_CODE_WINDOW = 200_000;
+/** The window NVX Ancile budgets Claude Code calls to when the lineup does not say (each call is a fresh session). */
+export const MODE_A_WINDOW = CLAUDE_CODE_WINDOW - CLAUDE_CODE_OVERHEAD;
+/** The most of the conversation a prompt carries when no model says (tokens, about 4 characters each). */
 export const MODE_A_PROMPT_TOKENS = 20_000;
+/** Images sent with one call, newest first; one may weigh at most 5 MB, Claude's own limit. */
+export const MODE_A_IMAGES = 6;
+const MODE_A_IMAGE_BYTES = 5 * 1024 * 1024;
 const approx = (s: string) => Math.ceil(s.length / 4);
+
+/**
+ * The window of a Claude Code alias from the models the account lists (Opus, Sonnet and Haiku in
+ * config/models.yaml; `default` is Sonnet's), at most the 200k the aliases run, less Claude Code's own
+ * setup. Not listed: the fallback.
+ */
+export function aliasWindow(
+  alias: string,
+  models: readonly Pick<ModelConfig, 'provider' | 'provider_model' | 'context_window'>[],
+): number {
+  const line = alias === 'default' ? 'sonnet' : alias;
+  const listed = models
+    .filter((m) => m.provider === 'anthropic' && m.provider_model.includes(`claude-${line}`))
+    .map((m) => m.context_window);
+  const window = listed.length ? Math.min(Math.max(...listed), CLAUDE_CODE_WINDOW) : CLAUDE_CODE_WINDOW;
+  return window - CLAUDE_CODE_OVERHEAD;
+}
 
 /**
  * Claude Code's error result, in plain words. Its subtype can read "success"
@@ -114,7 +151,7 @@ export function errorResult(m: Record<string, unknown>, sentTokens: number, cred
 /** The Anthropic key's secret name, which the monthly-credit variants run on (CR1). */
 export const CREDIT_KEY_SECRET = 'ANTHROPIC_API_KEY';
 
-export function claudeCodeModels(): ModelConfig[] {
+export function claudeCodeModels(listed: readonly ModelConfig[] = []): ModelConfig[] {
   const plan = CLAUDE_CODE_MODELS.map((m) => ({
     id: `${CLAUDE_CODE_MODEL_PREFIX}${m.alias}`,
     provider: CLAUDE_CODE_PROVIDER,
@@ -122,9 +159,10 @@ export function claudeCodeModels(): ModelConfig[] {
     display_name: m.name,
     via: 'direct' as const,
     family: 'claude',
-    context_window: MODE_A_WINDOW,
+    context_window: aliasWindow(m.alias, listed),
     max_output: 8_000,
-    capabilities: ['tools' as const],
+    // Claude reads images, and a call passes them as image input (HO1).
+    capabilities: ['tools' as const, 'vision' as const],
     // Claude Code's usage counts against its own account; NVX Ancile shows no price.
     price: { input_per_mtok: 0, output_per_mtok: 0 },
     enabled: true,
@@ -148,7 +186,7 @@ export function claudeCodeModels(): ModelConfig[] {
  * model can say whether a plan or a key pays for it.
  */
 export function syncClaudeCodeModels(
-  registry: Pick<ModelRegistry, 'setProviderModels'> & Partial<Pick<ModelRegistry, 'setClaudeAuth'>>,
+  registry: Pick<ModelRegistry, 'setProviderModels'> & Partial<Pick<ModelRegistry, 'setClaudeAuth' | 'all'>>,
   status: Pick<ClaudeCodeStatus, 'installed' | 'version_ok' | 'verification'> &
     Partial<Pick<ClaudeCodeStatus, 'signed_in' | 'auth_method' | 'plan'>>,
 ): boolean {
@@ -158,44 +196,125 @@ export function syncClaudeCodeModels(
       ? { signed_in: status.signed_in, auth_method: status.auth_method ?? null, plan: status.plan ?? null }
       : null,
   );
-  registry.setProviderModels(CLAUDE_CODE_PROVIDER, ok ? claudeCodeModels() : []);
+  registry.setProviderModels(CLAUDE_CODE_PROVIDER, ok ? claudeCodeModels(registry.all?.() ?? []) : []);
   return ok;
 }
 
+type Pixels = ReadonlyMap<string, { data: Uint8Array; mime: string }>;
+
+/** One earlier or latest message, as the words Claude Code reads (HO1): tool steps are digests. */
+function lineOf(m: ModelMessage, shown: (url: string) => number | null): string {
+  if (!m.parts) return m.content;
+  if (m.role === 'assistant') return digestParts(m.parts).text || m.content;
+  return m.parts
+    .map((p) => {
+      if (p.type === 'text') return p.text;
+      if (p.type === 'file') return fileText(p);
+      if (p.type === 'image') {
+        const n = shown(p.url);
+        return n
+          ? `\n[Image ${n} attached]\n`
+          : p.caption
+            ? `\n[Image, described: ${p.caption}]\n`
+            : '\n[Image not shown]\n';
+      }
+      return '';
+    })
+    .join('');
+}
+
 /**
- * The request's messages as one prompt for one Claude Code turn: the latest
- * message whole, and the turns before it newest first while they fit in
- * `budget` tokens. Never the whole branch of a long thread.
+ * The request's messages as one prompt for one Claude Code turn: the latest message whole, and the
+ * turns before it newest first while they fit in `budget` tokens. Never the whole branch of a long
+ * thread. Tool steps of earlier answers are one-line digests, citations are named by their sources
+ * (the history already carries them so), and images that can be passed are numbered in the text and
+ * returned in the same order, newest first up to MODE_A_IMAGES.
  */
-export function promptOf(req: ModelRequest, budget = MODE_A_PROMPT_TOKENS): string {
+export function promptWithImages(
+  req: ModelRequest,
+  budget = MODE_A_PROMPT_TOKENS,
+  pixels: Pixels = new Map(),
+): { prompt: string; images: { mime: string; data: string }[] } {
   const msgs = req.messages.filter((m) => m.role === 'user' || m.role === 'assistant');
-  if (msgs.length === 1) return msgs[0]?.content ?? '';
   const last = msgs.at(-1);
-  const earlier = last?.role === 'user' ? msgs.slice(0, -1) : msgs;
-  let left = budget - approx(last?.role === 'user' ? last.content : '');
-  const kept: string[] = [];
-  for (let i = earlier.length - 1; i >= 0; i--) {
-    const m = earlier[i];
-    if (!m) continue;
-    const line = `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
-    if (approx(line) > left) break;
-    left -= approx(line);
-    kept.unshift(line);
+  const lastIsUser = last?.role === 'user';
+  const earlier = lastIsUser ? msgs.slice(0, -1) : msgs;
+  const plain = (m: ModelMessage) => lineOf(m, () => null);
+  const who = (m: ModelMessage) => (m.role === 'user' ? 'User' : 'Assistant');
+
+  // 1. The turns that fit, newest first (images count as their captions here).
+  let left = budget - (lastIsUser && last ? approx(plain(last)) : 0);
+  let from = earlier.length;
+  if (msgs.length > 1)
+    for (let i = earlier.length - 1; i >= 0; i--) {
+      const m = earlier[i] as ModelMessage;
+      const cost = approx(`${who(m)}: ${plain(m)}`);
+      if (cost > left) break;
+      left -= cost;
+      from = i;
+    }
+  const inPrompt = msgs.length > 1 ? [...earlier.slice(from), ...(lastIsUser && last ? [last] : [])] : msgs;
+
+  // 2. Which images go: the newest, up to the limit, only ones whose bytes are known and small enough.
+  const picked = new Set<string>();
+  for (const m of [...inPrompt].reverse()) {
+    if (m.role !== 'user') continue;
+    for (const p of [...(m.parts ?? [])].reverse()) {
+      const px = p.type === 'image' ? pixels.get(p.url) : undefined;
+      if (p.type === 'image' && px && px.data.byteLength <= MODE_A_IMAGE_BYTES && picked.size < MODE_A_IMAGES)
+        picked.add(p.url);
+    }
   }
-  const dropped = earlier.length - kept.length;
+  // 3. Numbered in the order they appear in the prompt, so "image 2" is the second one attached.
+  const numbered = new Map<string, number>();
+  const images: { mime: string; data: string }[] = [];
+  for (const m of inPrompt)
+    if (m.role === 'user')
+      for (const p of m.parts ?? [])
+        if (p.type === 'image' && picked.has(p.url) && !numbered.has(p.url)) {
+          const px = pixels.get(p.url) as { data: Uint8Array; mime: string };
+          images.push({ mime: px.mime, data: Buffer.from(px.data).toString('base64') });
+          numbered.set(p.url, images.length);
+        }
+  const text = (m: ModelMessage) => lineOf(m, (url) => numbered.get(url) ?? null);
+
+  if (msgs.length <= 1) return { prompt: msgs[0] ? text(msgs[0]) : '', images };
   const before = [
-    ...(dropped > 0
-      ? [`(${dropped} earlier message${dropped === 1 ? '' : 's'} left out to keep this short.)`]
+    ...(from > 0
+      ? [
+          `(${from} earlier message${from === 1 ? '' : 's'} did not fit here and ${from === 1 ? 'is' : 'are'} left out. ${from === 1 ? 'It is' : 'They are'} still in the conversation, so do not guess what ${from === 1 ? 'it' : 'they'} said.)`,
+        ]
       : []),
-    ...kept,
+    ...earlier.slice(from).map((m) => `${who(m)}: ${text(m)}`),
   ].join('\n\n');
-  return [
-    'The conversation so far:',
-    '',
-    before,
-    '',
-    ...(last?.role === 'user' ? ['Answer this, the latest message:', '', last.content] : ['Continue.']),
-  ].join('\n');
+  return {
+    prompt: [
+      'The conversation so far:',
+      '',
+      before,
+      '',
+      ...(lastIsUser && last ? ['Answer this, the latest message:', '', text(last)] : ['Continue.']),
+    ].join('\n'),
+    images,
+  };
+}
+
+export const promptOf = (req: ModelRequest, budget = MODE_A_PROMPT_TOKENS): string =>
+  promptWithImages(req, budget).prompt;
+
+/** What one call's prompt may carry: the model's window less the room kept for the answer and the system note. */
+export function promptBudget(
+  model: Pick<ModelConfig, 'context_window' | 'max_output'>,
+  req: ModelRequest,
+): number {
+  const window = model.context_window;
+  return Math.max(
+    MODE_A_PROMPT_TOKENS,
+    window -
+      Math.min(model.max_output, Math.floor(window / 4)) -
+      approx((req.system ?? '').slice(0, SYSTEM_MAX)) -
+      1_000,
+  );
 }
 
 export interface ModeADeps {
@@ -220,6 +339,8 @@ export interface ModeADeps {
   handles: Set<string>;
   /** Plan figures Claude Code reports while it answers (plan-limits.ts observe). */
   observe?: (m: Record<string, unknown>) => Promise<void>;
+  /** A stored image's bytes by id (images/store.ts), so the images of the conversation can be passed. */
+  images?: ImageBytes;
 }
 
 type Item = { kind: 'message'; m: Record<string, unknown> } | { kind: 'end'; error?: string };
@@ -257,7 +378,14 @@ export class ClaudeCodeModelClient implements ModelClient {
     await mkdir(d.cwd, { recursive: true });
     const threadId = req.meta?.threadId;
     const notebookId = req.meta?.notebookId ?? null;
-    const prompt = promptOf(req);
+    // HO1: images go in as image input when the conversation has them; the prompt numbers them.
+    const { prompt, images } = promptWithImages(
+      req,
+      promptBudget(model, req),
+      req.messages.some((m) => m.parts?.some((p) => p.type === 'image'))
+        ? await imagesFor(req.messages, d.images)
+        : new Map(),
+    );
     const items: Item[] = [];
     let wake: (() => void) | null = null;
     let handle: string | null = null;
@@ -311,7 +439,7 @@ export class ClaudeCodeModelClient implements ModelClient {
         })
       ).handle;
       d.handles.add(handle);
-      await d.bridge.send(handle, prompt);
+      await d.bridge.send(handle, prompt, images.length ? { images } : {});
       let streamed = false;
       let apiError = '';
       for (;;) {
