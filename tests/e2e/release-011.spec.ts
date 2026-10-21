@@ -313,14 +313,24 @@ test.describe('0.1.1 journeys', () => {
   });
 
   test('the memory inbox offers where to keep a note', async ({ page }) => {
-    // Seeded suggestions are used up by deciding them (memory.spec.ts does), and nothing in the
-    // offline profile writes new ones: with none waiting there is no card to offer a scope on.
+    // Waiting suggestions come from seeds and from earlier journeys (a correction in the branching
+    // journey leaves a lesson); other journeys decide them, so look at what is there now.
     const proposals = (await (await page.request.get('/api/v1/memory/proposals?status=proposed')).json()) as {
-      items?: unknown[];
+      items?: { kind: string }[];
     };
-    test.skip((proposals.items ?? []).length === 0, 'needs a waiting suggestion (pnpm seed --e2e)');
+    const waiting = proposals.items ?? [];
+    test.skip(waiting.length === 0, 'needs a waiting suggestion (pnpm seed --e2e)');
+    const lessonsOnly = waiting.every((p) => p.kind === 'failure_lesson' || p.kind === 'model_quirk');
     await page.goto('/admin/memory');
     await page.getByRole('tab', { name: /Inbox/ }).click();
+    if (lessonsOnly) {
+      // A lesson has one home (its FAILURES or MODELS file), so it offers the file, not a scope.
+      await expect(page.getByRole('combobox', { name: 'Or choose a file' }).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(page.getByRole('radiogroup', { name: 'Keep it for' })).toHaveCount(0);
+      return;
+    }
     const group = page.getByRole('radiogroup', { name: 'Keep it for' }).first();
     await expect(group).toBeVisible({ timeout: 15_000 });
     await expect(group.getByRole('radio')).toHaveCount(3);
