@@ -26,11 +26,12 @@ import { api } from '../lib/api';
 import { useNotebooks, useNotes, useSources, useThreads } from '../lib/data';
 import { hueVar, relative } from '../lib/format';
 import { useCurrentModel } from '../lib/models';
-import { deleteNotebook, patchNotebook } from '../lib/notebooks';
+import { deleteLines, deleteNotebook, patchNotebook } from '../lib/notebooks';
 import { startCoreHint } from '../lib/runtime';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue } from '../lib/types';
 import { MergeHistory } from '../notebooks/MergeHistory';
+import { useNotebookScope } from '../scopes/api';
 import { NOTEBOOK_HUES } from '../shell/NewNotebook';
 import { AddSources } from '../sources/AddSources';
 import { SourceCard } from '../sources/SourceCard';
@@ -501,8 +502,8 @@ export function NotebookScreen() {
         notebook={{
           id: nb.id,
           title: nb.title,
-          threads: own.length,
-          threadIds: own.map((t) => t.id),
+          // Core's count includes archived threads, which the sidebar page does not.
+          threads: Math.max(nb.threads, own.length),
           sources: items.length,
           notes: nb.notes ?? 0,
         }}
@@ -526,13 +527,15 @@ function DeleteNotebookDialog({
     id: string;
     title: string;
     threads: number;
-    threadIds: string[];
     sources: number;
     notes: number;
   };
   onDeleted: () => void;
 }) {
   useLayer(open);
+  // A private notebook, or one that keeps its data here: its threads take that with them.
+  const scope = useNotebookScope(open ? notebook.id : null).data?.effective;
+  const keepsLocal = !!scope && (scope.private || !scope.scope.data_leaves_machine);
   const [busy, setBusy] = useState(false);
   // Off by default: deleting a notebook keeps its work unless you say otherwise.
   const [everything, setEverything] = useState(false);
@@ -548,25 +551,9 @@ function DeleteNotebookDialog({
           <Dialog.Title className="dialog__title">Delete {notebook.title}?</Dialog.Title>
           <div id="nbk-del-desc" className="dialog__lede">
             <ul className="nbk-del__list">
-              <li>
-                {!notebook.threads
-                  ? 'It has no threads.'
-                  : everything
-                    ? `${count(notebook.threads, 'thread goes', 'threads go')} to the Trash, where you can restore them for 30 days.`
-                    : `${count(notebook.threads, 'thread stays', 'threads stay')} in your sidebar, outside any notebook.`}
-              </li>
-              <li>
-                {!notebook.sources
-                  ? 'It has no sources.'
-                  : everything
-                    ? `${count(notebook.sources, 'source is', 'sources are')} deleted, except any another notebook also uses.`
-                    : `${count(notebook.sources, 'source stays', 'sources stay')} in your workspace for other notebooks.`}
-              </li>
-              {notebook.notes ? (
-                <li>
-                  {count(notebook.notes, 'note goes', 'notes go')} with it. Save any you want to keep first.
-                </li>
-              ) : null}
+              {deleteLines(notebook, { everything, keepsLocal }).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
               {flows.length ? (
                 <li>
                   {flows.map((f) => f.name).join(', ')} {flows.length === 1 ? 'is' : 'are'} kept as{' '}
@@ -594,11 +581,10 @@ function DeleteNotebookDialog({
               onClick={async () => {
                 if (busy) return;
                 setBusy(true);
-                const ok = await deleteNotebook(notebook.id, { everything, threadIds: notebook.threadIds });
+                const ok = await deleteNotebook(notebook.id, { everything, title: notebook.title });
                 setBusy(false);
                 if (!ok) return;
                 onOpenChange(false);
-                notify({ level: 'info', title: `Deleted ${notebook.title}` });
                 onDeleted();
               }}
             >

@@ -76,12 +76,63 @@ describe('notebooks', () => {
     expect(await nb.createNotebook({ title: 'x' })).toBeNull();
   });
 
-  it('with everything, sends its threads to the Trash first, then deletes it with its own sources', async () => {
-    mocked.post.mockResolvedValueOnce({ done: [], skipped: [] });
+  it('with everything, makes one call to Core and says what went in the notice', async () => {
+    mocked.del.mockResolvedValueOnce({ threads_trashed: 3, sources_deleted: 2, sources_kept: 1 });
+    expect(await nb.deleteNotebook('nbk_1', { everything: true, title: 'Pumps' })).toBe(true);
+    // Core finds every thread, archived ones too; the Cockpit sends no ids of its own.
+    expect(mocked.post).not.toHaveBeenCalled();
+    expect(mocked.del).toHaveBeenCalledTimes(1);
+    expect(mocked.del).toHaveBeenLastCalledWith('/notebooks/nbk_1?contents=delete');
+    expect(lastToast()).toMatchObject({
+      title: 'Deleted Pumps',
+      body: '3 threads are in the Trash for 30 days. 2 sources deleted. 1 source kept for other notebooks.',
+    });
+  });
+
+  it('a plain delete keeps everything and says only that it is gone', async () => {
     mocked.del.mockResolvedValueOnce(undefined);
-    expect(await nb.deleteNotebook('nbk_1', { everything: true, threadIds: ['thr_a', 'thr_b'] })).toBe(true);
-    expect(mocked.post).toHaveBeenCalledWith('/threads/bulk', { action: 'delete', ids: ['thr_a', 'thr_b'] });
-    expect(mocked.del).toHaveBeenLastCalledWith('/notebooks/nbk_1?sources=delete');
+    expect(await nb.deleteNotebook('nbk_1', { title: 'Pumps' })).toBe(true);
+    expect(mocked.del).toHaveBeenLastCalledWith('/notebooks/nbk_1');
+    expect(lastToast()?.body).toBeUndefined();
+  });
+
+  it('a notebook with a thread still answering stays, and Core says which', async () => {
+    mocked.del.mockRejectedValueOnce(
+      refused('A thread in this notebook is answering', 'Stop it or wait, then try again.'),
+    );
+    expect(await nb.deleteNotebook('nbk_1', { everything: true, title: 'Pumps' })).toBe(false);
+    expect(lastToast()).toMatchObject({ level: 'error', title: 'A thread in this notebook is answering' });
+  });
+
+  it('tells a private notebook’s owner that its threads keep its privacy, and nobody else', () => {
+    const n = { threads: 2, sources: 1, notes: 0 };
+    expect(nb.deleteLines(n, { everything: false, keepsLocal: true })[0]).toBe(
+      '2 threads stay in your sidebar, outside any notebook. They keep its privacy settings.',
+    );
+    expect(nb.deleteLines(n, { everything: true, keepsLocal: true })[0]).toBe(
+      '2 threads go to the Trash, where you can restore them for 30 days. They keep its privacy settings.',
+    );
+    expect(nb.deleteLines(n, { everything: false, keepsLocal: false })[0]).toBe(
+      '2 threads stay in your sidebar, outside any notebook.',
+    );
+    // Nothing to keep private when there are no threads.
+    expect(nb.deleteLines({ ...n, threads: 0 }, { everything: false, keepsLocal: true })[0]).toBe(
+      'It has no threads.',
+    );
+    expect(
+      nb.deleteLines({ threads: 1, sources: 0, notes: 3 }, { everything: false, keepsLocal: false }),
+    ).toEqual([
+      '1 thread stays in your sidebar, outside any notebook.',
+      'It has no sources.',
+      '3 notes go with it. Save any you want to keep first.',
+    ]);
+  });
+
+  it('counts one thread and one source in the singular', () => {
+    expect(nb.deletedBody({ threads_trashed: 1, sources_deleted: 1, sources_kept: 0 })).toBe(
+      '1 thread is in the Trash for 30 days. 1 source deleted.',
+    );
+    expect(nb.deletedBody({ threads_trashed: 0, sources_deleted: 0, sources_kept: 0 })).toBe('');
   });
 });
 

@@ -39,6 +39,7 @@ import { loadGuide, useGuideLoaded } from '../help/lazyGuide';
 import { filterQuery, type SearchFilter } from '../lib/searchFilter';
 import { flowSource, flowsFor, setThreadFlow, useFlowList, useResolvedFlow } from '../thread/flowActions';
 import { lazyHost } from '../ui/lazyHost';
+import { forgetUses, liveUses, readUses, recordUse, score, type Use } from './frecency';
 import { modelSections } from './modelSections';
 
 const SearchFilters = lazyHost(() => import('./SearchFilters'), 'SearchFilters');
@@ -48,7 +49,7 @@ import { tourEvent } from '../help/tourEvent';
 import { TOURS } from '../help/tours';
 import { useLayer } from '../keys/dispatch';
 import { keysFor } from '../keys/registry';
-import { api } from '../lib/api';
+import { ApiCallError, api } from '../lib/api';
 import { compactNow } from '../lib/branching';
 import { threadQuery, useModels, useNotebooks, useThread, useThreads } from '../lib/data';
 import { hueVar } from '../lib/format';
@@ -57,6 +58,7 @@ import { chooseInClaudeCodeThread, chooseModel, useCurrentModel, useThreadIdFrom
 import { PRELOAD_DELAY_MS, paletteTarget, prefetchTarget } from '../lib/prefetch';
 import { queryClient } from '../lib/query';
 import { deleteThread, exportThread, moveThread, setArchived, setPinned } from '../lib/threads';
+import { useTrash } from '../lib/trash';
 import { createThread, sendMessage } from '../lib/turns';
 import type { Hue } from '../lib/types';
 import { useWarmMarks, WarmMark } from '../models/WarmMark';
@@ -121,36 +123,6 @@ const PLACEHOLDER: Record<PaletteScope, string> = {
   help: 'Search the guide',
   settings: 'Find a setting',
 };
-
-/* ---- Frecency: what you reach for, and how lately ---------------------- */
-
-const FRECENCY_KEY = 'nvx.ancile.palette.frecency';
-type Use = { n: number; last: number; label: string; kind: 'thread' | 'notebook' | 'command' };
-
-function readUses(): Record<string, Use> {
-  try {
-    return JSON.parse(localStorage.getItem(FRECENCY_KEY) ?? '{}') as Record<string, Use>;
-  } catch {
-    return {};
-  }
-}
-function recordUse(key: string, use: Omit<Use, 'n' | 'last'>): void {
-  const all = readUses();
-  const prev = all[key];
-  all[key] = { ...use, n: (prev?.n ?? 0) + 1, last: Date.now() };
-  const top = Object.entries(all)
-    .sort((a, b) => score(b[1]) - score(a[1]))
-    .slice(0, 60);
-  try {
-    localStorage.setItem(FRECENCY_KEY, JSON.stringify(Object.fromEntries(top)));
-  } catch {
-    /* storage full or blocked */
-  }
-}
-function score(u: Use): number {
-  const hours = (Date.now() - u.last) / 3_600_000;
-  return u.n / (1 + hours / 24);
-}
 
 /* ---- Message search ----------------------------------------------------- */
 
@@ -309,7 +281,51 @@ export function Palette() {
     () => (show('help') && typed ? searchHelp(query).slice(0, 5) : []),
     [query, scope, guideIn],
   );
-  const uses = useMemo(() => (open ? readUses() : {}), [open]);
+  const stored = useMemo(() => (open ? readUses() : {}), [open]);
+  // Recent offers only what still exists: a deleted notebook, or a thread that is in the Trash or
+  // gone for good (asked once for any recent thread the sidebar does not already show), is dropped
+  // from the list and forgotten.
+  const [goneThreads, setGoneThreads] = useState<ReadonlySet<string>>(new Set());
+  const trashedIds = useTrash(open).data?.items;
+  const knownNotebooks = useMemo(() => notebooks.data?.map((n) => n.id), [notebooks.data]);
+  const threadIdsNow = useMemo(() => threads.data?.map((t) => t.id), [threads.data]);
+  useEffect(() => {
+    if (!open) return;
+    const inTrash = new Set((trashedIds ?? []).map((t) => t.id));
+    const showing = new Set(threadIdsNow ?? []);
+    const gone = new Set<string>();
+    const ask: string[] = [];
+    for (const key of Object.keys(stored)) {
+      if (!key.startsWith('thread:')) continue;
+      const id = key.slice('thread:'.length);
+      if (inTrash.has(id)) gone.add(id);
+      else if (!showing.has(id)) ask.push(id);
+    }
+    if (gone.size) setGoneThreads((prev) => new Set([...prev, ...gone]));
+    let live = true;
+    for (const id of ask.slice(0, 8))
+      api.get(`/threads/${encodeURIComponent(id)}`).catch((e: unknown) => {
+        if (live && e instanceof ApiCallError && e.status === 404)
+          setGoneThreads((prev) => new Set([...prev, id]));
+      });
+    return () => {
+      live = false;
+    };
+  }, [open, stored, trashedIds, threadIdsNow]);
+  const uses = useMemo(
+    () =>
+      liveUses(stored, {
+        ...(knownNotebooks && { notebooks: knownNotebooks }),
+        gone: goneThreads,
+      }),
+    [stored, knownNotebooks, goneThreads],
+  );
+  const dead = Object.keys(stored)
+    .filter((k) => !(k in uses))
+    .join('|');
+  useEffect(() => {
+    if (dead) forgetUses(dead.split('|'));
+  }, [dead]);
 
   const run = (fn: () => void, use?: { key: string; label: string; kind: Use['kind'] }) => {
     if (use) recordUse(use.key, { label: use.label, kind: use.kind });
