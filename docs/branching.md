@@ -59,7 +59,8 @@ Ancile never branches by itself.
 The context meter in the status bar shows how full the model's window is, split by system prompt, memory, sources, history and the space reserved for the reply.
 - **At 80%** it turns amber, and **Compact now** appears.
 - **At 95%**, Ancile compacts before sending. The latest turns stay word for word; earlier ones are replaced by a summary that keeps goals, decisions, exact numbers and names.
-- **Switching to a model with a smaller window** runs the same check first.
+- **Switching to a model with a smaller window** runs the same check first. If the thread will not fit, one line under the composer says so ("Needs summarising to fit (about 340k → 120k). The full thread stays.") and the switch waits for Switch and summarise or Pick another. Nothing is shown when it fits.
+- **Each model reads the size of summary its own window holds.** A compaction is kept as a page, a paragraph and a line; a bigger model you switch back to reads the full turns again. The original messages are never changed.
 
 ## Edge cases
 

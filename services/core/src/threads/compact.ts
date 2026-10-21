@@ -261,7 +261,7 @@ export function chooseCompaction(
       tokens: historyTokens(messages, reasoning) + s.tokens + approxTokens(SUMMARY_HEADER),
     };
   };
-  if (!room || !room.watch.on || room.window <= 0) {
+  if (!room?.watch.on || room.window <= 0) {
     // As before: the newest cut, at its finest size (the rows of one cut are stored finest first).
     let best: { s: SummaryRecord; i: number } | null = null;
     for (const s of usable) {
