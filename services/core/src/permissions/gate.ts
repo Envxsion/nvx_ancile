@@ -33,6 +33,9 @@ import { type DecideDeps, type DecisionResult, decide } from './decide';
 import { normalizeResource } from './normalize';
 import type { PermissionStore } from './store';
 
+/** The one caller whose web lookups may be eased (claim text only, factcheck/web.ts). */
+export const FACTCHECK_WEB_TOOL = 'factcheck.web';
+
 export interface GateRequest {
   userId: string;
   principal: string;
@@ -129,8 +132,11 @@ export function createGate(
       const resource = norm.ok ? norm.resource : req.resource;
 
       // ---- scope: a floor in every preset ----
+      // eased and leaveOk are honoured for fact-check claim lookups only, whoever sets them:
+      // the gate is the boundary, so a future caller can't widen its own access with a flag.
+      const easeable = req.action === 'web.search' && req.tool === FACTCHECK_WEB_TOOL;
       const found = await effective(req);
-      const scope = found && req.leaveOk && found.private ? leavingAllowed(found) : found;
+      const scope = found && req.leaveOk && easeable && found.private ? leavingAllowed(found) : found;
       if (scope && norm.ok) {
         const s = checkToolCall(scope, { action: req.action, resource });
         if (!s.ok) {
@@ -237,7 +243,7 @@ export function createGate(
       );
 
       // ---- an eased call: a gated ask needs nobody's yes (never a critical one) ----
-      if (req.eased && result.outcome === 'ask' && result.tier === 'gated') {
+      if (req.eased && easeable && result.outcome === 'ask' && result.tier === 'gated') {
         const allowed: DecisionResult = {
           outcome: 'allow',
           via: 'auto',

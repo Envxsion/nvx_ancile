@@ -32,7 +32,7 @@
 
 import { AncileError, type EffectiveScope, type WebReason } from '@nvx/contracts';
 import { retry } from '@nvx/resilience';
-import type { Gate } from '../permissions/gate';
+import { FACTCHECK_WEB_TOOL, type Gate } from '../permissions/gate';
 import { checkToolCall, keepsLocal, leavingAllowed } from '../scopes';
 
 export interface WebHit {
@@ -202,7 +202,7 @@ export function gatedWeb(a: {
       scope: { threadId: ctx.threadId, notebookId: ctx.notebookId, workspaceId: ctx.workspaceId },
       runId: ctx.runId,
       traceId: ctx.traceId,
-      tool: 'factcheck.web',
+      tool: FACTCHECK_WEB_TOOL,
       args: { query },
       // The claim text only; the person's own setting (or their yes on this check) already covered it.
       eased: true,

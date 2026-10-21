@@ -250,6 +250,36 @@ describe('the permission gate for a fact-check lookup', () => {
     });
     expect(d.outcome).toBe('ask');
   });
+
+  it('the gate ignores eased and leaveOk from any caller but the fact-check lookup', async () => {
+    const make = (scope = scopeOf()) =>
+      createGate({
+        policy: new LayeredPolicy([new BuiltinPolicy()], presetRelax('balanced')),
+        store: new MemoryPermissionStore(),
+        workspaceRoot: '/workspace',
+        scopes: { effective: async () => scope },
+      });
+    const base = {
+      userId: 'u',
+      principal: 'agent:default',
+      action: 'web.search',
+      resource: 'web:search/anything',
+      toolTier: 'gated' as const,
+      destructive: false,
+      scope: { threadId: 'thr_1', notebookId: 'nbk_1', workspaceId: 'wsp_1' },
+      runId: null,
+      traceId: 't',
+    };
+    // A chat tool's web search still asks under Balanced, flag or no flag.
+    expect((await make().check({ ...base, tool: 'web_search', eased: true })).outcome).toBe('ask');
+    // And can't step past a private notebook's floor by saying leaveOk.
+    expect(
+      (await make(scopeOf({}, true)).check({ ...base, tool: 'web_search', eased: true, leaveOk: true }))
+        .outcome,
+    ).toBe('deny');
+    // The fact-check lookup itself is eased.
+    expect((await make().check({ ...base, tool: 'factcheck.web', eased: true })).outcome).toBe('allow');
+  });
 });
 
 /* ---- through the HTTP routes ---- */
