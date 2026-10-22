@@ -923,12 +923,15 @@ async function main() {
         approvalTtlMs: env.ANCILE_APPROVAL_TTL_S * 1000,
         tools,
         passes: labPasses,
+        // The lab lists its hosted tools per running thread: tell it when that changes.
+        onTurns: () => labMcp?.changed(),
       })
     : null;
   mirror?.start();
-  // The hosted MCP tools, offered to the lab as one server behind its gateway token.
+  // The hosted MCP tools, offered to the lab as one server behind its gateway token. The engine's
+  // connection carries no thread, so a call is tied to the lab runs working now and their notebooks.
   const labMcp =
-    engine && env.AGENT_GATEWAY_TOKEN
+    engine && mirror && env.AGENT_GATEWAY_TOKEN
       ? new LabMcpEndpoint({
           registry: tools,
           gate,
@@ -936,6 +939,8 @@ async function main() {
           token: env.AGENT_GATEWAY_TOKEN,
           userId: owner.userId,
           workspaceId: owner.workspaceId,
+          turns: () => mirror.activeTurns(),
+          notebookOf: async (threadId) => (await threads.getThread(threadId))?.notebook_id ?? null,
           version: VERSION,
         })
       : null;

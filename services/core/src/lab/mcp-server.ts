@@ -17,6 +17,19 @@
  *           |  runs, denied answers isError with the reason, and "ask"
  *           |  runs only on a pass a person's approval left in the
  *           |  permission bridge (lab/hosted.ts).
+ *           |  Scope and filtering are the conductor's. The engine's
+ *           |  connection is one for every lab run and carries no
+ *           |  thread, so a call is tied to the runs the engine is
+ *           |  working on now (turns): the gate is asked once per
+ *           |  running thread, with its thread and notebook, so the
+ *           |  notebook's and thread's scope, privacy and tool preset
+ *           |  apply as they do in chat, and the strictest answer wins.
+ *           |  A tool that belongs to one notebook (ToolSpec.notebookId)
+ *           |  is listed and callable only for that notebook's threads.
+ *           |  With no run active (the engine called outside a run,
+ *           |  which it should not) there is no thread to tie the call
+ *           |  to: the workspace's default scope applies, a notebook's
+ *           |  own tool is refused, and Core logs it.
  *           |  A client that initialises gets a session, kept in memory,
  *           |  and its event stream is told tools/list_changed when a
  *           |  server is added, removed, connects or drops. A request
@@ -39,7 +52,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { currentContext, newTraceId } from '../context';
 import { logFor } from '../obs/logger';
-import { refusalForModel } from '../permissions/decide';
+import { type DecisionResult, refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import type { ToolRegistry, ToolSpec } from '../tools/registry';
 import { LAB_PRINCIPAL } from './event-mirror';
@@ -55,6 +68,13 @@ export interface LabMcpDeps {
   token: string;
   userId: string;
   workspaceId: string;
+  /**
+   * The lab runs the engine is working on now, and the notebook a thread belongs to. Required: the
+   * endpoint cannot tell whose call it is without them, and a call checked on the workspace alone
+   * would skip the notebook's scope (LabMirror.activeTurns, threads.getThread).
+   */
+  turns: () => { threadId: string; workspaceId: string }[];
+  notebookOf: (threadId: string) => Promise<string | null>;
   version: string;
   /** Sessions kept at once; the least recently used is closed beyond this (default 32). */
   maxSessions?: number;
@@ -86,6 +106,15 @@ const text = (t: string, isError = false): CallToolResult => ({
   ...(isError && { isError }),
 });
 
+const RANK = { allow: 0, ask: 1, deny: 2 } as const;
+
+/** One place a hosted tool is called from: a running lab turn's thread, and the notebook it is in. */
+interface Place {
+  threadId: string | null;
+  notebookId: string | null;
+  workspaceId: string;
+}
+
 function inputSchemaOf(t: ToolSpec): { type: 'object'; [k: string]: unknown } {
   const s = t.inputSchema as { type?: unknown } | null | undefined;
   if (s && typeof s === 'object' && s.type === 'object') return s as { type: 'object' };
@@ -104,6 +133,27 @@ export class LabMcpEndpoint {
   /** Sessions open now (for tests and the health view). */
   get open(): number {
     return this.sessions.size;
+  }
+
+  /** Which threads the engine is working for changed: tell the lab to list its tools again. */
+  changed(): void {
+    this.scheduleNotify();
+  }
+
+  /** The threads the engine is working for now, each with its notebook (a lookup that fails reads as none). */
+  private async places(): Promise<Place[]> {
+    return Promise.all(
+      this.deps.turns().map(async (t) => ({
+        threadId: t.threadId,
+        notebookId: await this.deps.notebookOf(t.threadId).catch(() => null),
+        workspaceId: t.workspaceId,
+      })),
+    );
+  }
+
+  /** A tool that belongs to one notebook is for that notebook's threads only (conductor/epoch.ts toolsInScope). */
+  private inScope(t: ToolSpec, places: Place[]): boolean {
+    return t.notebookId == null || places.some((p) => p.notebookId === t.notebookId);
   }
 
   readonly handle = async (req: Request): Promise<Response> => {
@@ -212,17 +262,22 @@ export class LabMcpEndpoint {
       { capabilities: { tools: { listChanged: true } } },
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: hostedTools(deps.registry).map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: inputSchemaOf(t),
-        annotations: {
-          destructiveHint: t.destructive,
-          ...(t.readOnly !== undefined && { readOnlyHint: t.readOnly }),
-        },
-      })),
-    }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      const places = await this.places();
+      return {
+        tools: hostedTools(deps.registry)
+          .filter((t) => this.inScope(t, places))
+          .map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: inputSchemaOf(t),
+            annotations: {
+              destructiveHint: t.destructive,
+              ...(t.readOnly !== undefined && { readOnlyHint: t.readOnly }),
+            },
+          })),
+      };
+    });
 
     server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
       const name = request.params.name;
@@ -233,18 +288,43 @@ export class LabMcpEndpoint {
           `There is no tool called "${name}" in NVX Ancile now. Its server may have been removed or be disconnected.`,
           true,
         );
-      const scope = { workspaceId: deps.workspaceId };
-      const decision = await deps.gate.check({
-        userId: deps.userId,
-        principal: LAB_PRINCIPAL,
-        action: spec.action,
-        resource: spec.resource(args, scope),
-        toolTier: spec.tier,
-        destructive: spec.destructive,
-        scope,
-        runId: null,
-        traceId: currentContext()?.traceId ?? newTraceId(),
-      });
+      const places = await this.places();
+      if (!this.inScope(spec, places))
+        return text(
+          `There is no tool called "${name}" in NVX Ancile now. Its server may have been removed or be disconnected.`,
+          true,
+        );
+      if (!places.length)
+        log.warn(
+          { tool: spec.name },
+          'a hosted tool was called while no lab run was active: the workspace scope applies, not a notebook’s',
+        );
+      // One gate decision per running thread, the strictest wins: the engine's call carries no thread of its own.
+      const scopes = places.length
+        ? places
+        : [{ threadId: null, notebookId: null, workspaceId: deps.workspaceId }];
+      const traceId = currentContext()?.traceId ?? newTraceId();
+      let decision: DecisionResult | null = null;
+      for (const p of scopes) {
+        const d = await deps.gate.check({
+          userId: deps.userId,
+          principal: LAB_PRINCIPAL,
+          action: spec.action,
+          resource: spec.resource(args, p),
+          toolTier: spec.tier,
+          destructive: spec.destructive,
+          scope: p,
+          runId: null,
+          traceId,
+          // The tool's name and real arguments: the floors and the policies read them as data.
+          tool: spec.name,
+          args,
+        });
+        if (!decision || RANK[d.outcome] > RANK[decision.outcome]) decision = d;
+        if (d.outcome === 'deny') break;
+      }
+      const scope = scopes[0] ?? { threadId: null, notebookId: null, workspaceId: deps.workspaceId };
+      if (!decision) return text('NVX Ancile could not decide this call.', true);
       if (decision.outcome === 'deny') return text(`Not allowed: ${refusalForModel(decision)}`, true);
       if (decision.outcome === 'ask') {
         if (!deps.passes.take(spec.name))

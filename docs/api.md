@@ -716,6 +716,10 @@ Answers from any engine in a mixed thread record `provenance.engine_context` (`E
 | `memory_search {query, limit?}` | What NVX Ancile remembers |
 | every hosted MCP tool | Each server Core connects to (Admin → MCP servers), checked on its own action, resource and tier with the real arguments; an "ask" runs only on the pass your approval of that call left |
 
+### MCP for the lab
+
+`/mcp/lab` (Streamable HTTP, behind the lab's gateway token, outside the browser guard) offers the lab engine every hosted MCP tool, as the server `ancile`. The engine holds one connection for all its runs and the connection carries no thread, so Core ties a call to the lab runs working now. The gate is asked once for each running thread, with its thread and notebook, so the notebook's and thread's scope, privacy and tool preset apply as they do in chat; the strictest answer wins, and the call is checked on its real arguments (the floors and the policies read them). A tool that belongs to one notebook is listed, and callable, only for that notebook's threads, and the lab is told to list again when the runs change. If a call arrives while no lab run is active (the engine should not do that), there is no thread to tie it to: the workspace's default scope applies, a notebook's own tool is refused, and Core logs it.
+
 ### Core ↔ Claude bridge
 
 Core reads sessions through the Claude bridge (`services/claude-bridge`, MIT), a separate program it starts on first use and stops after five idle minutes. One WebSocket on 127.0.0.1 at a random port; Core passes a per-launch bearer token in the environment, and the bridge refuses any other token or a browser `Origin`. It prints `ANCILE_BRIDGE_READY {port, protocol, version}` on stdout when listening and exits when its stdin closes.

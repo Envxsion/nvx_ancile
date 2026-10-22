@@ -21,6 +21,7 @@ import { BuiltinPolicy } from '../../src/permissions/cedar';
 import { createGate } from '../../src/permissions/gate';
 import { MemoryPermissionStore } from '../../src/permissions/store';
 import { MemoryRunEventLog } from '../../src/runs/events';
+import { MemoryScopeStore, type ScopeResolver, scopeResolver } from '../../src/scopes';
 import { ToolRegistry } from '../../src/tools/registry';
 
 const TOKEN = 'lab-token-'.padEnd(40, 'x');
@@ -59,7 +60,9 @@ const spec = (name: string): McpServerSpec =>
     tools: {},
   }) as McpServerSpec;
 
-async function setup() {
+async function setup(opts: { scopes?: ScopeResolver; notebooks?: Record<string, string | null> } = {}) {
+  /** The lab runs the engine is working on now: tests move this the way the mirror does. */
+  const running: { threadId: string; workspaceId: string }[] = [];
   const registry = new ToolRegistry();
   // A built-in the lab must never see through this server.
   registry.register({
@@ -82,7 +85,12 @@ async function setup() {
   });
   await mcp.connect(spec('notes'));
   const perms = new MemoryPermissionStore();
-  const gate = createGate({ policy: new BuiltinPolicy(), store: perms, workspaceRoot: '/workspace' });
+  const gate = createGate({
+    policy: new BuiltinPolicy(),
+    store: perms,
+    workspaceRoot: '/workspace',
+    ...(opts.scopes && { scopes: opts.scopes }),
+  });
   const passes = new LabPasses();
   const endpoint = new LabMcpEndpoint({
     registry,
@@ -91,6 +99,8 @@ async function setup() {
     token: TOKEN,
     userId: 'usr_1',
     workspaceId: 'wsp_1',
+    turns: () => running,
+    notebookOf: async (id) => opts.notebooks?.[id] ?? null,
     version: 'test',
     notifyDelayMs: 5,
   });
@@ -98,7 +108,7 @@ async function setup() {
     await endpoint.close();
     await mcp.stop();
   });
-  return { registry, mcp, perms, gate, passes, endpoint };
+  return { registry, mcp, perms, gate, passes, endpoint, running };
 }
 
 /** An MCP client whose HTTP goes straight into a handler. */
@@ -235,6 +245,8 @@ describe('the lab’s MCP server', () => {
       token: TOKEN,
       userId: 'usr_1',
       workspaceId: 'wsp_1',
+      turns: () => [],
+      notebookOf: async () => null,
       version: 'test',
     });
     cleanups.push(() => fresh.close());
@@ -255,6 +267,145 @@ describe('the lab’s MCP server', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { result: { tools: { name: string }[] } };
     expect(body.result.tools).toHaveLength(2);
+  });
+});
+
+describe('a notebook’s scope reaches the lab’s hosted tools', () => {
+  /** nb_locked (thread thr_locked) may not post; nb_open (thread thr_open) has no limits. */
+  async function scoped() {
+    const store = new MemoryScopeStore();
+    store.threads.set('thr_locked', 'nb_locked');
+    store.threads.set('thr_open', 'nb_open');
+    await store.mergePatch('notebook', 'nb_locked', { tools_deny: ['mcp.notes.post'] });
+    return setup({
+      scopes: scopeResolver(store),
+      notebooks: { thr_locked: 'nb_locked', thr_open: 'nb_open' },
+    });
+  }
+  const post = (client: Awaited<ReturnType<typeof clientOf>>) =>
+    client.callTool({ name: 'notes__post', arguments: { body: 'hi' } });
+
+  it('refuses a tool the running thread’s notebook does not allow, in every preset', async () => {
+    const t = await scoped();
+    await grant(t.perms, 'mcp.notes.post', 'allow');
+    const client = await clientOf(t.endpoint.handle);
+    t.running.push({ threadId: 'thr_locked', workspaceId: 'wsp_1' });
+    const refused = await post(client);
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toMatch(/^Not allowed/);
+    expect(textOf(refused)).toMatch(/cannot be approved here/);
+    // It is in the decision log as a scope refusal, with the thread's own scope as the reason.
+    expect((await t.perms.listDecisions())[0]).toMatchObject({
+      outcome: 'policy_deny',
+      principal: LAB_PRINCIPAL,
+      action: 'mcp.notes.post',
+    });
+  });
+
+  it('runs the same tool for a thread whose notebook allows it, and uses the thread it is told of', async () => {
+    const t = await scoped();
+    await grant(t.perms, 'mcp.notes.post', 'allow');
+    const client = await clientOf(t.endpoint.handle);
+    t.running.push({ threadId: 'thr_open', workspaceId: 'wsp_1' });
+    expect(textOf(await post(client))).toBe('posted: hi');
+  });
+
+  it('with several lab runs working at once, the strictest scope decides', async () => {
+    const t = await scoped();
+    await grant(t.perms, 'mcp.notes.post', 'allow');
+    const client = await clientOf(t.endpoint.handle);
+    t.running.push(
+      { threadId: 'thr_open', workspaceId: 'wsp_1' },
+      { threadId: 'thr_locked', workspaceId: 'wsp_1' },
+    );
+    expect(textOf(await post(client))).toMatch(/^Not allowed/);
+    t.running.splice(0, 2, { threadId: 'thr_open', workspaceId: 'wsp_1' });
+    expect(textOf(await post(client))).toBe('posted: hi');
+  });
+
+  it('with no lab run active, falls back to the workspace scope, and still gates the call', async () => {
+    const t = await scoped();
+    const client = await clientOf(t.endpoint.handle);
+    // Nothing granted: it asks, as it always did.
+    expect(textOf(await post(client))).toMatch(/needs your approval/);
+    await grant(t.perms, 'mcp.notes.post', 'allow');
+    expect(textOf(await post(client))).toBe('posted: hi');
+  });
+
+  it('refuses the floors on the real arguments: a call that reaches Core’s own API', async () => {
+    const t = await scoped();
+    await grant(t.perms, 'mcp.notes.post', 'allow');
+    const client = await clientOf(t.endpoint.handle);
+    t.running.push({ threadId: 'thr_open', workspaceId: 'wsp_1' });
+    const r = await client.callTool({
+      name: 'notes__post',
+      arguments: { body: 'curl http://localhost:7700/api/v1/approvals' },
+    });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toMatch(/own API/);
+  });
+
+  it('lists a notebook’s own tool only for that notebook’s threads, and refuses the call otherwise', async () => {
+    const t = await scoped();
+    t.registry.register({
+      name: 'nb_only',
+      description: 'A tool of one notebook',
+      inputSchema: { type: 'object', properties: {} },
+      action: 'mcp.notes.nb_only',
+      tier: 'auto',
+      destructive: false,
+      source: { kind: 'mcp', server: 'notes' },
+      notebookId: 'nb_open',
+      resource: () => 'mcp:notes/nb_only',
+      execute: async () => 'for nb_open',
+    });
+    const client = await clientOf(t.endpoint.handle);
+    const names = async () => (await client.listTools()).tools.map((x) => x.name);
+    // Nothing running, or another notebook's thread: not offered, not callable.
+    expect(await names()).not.toContain('nb_only');
+    t.running.push({ threadId: 'thr_locked', workspaceId: 'wsp_1' });
+    expect(await names()).not.toContain('nb_only');
+    const refused = await client.callTool({ name: 'nb_only', arguments: {} });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toMatch(/There is no tool called/);
+    // Its own notebook's thread: offered and run.
+    t.running.splice(0, 1, { threadId: 'thr_open', workspaceId: 'wsp_1' });
+    expect(await names()).toContain('nb_only');
+    expect(textOf(await client.callTool({ name: 'nb_only', arguments: {} }))).toBe('for nb_open');
+  });
+
+  it('knows the runs the mirror is working on, and says when they change', async () => {
+    const t = await setup();
+    const engine = {
+      pendingPermissions: async () => [],
+      follow: async () => undefined,
+    } as unknown as Engine;
+    let changes = 0;
+    const mirror = new LabMirror({
+      engine,
+      events: new MemoryRunEventLog(),
+      gate: t.gate,
+      permissions: t.perms,
+      userId: 'usr_1',
+      onTurns: () => {
+        changes++;
+      },
+    });
+    expect(mirror.activeTurns()).toEqual([]);
+    await mirror.attach({
+      runId: 'run_1',
+      traceId: 't'.repeat(32),
+      threadId: 'thr_open',
+      workspaceId: 'wsp_1',
+      messageId: 'msg_a',
+      sessionId: 'ses_1',
+      place: { realDir: '/srv/labs/thr_open', virtualDir: '/workspace/labs/thr_open' },
+    });
+    expect(mirror.activeTurns()).toEqual([{ threadId: 'thr_open', workspaceId: 'wsp_1' }]);
+    expect(changes).toBe(1);
+    await mirror.detach('ses_1');
+    expect(mirror.activeTurns()).toEqual([]);
+    expect(changes).toBe(2);
   });
 });
 

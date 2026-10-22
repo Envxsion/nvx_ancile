@@ -104,6 +104,8 @@ export interface MirrorDeps {
   tools?: Pick<ToolRegistry, 'get'>;
   /** Where an approved hosted-tool ask leaves its one-call pass (lab/mcp-server.ts spends it). */
   passes?: LabPasses;
+  /** A run started or finished mirroring: the lab's hosted tools are listed for a different set of threads (lab/mcp-server.ts). */
+  onTurns?: () => void;
 }
 
 const MAX_RESULT = 4_000;
@@ -168,6 +170,17 @@ export class LabMirror {
     this.stopper = null;
   }
 
+  /**
+   * The runs the engine is working on now: which thread each belongs to. The engine's connection to Core's
+   * hosted tools (lab/mcp-server.ts) is one for all of them and carries no thread, so this is how a hosted
+   * tool's call is tied to a thread, and so to a notebook and its scope.
+   */
+  activeTurns(): { threadId: string; workspaceId: string }[] {
+    return [...this.live.values()]
+      .filter((l) => !l.outcome)
+      .map((l) => ({ threadId: l.turn.threadId, workspaceId: l.turn.workspaceId }));
+  }
+
   /** Start mirroring a session for a run, and pick up any requests already waiting. */
   async attach(turn: LabTurn): Promise<void> {
     this.live.set(turn.sessionId, {
@@ -183,6 +196,7 @@ export class LabMirror {
       outcome: null,
       seq: 1_000,
     });
+    this.deps.onTurns?.();
     try {
       for (const p of await this.deps.engine.pendingPermissions(turn.place.realDir))
         if (p.sessionID === turn.sessionId) await this.bridge(p);
@@ -197,6 +211,7 @@ export class LabMirror {
     this.live.delete(sessionId);
     for (const [id, p] of this.pending) if (p.sessionId === sessionId) this.pending.delete(id);
     if (!l) return;
+    this.deps.onTurns?.();
     const cancelled = await this.deps.permissions.cancelApprovalsForRun(l.turn.runId);
     for (const id of cancelled)
       await this.deps.bus?.publish({ type: 'approval.resolved', approval_id: id }).catch(() => undefined);
