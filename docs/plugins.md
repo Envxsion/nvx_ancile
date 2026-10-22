@@ -61,7 +61,12 @@ const saveSnippet = defineTool({
 });
 ```
 
-`resource()` is the important part. Ancile checks the permission on the URI it returns, using the real arguments, before your handler runs. So the handler can assume it's allowed. Saved permissions then match on patterns: approving `fs:/workspace/snippets/**` once covers every later snippet.
+`resource()` and `action` say what the tool will touch, and the SDK uses them when your plugin checks a call itself (in its own tests, say). **Core does not call your `resource()`.** Your tool runs as an MCP server, and a JavaScript function cannot travel over MCP. Core checks every call to a tool from an MCP server, a plugin included, before your handler runs, on:
+
+- the action `mcp.<server>.<tool>` and the resource `mcp:<server>/<tool>`, so a saved permission can name a server (`mcp.example-tool.*`) or one tool, but not a folder inside its arguments;
+- the call's **real arguments**, which the floors read as data (a call that reaches NVX Ancile's own API, or names its install key, is refused) and which policies can read as `context.args`, the arguments as canonical JSON text. To limit a tool by what it is asked to do, write a policy ([permissions.md](permissions.md#policies)): `forbid (principal, action == Ancile::Action::"mcp.example-tool.save_snippet", resource) when { context.args like "*\"name\":\"secrets*" };`
+
+TODO(phase-5b): let a plugin send its resource, so approving `fs:/workspace/snippets/**` once covers every later snippet. `toMcpRegistration` would put a URI template in `_meta` (`sh.nvx.ancile/resource`), and Core would fill it from the real arguments and check that, for the plugin's own tools only.
 
 ### 3. Serve it over MCP
 
@@ -84,11 +89,11 @@ Other MCP clients understand those too. It also puts Ancile's extras under `_met
 
 | Key | Value |
 |---|---|
-| `sh.nvx.ancile/action` | The permission action, for example `fs.write` |
+| `sh.nvx.ancile/action` | The permission action, for example `fs.write`. Sent for other clients; Core does not use it yet (it checks `mcp.<server>.<tool>`), though a change to it counts as a change to the tool (see below) |
 | `sh.nvx.ancile/tier` | `auto`, `gated` or `critical` |
 | `sh.nvx.ancile/destructive` | `true` or `false` |
 
-Ancile reads that tier as the tool's default (an override you set in the app still wins). On each call, Ancile sends `sh.nvx.ancile/idempotency_key` in the request's `_meta`. The SDK passes it to your handler as `ctx.idempotencyKey`.
+Ancile reads that tier and the destructive flag as the tool's default (an override you set in the app still wins). On each call, Ancile sends `sh.nvx.ancile/idempotency_key` in the request's `_meta`. The SDK passes it to your handler as `ctx.idempotencyKey`.
 
 #### Build it and test it
 
@@ -160,9 +165,10 @@ With no override, a tool's tier comes from its MCP hints: read-only → auto, de
 
 ### When a server changes its tools {#rug-pull}
 
-A server you approved can change its tools later: add one, or give an old one a new description or input schema that tells the model something else (a "rug pull"). NVX Ancile notices and asks you again, once.
+A server you approved can change its tools later: add one, give an old one a new description or input schema that tells the model something else, or lower one's tier so that it runs without asking (a "rug pull"). NVX Ancile notices and asks you again, once.
 
-- **Fingerprint.** The first list a server gives (when you add it, or on first start for a server in config/mcp.yaml) is the approved one. Each tool is hashed (SHA-256) over canonical JSON of its name, description and input schema, with keys sorted, so the order a server lists things in does not matter. The server's fingerprint covers all its tools (`core.mcp_tool_approvals`, `services/core/src/mcp/guard.ts`).
+- **Fingerprint.** The first list a server gives (when you add it, or on first start for a server in config/mcp.yaml) is the approved one. Each tool is hashed (SHA-256) over canonical JSON of its name, description, input schema, MCP annotations (`readOnlyHint`, `destructiveHint`, …) and Ancile's own `_meta` (`sh.nvx.ancile/tier`, `/action`, `/destructive`), with keys sorted, so the order a server lists things in does not matter. The server's fingerprint covers all its tools (`core.mcp_tool_approvals`, `services/core/src/mcp/guard.ts`). Other `_meta` keys and the per-call idempotency key are not part of it.
+- **Versions.** The fingerprint has a version (`fingerprint_version`). Lists approved before the tiers and hints were included are version 1 (name, description and schema only) and are compared as they were made. The first time such a server lists tools that still match, the list is moved to version 2 silently, once: nothing is revoked, announced or asked again, so installed tools do not need approving again after an update. From then on a lowered tier or changed hint counts as a change. (A tier changed before that first match cannot be seen, because version 1 never recorded it.)
 - **Checked every time.** On every connect, reconnect and `tools/list_changed`, the list is compared with the approved one.
 - **On a change:** the server is marked "changed since approved"; its grants are revoked and Auto mode forgets its cached verdicts for the server's tools; you get one notification ("<server> changed its tools", Review the change) and an `mcp.tools_changed` event. Admin → Plugins shows what is new, changed and removed, with one button: Approve new tool list.
 - **Until you approve:** new and changed tools are not offered to the model at all, and the gate refuses them (`via: "mcp_changed"`, code `mcp.tools_changed`), in every preset. Unchanged tools carry on, but ask again because their grants were revoked. A list that goes back to the approved one is approved again by itself.

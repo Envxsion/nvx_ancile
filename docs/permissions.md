@@ -139,6 +139,13 @@ when { resource.scheme == "fs" && resource.path like "/workspace/finance/*" };
 @escalate("critical")
 permit (principal, action == Ancile::Action::"http.post", resource)
 when { resource.host == "api.internal.example.com" };
+
+// One tool, but not for the production repository: an MCP tool's resource names only the tool,
+// so a policy reads what it was asked to do in context.args (the real arguments, as canonical
+// JSON text with keys sorted, cut at 20,000 characters).
+@id("mine.no-prod-issues")
+forbid (principal, action == Ancile::Action::"mcp.github.create_issue", resource)
+when { context.args like "*\"repo\":\"prod\"*" };
 ```
 
 ## Tier floors

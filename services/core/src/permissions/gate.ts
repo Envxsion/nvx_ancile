@@ -265,6 +265,7 @@ export function createGate(
           destructive: req.destructive,
           scope: req.scope,
           ...(req.automation && { automation: true }),
+          ...(req.args !== undefined && { args: req.args }),
         },
         { ...deps, grants: deps.store },
       );
@@ -347,6 +348,8 @@ export function createGate(
           destructive: req.destructive,
           scope: req.scope,
           ...(req.automation && { automation: true }),
+          // The real arguments: an MCP or plugin tool's resource names only the tool (decide.ts).
+          ...(req.args !== undefined && { args: req.args }),
         },
         { ...deps, grants: deps.store },
       );

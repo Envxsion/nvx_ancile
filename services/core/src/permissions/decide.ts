@@ -34,6 +34,12 @@ export interface DecisionRequest {
   scope: { threadId?: string | null; notebookId?: string | null; workspaceId: string };
   /** Raised by an unattended automation: policies may escalate it (base.cedar). */
   automation?: boolean;
+  /**
+   * The call's real arguments. A file path, a command or an address is already in the resource; an MCP or
+   * plugin tool's resource names only the tool, so policies read what it was asked to do here (Cedar's
+   * context.args, as canonical JSON text).
+   */
+  args?: unknown;
 }
 
 export interface PolicyEvaluator {
@@ -43,6 +49,7 @@ export interface PolicyEvaluator {
     action: string;
     resource: string;
     outsideRoot: boolean;
+    args?: unknown;
   }): Promise<{ forbidden: boolean; policyId?: string }>;
   /**
    * The permission preset's one easing (Hands-off): a GATED, non-destructive
@@ -64,6 +71,7 @@ export interface PolicyEvaluator {
     resource: string;
     outsideRoot: boolean;
     automation?: boolean;
+    args?: unknown;
   }): Promise<Tier | null>;
 }
 
@@ -199,7 +207,13 @@ export async function decide(req: DecisionRequest, deps: DecideDeps): Promise<De
     };
   }
   const r = norm.resource;
-  const pq = { principal: req.principal, action: req.action, resource: r, outsideRoot: norm.outsideRoot };
+  const pq = {
+    principal: req.principal,
+    action: req.action,
+    resource: r,
+    outsideRoot: norm.outsideRoot,
+    ...(req.args !== undefined && { args: req.args }),
+  };
 
   const forbid = await deps.policy.forbids(pq);
   if (forbid.forbidden) {

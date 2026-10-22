@@ -23,6 +23,7 @@
  */
 
 import type { Tier } from '@nvx/contracts';
+import { canonicalJson } from '../mcp/fingerprint';
 import type { PolicyEvaluator } from './decide';
 import { scheme } from './normalize';
 
@@ -150,6 +151,14 @@ export function principalUid(principal: string): { type: string; id: string } {
   }
 }
 
+/**
+ * A call's arguments as policies read them: context.args, canonical JSON text (keys sorted), cut at
+ * ARGS_CHARS so a huge write cannot make a decision slow. Empty when the caller gave none.
+ */
+const ARGS_CHARS = 20_000;
+export const argsText = (args: unknown): string =>
+  args === undefined ? '' : canonicalJson(args).slice(0, ARGS_CHARS);
+
 /** The preset's policy file: preset ids use _ (hands_off), file names use - (preset-hands-off.cedar). */
 export const presetFile = (preset: string | null | undefined) =>
   `preset-${(preset ?? 'balanced').replaceAll('_', '-')}.cedar`;
@@ -208,7 +217,14 @@ export class CedarPolicy implements PolicyEvaluator {
 
   private authorize(
     policies: Record<string, string>,
-    req: { principal: string; action: string; resource: string; outsideRoot: boolean; automation?: boolean },
+    req: {
+      principal: string;
+      action: string;
+      resource: string;
+      outsideRoot: boolean;
+      automation?: boolean;
+      args?: unknown;
+    },
   ) {
     if (Object.keys(policies).length === 0) return { decision: 'deny' as const, reason: [] as string[] };
     const resourceUid = { type: 'Ancile::Resource', id: req.resource };
@@ -216,7 +232,13 @@ export class CedarPolicy implements PolicyEvaluator {
       principal: principalUid(req.principal),
       action: { type: 'Ancile::Action', id: req.action },
       resource: resourceUid,
-      context: { thread: '', notebook: '', run_kind: 'chat_turn', automation: req.automation ?? false },
+      context: {
+        thread: '',
+        notebook: '',
+        run_kind: 'chat_turn',
+        automation: req.automation ?? false,
+        args: argsText(req.args),
+      },
       policies: { staticPolicies: policies },
       entities: [{ uid: resourceUid, attrs: resourceAttrs(req.resource, req.outsideRoot), parents: [] }],
     });
@@ -225,7 +247,13 @@ export class CedarPolicy implements PolicyEvaluator {
     return { decision: ans.response.decision, reason: ans.response.diagnostics.reason };
   }
 
-  async forbids(req: { principal: string; action: string; resource: string; outsideRoot: boolean }) {
+  async forbids(req: {
+    principal: string;
+    action: string;
+    resource: string;
+    outsideRoot: boolean;
+    args?: unknown;
+  }) {
     const r = this.authorize(this.forbidSet, req);
     if (r.decision === 'allow') return { forbidden: false };
     const hit = r.reason.map((k) => this.byKey.get(k)).find(Boolean);
@@ -238,6 +266,7 @@ export class CedarPolicy implements PolicyEvaluator {
     resource: string;
     outsideRoot: boolean;
     automation?: boolean;
+    args?: unknown;
   }): Promise<Tier | null> {
     const r = this.authorize(this.escalateSet, req);
     if (r.decision !== 'allow') return null;

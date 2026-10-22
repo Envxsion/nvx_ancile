@@ -40,7 +40,12 @@ export interface ToolDefinition<S extends z.ZodTypeAny, R> {
   action: string;
   tier: Tier;
   destructive?: boolean;
-  /** Arguments → resource URI the permission check runs against, e.g. fs:/workspace/a.md */
+  /**
+   * Arguments → resource URI the permission check runs against, e.g. fs:/workspace/a.md. Used where the
+   * plugin checks a call itself. NVX Ancile's Core does not call it: the tool runs as an MCP server and a
+   * function cannot travel over MCP, so Core checks `mcp:<server>/<tool>` and reads the real arguments
+   * beside it (docs/plugins.md). TODO(phase-5b): send a URI template in `_meta` so Core can use it.
+   */
   resource: (args: z.infer<S>) => string;
   handler: (args: z.infer<S>, ctx: ToolContext) => Promise<R>;
 }
