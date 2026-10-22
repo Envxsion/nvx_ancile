@@ -42,13 +42,18 @@ Saving a remembered answer settles the other waiting requests it covers. Core do
 
 The check runs when the tool is about to execute, on the real arguments, never on what the model said it would do:
 
+0. **Floors that hold in every preset** (see below): a call that reaches NVX Ancile's own API or names its install key is refused, then the scope, then an MCP tool that changed.
 1. **Normalise the resource.** Resolve symlinks, reject `..` escapes, lowercase hosts, strip credentials from URLs.
-2. **Policies (Cedar).** A `forbid` is a hard deny. The model is told why, and you aren't asked.
+2. **Policies (Cedar).** A `forbid` is a hard deny. The model is told why, and you aren't asked. A caller whose name starts with nothing the gate knows (not `user`, `person:`, `agent:`, `mcp:` or `external:`) is treated as an outside app, which only reads.
 3. **Tier.** The tool's default tier, raised by any `@escalate` policy. For example, writes outside `workspace_root` become critical.
 4. **Auto** → allow. **Critical** → ask.
 5. **Gated** → look for a matching grant. Deny grants beat allow grants, and the most specific grant wins. A match allows; no match asks.
 
 Every outcome is appended to the decision log with the grant, approval or policy that decided it. It appears in the "why" view and Admin → Decisions.
+
+### An approval belongs to the call you saw
+
+An approval is for the exact arguments it asked about. Core stores a hash of them (the canonical JSON of the arguments, or of your edited ones) with the approval. When the run resumes, a call whose arguments differ from what was approved does not run: it asks again. An approval saved before this hash existed cannot vouch for a call that is still waiting, so that call asks again too. Just before an approved call runs, the checks that can still say no (the floors, the scope, a policy that now forbids it, a grant you have since set to deny) are made again, so narrowing a scope while a request waits still applies to it.
 
 ## Pause and resume
 
@@ -140,6 +145,17 @@ when { resource.host == "api.internal.example.com" };
 
 - An action marked `destructive` can never be auto. A plugin manifest that declares one fails validation.
 - Lowering a critical action to gated asks you to type the action name to confirm, and the change is logged.
+
+## Floors in every preset {#floors-every-preset}
+
+Two floors run on every tool call under every preset, with Auto mode on or off. No grant, preset or approval can lift them; the model is told why and you are never asked.
+
+- **`floor.core_api`: no tool reaches NVX Ancile's own API.** Core's API answers its owner, so a model that could call it could answer its own approvals or change its own permissions. A call is refused when an address in it points at this machine (`localhost`, `127.0.0.0/8`, `[::1]`, `0.0.0.0`, and the other spellings of them such as `2130706433`, `0x7f.1`, `[::ffff:127.0.0.1]` or `foo.localhost`) on a port Core or the Cockpit listens on, or at the public URL or another origin NVX Ancile is served from. It reads the resource of a web or http call, a shell command, and every string in the arguments of an MCP tool, a plugin tool or a code run. A web search, a file's own text and other ports on this machine are not affected.
+- **`floor.install_key`: no tool names the key file.** A call whose file path, or whose command or arguments, name `local-api.key` is refused (quoting and glob spellings such as `local-api.k*` included). A document that only mentions the file is not.
+
+These are a floor under the real defence: the API refuses any caller without the install key ([api.md](api.md#calling-the-api)), and the key file is readable only by you. Text cannot see through a shell variable or a name that resolves to this machine, so a determined command may still slip past the floor; it still meets the API's own check.
+
+The floors above that run only in Auto mode (a key in a call, a lot of data in a web address, dangerous shell, text that talks to the reviewer, …) are unchanged: see [auto-mode.md](auto-mode.md#what-happens-to-a-tool-call).
 
 ## Admin views
 

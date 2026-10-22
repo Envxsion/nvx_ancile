@@ -4,8 +4,13 @@
  * nobody answers, questions left behind by a run that ended, and a run the
  * sweeper gives up on.
  */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Message, RunEvent, ThreadPath } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { hashArgs } from '../../src/permissions/argsHash';
+import { BuiltinPolicy } from '../../src/permissions/cedar';
+import type { PolicyEvaluator } from '../../src/permissions/decide';
 import type { NewApproval } from '../../src/permissions/store';
 import { type Harness, harness } from '../support/harness';
 
@@ -137,10 +142,14 @@ describe('answering approvals', () => {
     h = await harness();
     const { sent, approvalId } = await askToWrite('missed.md');
     // Answered behind the worker's back: no resume was sent.
-    await h.perms.resolveApproval(approvalId, { status: 'approved' });
+    await h.perms.resolveApproval(approvalId, {
+      status: 'approved',
+      approvedArgsHash: h.perms.approvals.get(approvalId)?.args_hash ?? '',
+    });
     expect((await h.runs.get(sent.run_id))?.status).toBe('waiting_approval');
     await h.worker.reconcileNow();
     expect((await h.settle(sent.run_id)).status).toBe('succeeded');
+    expect(existsSync(join(h.dir, 'missed.md'))).toBe(true);
   });
 
   it('expires a question nobody answers, and the model is told', async () => {

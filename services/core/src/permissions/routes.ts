@@ -24,6 +24,11 @@
  *           |       pattern alone
  *           |  A site rule (web:*, web:example.com, …) covers searches
  *           |  and fetches, so its grant's action is web.*.
+ *           |  An approval is bound to the arguments it was given for: the
+ *           |  hash of the arguments asked about (or of the ones the
+ *           |  person edited) is stored with the answer, and the run
+ *           |  runs the call only if its arguments hash the same
+ *           |  (conductor/pipeline.ts).
  *           |  Approving once with changed arguments (updated_args) is
  *           |  for an approval that says args_editable (a live Claude
  *           |  Code session's tool call): the permission is decided
@@ -55,6 +60,7 @@ import { body } from '../http/body';
 import { notFound } from '../obs/errors';
 import type { RunEventLog } from '../runs/events';
 import type { RunWorker } from '../runs/worker';
+import { hashArgs } from './argsHash';
 import { type DecisionResult, grantInScope } from './decide';
 import { grantActionFor, isWebPattern, matchAction, matchResource, webPatternNarrows } from './glob';
 import type { ApprovalRecord, GrantPatch, PermissionStore } from './store';
@@ -299,6 +305,10 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
       scope: req.scope,
       pattern: req.scope === 'once' ? null : pattern,
       reason: req.reason ?? null,
+      // The answer is for these arguments: the ones asked about, or the ones the person edited.
+      ...(status === 'approved' && {
+        approvedArgsHash: hashArgs(req.updated_args !== undefined ? req.updated_args : a.args),
+      }),
     });
     if (!won) return approvalOut((await store.getApproval(a.id)) ?? a);
     const grantId = grant ? (await store.createGrant(grant)).id : null;
@@ -372,6 +382,7 @@ export function permissionRoutes(deps: PermissionRouteDeps) {
         scope: 'once',
         pattern: null,
         reason,
+        ...(status === 'approved' && { approvedArgsHash: hashArgs(p.args) }),
       });
       if (won) await announce(p, status, reason);
     }

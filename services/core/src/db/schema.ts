@@ -372,6 +372,9 @@ export const approvals = core.table(
     action: text('action').notNull(),
     resource: text('resource').notNull(),
     args: jsonb('args'),
+    // What the answer is bound to (0047_approval_args_hash.sql): the arguments asked about, and the ones approved.
+    argsHash: text('args_hash'),
+    approvedArgsHash: text('approved_args_hash'),
     argsPreview: jsonb('args_preview'),
     suggestions: jsonb('suggestions').notNull().default([]),
     tier: text('tier', { enum: ['gated', 'critical'] }).notNull(),

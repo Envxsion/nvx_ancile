@@ -20,6 +20,7 @@ import type { Approval, Decision, Grant, Tier } from '@nvx/contracts';
 import type { Sql } from 'postgres';
 import { ulid } from 'ulid';
 import { pgSafe } from '../db/json';
+import { hashArgs } from './argsHash';
 import type { GrantLike, GrantSource } from './decide';
 
 export interface NewApproval {
@@ -43,6 +44,10 @@ export interface ApprovalRecord extends Approval {
   step_seq: number;
   call_id: string | null;
   args: unknown;
+  /** SHA-256 of the canonical arguments the approval asked about; null on one made before hashes (0047). */
+  args_hash: string | null;
+  /** The same for what the person approved (their edited arguments, if any); null until approved. */
+  approved_args_hash: string | null;
   decision_scope: string | null;
   decision_pattern: string | null;
   reason: string | null;
@@ -92,7 +97,12 @@ export interface PermissionStore extends GrantSource {
   restoreGrant(id: string, withinMs: number): Promise<Grant | undefined>;
   recordGrantUse(id: string): Promise<void>;
 
-  /** Idempotent on (run, call): asking again for the same call returns the first approval. */
+  /**
+   * Idempotent on (run, call, arguments): asking again for the same call with the same arguments returns
+   * the first approval. The same call asked again with other arguments is a new question: the old approval
+   * is retired (a pending one is cancelled) and a new one made, so an answer never covers arguments it was
+   * not given for.
+   */
   createApproval(a: NewApproval): Promise<ApprovalRecord>;
   getApproval(id: string): Promise<ApprovalRecord | undefined>;
   pendingApprovals(): Promise<ApprovalRecord[]>;
@@ -108,6 +118,8 @@ export interface PermissionStore extends GrantSource {
       scope?: string;
       pattern?: string | null;
       reason?: string | null;
+      /** With status approved: the hash of the arguments approved (argsHash.ts). Without it the approval vouches for nothing. */
+      approvedArgsHash?: string;
     },
   ): Promise<boolean>;
   cancelApprovalsForRun(runId: string): Promise<string[]>;
@@ -177,6 +189,8 @@ interface ApprovalRow {
   action: string;
   resource: string;
   args: unknown;
+  args_hash: string | null;
+  approved_args_hash: string | null;
   args_preview: unknown;
   suggestions: string[];
   tier: 'gated' | 'critical';
@@ -199,6 +213,8 @@ const approvalFromRow = (r: ApprovalRow): ApprovalRecord => ({
   action: r.action,
   resource: r.resource,
   args: r.args,
+  args_hash: r.args_hash,
+  approved_args_hash: r.approved_args_hash,
   args_preview: r.args_preview,
   suggestions: r.suggestions ?? [],
   tier: r.tier,
@@ -303,18 +319,37 @@ export class PgPermissionStore implements PermissionStore {
   }
 
   async createApproval(a: NewApproval) {
-    const rows = await this.sql<ApprovalRow[]>`
-      insert into core.approvals (id, run_id, step_seq, thread_id, call_id, principal, tool, action, resource, args, args_preview,
-        suggestions, tier, status, expires_at)
-      values (${`apr_${ulid()}`}, ${a.runId}, ${a.stepSeq}, ${a.threadId}, ${a.callId}, ${a.principal}, ${a.tool}, ${a.action},
-        ${a.resource}, ${this.sql.json(pgSafe(a.args ?? null) as never)}, ${this.sql.json(pgSafe(a.argsPreview ?? null) as never)},
-        ${this.sql.json(pgSafe(a.suggestions) as never)}, ${a.tier}, 'pending', ${a.expiresAt ?? null})
-      on conflict (run_id, call_id) do nothing
-      returning *`;
-    if (rows[0]) return approvalFromRow(rows[0]);
-    const existing = await this.sql<ApprovalRow[]>`
-      select * from core.approvals where run_id = ${a.runId} and call_id = ${a.callId}`;
-    return approvalFromRow(existing[0] as ApprovalRow);
+    const hash = hashArgs(a.args);
+    // A second try is only for a retired approval racing us; a third means something is badly wrong.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rows = await this.sql<ApprovalRow[]>`
+        insert into core.approvals (id, run_id, step_seq, thread_id, call_id, principal, tool, action, resource, args, args_hash,
+          args_preview, suggestions, tier, status, expires_at)
+        values (${`apr_${ulid()}`}, ${a.runId}, ${a.stepSeq}, ${a.threadId}, ${a.callId}, ${a.principal}, ${a.tool}, ${a.action},
+          ${a.resource}, ${this.sql.json(pgSafe(a.args ?? null) as never)}, ${hash},
+          ${this.sql.json(pgSafe(a.argsPreview ?? null) as never)},
+          ${this.sql.json(pgSafe(a.suggestions) as never)}, ${a.tier}, 'pending', ${a.expiresAt ?? null})
+        on conflict (run_id, call_id) do nothing
+        returning *`;
+      if (rows[0]) return approvalFromRow(rows[0]);
+      const existing = await this.sql<ApprovalRow[]>`
+        select * from core.approvals where run_id = ${a.runId} and call_id = ${a.callId}`;
+      const row = existing[0];
+      // The same call, the same arguments: the question already asked (retry after a crash). An answer that
+      // was given for other arguments (edited ones) is not an answer to this call.
+      if (row && row.args_hash === hash && (row.status !== 'approved' || row.approved_args_hash === hash))
+        return approvalFromRow(row);
+      // The same call with other arguments, or an approval from before hashes: a new question. The old one
+      // is retired out of the way (a pending one is cancelled), never reused for what it was not given for.
+      if (row)
+        await this.sql`
+          update core.approvals set
+            status = case when status = 'pending' then 'cancelled' else status end,
+            decided_at = case when status = 'pending' then now() else decided_at end,
+            call_id = call_id || '~' || id
+          where id = ${row.id}`;
+    }
+    throw new Error('An approval could not be made for this call');
   }
 
   async getApproval(id: string) {
@@ -346,7 +381,8 @@ export class PgPermissionStore implements PermissionStore {
   async resolveApproval(id: string, r: Parameters<PermissionStore['resolveApproval']>[1]) {
     const rows = await this.sql`
       update core.approvals set status = ${r.status}, decided_by = ${r.decidedBy ?? null}, decided_at = now(),
-        decision_scope = ${r.scope ?? null}, decision_pattern = ${r.pattern ?? null}, reason = ${r.reason ?? null}
+        decision_scope = ${r.scope ?? null}, decision_pattern = ${r.pattern ?? null}, reason = ${r.reason ?? null},
+        approved_args_hash = ${r.status === 'approved' ? (r.approvedArgsHash ?? null) : null}
       where id = ${id} and status = 'pending' returning id`;
     return rows.length > 0;
   }
@@ -469,9 +505,16 @@ export class MemoryPermissionStore implements PermissionStore {
   }
 
   async createApproval(a: NewApproval) {
-    // Mirrors the unique index approvals_one_per_call.
-    for (const e of this.approvals.values())
-      if (e.run_id === a.runId && e.call_id === a.callId) return structuredClone(e);
+    const hash = hashArgs(a.args);
+    // Mirrors the unique index approvals_one_per_call, and PgPermissionStore's retiring of an approval
+    // that was asked about other arguments.
+    for (const e of this.approvals.values()) {
+      if (e.run_id !== a.runId || e.call_id !== a.callId) continue;
+      if (e.args_hash === hash && (e.status !== 'approved' || e.approved_args_hash === hash))
+        return structuredClone(e);
+      if (e.status === 'pending') e.status = 'cancelled';
+      e.call_id = `${e.call_id}~${e.id}`;
+    }
     const rec: ApprovalRecord = {
       id: this.id('apr'),
       run_id: a.runId,
@@ -483,6 +526,8 @@ export class MemoryPermissionStore implements PermissionStore {
       action: a.action,
       resource: a.resource,
       args: structuredClone(a.args),
+      args_hash: hash,
+      approved_args_hash: null,
       args_preview: a.argsPreview,
       suggestions: a.suggestions,
       tier: a.tier,
@@ -528,6 +573,7 @@ export class MemoryPermissionStore implements PermissionStore {
     a.decision_scope = r.scope ?? null;
     a.decision_pattern = r.pattern ?? null;
     a.reason = r.reason ?? null;
+    a.approved_args_hash = r.status === 'approved' ? (r.approvedArgsHash ?? null) : null;
     return true;
   }
 

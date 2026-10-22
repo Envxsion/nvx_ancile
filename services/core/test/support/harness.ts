@@ -98,6 +98,8 @@ export interface HarnessOptions {
   taskClasses?: Record<string, string[]>;
   offline?: boolean;
   cedar?: Record<string, string>;
+  /** A policy evaluator of the test's own (one that can change its mind while a run waits). */
+  policy?: PolicyEvaluator;
   tester?: ProviderTester;
   /** Called when a provider's key is saved in setup (the first model check). */
   onKeySaved?: (provider: string) => void;
@@ -209,9 +211,9 @@ export async function harness(opts: HarnessOptions = {}) {
   const tools = new ToolRegistry();
   for (const t of [...fsTools(workspace), ...(opts.extraTools ?? [])]) tools.register(t);
   const epochs = new MemoryEpochStore();
-  const policy: PolicyEvaluator = opts.cedar
-    ? await loadCedarEvaluator({ files: opts.cedar, preset: 'balanced' })
-    : new BuiltinPolicy();
+  const policy: PolicyEvaluator =
+    opts.policy ??
+    (opts.cedar ? await loadCedarEvaluator({ files: opts.cedar, preset: 'balanced' }) : new BuiltinPolicy());
   const gate = createGate({ policy, store: perms, workspaceRoot: workspace.root, fs: workspace.probe() });
 
   let memory: MemoryService | undefined;

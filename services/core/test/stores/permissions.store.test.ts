@@ -135,6 +135,49 @@ eachBackend('permission store', (backend) => {
     expect((await perms.pendingApprovals()).map((a) => a.id)).not.toContain(first.id);
   });
 
+  it('binds an approval to its arguments: the same call with other arguments is a new question', async () => {
+    const runId = await run();
+    const first = await perms.createApproval(approval(runId, 'call_bound'));
+    expect(first.args_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.approved_args_hash).toBeNull();
+    // Key order is not a different set of arguments.
+    const reordered = await perms.createApproval({
+      ...approval(runId, 'call_bound'),
+      args: { content: 'hi', path: 'notes.md' },
+    });
+    expect(reordered.id).toBe(first.id);
+    // Other arguments: the pending question is withdrawn and a new one is made.
+    const other = await perms.createApproval({
+      ...approval(runId, 'call_bound'),
+      args: { path: 'notes.md', content: 'something else' },
+    });
+    expect(other.id).not.toBe(first.id);
+    expect(other.status).toBe('pending');
+    expect((await perms.getApproval(first.id))?.status).toBe('cancelled');
+    expect((await perms.pendingApprovals()).map((a) => a.id)).toEqual([other.id]);
+
+    // An answer is stored with the arguments it approved, and only an approval has one.
+    expect(
+      await perms.resolveApproval(other.id, { status: 'approved', approvedArgsHash: other.args_hash ?? '' }),
+    ).toBe(true);
+    expect((await perms.getApproval(other.id))?.approved_args_hash).toBe(other.args_hash);
+    const denied = await perms.createApproval(approval(runId, 'call_denied'));
+    await perms.resolveApproval(denied.id, { status: 'denied', approvedArgsHash: 'ignored' });
+    expect((await perms.getApproval(denied.id))?.approved_args_hash).toBeNull();
+    // Asked again with the same arguments, an answer that was for the same arguments is the answer.
+    const again = await perms.createApproval({
+      ...approval(runId, 'call_bound'),
+      args: { path: 'notes.md', content: 'something else' },
+    });
+    expect(again.id).toBe(other.id);
+    // An approval that was for other arguments (edited ones) is not an answer to the original call.
+    const edited = await perms.createApproval(approval(runId, 'call_edited'));
+    await perms.resolveApproval(edited.id, { status: 'approved', approvedArgsHash: 'f'.repeat(64) });
+    const reasked = await perms.createApproval(approval(runId, 'call_edited'));
+    expect(reasked.id).not.toBe(edited.id);
+    expect(reasked.status).toBe('pending');
+  });
+
   it('expires approvals that ran out of time, and cancels a run’s pending ones', async () => {
     const runId = await run();
     const old = await perms.createApproval({

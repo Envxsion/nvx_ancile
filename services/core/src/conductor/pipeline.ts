@@ -77,6 +77,7 @@ import { approxTokens } from '../memory/inject';
 import type { MemoryService } from '../memory/service';
 import { logFor } from '../obs/logger';
 import { type ReplayInput, replayedResult } from '../obs/replay';
+import { approvedFor } from '../permissions/argsHash';
 import { refusalForModel } from '../permissions/decide';
 import type { Gate } from '../permissions/gate';
 import { APPROVAL_TTL_MS } from '../permissions/reconcile';
@@ -915,14 +916,56 @@ ${noted.stop.forModel}`,
           : null;
       };
 
-      /** Act on an answered approval: run the tool, or tell the model it was declined. */
-      const answer = async (queued: QueuedCall, approval: ApprovalRecord) => {
+      /** What the gate is asked about a call, on its real tool and arguments (at the first ask and again before it runs). */
+      const gateRequest = (call: QueuedCall, spec: ToolSpec) => ({
+        userId: deps.userId,
+        principal: PRINCIPAL,
+        action: spec.action,
+        resource: spec.resource(call.args, scope),
+        toolTier: spec.tier,
+        destructive: spec.destructive,
+        scope,
+        runId: run.id,
+        traceId: run.traceId,
+        ...(cp.input.automation && { automation: true }),
+        tool: call.tool,
+        args: call.args,
+        callId: call.callId,
+      });
+
+      /**
+       * Act on an answered approval: run the tool, or tell the model it was declined. False when the answer
+       * is not for this call (an approval is for the arguments it was given for): nothing was done, and the
+       * caller decides and asks again.
+       */
+      const answer = async (queued: QueuedCall, approval: ApprovalRecord): Promise<boolean> => {
         const b = bridge(queued);
         const call = 'call' in b ? b.call : queued;
         const spec = deps.tools.get(call.tool);
         if (approval.status === 'approved' && spec) {
+          if (!approvedFor(approval, call.args)) {
+            log.warn(
+              { run_id: run.id, tool: call.tool, approval_id: approval.id },
+              'the call has other arguments than the ones approved; it asks again',
+            );
+            return false;
+          }
+          // The refusals that can still apply (Core's own API, the scope, a policy or a grant that
+          // changed while this waited) are asked again, on the real arguments, before anything runs.
+          const refused = await deps.gate.recheck(gateRequest(call, spec));
+          if (refused) {
+            const why = refusalForModel(refused);
+            await settle(call, {
+              type: 'tool_result',
+              call_id: call.callId,
+              ok: false,
+              result: why,
+              declined_reason: why,
+            });
+            return true;
+          }
           await runTool(call, spec);
-          return;
+          return true;
         }
         const reason =
           approval.status === 'expired'
@@ -937,6 +980,7 @@ ${noted.stop.forModel}`,
           result: 'declined',
           declined_reason: reason,
         });
+        return true;
       };
 
       /** Settle one queued call: done, waiting on a person, or stopped while asking. */
@@ -965,21 +1009,7 @@ ${noted.stop.forModel}`,
           });
           return 'done';
         }
-        const decision = await deps.gate.check({
-          userId: deps.userId,
-          principal: PRINCIPAL,
-          action: spec.action,
-          resource: spec.resource(call.args, scope),
-          toolTier: spec.tier,
-          destructive: spec.destructive,
-          scope,
-          runId: run.id,
-          traceId: run.traceId,
-          ...(cp.input.automation && { automation: true }),
-          tool: call.tool,
-          args: call.args,
-          callId: call.callId,
-        });
+        const decision = await deps.gate.check(gateRequest(call, spec));
         if (decision.outcome === 'allow') {
           await runTool(call, spec);
           return 'done';
@@ -995,7 +1025,8 @@ ${noted.stop.forModel}`,
           });
           return 'done';
         }
-        // Idempotent on (run, call): a retry after a crash gets the same approval.
+        // Idempotent on (run, call, arguments): a retry after a crash gets the same approval; the same call
+        // with other arguments is a new question (the store retires the old approval).
         const approval = await deps.permissions.createApproval({
           runId: run.id,
           stepSeq: call.seq,
@@ -1025,7 +1056,13 @@ ${noted.stop.forModel}`,
         }
         // Already answered before a crash: act on that answer instead of asking again.
         if (approval.status !== 'pending') {
-          await answer(call, approval);
+          if (!(await answer(call, approval)))
+            await settle(call, {
+              type: 'tool_result',
+              call_id: call.callId,
+              ok: false,
+              result: 'The approval was not for this call, so nothing was run.',
+            });
           return 'done';
         }
         cp.waiting = { approvalId: approval.id, callId: call.callId };
@@ -2087,10 +2124,12 @@ ${noted.stop.forModel}`,
           const call = cp.queue.find((q) => q.callId === cp.waiting?.callId);
           cp.waiting = null;
           // No approval on record (lost before it was saved): the call stays
-          // queued and asks again below.
-          if (call && approval) {
+          // queued and asks again below. So does a call whose arguments are not the
+          // ones that were approved (an approval is for the call it was given for,
+          // and one from before arguments were hashed vouches for nothing): it is
+          // decided afresh on its real arguments, and asked about again.
+          if (call && approval && (await answer(call, approval))) {
             cp.queue = cp.queue.filter((q) => q !== call);
-            await answer(call, approval);
           }
           await ctx.checkpoint(cp);
         }
