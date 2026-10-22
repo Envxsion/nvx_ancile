@@ -12,6 +12,8 @@ Download the installer for your system from the [releases](https://github.com/En
 | macOS 13 and later | `NVX Ancile_<version>_aarch64.dmg` | Drag it to Applications. |
 | Linux | `.AppImage` or `.deb` | The AppImage runs anywhere: make it executable and open it. |
 
+The window connects itself to Core. Core answers only its owner, so the app reads the install key from its data folder (`local-api.key`), asks Core for a one-time code and opens the Cockpit through Core's pairing address (`core_api.rs`, `pair_address`). The key never reaches the page, a log or a child process. If that fails, the window opens the Cockpit anyway and it says "Connect this browser"; quitting and opening the app again tries once more.
+
 The first start takes about half a minute while the database is created. After that, NVX Ancile is ready in a few seconds. The window opens as soon as Core is ready; sources and search, the GPU nodes and the lab start beside it, and the status bar says "Warming up: sources and search" until they are up. If one fails, the app stays open with that service marked and the log to read. The first time you add a source, the search models (about 130 MB) are downloaded once.
 
 ## Where your things are

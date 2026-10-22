@@ -8,7 +8,10 @@
 //           |  until placed), the start-up screen, secrets from the OS
 //           |  keychain, then the supervisor starts the services side
 //           |  by side and the window moves to the Cockpit that Core
-//           |  serves on 127.0.0.1 as soon as Core is ready. One
+//           |  serves on 127.0.0.1 as soon as Core is ready, connected
+//           |  to Core first (Core answers only its owner: the window
+//           |  spends a one-time pairing code, core_api.rs, so the
+//           |  install key never reaches the page). One
 //           |  instance only; a second launch (or an ancile:// link,
 //           |  deeplink.rs) focuses the first. Closing the window asks
 //           |  once whether to keep running in the tray or quit, then
@@ -116,11 +119,23 @@ fn os_prefers_light() -> bool {
     false
 }
 
+/// Open `route` in the window, connected to Core first. Core answers only its owner, so the window goes
+/// through Core's pairing address (a one-time code, core_api::pair_address), which sets the window's
+/// session and redirects to `route`. If Core cannot pair it, the window still opens the route, and
+/// the Cockpit says it is not connected.
 fn navigate(app: &AppHandle, route: &str) {
     let (Some(sup), Some(w)) = (supervisor_of(app), app.get_webview_window("main")) else {
         return;
     };
-    if let Ok(url) = Url::parse(&format!("{}{}", sup.layout().core_url(), route)) {
+    let layout = sup.layout();
+    let target = match core_api::pair_address(&layout.data, layout.ports.core, route) {
+        Ok(address) => address,
+        Err(why) => {
+            log::warn!("the window could not be connected to Core: {why}");
+            format!("{}{}", layout.core_url(), route)
+        }
+    };
+    if let Ok(url) = Url::parse(&target) {
         let _ = w.navigate(url);
     }
 }

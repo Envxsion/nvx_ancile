@@ -7,18 +7,80 @@
 //           |  127.0.0.1: the regular poll, the window report, the
 //           |  close choice, and the one button press on a
 //           |  notification.
-//  How      |  Every call carries the service token, which only this
-//           |  host holds, and a short timeout: Core being slow or
+//  How      |  Every call under /internal/v1 carries the service token,
+//           |  which only this host holds, and a short timeout: Core being slow or
 //           |  not started yet is an answer ("not now"), never a
 //           |  hang. Nothing here is a model call or leaves the
 //           |  machine, so it does not go through the resilience
 //           |  layer's retry (the next poll is the retry).
-//  Note     |  The token is never logged.
+//           |  The window itself is connected to Core the same way
+//           |  `pnpm pair` connects a browser: pair_address() asks for
+//           |  a one-time code with the install key (the file
+//           |  local-api.key that Core keeps in this app's data
+//           |  folder) and returns the address that spends it. Core
+//           |  sets the window's session cookie and redirects to the
+//           |  Cockpit, so the key never goes into an address, a log,
+//           |  the window's scripts or a child process.
+//  Note     |  The token and the key are never logged.
 // ------------------------------------------------------------------
 
 use crate::notify::Item;
 use serde::Deserialize;
+use std::path::Path;
 use std::time::Duration;
+use tauri::Url;
+
+/// The file in Core's data folder that holds the install key (packages/contracts/src/session.ts).
+const LOCAL_KEY_FILE: &str = "local-api.key";
+
+#[derive(Deserialize)]
+struct PairCode {
+    code: String,
+}
+
+/// The install key, if Core has made it: 32 bytes as 43 base64url characters.
+fn read_key(data: &Path) -> Result<String, String> {
+    let key = std::fs::read_to_string(data.join(LOCAL_KEY_FILE))
+        .map_err(|_| "Core has not made its install key yet".to_string())?;
+    let key = key.trim();
+    if key.len() == 43
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        Ok(key.to_string())
+    } else {
+        Err("the install key file is not a key".to_string())
+    }
+}
+
+/// The address that connects this window to Core, then goes on to `next` (a path on Core's site).
+/// The one-time code in it is good for 60 seconds, once. The key itself is not in it.
+pub fn pair_address(data: &Path, port: u16, next: &str) -> Result<String, String> {
+    let key = read_key(data)?;
+    let base = format!("http://127.0.0.1:{port}");
+    let body = ureq::post(&format!("{base}/api/v1/session/pair-codes"))
+        .set("authorization", &format!("Bearer {key}"))
+        .timeout(Duration::from_secs(4))
+        .call()
+        .map_err(|e| match e {
+            // The status only: never the request, which carries the key.
+            ureq::Error::Status(code, _) => format!("Core answered {code} to the pairing request"),
+            _ => "Core did not answer the pairing request".to_string(),
+        })?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let PairCode { code } = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let mut url = Url::parse(&format!("{base}/api/v1/session/pair")).map_err(|e| e.to_string())?;
+    {
+        let mut q = url.query_pairs_mut();
+        q.append_pair("code", &code);
+        if next != "/" && next.starts_with('/') {
+            q.append_pair("next", next);
+        }
+    }
+    Ok(url.to_string())
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Command {
@@ -169,6 +231,32 @@ mod tests {
             (p.close.as_str(), p.approvals, p.runs, p.background),
             ("tray", 1, 2, true)
         );
+    }
+
+    #[test]
+    fn the_install_key_is_read_only_when_it_is_a_key() {
+        let dir = std::env::temp_dir().join(format!("ancile-key-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(read_key(&dir).is_err(), "no file yet");
+        std::fs::write(dir.join(LOCAL_KEY_FILE), "not a key\n").unwrap();
+        assert!(read_key(&dir).is_err(), "wrong shape");
+        let key = "A".repeat(43);
+        std::fs::write(dir.join(LOCAL_KEY_FILE), format!("{key}\n")).unwrap();
+        assert_eq!(read_key(&dir).unwrap(), key);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_refused_pairing_never_repeats_the_key() {
+        let dir = std::env::temp_dir().join(format!("ancile-pair-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = "B".repeat(43);
+        std::fs::write(dir.join(LOCAL_KEY_FILE), &key).unwrap();
+        // Nothing listens on port 9: the error says Core did not answer, and carries no secret.
+        let err = pair_address(&dir, 9, "/").unwrap_err();
+        assert!(err.contains("did not answer"), "{err}");
+        assert!(!err.contains(&key));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
