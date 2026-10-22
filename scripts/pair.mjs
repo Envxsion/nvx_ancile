@@ -32,9 +32,11 @@ const args = process.argv.slice(2);
 const flag = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 if (args.includes('--e2e')) process.env.ANCILE_PROFILE = 'e2e';
 
+// The dev server may listen on localhost only (IPv6 ::1 on Windows), so `localhost` is what to try:
+// it resolves to whichever address the server took, and it is the host the browser uses.
 const reachable = (port) =>
   new Promise((resolve) => {
-    const s = net.connect({ port, host: '127.0.0.1' });
+    const s = net.connect({ port, host: 'localhost' });
     s.once('connect', () => {
       s.destroy();
       resolve(true);
