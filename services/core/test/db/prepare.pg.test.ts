@@ -14,7 +14,7 @@ import { MIGRATIONS_DIR, migrate, migrationFiles } from '../../src/db/migrate';
 import { chooseNoBackup, prepareDatabase, SKIP_BACKUP_MARKER } from '../../src/db/prepare';
 import { schemaState } from '../../src/db/version';
 import { RESTART_ALL_EXIT, stoppedApp } from '../../src/system/startup';
-import { headersFor, SCRIPT, testLocalAuth } from '../support/local';
+import { BROWSER, COCKPIT_ORIGIN, headersFor, SCRIPT, testLocalAuth } from '../support/local';
 import { type Throwaway, throwawayDb } from '../support/throwaway-db';
 
 const base = inject('pgUrl');
@@ -237,7 +237,7 @@ describe.skipIf(!base)('preparing the database at start (postgres)', () => {
         dataDir,
         version: '0.2.0',
         schema: () => ({ expected: shipped.at(-1) ?? '', current: '9006_newer.sql' }),
-        allowedOrigins: [],
+        allowedOrigins: [COCKPIT_ORIGIN],
         localAuth,
         managed: true,
         exit: (code) => exits.push(code),
@@ -251,10 +251,19 @@ describe.skipIf(!base)('preparing the database at start (postgres)', () => {
       expect(status.actions).toEqual(['restore', 'reinstall']);
       expect(status.suggested).toBe(up.backup?.name);
 
-      const res = await app.request('/api/v1/system/startup/restore', {
+      // Restoring replaces the database, so a script with the key alone is refused; the start-up screen is a browser.
+      const body = JSON.stringify({ backup: status.suggested });
+      const refused = await app.request('/api/v1/system/startup/restore', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...key },
-        body: JSON.stringify({ backup: status.suggested }),
+        body,
+      });
+      expect(refused.status).toBe(403);
+      expect(exits).toEqual([]);
+      const res = await app.request('/api/v1/system/startup/restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headersFor(localAuth, BROWSER) },
+        body,
       });
       expect(res.status).toBe(200);
       expect(exits).toEqual([RESTART_ALL_EXIT]);
