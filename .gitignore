@@ -52,6 +52,7 @@ AUDIT.md
 SECURITY.md
 UPSTREAM.md
 docs/clean-room/
+docs/specs/
 .coverage
 
 # Desktop app: Rust build output, bundled sidecars, generated schemas
