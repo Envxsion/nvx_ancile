@@ -263,7 +263,15 @@ export class ClaudeMcpEndpoint {
   private async check(
     threadId: string,
     notebookId: string | null,
-    a: { action: string; resource: string; tier: 'auto' | 'gated' | 'critical'; destructive: boolean },
+    a: {
+      action: string;
+      resource: string;
+      tier: 'auto' | 'gated' | 'critical';
+      destructive: boolean;
+      /** A hosted tool's own name and the arguments of this call: the floors read them as data. */
+      tool?: string;
+      args?: unknown;
+    },
     traceId: string,
   ) {
     return this.deps.gate.check({
@@ -276,6 +284,8 @@ export class ClaudeMcpEndpoint {
       scope: { threadId, notebookId, workspaceId: this.deps.workspaceId },
       runId: null,
       traceId,
+      ...(a.tool && { tool: a.tool }),
+      ...(a.args !== undefined && { args: a.args }),
     });
   }
 
@@ -409,6 +419,8 @@ export class ClaudeMcpEndpoint {
         resource: spec.resource(args, scope),
         tier: spec.tier,
         destructive: spec.destructive,
+        tool: spec.name,
+        args,
       },
       traceId,
     );

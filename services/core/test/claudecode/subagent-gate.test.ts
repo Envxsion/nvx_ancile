@@ -127,6 +127,7 @@ beforeEach(async () => {
           checked.push(req);
           return gate.check(req);
         },
+        recheck: (req) => gate.recheck(req),
       };
     },
     notebook: async () => ({ title: 'app', grounded: false }),

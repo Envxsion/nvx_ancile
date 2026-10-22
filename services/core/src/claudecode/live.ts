@@ -1972,6 +1972,8 @@ export class ClaudeCodeLive {
       scope: { threadId: w.live.threadId, notebookId: w.live.notebookId, workspaceId: w.live.workspaceId },
       runId: a.run_id,
       traceId: currentContext()?.traceId ?? newTraceId(),
+      tool: w.ask.tool_name,
+      args,
     });
   }
 

@@ -38,6 +38,7 @@ describe('file routes', () => {
       checks.push(req);
       return answer(req);
     },
+    recheck: async () => null,
   };
 
   const call = async <T>(method: string, path: string, body?: unknown) => {

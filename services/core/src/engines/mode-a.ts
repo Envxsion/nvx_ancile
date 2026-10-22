@@ -543,6 +543,8 @@ export class ClaudeCodeModelClient implements ModelClient {
         scope: { threadId, notebookId, workspaceId: d.workspaceId },
         runId: null,
         traceId: '',
+        tool: ask.tool_name,
+        args: ask.input,
       });
       if (decision.outcome === 'allow')
         await d.bridge.reply(handle, ask.request_id, { behavior: 'allow' }).catch(() => undefined);

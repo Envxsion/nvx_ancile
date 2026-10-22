@@ -209,6 +209,7 @@ import type { PolicyEvaluator } from './permissions/decide';
 import { createGate } from './permissions/gate';
 import { reconcileApprovals, withdrawApprovals } from './permissions/reconcile';
 import { permissionRoutes } from './permissions/routes';
+import { configureSelfTargets } from './permissions/selfguard';
 import { PgPermissionStore } from './permissions/store';
 import { PrivacyPolicies } from './privacy/policy';
 import { privacyRoutes } from './privacy/routes';
@@ -324,6 +325,11 @@ async function main() {
   const localKey = await ensureLocalKey(resolve(env.ANCILE_DATA_DIR));
   registerSecret(localKey.key);
   const localAuth = new LocalAuth({ key: localKey.key, port: env.ANCILE_PORT });
+  // No tool call may reach Core's own API or name its key file, in any preset (permissions/selfguard.ts).
+  configureSelfTargets({
+    ports: [env.ANCILE_PORT, env.COCKPIT_PORT],
+    origins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
+  });
   log.info(
     { file: localKey.path, created: localKey.created },
     localKey.created

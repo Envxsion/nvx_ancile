@@ -570,6 +570,10 @@ export class LabMirror {
       scope: { threadId: turn.threadId, notebookId: null, workspaceId: turn.workspaceId },
       runId: turn.runId,
       traceId: turn.traceId,
+      tool: mapped.tool,
+      // A file, a command or an address is already in the resource; a tool the resource does not describe
+      // (an MCP tool, a hosted one) is read on the arguments the engine asked with.
+      ...(!/^(fs|shell|http|web):/.test(mapped.resource) && { args: ask.metadata ?? {} }),
     });
     if (decision.outcome === 'allow') {
       await this.deps.engine.reply(ask.id, turn.place.realDir, 'once');

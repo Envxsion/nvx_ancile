@@ -11,14 +11,24 @@
  *           |  resource, lets Auto mode settle what decide() would ask
  *           |  about, writes the outcome to the decision log, and
  *           |  counts grant use.
- *  How      |  scope (a floor, in every preset) → the MCP rug-pull
- *           |  guard (a tool added or changed since its server was
- *           |  approved is refused, in every preset) → Auto mode floors →
- *           |  decide() → Auto mode's plan, cache and reviewer for a
- *           |  GATED ask, with floors and scope checked again after.
+ *  How      |  Core's own API and key file (selfguard.ts: a call that
+ *           |  reaches the API or names the install key is refused,
+ *           |  in every preset) → scope (a floor, in every preset) →
+ *           |  the MCP rug-pull guard (a tool added or changed since
+ *           |  its server was approved is refused, in every preset) →
+ *           |  Auto mode floors → decide() → Auto mode's plan, cache
+ *           |  and reviewer for a GATED ask, with floors and scope
+ *           |  checked again after.
  *           |  Returns the decision; asking the person (an approval) is
  *           |  the caller's job, because only the caller knows how to
  *           |  pause and resume its run.
+ *           |  recheck() is for a call a person has just approved and
+ *           |  that is about to run: everything above that can say no
+ *           |  (Core's API and key, scope, the MCP guard, a block floor,
+ *           |  a policy forbid, a denying grant) is asked again on the
+ *           |  call's real arguments, so a scope narrowed or a rule added
+ *           |  while it waited still applies. It never asks again and
+ *           |  never calls a reviewer: the person has answered.
  *  Note     |  A scope or floor refusal is logged as policy_deny with
  *           |  the rule as its policy id (scope.network, floor.…), so
  *           |  the Why view can say which rule it was.
@@ -31,6 +41,7 @@ import { checkToolCall, leavingAllowed, type ScopeResolver } from '../scopes';
 import type { AutoReview } from './auto';
 import { type DecideDeps, type DecisionResult, decide } from './decide';
 import { normalizeResource } from './normalize';
+import { currentSelfTargets, type SelfTargets, selfFloor } from './selfguard';
 import type { PermissionStore } from './store';
 
 /** The one caller whose web lookups may be eased (claim text only, factcheck/web.ts). */
@@ -67,8 +78,15 @@ export interface GateRequest {
   leaveOk?: boolean;
 }
 
+type Denied = Extract<DecisionResult, { outcome: 'deny' }>;
+
 export interface Gate {
   check(req: GateRequest): Promise<DecisionResult>;
+  /**
+   * A call the person has approved, about to run: the refusals that can still apply, decided again on
+   * its real arguments. A deny means do not run it; null means it may (it never says "ask": the answer is in).
+   */
+  recheck(req: GateRequest): Promise<Denied | null>;
 }
 
 export interface GateAuto {
@@ -86,6 +104,8 @@ export function createGate(
     auto?: GateAuto;
     /** MCP tool lists you approved (mcp/guard.ts): new and changed tools are refused. */
     mcpTools?: { check(principal: string, action: string): Promise<McpToolCheck> };
+    /** Where Core and the Cockpit listen (selfguard.ts). Absent: what main.ts configured at start. */
+    self?: SelfTargets;
   },
 ): Gate {
   const record = async (req: GateRequest, result: DecisionResult) => {
@@ -123,59 +143,148 @@ export function createGate(
         })
       : Promise.resolve(null);
 
-  return {
-    async check(req) {
-      const norm = await normalizeResource(req.resource, {
-        workspaceRoot: deps.workspaceRoot,
-        ...(deps.fs && { fs: deps.fs }),
-      });
-      const resource = norm.ok ? norm.resource : req.resource;
+  const normalise = (req: GateRequest) =>
+    normalizeResource(req.resource, {
+      workspaceRoot: deps.workspaceRoot,
+      ...(deps.fs && { fs: deps.fs }),
+    });
 
-      // ---- scope: a floor in every preset ----
-      // eased and leaveOk are honoured for fact-check claim lookups only, whoever sets them:
-      // the gate is the boundary, so a future caller can't widen its own access with a flag.
-      const easeable = req.action === 'web.search' && req.tool === FACTCHECK_WEB_TOOL;
-      const found = await effective(req);
-      const scope = found && req.leaveOk && easeable && found.private ? leavingAllowed(found) : found;
-      if (scope && norm.ok) {
-        const s = checkToolCall(scope, { action: req.action, resource });
-        if (!s.ok) {
-          const result: DecisionResult = {
+  // eased and leaveOk are honoured for fact-check claim lookups only, whoever sets them:
+  // the gate is the boundary, so a future caller can't widen its own access with a flag.
+  const easeable = (req: GateRequest) => req.action === 'web.search' && req.tool === FACTCHECK_WEB_TOOL;
+  const scopeOf = async (req: GateRequest) => {
+    const found = await effective(req);
+    return found && req.leaveOk && easeable(req) && found.private ? leavingAllowed(found) : found;
+  };
+
+  /**
+   * What refuses a call in every preset, in this order: Core's own API and key (selfguard.ts), the
+   * scope, and an MCP tool its server added or changed after you approved it. Null when none does.
+   */
+  const refusal = async (
+    req: GateRequest,
+    resource: string,
+    scope: EffectiveScope | null,
+    resolved: boolean,
+  ): Promise<Denied | null> => {
+    const own = selfFloor(
+      { action: req.action, resource, args: req.args },
+      deps.self ?? currentSelfTargets(),
+    );
+    if (own)
+      return {
+        outcome: 'deny',
+        via: 'floor',
+        tier: req.toolTier,
+        resource,
+        reason: own.reason,
+        policyId: own.rule,
+        code: own.rule,
+      };
+    if (scope && resolved) {
+      const s = checkToolCall(scope, { action: req.action, resource });
+      if (!s.ok)
+        return {
+          outcome: 'deny',
+          via: 'scope',
+          tier: req.toolTier,
+          resource,
+          reason: s.reason,
+          policyId: `scope.${s.field}`,
+          code: s.code,
+        };
+    }
+    if (deps.mcpTools && req.action.startsWith('mcp.')) {
+      const m = await deps.mcpTools.check(req.principal, req.action).catch(
+        (): McpToolCheck => ({
+          ok: false,
+          code: 'mcp.tools_changed',
+          reason: 'NVX Ancile could not check this MCP tool against the list you approved',
+        }),
+      );
+      if (!m.ok)
+        return {
+          outcome: 'deny',
+          via: 'mcp_changed',
+          tier: req.toolTier,
+          resource,
+          reason: m.reason,
+          policyId: m.code,
+          code: m.code,
+        };
+    }
+    return null;
+  };
+
+  return {
+    async recheck(req) {
+      const norm = await normalise(req);
+      const resource = norm.ok ? norm.resource : req.resource;
+      const scope = await scopeOf(req);
+      const refused = await refusal(req, resource, scope, norm.ok);
+      if (refused) {
+        await record(req, refused);
+        return refused;
+      }
+      // Auto mode's block floors still hold; the ones that only ask were answered by the person.
+      const auto = deps.auto?.enabled() ? deps.auto.review : null;
+      if (auto && norm.ok) {
+        const hit = auto.floors({
+          call: {
+            principal: req.principal,
+            action: req.action,
+            resource,
+            outsideRoot: norm.outsideRoot,
+            destructive: req.destructive,
+            ...(req.tool && { tool: req.tool }),
+            ...(req.args !== undefined && { args: req.args }),
+          },
+          scope,
+        });
+        if (hit?.verdict === 'block') {
+          const denied: Denied = {
             outcome: 'deny',
-            via: 'scope',
+            via: 'floor',
             tier: req.toolTier,
             resource,
-            reason: s.reason,
-            policyId: `scope.${s.field}`,
-            code: s.code,
+            reason: hit.reason,
+            policyId: hit.rule,
+            code: hit.rule,
           };
-          await record(req, result);
-          return result;
+          await record(req, denied);
+          return denied;
         }
       }
+      // A policy that now forbids it, or a grant that now says never: decide() on the same arguments.
+      const again = await decide(
+        {
+          principal: req.principal,
+          action: req.action,
+          resource: req.resource,
+          toolTier: req.toolTier,
+          destructive: req.destructive,
+          scope: req.scope,
+          ...(req.automation && { automation: true }),
+        },
+        { ...deps, grants: deps.store },
+      );
+      if (again.outcome === 'deny') {
+        await record(req, again);
+        return again;
+      }
+      return null;
+    },
 
-      // ---- an MCP tool its server added or changed after you approved it: refused ----
-      if (deps.mcpTools && req.action.startsWith('mcp.')) {
-        const m = await deps.mcpTools.check(req.principal, req.action).catch(
-          (): McpToolCheck => ({
-            ok: false,
-            code: 'mcp.tools_changed',
-            reason: 'NVX Ancile could not check this MCP tool against the list you approved',
-          }),
-        );
-        if (!m.ok) {
-          const result: DecisionResult = {
-            outcome: 'deny',
-            via: 'mcp_changed',
-            tier: req.toolTier,
-            resource,
-            reason: m.reason,
-            policyId: m.code,
-            code: m.code,
-          };
-          await record(req, result);
-          return result;
-        }
+    async check(req) {
+      const norm = await normalise(req);
+      const resource = norm.ok ? norm.resource : req.resource;
+
+      // ---- Core's own API and key, the scope, the MCP rug-pull guard: floors in every preset ----
+      const scope = await scopeOf(req);
+      const refused = await refusal(req, resource, scope, norm.ok);
+      if (refused) {
+        await record(req, refused);
+        return refused;
       }
 
       // ---- Auto mode: floors before anything else ----
@@ -243,7 +352,7 @@ export function createGate(
       );
 
       // ---- an eased call: a gated ask needs nobody's yes (never a critical one) ----
-      if (req.eased && easeable && result.outcome === 'ask' && result.tier === 'gated') {
+      if (req.eased && easeable(req) && result.outcome === 'ask' && result.tier === 'gated') {
         const allowed: DecisionResult = {
           outcome: 'allow',
           via: 'auto',

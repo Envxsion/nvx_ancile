@@ -37,6 +37,8 @@ export const EnvSchema = z
     ANCILE_HOST: z.string().default('127.0.0.1'),
     ANCILE_PORT: z.coerce.number().int().min(1).max(65535).default(7700),
     ANCILE_PUBLIC_URL: z.string().url().default('http://localhost:7700'),
+    // The dev Cockpit's port (pnpm start sets it). Core never listens on it; it only knows it, so no tool may call it.
+    COCKPIT_PORT: z.coerce.number().int().min(1).max(65535).default(7701),
     ANCILE_SECRET_KEY: base64Key,
     ANCILE_PASSPHRASE_REQUIRED: bool,
     ANCILE_DATA_DIR: z.string().default('./data'),
