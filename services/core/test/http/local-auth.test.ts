@@ -9,9 +9,15 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RunEvent } from '@nvx/contracts';
+import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { AppEnv } from '../../src/app';
+import { requestGuard } from '../../src/http/guard';
 import { accessFor, cleanPath, ensureLocalKey, LocalAuth, safeNext } from '../../src/http/localAuth';
+import { errorHandler } from '../../src/obs/errors';
 import { redactText, registerSecret } from '../../src/obs/redact';
+import { proRoutes } from '../../src/pro/routes';
+import type { ProRoute } from '../../src/pro/types';
 import {
   BROWSER,
   COCKPIT_ORIGIN,
@@ -21,7 +27,7 @@ import {
   LOCAL_KEY,
   SCRIPT,
 } from '../support/harness';
-import { testLocalAuth } from '../support/local';
+import { headersFor, testLocalAuth } from '../support/local';
 
 let h: Harness;
 const dirs: string[] = [];
@@ -324,6 +330,38 @@ describe('answers that decide what an agent may do need the browser session', ()
     }
     expect((await h.perms.getApproval(approvalId))?.status).toBe('pending');
   });
+
+  it('holds for the routes that move data or finish setup, written any other way', async () => {
+    h = await harness({ ops: true });
+    const sent = (method: string, path: string) =>
+      h.request(
+        path,
+        {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body: method === 'DELETE' ? undefined : '{}',
+        },
+        SCRIPT,
+      );
+    for (const [method, path] of [
+      ['PUT', '//credentials/anthropic'],
+      ['PUT', '/credentials//anthropic'],
+      ['PUT', '/credentials/anthropic/'],
+      ['PUT', '/./credentials/anthropic'],
+      ['POST', '//setup/complete'],
+      ['POST', '/setup//complete/'],
+      ['PUT', '/routing//chat'],
+      ['POST', '//automations'],
+      ['POST', '/automations//aut_1/run'],
+      ['POST', '/threads//trash/empty'],
+    ] as const) {
+      const res = await sent(method, path);
+      expect([403, 404], `${method} ${path}`).toContain(res.status);
+    }
+    expect(((await (await get('/permissions/preset', SCRIPT)).json()) as { preset: string }).preset).toBe(
+      'balanced',
+    );
+  });
 });
 
 describe('which routes are open, key-only and session-only', () => {
@@ -396,6 +434,287 @@ describe('which routes are open, key-only and session-only', () => {
   it('cleans a path the way the router reads it', () => {
     expect(cleanPath('/api/v1//a//b/./c')).toBe('/a/b/c');
     expect(cleanPath('/api/v1')).toBe('/');
+  });
+});
+
+/**
+ * The rule: a change to where data goes, to what agents may do or to what runs unattended, and a
+ * deletion in bulk, is the paired browser's. Each entry is [method, address]; the address may carry
+ * the query that makes a route dangerous.
+ */
+const SESSION_ONLY_CHANGES: [string, string][] = [
+  // where data goes
+  ['PUT', '/credentials/anthropic'],
+  ['DELETE', '/credentials/anthropic'],
+  ['PUT', '/credentials/anthropic/plan-credit'],
+  ['PUT', '/github/token'],
+  ['POST', '/models'],
+  ['POST', '/models/catalogue'],
+  ['PUT', '/models/openai/gpt-5'],
+  ['PATCH', '/models/custom/my-endpoint'],
+  ['DELETE', '/models/custom/my-endpoint'],
+  ['POST', '/models/restore'],
+  ['PUT', '/models/watch/settings'],
+  ['POST', '/models/watch/add'],
+  ['PUT', '/models/lines/anthropic/opus'],
+  ['PUT', '/routing/chat'],
+  ['DELETE', '/routing/chat'],
+  ['PUT', '/routing/credit-first'],
+  ['PUT', '/openrouter/routing'],
+  ['PUT', '/compute/provider'],
+  ['DELETE', '/compute/provider'],
+  ['POST', '/setup/providers/test'],
+  ['POST', '/setup/complete'],
+  // what runs unattended, and what only the window does
+  ['POST', '/automations'],
+  ['PATCH', '/automations/aut_1'],
+  ['POST', '/automations/aut_1/run'],
+  ['POST', '/automations/aut_1/test'],
+  ['POST', '/automations/aut_1/reset'],
+  ['DELETE', '/automations/aut_1'],
+  ['PATCH', '/claude-code/settings'],
+  ['POST', '/claude-code/sign-in'],
+  ['POST', '/claude-code/sign-out'],
+  ['POST', '/claude-code/install'],
+  ['PUT', '/claude-code/projects'],
+  ['POST', '/claude-code/projects/exclude'],
+  ['DELETE', '/claude-code/projects'],
+  ['POST', '/claude-code/threads/thr_1/folder'],
+  ['PUT', '/lab/settings'],
+  ['POST', '/interpreter/requests/req_1/claim'],
+  ['POST', '/interpreter/requests/req_1/result'],
+  // licence, sync, data safety
+  ['POST', '/license/activate'],
+  ['POST', '/license/deactivate'],
+  ['POST', '/license/refresh'],
+  ['PUT', '/pro/sync/settings'],
+  ['POST', '/pro/sync/devices/dev_1/approve'],
+  ['DELETE', '/pro/sync/devices/dev_1'],
+  ['POST', '/pro/licence/refresh'],
+  ['POST', '/system/restore/stage'],
+  ['POST', '/system/restore/apply'],
+  ['DELETE', '/system/restore'],
+  ['POST', '/system/startup/restore'],
+  ['POST', '/system/tidy'],
+  ['POST', '/threads/trash/empty'],
+  // deleting a notebook with everything in it
+  ['DELETE', '/notebooks/nbk_1?contents=delete'],
+  ['DELETE', '/notebooks/nbk_1?sources=delete'],
+  ['DELETE', '/notebooks/nbk_1?contents=DELETE'],
+  ['DELETE', '/notebooks/nbk_1/?contents=delete&x=1'],
+  // written another way
+  ['POST', '//setup/complete'],
+  ['PUT', '/api/v1//credentials//anthropic'],
+  ['POST', '/api/v1/./automations/'],
+  ['DELETE', '//notebooks/nbk_1/?contents=delete'],
+  ['PUT', '/credentials/anthropic/'],
+];
+
+/** What a script with the install key still does: read, and the changes that only move work along. */
+const KEY_IS_ENOUGH: [string, string][] = [
+  ['GET', '/credentials'],
+  ['GET', '/credentials/anthropic'],
+  ['GET', '/models'],
+  ['GET', '/models/watch/settings'],
+  ['GET', '/routing'],
+  ['GET', '/openrouter/routing'],
+  ['GET', '/compute/provider'],
+  ['GET', '/setup/status'],
+  ['GET', '/automations'],
+  ['GET', '/automations/aut_1'],
+  ['GET', '/claude-code/settings'],
+  ['GET', '/claude-code/projects'],
+  ['GET', '/lab/settings'],
+  ['GET', '/license'],
+  ['GET', '/pro/sync/devices'],
+  ['GET', '/system/restore'],
+  ['GET', '/system/tidy'],
+  ['GET', '/threads/trash'],
+  ['GET', '/notebooks/nbk_1?contents=delete'],
+  // Deleting a notebook the gentle way goes to the Trash.
+  ['DELETE', '/notebooks/nbk_1'],
+  ['DELETE', '/notebooks/nbk_1?contents=keep'],
+  ['DELETE', '/notebooks/nbk_1/sources/src_1'],
+  ['DELETE', '/threads/thr_1'],
+  // Restarting a service and the work a script does with the key.
+  ['POST', '/system/services/core/restart'],
+  ['POST', '/system/backups'],
+  ['POST', '/threads'],
+  ['POST', '/notebooks'],
+  ['POST', '/pro/team/members'],
+  ['POST', '/pro/fleet/groups'],
+];
+
+const parts = (address: string) => {
+  const [path = '', search = ''] = address.split('?');
+  return { path, query: Object.fromEntries(new URLSearchParams(search)) };
+};
+
+describe('which changes are the paired browser’s alone', () => {
+  it('lists every change that moves data, widens what agents may do, runs unattended or deletes in bulk', () => {
+    for (const [m, address] of SESSION_ONLY_CHANGES) {
+      const { path, query } = parts(address);
+      expect(accessFor(m, path, query), `${m} ${address}`).toBe('session');
+    }
+  });
+
+  it('leaves reading them, and the work a script does, to the install key', () => {
+    for (const [m, address] of KEY_IS_ENOUGH) {
+      const { path, query } = parts(address);
+      expect(accessFor(m, path, query), `${m} ${address}`).toBe('any');
+    }
+  });
+
+  it('asks the query only of the notebook route, and only for a delete with its contents', () => {
+    expect(accessFor('DELETE', '/notebooks/nbk_1', { contents: 'delete' })).toBe('session');
+    expect(accessFor('DELETE', '/notebooks/nbk_1', { sources: 'delete' })).toBe('session');
+    expect(accessFor('DELETE', '/notebooks/nbk_1', { contents: 'keep', sources: 'keep' })).toBe('any');
+    expect(accessFor('DELETE', '/notebooks/nbk_1')).toBe('any');
+    expect(accessFor('GET', '/notebooks/nbk_1', { contents: 'delete' })).toBe('any');
+    expect(accessFor('DELETE', '/threads/thr_1', { contents: 'delete' })).toBe('any');
+  });
+});
+
+/** An app that is only the guard in front of a route that answers 200, so every address can be tried. */
+function guardedStub() {
+  const auth = testLocalAuth();
+  const app = new Hono<AppEnv>();
+  app.onError(errorHandler);
+  const api = new Hono<AppEnv>();
+  api.use('*', requestGuard({ origins: [COCKPIT_ORIGIN], auth }));
+  api.all('*', (c) => c.json({ reached: true }));
+  app.route('/api/v1', api);
+  const call = (method: string, address: string, who: Credentials) =>
+    app.request(address.startsWith('/api/v1') ? address : `/api/v1${address}`, {
+      method,
+      headers: headersFor(auth, who),
+    });
+  return { call };
+}
+
+describe('the guard holds for every one of them', () => {
+  const { call } = guardedStub();
+
+  it('turns away a script with the install key, whatever it adds to the request', async () => {
+    for (const [m, address] of SESSION_ONLY_CHANGES) {
+      const res = await call(m, address, SCRIPT);
+      expect(res.status, `${m} ${address}`).toBe(403);
+      expect((await errorOf(res)).code, `${m} ${address}`).toBe('auth.browser_session_required');
+    }
+    // Naming the Cockpit as its origin does not make a script a browser.
+    for (const [m, address] of SESSION_ONLY_CHANGES) {
+      const res = await call(m, address, { ...SCRIPT, origin: COCKPIT_ORIGIN });
+      expect(res.status, `${m} ${address}`).toBe(403);
+    }
+  });
+
+  it('turns away a request with nothing, and a browser cookie that names no Origin', async () => {
+    for (const [m, address] of SESSION_ONLY_CHANGES) {
+      expect((await call(m, address, {})).status, `${m} ${address}`).toBe(401);
+      expect((await call(m, address, { cookie: true })).status, `${m} ${address}`).toBe(403);
+    }
+  });
+
+  it('lets the paired browser through', async () => {
+    for (const [m, address] of SESSION_ONLY_CHANGES) {
+      const res = await call(m, address, BROWSER);
+      expect(res.status, `${m} ${address}`).toBe(200);
+    }
+  });
+
+  it('lets a script read and work with the key alone', async () => {
+    for (const [m, address] of KEY_IS_ENOUGH) {
+      const res = await call(m, address, SCRIPT);
+      expect(res.status, `${m} ${address}`).toBe(200);
+    }
+  });
+});
+
+describe('the real routes behind the guard', () => {
+  const put = (path: string, who: Credentials, body: unknown = {}) =>
+    h.request(
+      path,
+      { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+      who,
+    );
+
+  it('refuse a key written, a model route changed and setup finished by a script, and change nothing', async () => {
+    h = await harness({ ops: true });
+    const before = await (await get('/credentials', SCRIPT)).json();
+
+    const key = await put('/credentials/anthropic', SCRIPT, { value: 'sk-ant-test-value' });
+    expect(key.status).toBe(403);
+    expect((await errorOf(key)).code).toBe('auth.browser_session_required');
+    expect((await put('/routing/chat', SCRIPT, { chain: [] })).status).toBe(403);
+    expect((await put('/github/token', SCRIPT, { token: 'ghp_test' })).status).toBe(403);
+    expect((await post('/setup/complete', SCRIPT, { preset: 'hands_off' })).status).toBe(403);
+    expect((await post('/setup/providers/test', SCRIPT, { provider: 'openai' })).status).toBe(403);
+    expect((await post('/automations', SCRIPT, { name: 'x' })).status).toBe(403);
+    expect((await post('/threads/trash/empty', SCRIPT)).status).toBe(403);
+
+    expect(await (await get('/credentials', SCRIPT)).json()).toEqual(before);
+    expect(((await (await get('/permissions/preset', SCRIPT)).json()) as { preset: string }).preset).toBe(
+      'balanced',
+    );
+  });
+
+  it('still answer a script that reads', async () => {
+    h = await harness({ ops: true });
+    for (const path of ['/credentials', '/models', '/routing', '/automations', '/threads/trash'])
+      expect((await get(path, SCRIPT)).status, path).toBe(200);
+  });
+
+  it('answer the paired browser, which reaches the handler', async () => {
+    h = await harness({ ops: true });
+    const key = await put('/credentials/anthropic', BROWSER, { value: 'not-a-real-key' });
+    expect([401, 403]).not.toContain(key.status);
+    const done = await post('/setup/complete', BROWSER, { preset: 'balanced' });
+    expect([401, 403]).not.toContain(done.status);
+  });
+});
+
+describe('Pro sync is the paired browser’s, found by feature', () => {
+  /** Pro's routes behind the real guard: Pro's own paths are private, so a route is known by its feature. */
+  function proApp(routes: ProRoute[]) {
+    const auth = testLocalAuth();
+    const app = new Hono<AppEnv>();
+    app.onError(errorHandler);
+    const api = new Hono<AppEnv>();
+    api.use('*', requestGuard({ origins: [COCKPIT_ORIGIN], auth }));
+    api.route('/', proRoutes({ routes, hasFeature: () => true, seams: [] }));
+    app.route('/api/v1', api);
+    return (method: string, path: string, who: Credentials) =>
+      app.request(`/api/v1${path}`, { method, headers: headersFor(auth, who) });
+  }
+  const ok = async () => ({ body: { ok: true } });
+  const routes: ProRoute[] = [
+    { method: 'GET', path: '/elsewhere/devices', feature: 'sync', public: true, handler: ok },
+    { method: 'POST', path: '/anything/at/all', feature: 'sync', public: true, handler: ok },
+    { method: 'DELETE', path: '/some/thing/:id', feature: 'sync', public: true, handler: ok },
+    { method: 'POST', path: '/beam/x', feature: 'beam', public: true, handler: ok },
+    { method: 'POST', path: '/fleet/groups', feature: 'fleet', public: true, handler: ok },
+  ];
+
+  it('refuses any change to a route of the sync feature for a script, wherever its path is', async () => {
+    const call = proApp(routes);
+    for (const [m, p] of [
+      ['POST', '/pro/anything/at/all'],
+      ['DELETE', '/pro/some/thing/dev_1'],
+    ]) {
+      const res = await call(m as string, p as string, SCRIPT);
+      expect(res.status, `${m} ${p}`).toBe(403);
+      expect((await errorOf(res)).code).toBe('auth.browser_session_required');
+      // A cookie with no Origin is a script that borrowed one.
+      expect((await call(m as string, p as string, { cookie: true })).status, `${m} ${p}`).toBe(403);
+      expect((await call(m as string, p as string, BROWSER)).status, `${m} ${p}`).toBeLessThan(300);
+    }
+  });
+
+  it('leaves reading sync, and the other Pro features, to a script with the key', async () => {
+    const call = proApp(routes);
+    expect((await call('GET', '/pro/elsewhere/devices', SCRIPT)).status).toBe(200);
+    expect((await call('POST', '/pro/beam/x', SCRIPT)).status).toBe(200);
+    expect((await call('POST', '/pro/fleet/groups', SCRIPT)).status).toBe(200);
   });
 });
 

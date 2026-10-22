@@ -21,6 +21,7 @@ import { AncileError, pro as proContract } from '@nvx/contracts';
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import type { AppEnv } from '../app';
+import { requireBrowserSession } from '../http/guard';
 import type { IdentityProvider, Principal, ProRoute } from './types';
 
 const RANK: Record<Principal['role'], number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
@@ -151,6 +152,10 @@ export function proRoutes(deps: {
   for (const route of deps.routes) {
     const method = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
     r[method](`/pro${route.path}`, async (c) => {
+      // Changing sync (approving or removing a device, its settings, its relay) is the paired browser's
+      // alone, whatever the route is called: a script with the install key can read, not move your data.
+      // Declared by feature because Pro's paths are Pro's own (http/localAuth.ts says which others).
+      if (route.method !== 'GET' && route.feature === 'sync') requireBrowserSession(c);
       if (!deps.hasFeature(route.feature)) throw featureRequired(route.feature);
       const principal = (c.get('principal') as Principal | undefined) ?? null;
       if (!route.public) {

@@ -72,6 +72,25 @@ export async function pairUrl({ coreUrl, key, where = coreUrl, next = '/' }) {
   return url.toString();
 }
 
+/**
+ * The headers of a paired browser, for a script that must do what only the paired browser may (finish
+ * setup, which sets the permission preset; change a key; restore a backup). Pairs through the same one-time
+ * code as `pnpm pair`, then returns `{ cookie, origin }` to send with the request. `origin` is one Core allows.
+ */
+export async function sessionHeaders({ coreUrl, key, origin }) {
+  const res = await fetch(await pairUrl({ coreUrl, key }), {
+    redirect: 'manual',
+    signal: AbortSignal.timeout(5_000),
+  });
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .find((c) => c?.startsWith('ancile_session_'));
+  if (res.status !== 303 || !cookie)
+    throw new Error(`Core did not pair this script (it answered ${res.status}).`);
+  return { cookie, origin };
+}
+
 /** Open an address in the default browser. Resolves to false when the system has no way to. */
 export function openBrowser(url) {
   return new Promise((resolve) => {

@@ -105,22 +105,24 @@ export default async function globalSetup(config: FullConfig) {
     headers: { 'content-type': 'application/json', ...auth },
     body: JSON.stringify({ value: null }),
   }).catch(() => undefined);
+  // Connect the suite's browsers first: finishing setup sets the permission preset, which is the paired
+  // browser's alone (a script with the key is refused), so it goes through the session like the Cockpit does.
+  const session = await saveBrowserState(base, auth);
   const res = await fetch(`${base}/api/v1/setup/complete`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...auth },
+    headers: { 'content-type': 'application/json', cookie: session, origin: new URL(base).origin },
     body: JSON.stringify({ preset: 'balanced' }),
   });
   if (!res.ok) throw new Error(`Could not finish setup on ${base}: ${res.status} ${await res.text()}`);
-  await saveBrowserState(base, auth);
 }
 
 const asOwner = (key: string) => ({ authorization: `Bearer ${key}` });
 
 /**
  * Connect a browser the way `pnpm pair` does, and write what every suite browser starts from: the session
- * cookie, and the preferences the suite seeds in localStorage.
+ * cookie, and the preferences the suite seeds in localStorage. Returns the cookie as a request header value.
  */
-async function saveBrowserState(base: string, auth: Record<string, string>): Promise<void> {
+async function saveBrowserState(base: string, auth: Record<string, string>): Promise<string> {
   const minted = await fetch(`${base}/api/v1/session/pair-codes`, { method: 'POST', headers: auth });
   if (!minted.ok) throw new Error(`Core did not give a pairing code on ${base}: ${minted.status}`);
   const { code } = (await minted.json()) as { code: string };
@@ -158,6 +160,7 @@ async function saveBrowserState(base: string, auth: Record<string, string>): Pro
   };
   mkdirSync(dirname(E2E_AUTH_STATE), { recursive: true });
   writeFileSync(E2E_AUTH_STATE, JSON.stringify(state), { mode: 0o600 });
+  return pair;
 }
 
 interface ModelRow {

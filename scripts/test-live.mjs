@@ -28,7 +28,7 @@ import { spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { c, IS_WIN, killTree, mark, ROOT, readEnv, run, sleep } from './lib.mjs';
-import { bearer, keyFileIn, readKeyFile } from './local-api.mjs';
+import { bearer, keyFileIn, readKeyFile, sessionHeaders } from './local-api.mjs';
 import { composeEnv, RUNTIME_DIR } from './runtime.mjs';
 
 const args = process.argv.slice(2);
@@ -235,11 +235,16 @@ async function main() {
         `Read ${logFile}: Claude Code must be off in the test profile.`,
       );
     if (startedByUs) say(`${mark.ok} The log says Claude Code is off`);
-    await fetch(`${core}/api/v1/setup/complete`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...asOwner() },
-      body: JSON.stringify({ preset: 'balanced' }),
-    }).catch(() => undefined);
+    // Finishing setup sets the permission preset: the paired browser's alone, so this pairs as a browser would.
+    await sessionHeaders({ coreUrl: core, key: readKeyFile(keyFile), origin: `http://localhost:${corePort}` })
+      .then((session) =>
+        fetch(`${core}/api/v1/setup/complete`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...session },
+          body: JSON.stringify({ preset: 'balanced' }),
+        }),
+      )
+      .catch(() => undefined);
   } else {
     if (!/Live test guard is on/.test(log))
       fail(

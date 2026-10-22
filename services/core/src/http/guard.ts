@@ -37,7 +37,8 @@
  */
 
 import { AncileError, BROWSER_SESSION_REQUIRED, LOCAL_KEY_REQUIRED } from '@nvx/contracts';
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
+import type { AppEnv } from '../app';
 import { accessFor, isMutating, type LocalAuth } from './localAuth';
 
 const BODY_TYPES = ['application/json', 'multipart/form-data'];
@@ -94,6 +95,19 @@ export const sessionRequired = (detail: string) =>
     errorClass: 'permanent',
   });
 
+/**
+ * The session rule for a route that knows it needs one only once it is matched (Pro's routes are
+ * declared by feature, and their paths are not known here): the paired browser's cookie, and for a
+ * change an Origin. Throws the same 403 the guard does.
+ */
+export function requireBrowserSession(c: Context<AppEnv>): void {
+  const presented = c.get('presented');
+  if (!presented?.cookie)
+    throw sessionRequired('This route needs the browser session; the install key alone is not enough.');
+  if (isMutating(c.req.method) && c.req.header('origin') === undefined)
+    throw sessionRequired('A change to this needs the browser session and an Origin from the Cockpit.');
+}
+
 export interface GuardOptions {
   origins: string[];
   /** Required: a guard with no way to tell the owner from another process would be a guard in name only. */
@@ -104,7 +118,7 @@ export function requestGuard(opts: GuardOptions): MiddlewareHandler {
   const allowed = new Set(opts.origins);
   const { auth } = opts;
   return async (c, next) => {
-    const access = accessFor(c.req.method, c.req.path);
+    const access = accessFor(c.req.method, c.req.path, c.req.query());
     // The pairing route: a top-level navigation, so no Origin to check; the one-time code is the credential.
     if (access === 'open') return next();
 

@@ -218,20 +218,65 @@ const SESSION_ALWAYS: RegExp[] = [/^\/approvals(\/|$)/, /^\/grants(\/|$)/, /^\/a
 
 /**
  * Routes where changing anything is the paired browser's alone (reading them is open to a
- * script with the key): permissions, scopes and tool presets, the privacy policy, MCP servers
- * and the apps allowed into Ancile's own MCP server, Claude Code's MCP servers, and answers to
- * memory proposals and imports.
+ * script with the key). The rule: a change to what agents may do, to where data goes, to what
+ * runs unattended, or that deletes in bulk or cannot be taken back.
+ *
+ * What agents may do: permissions, scopes and tool presets, the privacy policy, MCP servers and
+ * the apps allowed into Ancile's own MCP server, Claude Code's MCP servers, projects and session
+ * folders, and answers to memory proposals and imports.
+ *
+ * Where data goes: API keys (and the GitHub token), models and providers (custom endpoints and
+ * gateways can send prompts elsewhere), routing chains, OpenRouter routing, the compute provider,
+ * testing a key against an address, finishing setup (it sets the permission preset).
+ *
+ * What runs unattended or beyond the window: automations (create, edit, enable, run now, delete),
+ * Claude Code settings, sign-in and install, the lab's settings, the interpreter's claim and result
+ * (only the window runs Python).
+ *
+ * Licence, sync and data safety: licence activation and refresh, Pro's sync (devices, settings;
+ * also by feature, see pro/routes.ts), restoring a backup, tidying storage, emptying the Trash.
+ * Deleting a notebook with everything in it is the same (see BULK_DELETE below).
  */
 const SESSION_WRITES: RegExp[] = [
+  // what agents may do
   /^\/permissions(\/|$)/,
   /^\/(notebooks|threads)\/[^/]+\/scope\/?$/,
   /^\/tool-presets(\/|$)/,
   /^\/privacy(\/|$)/,
   /^\/mcp(\/|$)/,
-  /^\/claude-code\/mcp-servers(\/|$)/,
+  /^\/claude-code\/(mcp-servers|projects)(\/|$)/,
+  /^\/claude-code\/threads\/[^/]+\/folder\/?$/,
   /^\/memory\/proposals\/[^/]+\/?$/,
   /^\/memory\/imports\/[^/]+\/decide\/?$/,
+  // where data goes
+  /^\/credentials(\/|$)/,
+  /^\/github\/token\/?$/,
+  /^\/models(\/|$)/,
+  /^\/routing(\/|$)/,
+  /^\/openrouter\/routing\/?$/,
+  /^\/compute\/provider\/?$/,
+  /^\/setup\/(complete|providers\/test)\/?$/,
+  // what runs unattended, and what only the window does
+  /^\/automations(\/|$)/,
+  /^\/claude-code\/(settings|sign-in|sign-out|install)\/?$/,
+  /^\/lab\/settings\/?$/,
+  /^\/interpreter\/requests\/[^/]+\/(claim|result)\/?$/,
+  // licence, sync, data safety
+  /^\/license(\/|$)/,
+  /^\/pro\/(sync|licen[cs]e)(\/|$)/,
+  /^\/system\/restore(\/|$)/,
+  /^\/system\/startup\/restore\/?$/,
+  /^\/system\/tidy\/?$/,
+  /^\/threads\/trash\/empty\/?$/,
 ];
+
+/**
+ * Deleting a notebook is the Trash's gentle path; `?contents=delete` (or the older `?sources=delete`)
+ * deletes it with everything in it. That form is the paired browser's alone.
+ */
+const NOTEBOOK_ID = /^\/notebooks\/[^/]+\/?$/;
+const bulkDelete = (q: Record<string, string | undefined> | undefined) =>
+  /^delete$/i.test(q?.contents ?? '') || /^delete$/i.test(q?.sources ?? '');
 
 /** The pairing route and the route that mints its codes, as paths under /api/v1. */
 const PAIR = /^\/session\/pair\/?$/;
@@ -246,14 +291,22 @@ export function cleanPath(path: string): string {
   return p === '' ? '/' : p;
 }
 
-/** What a route needs, given its method and its path (with or without the /api/v1 prefix). */
-export function accessFor(method: string, rawPath: string): Access {
+/**
+ * What a route needs, given its method and its path (with or without the /api/v1 prefix) and, for the
+ * few routes whose danger is in a query parameter, its query.
+ */
+export function accessFor(
+  method: string,
+  rawPath: string,
+  query?: Record<string, string | undefined>,
+): Access {
   const path = cleanPath(rawPath);
   const m = method.toUpperCase();
   if (PAIR.test(path) && m === 'GET') return 'open';
   if (PAIR_CODES.test(path)) return 'key';
   if (SESSION_ALWAYS.some((re) => re.test(path))) return 'session';
   if (isMutating(m) && SESSION_WRITES.some((re) => re.test(path))) return 'session';
+  if (m === 'DELETE' && NOTEBOOK_ID.test(path) && bulkDelete(query)) return 'session';
   return 'any';
 }
 

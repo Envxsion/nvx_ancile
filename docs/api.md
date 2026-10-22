@@ -32,7 +32,7 @@ Core listens on localhost, so any process on the machine can reach `/api/v1`, in
 
 ### Browser session only
 
-These routes refuse the key on its own (`403 auth.browser_session_required`), so a script, or an agent that somehow held the key, cannot approve its own tool calls or widen what it may do:
+These routes refuse the key on its own (`403 auth.browser_session_required`), so a script, or an agent that somehow held the key, cannot approve its own tool calls, widen what it may do, send your data somewhere else, start work that runs unattended or delete in bulk. The rule: a change to what agents may do, to where data goes or to what runs unattended, and anything that deletes in bulk, is the paired browser's. Reading any of them stays open to the key.
 
 | Routes | Methods |
 |---|---|
@@ -43,7 +43,21 @@ These routes refuse the key on its own (`403 auth.browser_session_required`), so
 | `/notebooks/:id/scope`, `/threads/:id/scope`, `/tool-presets` | changes |
 | `/privacy/policy` | changes |
 | `/mcp/*` (servers, presets, approving a tool list, the apps let into Ancile's MCP server) and `/claude-code/mcp-servers` | changes |
+| `/claude-code/projects`, `/claude-code/threads/:id/folder` | changes |
 | `/memory/proposals/:id`, `/memory/imports/:id/decide` | changes |
+| `/credentials/*` (keys, the Anthropic plan credit) and `/github/token` | changes |
+| `/models/*` (adding a model, a custom endpoint, a gateway, the watch and its lines), `/routing/*`, `/openrouter/routing`, `/compute/provider` | changes |
+| `/setup/complete` (it sets the permission preset) and `/setup/providers/test` (it sends a key to an address) | changes |
+| `/automations`, `/automations/:id`, and its `run`, `test` and `reset` | changes |
+| `/claude-code/settings`, `/claude-code/sign-in`, `/claude-code/sign-out`, `/claude-code/install` | changes |
+| `/lab/settings` | changes |
+| `/interpreter/requests/:id/claim` and `/result` (only the window runs Python) | changes |
+| `/license/*` (activate, deactivate, refresh) and `/pro/licence`, `/pro/license` | changes |
+| Every Pro route of the sync feature that changes anything (approving or removing a device, sync settings, the relay) | changes |
+| `/system/restore/*`, `/system/startup/restore`, `/system/tidy`, `/threads/trash/empty` | changes |
+| `DELETE /notebooks/:id?contents=delete` (and the older `?sources=delete`) | the delete that takes everything in the notebook |
+
+Left to the key on purpose: reading all of the above; restarting a service; making a backup; creating, renaming and moving threads and notebooks; deleting a thread or a notebook to the Trash (which can be undone); and Pro's team and fleet routes.
 
 The desktop app's own Approve and Deny buttons on a notification (Pro) arrive on `/internal/v1/desktop`, with the service token only the app holds.
 
