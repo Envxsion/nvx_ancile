@@ -58,6 +58,8 @@ If a boot test fails, startup stops and tells you what is wrong and how to fix i
 
 Postgres keeps running in the background between sessions. `pnpm stop` stops it, and your data in `data/` is kept. To override anything, put it in a `.env`; it always wins over the generated values.
 
+NVX Ancile answers only you: the first start connects your browser to it, and `pnpm pair` connects another (the Cockpit says so when a browser is not connected).
+
 Something not right? `pnpm doctor` checks prerequisites, ports and disk space, and suggests fixes.
 
 The desktop app (`apps/desktop`) packages the same services behind one installer; build it yourself with `pnpm --filter @nvx/ancile-desktop build`. **Docker** remains only for servers and CI: `pnpm up:docker`.

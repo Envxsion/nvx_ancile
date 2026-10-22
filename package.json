@@ -25,6 +25,7 @@
     "test:live": "node scripts/test-live.mjs",
     "test:runpod": "pnpm --filter @nvx/ancile-controller exec tsx scripts/live-runpod.ts",
     "doctor": "node scripts/doctor.mjs",
+    "pair": "node scripts/pair.mjs",
     "start": "node scripts/boot.mjs",
     "start:e2e": "node scripts/boot.mjs --e2e",
     "stop": "node scripts/down.mjs",

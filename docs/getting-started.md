@@ -67,6 +67,8 @@ pnpm start
 
 Open **http://localhost:7701** (dev) or **http://localhost:7700** (built).
 
+NVX Ancile answers only you. The first time Core starts it makes an install key (`data/local-api.key`), and the first `pnpm start` in a folder opens your browser at an address that connects it. Any other browser, or one you have cleared, is connected with `pnpm pair`; until then the Cockpit shows "Connect this browser". Scripts send the key as `Authorization: Bearer <key>`. The details are in [api.md](api.md#calling-the-api).
+
 ## 4. First run
 
 The setup screens walk you through:
@@ -126,6 +128,8 @@ pnpm seed --e2e                # optional: the sample world, in the test profile
 E2E_BACKEND=1 pnpm test:e2e    # refuses to run against your everyday stack
 pnpm stop:e2e                  # stops only the test stack
 ```
+
+The suite connects its own browsers: it reads the test profile's install key (`data/e2e/local-api.key`), pairs once, and every spec starts connected. `pnpm pair --e2e` connects your own browser to the test profile.
 
 `pnpm stop` stops both stacks and Postgres. Set `E2E_ALLOW_DEV_DB=1` (with `E2E_BASE_URL=http://localhost:7701`) only if you mean the tests to write into your own workspace.
 

@@ -16,13 +16,17 @@
  *           |  Flags: --skip-tests  --only=core,knowledge
  *           |         --no-start (run checks and exit)
  *           |         --e2e (test profile: own database and data folder)
+ *           |         --no-open (the first start in a data folder
+ *           |         connects your browser to Core, which answers only
+ *           |         its owner (docs/api.md); this does not)
  * ------------------------------------------------------------------
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { forwardLogs, startControl, stopChild } from './control.mjs';
-import { c, killTree, mark, probe, ROOT, readEnv, run, startPrefixed } from './lib.mjs';
+import { c, killTree, mark, probe, ROOT, readEnv, run, sleep, startPrefixed } from './lib.mjs';
+import { keyFileIn, openBrowser, pairUrl, readKeyFile } from './local-api.mjs';
 import {
   AGENT_DIR,
   agentEnv,
@@ -219,6 +223,9 @@ if (args.has('--no-start')) {
 
 // --- 5. Services ------------------------------------------------------------------
 header('Starting services');
+// Core makes its install key the first time it starts in this data folder (docs/api.md): note whether this is it.
+const keyFile = keyFileIn(env.ANCILE_DATA_DIR);
+const firstRun = !existsSync(keyFile);
 const services = [
   {
     name: 'controller',
@@ -372,5 +379,50 @@ const port = env.ANCILE_PORT ?? 7700;
 console.log(`\n  ${mark.ok} NVX Ancile is starting ${elapsed()}`);
 console.log(`    Cockpit (dev)  ${c.signal(`http://localhost:${env.COCKPIT_PORT ?? 7701}`)}`);
 console.log(`    Core API       ${c.dim(`http://localhost:${port}/api/v1`)}`);
-console.log(`    Health         ${c.dim(`http://localhost:${port}/api/v1/system/health`)}`);
-console.log(c.dim('\n  Ctrl+C stops the services.\n'));
+console.log(`    Health         ${c.dim(`http://localhost:${port}/health`)}`);
+console.log(c.dim('\n  Ctrl+C stops the services.'));
+console.log(
+  c.dim(
+    `  Core answers only you: a browser is connected once with \`pnpm pair\`${
+      firstRun ? ' (this first start does it for you)' : ''
+    }.\n`,
+  ),
+);
+
+// The first start in this folder: Core is making its install key now, so connect the browser too, once
+// the services answer. After that the browser keeps its session for 400 days; `pnpm pair` connects another.
+// Nothing printed is the key or a code (scripts/local-api.mjs).
+if (
+  firstRun &&
+  env.ANCILE_PROFILE !== 'e2e' &&
+  !args.has('--no-open') &&
+  !process.env.CI &&
+  process.stdout.isTTY
+) {
+  void (async () => {
+    const coreUrl = `http://127.0.0.1:${port}`;
+    const cockpitUrl = `http://localhost:${env.COCKPIT_PORT ?? 7701}`;
+    const answers = async (url) => {
+      try {
+        return (await fetch(url, { signal: AbortSignal.timeout(2_000) })).ok;
+      } catch {
+        return false;
+      }
+    };
+    for (let i = 0; i < 150 && !stopping; i++) {
+      if ((await answers(`${coreUrl}/ready`)) && (await answers(cockpitUrl)) && readKeyFile(keyFile)) {
+        try {
+          const url = await pairUrl({ coreUrl, key: readKeyFile(keyFile), where: cockpitUrl });
+          if (await openBrowser(url))
+            console.log(`\n  ${mark.ok} Opened your browser and connected it to NVX Ancile`);
+        } catch (e) {
+          console.log(
+            `\n  ${mark.warn} Could not connect your browser: ${e.message} Run \`pnpm pair\` when it is up.`,
+          );
+        }
+        return;
+      }
+      await sleep(2_000);
+    }
+  })();
+}
