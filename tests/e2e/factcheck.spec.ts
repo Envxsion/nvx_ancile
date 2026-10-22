@@ -42,6 +42,9 @@ test.describe('fact-check', () => {
   test('a new answer can be checked from its actions', async ({ page }) => {
     await page.goto('/');
     const composer = page.getByRole('textbox', { name: 'Message' });
+    // /say belongs to the offline test model: wait until the composer has it, or a message held while
+    // the app loads can go out under another model and read as an unknown command.
+    await expect(page.locator('.composer').getByText('Offline test model')).toBeVisible({ timeout: 15_000 });
     await composer.fill('/say The Thames flows through London. It is 346 kilometres long.');
     await composer.press('Enter');
     await page.waitForURL(/\/t\/thr_/);
