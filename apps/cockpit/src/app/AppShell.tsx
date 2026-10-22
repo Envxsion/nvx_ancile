@@ -45,6 +45,7 @@ import { useUi } from '../state/ui';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { lazyHost } from '../ui/lazyHost';
 import { AnswerStatus } from './AnswerStatus';
+import { ConnectScreen, useConnectGate } from './ConnectScreen';
 import { Runtime } from './Runtime';
 
 // Overlays and panels draw nothing until opened, so they load after the shell (ROADMAP P1).
@@ -196,6 +197,10 @@ export function AppShell() {
   useBinding('go.flows', () => navigate({ to: '/flows' }));
   useBinding('go.automations', () => navigate({ to: '/admin/$section', params: { section: 'automations' } }));
   const signInNeeded = useSignInGate((s) => s.needed);
+  const connectNeeded = useConnectGate((s) => s.needed);
+
+  // Core answers only its owner: until this browser is connected, nothing else can load (app/ConnectScreen.tsx).
+  if (connectNeeded) return <ConnectScreen />;
 
   if (signInNeeded) {
     return (

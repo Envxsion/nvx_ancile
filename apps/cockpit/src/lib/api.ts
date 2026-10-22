@@ -18,7 +18,9 @@
 
 import { CLIENT_ID_HEADER } from '@nvx/contracts/engines';
 import { ApiError } from '@nvx/contracts/errors';
+import { LOCAL_KEY_REQUIRED } from '@nvx/contracts/session';
 import type { z } from 'zod';
+import { useConnectGate } from '../app/connect-state';
 import { useSignInGate } from '../pro/signin-state';
 import { useConnection } from './connection';
 
@@ -109,6 +111,8 @@ async function request<T>(method: string, path: string, body?: unknown, schema?:
     // A team (Pro) with nobody signed in: show the sign-in screen, not a page of failures.
     if (parsed.success && parsed.data.error.code === 'auth.sign_in_required')
       useSignInGate.getState().raise();
+    // This browser is not connected to Core (it answers only its owner): say how, not a page of failures.
+    if (parsed.success && parsed.data.error.code === LOCAL_KEY_REQUIRED) useConnectGate.getState().raise();
     throw new ApiCallError(
       res.status,
       parsed.success
