@@ -1,6 +1,6 @@
 {
   "name": "nvx-ancile",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "NVX Ancile: a private AI operating system for serious knowledge work. A product from nvx.sh.",
   "license": "GPL-3.0-or-later",
