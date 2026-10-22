@@ -339,12 +339,24 @@ describe('tools behind permissions', () => {
     const base = await readFile(join(__dirname, '../../../../config/policies/base.cedar'), 'utf8');
     h = await harness({ cedar: { 'base.cedar': base } });
     const t = await h.newThread();
-    const sent = await h.send(t, '/tool fs_write {"path":".env.local","content":"KEY=1"}');
+    // A path only the policy knows about: `.env.local` is also a floor (below), which answers first.
+    const sent = await h.send(t, '/tool fs_write {"path":".git/HEAD","content":"ref: x"}');
     await h.settle(sent.run_id);
     const evs = await h.eventsOf(sent.run_id);
     expect(of(evs, 'approval.required')).toHaveLength(0);
     const decision = (await h.perms.listDecisions())[0];
     expect(decision).toMatchObject({ outcome: 'policy_deny', policy_id: 'base.protect-internals' });
+  });
+
+  it('refuses a write to a secrets file by the protected-path floor, and does not ask', async () => {
+    h = await harness();
+    const t = await h.newThread();
+    const sent = await h.send(t, '/tool fs_write {"path":".env.local","content":"KEY=1"}');
+    await h.settle(sent.run_id);
+    const evs = await h.eventsOf(sent.run_id);
+    expect(of(evs, 'approval.required')).toHaveLength(0);
+    const decision = (await h.perms.listDecisions())[0];
+    expect(decision).toMatchObject({ outcome: 'policy_deny', policy_id: 'floor.protected_path' });
   });
 
   it('survives a restart while waiting for approval, then finishes after the decision', async () => {
