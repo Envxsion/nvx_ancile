@@ -1,6 +1,6 @@
 {
   "name": "@nvx/ancile-cockpit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "The NVX Ancile Cockpit: the keyboard-first workspace UI.",
   "type": "module",
