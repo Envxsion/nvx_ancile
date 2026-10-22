@@ -13,7 +13,11 @@
  *           |  counts grant use.
  *  How      |  Core's own API and key file (selfguard.ts: a call that
  *           |  reaches the API or names the install key is refused,
- *           |  in every preset) → scope (a floor, in every preset) →
+ *           |  in every preset) → the block floors that hold in every
+ *           |  preset (auto/floors.ts blockFloors: a disk formatted, the
+ *           |  machine powered off, a fork bomb, the root or home wiped,
+ *           |  a protected file written; Auto mode runs the same rules in
+ *           |  its own floors) → scope (a floor, in every preset) →
  *           |  the MCP rug-pull guard (a tool added or changed since
  *           |  its server was approved is refused, in every preset) →
  *           |  Auto mode floors → decide() → Auto mode's plan, cache
@@ -39,6 +43,7 @@ import type { EffectiveScope, Tier } from '@nvx/contracts';
 import type { McpToolCheck } from '../mcp/guard';
 import { checkToolCall, leavingAllowed, type ScopeResolver } from '../scopes';
 import type { AutoReview } from './auto';
+import { blockFloors } from './auto/floors';
 import { type DecideDeps, type DecisionResult, decide } from './decide';
 import { normalizeResource } from './normalize';
 import { currentSelfTargets, type SelfTargets, selfFloor } from './selfguard';
@@ -181,6 +186,26 @@ export function createGate(
         policyId: own.rule,
         code: own.rule,
       };
+    // The floors that only ever refuse hold in every preset. With Auto mode on, its own floors (the same
+    // rules, plus the ones that ask) run below, with their record; with it off, they run here.
+    if (!deps.auto?.enabled()) {
+      const hit = blockFloors({
+        action: req.action,
+        resource,
+        ...(req.tool && { tool: req.tool }),
+        ...(req.args !== undefined && { args: req.args }),
+      });
+      if (hit)
+        return {
+          outcome: 'deny',
+          via: 'floor',
+          tier: req.toolTier,
+          resource,
+          reason: hit.reason,
+          policyId: hit.rule,
+          code: hit.rule,
+        };
+    }
     if (scope && resolved) {
       const s = checkToolCall(scope, { action: req.action, resource });
       if (!s.ok)

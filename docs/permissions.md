@@ -42,7 +42,7 @@ Saving a remembered answer settles the other waiting requests it covers. Core do
 
 The check runs when the tool is about to execute, on the real arguments, never on what the model said it would do:
 
-0. **Floors that hold in every preset** (see below): a call that reaches NVX Ancile's own API or names its install key is refused, then the scope, then an MCP tool that changed.
+0. **Floors that hold in every preset** (see below): a call that reaches NVX Ancile's own API or names its install key is refused; so is shell that formats a disk, writes to a device, forks without end, powers the machine off or wipes the root or your home folder, and a write to a file that holds secrets. Then the scope, then an MCP tool that changed.
 1. **Normalise the resource.** Resolve symlinks, reject `..` escapes, lowercase hosts, strip credentials from URLs.
 2. **Policies (Cedar).** A `forbid` is a hard deny. The model is told why, and you aren't asked. A caller whose name starts with nothing the gate knows (not `user`, `person:`, `agent:`, `mcp:` or `external:`) is treated as an outside app, which only reads.
 3. **Tier.** The tool's default tier, raised by any `@escalate` policy. For example, writes outside `workspace_root` become critical.
@@ -155,14 +155,16 @@ when { context.args like "*\"repo\":\"prod\"*" };
 
 ## Floors in every preset {#floors-every-preset}
 
-Two floors run on every tool call under every preset, with Auto mode on or off. No grant, preset or approval can lift them; the model is told why and you are never asked.
+These floors run on every tool call under every preset, with Auto mode on or off. No grant, preset or approval can lift them; the model is told why and you are never asked.
 
 - **`floor.core_api`: no tool reaches NVX Ancile's own API.** Core's API answers its owner, so a model that could call it could answer its own approvals or change its own permissions. A call is refused when an address in it points at this machine (`localhost`, `127.0.0.0/8`, `[::1]`, `0.0.0.0`, and the other spellings of them such as `2130706433`, `0x7f.1`, `[::ffff:127.0.0.1]` or `foo.localhost`) on a port Core or the Cockpit listens on, or at the public URL or another origin NVX Ancile is served from. It reads the resource of a web or http call, a shell command, and every string in the arguments of an MCP tool, a plugin tool or a code run. A web search, a file's own text and other ports on this machine are not affected.
 - **`floor.install_key`: no tool names the key file.** A call whose file path, or whose command or arguments, name `local-api.key` is refused (quoting and glob spellings such as `local-api.k*` included). A document that only mentions the file is not.
 
+- **The block floors from Auto mode.** The rules that only ever refuse, because no one wants the result: shell that formats a disk (`floor.disk_format`), writes to a disk device (`floor.disk_write`), is a fork bomb (`floor.fork_bomb`), powers the machine off (`floor.power`), changes permissions on the root (`floor.chmod_root`) or deletes the root, your home folder or everything (`floor.recursive_delete_root`), and a file write or delete on a protected path: `.ssh/`, cloud and Kubernetes credentials, `.git-credentials`, `.npmrc`, `.env` files, keys and certificates, password vaults and NVX Ancile's own internals (`floor.protected_path`). They read the command in a shell resource and the command in the arguments of a shell-like tool (Claude Code's Bash, the lab's bash). A command that only mentions a protected file may be reading it, so only an actual write through a file tool is refused outside Auto mode.
+
 These are a floor under the real defence: the API refuses any caller without the install key ([api.md](api.md#calling-the-api)), and the key file is readable only by you. Text cannot see through a shell variable or a name that resolves to this machine, so a determined command may still slip past the floor; it still meets the API's own check.
 
-The floors above that run only in Auto mode (a key in a call, a lot of data in a web address, dangerous shell, text that talks to the reviewer, …) are unchanged: see [auto-mode.md](auto-mode.md#what-happens-to-a-tool-call).
+The other floors stay Auto-only, because a standing grant can reasonably cover what they flag: a key or password in a call (so `curl -H "Authorization: $GITHUB_TOKEN" …` runs under a grant), a lot of data in a web address, `sudo`, force pushes, deleting a folder, text that talks to the reviewer, and the rest of the list in [auto-mode.md](auto-mode.md#what-happens-to-a-tool-call). Making a grant never cover a call one of those flags is planned for 0.2.0 (SC3).
 
 ## Admin views
 

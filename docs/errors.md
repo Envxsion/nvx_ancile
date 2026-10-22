@@ -136,7 +136,7 @@ A refusal by a tool preset uses the same `scope.tool_not_allowed`, `scope.mcp_se
 
 ### Auto mode {#auto-mode}
 
-docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and the rule as its `code` and policy id (`floor.fork_bomb`, `floor.recursive_delete_root`, `floor.protected_path`, `floor.secret_in_call`, …). Two floors run in every preset, with Auto mode on or off: `floor.core_api` (a call that reaches NVX Ancile's own API) and `floor.install_key` (a call that names the install key's file), both refused with a reason and never asked about (docs/permissions.md, Floors in every preset). A floor or reviewer that asks gives its reason on the `approval.batched` run event.
+docs/auto-mode.md. A floor's refusal is a gate decision with `via: "floor"` and the rule as its `code` and policy id (`floor.fork_bomb`, `floor.recursive_delete_root`, `floor.protected_path`, `floor.secret_in_call`, …). These floors run in every preset, with Auto mode on or off: `floor.core_api` (a call that reaches NVX Ancile's own API), `floor.install_key` (a call that names the install key's file), and the block floors `floor.disk_format`, `floor.disk_write`, `floor.fork_bomb`, `floor.power`, `floor.chmod_root`, `floor.recursive_delete_root` and `floor.protected_path` (a write to a file that holds secrets). All are refused with a reason and never asked about (docs/permissions.md, Floors in every preset). The rest (`floor.secret_in_call`, …) run only in Auto mode. A floor or reviewer that asks gives its reason on the `approval.batched` run event.
 
 | Code | HTTP | Title / hint |
 |---|---|---|

@@ -5,7 +5,7 @@ Auto is a permission preset (Admin → Permissions, `PUT /permissions/preset { "
 ## What happens to a tool call
 
 1. **Scope.** The notebook's and thread's scope (docs/scopes.md), in every preset. Outside it, the call is refused.
-2. **Floors.** Deterministic rules, checked before anything else:
+2. **Floors.** Deterministic rules, checked before anything else. The ones that block a disk format, a device write, a fork bomb, power off, a delete of the root or your home folder, and a write to a protected path hold in every preset, not only here ([permissions.md](permissions.md#floors-every-preset)); the rest below are Auto mode's alone:
    - writes outside the workspace (ask), and reads outside it (ask)
    - recursive deletes (ask), or at the root, your home folder or everything (block)
    - secrets and protected paths: `.env`, `.ssh/`, keys, cloud credentials, `.git/config`, NVX Ancile's memory internals (block for writes, ask for reads)

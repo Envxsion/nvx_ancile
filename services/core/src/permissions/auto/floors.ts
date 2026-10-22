@@ -249,27 +249,58 @@ const rank = (h: FloorHit) => (h.verdict === 'block' ? 2 : 1);
 const strictest = (hits: (FloorHit | null)[]) =>
   hits.filter((h): h is FloorHit => !!h).sort((a, b) => rank(b) - rank(a))[0] ?? null;
 
-function shellHits(cmd: string): FloorHit | null {
-  const hits: (FloorHit | null)[] = [];
-  const folded = cmd.normalize('NFKC').replace(INVISIBLE, '');
+const foldShell = (cmd: string) => cmd.normalize('NFKC').replace(INVISIBLE, '');
+
+/** Shell that can never be wanted: a disk formatted or written to, power off, a fork bomb, the root or home wiped. */
+function shellBlocks(folded: string): FloorHit[] {
+  const hits: FloorHit[] = [];
   for (const [re, rule, reason] of SHELL_BLOCK)
     if (re.test(folded)) hits.push({ verdict: 'block', rule, reason });
-  if (RECURSIVE_DELETE.test(folded))
-    hits.push(
-      CATASTROPHIC_TARGET.test(` ${folded} `)
-        ? {
-            verdict: 'block',
-            rule: 'floor.recursive_delete_root',
-            reason: 'It deletes a whole tree at the root, your home folder or everything',
-          }
-        : {
-            verdict: 'ask',
-            rule: 'floor.recursive_delete',
-            reason: 'It deletes a folder and everything in it',
-          },
-    );
+  if (RECURSIVE_DELETE.test(folded) && CATASTROPHIC_TARGET.test(` ${folded} `))
+    hits.push({
+      verdict: 'block',
+      rule: 'floor.recursive_delete_root',
+      reason: 'It deletes a whole tree at the root, your home folder or everything',
+    });
+  return hits;
+}
+
+function shellHits(cmd: string): FloorHit | null {
+  const folded = foldShell(cmd);
+  const hits: (FloorHit | null)[] = shellBlocks(folded);
+  if (RECURSIVE_DELETE.test(folded) && !CATASTROPHIC_TARGET.test(` ${folded} `))
+    hits.push({
+      verdict: 'ask',
+      rule: 'floor.recursive_delete',
+      reason: 'It deletes a folder and everything in it',
+    });
   for (const [re, rule, reason] of SHELL_ASK)
     if (re.test(folded)) hits.push({ verdict: 'ask', rule, reason });
+  return strictest(hits);
+}
+
+/**
+ * The floors that never ask, only refuse, and that hold in every preset (the gate runs them when Auto
+ * mode is off; with it on, checkFloors covers them): shell that formats or writes a disk, powers the
+ * machine off, is a fork bomb or wipes the root or the home folder, and a write to a protected file
+ * (an SSH or cloud key, a credentials file, Ancile's own memory). The ask-class floors (a key in a call,
+ * data in an address, text that talks to a reviewer, dangerous-but-sometimes-wanted shell) stay Auto-only: in
+ * other presets a person sees the call, and `curl -H "Authorization: $GITHUB_TOKEN"` is a normal command.
+ * A shell command that merely mentions a protected file is not refused here (it may be reading it).
+ */
+export function blockFloors(call: Pick<AutoCall, 'action' | 'resource' | 'tool' | 'args'>): FloorHit | null {
+  const kind = scheme(call.resource);
+  const target = call.resource.slice(kind.length + 1);
+  const hits: (FloorHit | null)[] = [];
+  if (kind === 'shell') hits.push(strictest(shellBlocks(foldShell(target))));
+  else if (call.action === 'shell.exec' || /^(bash|shell|powershell|terminal)$/i.test(call.tool ?? ''))
+    hits.push(strictest(shellBlocks(foldShell(call.args === undefined ? '' : textOf(call.args)))));
+  if (kind === 'fs' && !READ_ACTIONS.test(call.action) && PROTECTED.test(target))
+    hits.push({
+      verdict: 'block',
+      rule: 'floor.protected_path',
+      reason: 'It writes a file that holds secrets or NVX Ancile internals',
+    });
   return strictest(hits);
 }
 
