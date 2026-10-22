@@ -33,8 +33,27 @@ import { scheme } from './normalize';
  */
 export const EXTERNAL_READ_ACTIONS = ['knowledge.search', 'notebooks.read', 'memory.read'] as const;
 
-export const isExternal = (principal: string) =>
-  principal.startsWith('mcp:') || principal.startsWith('external:');
+/** What kind of caller a principal name is. */
+export type PrincipalKind = 'user' | 'agent' | 'external' | 'unknown';
+
+/**
+ * Principals are `user` and `person:<id>` (you, acting directly: the file editor), `agent:<persona>`
+ * (a model acting for you), and `mcp:<client>` / `external:<client>` (outside apps). Anything else is
+ * `unknown`, which is never read as you: a name nothing here recognises must not be the one that
+ * slips past the policies by looking like a person.
+ */
+export function principalKind(principal: string): PrincipalKind {
+  if (principal === 'user' || principal.startsWith('person:') || principal.startsWith('usr_')) return 'user';
+  if (principal.startsWith('agent:')) return 'agent';
+  if (principal.startsWith('external:') || principal.startsWith('mcp:')) return 'external';
+  return 'unknown';
+}
+
+/** An outside app, or a caller nothing recognises, which is treated as one: read only, whatever it was granted. */
+export const isExternal = (principal: string) => {
+  const kind = principalKind(principal);
+  return kind === 'external' || kind === 'unknown';
+};
 
 /** Writes, deletes and executions outside the workspace are always critical; outside apps only read. */
 export class BuiltinPolicy implements PolicyEvaluator {
@@ -115,12 +134,20 @@ export function resourceAttrs(
   return { scheme: s, path, host, workspace: !outsideRoot };
 }
 
-function principalUid(principal: string): { type: string; id: string } {
-  if (principal.startsWith('agent:')) return { type: 'Ancile::Agent', id: principal.slice(6) };
-  if (principal.startsWith('external:')) return { type: 'Ancile::External', id: principal.slice(9) };
-  // Apps connected to Ancile's own MCP server are outside apps too.
-  if (principal.startsWith('mcp:')) return { type: 'Ancile::External', id: principal.slice(4) };
-  return { type: 'Ancile::User', id: principal };
+export function principalUid(principal: string): { type: string; id: string } {
+  switch (principalKind(principal)) {
+    case 'agent':
+      return { type: 'Ancile::Agent', id: principal.slice(6) };
+    case 'external':
+      // Apps connected to Ancile's own MCP server (`mcp:`) are outside apps too.
+      return { type: 'Ancile::External', id: principal.slice(principal.indexOf(':') + 1) };
+    case 'user':
+      return { type: 'Ancile::User', id: principal };
+    case 'unknown':
+      // Fail closed: a name nothing here recognises is the most restricted caller there is (an outside
+      // app, which only reads), never a person.
+      return { type: 'Ancile::External', id: principal };
+  }
 }
 
 /** The preset's policy file: preset ids use _ (hands_off), file names use - (preset-hands-off.cedar). */

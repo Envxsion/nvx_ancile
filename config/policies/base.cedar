@@ -30,8 +30,11 @@ when {
 
 // Outside apps (MCP clients of Ancile's /mcp, `mcp:<id>`, and `external:`
 // principals) only read, whatever they have been granted: a grant can narrow
-// what they read, never let them write. Keep in step with
-// EXTERNAL_READ_ACTIONS in services/core/src/permissions/cedar.ts.
+// what they read, never let them write. So does any principal whose name
+// Core does not recognise (not `user`, `person:`, `agent:`, `mcp:` or
+// `external:`): Core presents it here as an outside app, never as a person.
+// Keep in step with EXTERNAL_READ_ACTIONS and principalKind in
+// services/core/src/permissions/cedar.ts.
 @id("base.external-read-only")
 forbid (principal is Ancile::External, action, resource)
 unless {
