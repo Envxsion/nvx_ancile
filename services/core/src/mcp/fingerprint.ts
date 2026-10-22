@@ -8,11 +8,18 @@
  *           |  that changes after you approved it (a "rug pull": a new
  *           |  tool, or an old one with a new description or schema)
  *           |  is noticed, whatever order the server lists them in.
- *  How      |  Each tool is hashed (SHA-256) over canonical JSON of its
- *           |  name, description and input schema: object keys sorted
- *           |  at every depth, no whitespace. The server's fingerprint
- *           |  hashes the sorted name → hash pairs. diffTools compares
- *           |  two such maps by name.
+ *  How      |  Each tool is hashed (SHA-256) over canonical JSON: object
+ *           |  keys sorted at every depth, no whitespace. The server's
+ *           |  fingerprint hashes the sorted name → hash pairs. diffTools
+ *           |  compares two such maps by name.
+ *           |  Version 2 (what is made now) hashes the name, description,
+ *           |  input schema, the MCP annotations (readOnlyHint, …) and
+ *           |  Ancile's own _meta (tier, action, destructive), because a
+ *           |  server that can lower a tool to auto after you approved it
+ *           |  has changed the tool as much as one that rewrites its
+ *           |  description. Version 1 (name, description and schema only)
+ *           |  is kept so a list approved before version 2 can be compared
+ *           |  as it was made, and moved up silently once it still matches.
  *  Note     |  Claude Code reports its servers' tool names only, so
  *           |  those are hashed on the name alone (coverage "names").
  * ------------------------------------------------------------------
@@ -26,6 +33,22 @@ export interface FingerprintTool {
   name: string;
   description?: string | null;
   inputSchema?: unknown;
+  /** MCP annotations as the server listed them (version 2). */
+  annotations?: unknown;
+  /** The tool's _meta as the server listed it; only Ancile's own keys are hashed (version 2). */
+  meta?: unknown;
+}
+
+/** The fingerprint a list is made with now. Rows made before 0048 are version 1. */
+export const FINGERPRINT_VERSION = 2;
+
+/** The _meta Ancile reads (sh.nvx.ancile/tier, /action, /destructive), without what changes per call. */
+export function ancileMeta(meta: unknown): Record<string, unknown> | null {
+  if (!meta || typeof meta !== 'object') return null;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta as Record<string, unknown>))
+    if (k.startsWith('sh.nvx.ancile/') && k !== 'sh.nvx.ancile/idempotency_key') out[k] = v;
+  return Object.keys(out).length ? out : null;
 }
 
 /** name → SHA-256 of that tool. */
@@ -54,6 +77,26 @@ export function toolHash(t: FingerprintTool): string {
 export function toolHashes(tools: FingerprintTool[]): ToolHashes {
   const out: ToolHashes = {};
   for (const t of tools) out[t.name] = toolHash(t);
+  return out;
+}
+
+/** Version 2: version 1's fields, the annotations and Ancile's _meta. Absent fields are hashed as null. */
+export function toolHashV2(t: FingerprintTool): string {
+  return sha256(
+    canonicalJson({
+      v: 2,
+      name: t.name,
+      description: t.description ?? null,
+      inputSchema: t.inputSchema ?? null,
+      annotations: t.annotations ?? null,
+      meta: ancileMeta(t.meta),
+    }),
+  );
+}
+
+export function toolHashesV2(tools: FingerprintTool[]): ToolHashes {
+  const out: ToolHashes = {};
+  for (const t of tools) out[t.name] = toolHashV2(t);
   return out;
 }
 

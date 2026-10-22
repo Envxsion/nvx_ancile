@@ -20,6 +20,13 @@
  *           |  refuses its new and changed tools in the gate. approve()
  *           |  takes the fingerprint you were shown, so a list that
  *           |  changed again meanwhile is never approved unseen.
+ *           |  What is fingerprinted has a version (fingerprint.ts). A
+ *           |  list is made at version 2 now (name, description, schema,
+ *           |  annotations and Ancile's tier, action and destructive
+ *           |  meta). A row made before it is version 1 and is compared
+ *           |  as it was made; the first time its server lists tools that
+ *           |  still match, it is moved up to version 2 silently and
+ *           |  once: nothing is revoked, announced or asked again.
  *  Note     |  Two origins: NVX Ancile's host (manager.ts) and Claude
  *           |  Code's own servers (claude-code-watch.ts), keyed apart,
  *           |  so a server name can exist in both. A server never seen
@@ -36,10 +43,12 @@ import type { PermissionStore } from '../permissions/store';
 import {
   diffTools,
   emptyDiff,
+  FINGERPRINT_VERSION,
   type FingerprintTool,
   listFingerprint,
   type ToolHashes,
   toolHashes,
+  toolHashesV2,
 } from './fingerprint';
 
 const log = logFor('mcp');
@@ -57,6 +66,8 @@ export interface ApprovalRow {
   current_fingerprint: string;
   changed_at: string | null;
   coverage: 'full' | 'names';
+  /** What the hashes cover (fingerprint.ts): 1 before 0048, 2 now. Absent reads as 1. */
+  fingerprint_version?: number;
 }
 
 export interface McpApprovalStore {
@@ -88,6 +99,7 @@ interface Row {
   current_fingerprint: string;
   changed_at: Date | null;
   coverage: 'full' | 'names';
+  fingerprint_version: number;
 }
 
 export class PgMcpApprovalStore implements McpApprovalStore {
@@ -107,9 +119,10 @@ export class PgMcpApprovalStore implements McpApprovalStore {
     await this.sql`
       insert into core.mcp_tool_approvals
         (origin, server, approved_tools, approved_fingerprint, approved_at,
-         current_tools, current_fingerprint, changed_at, coverage)
+         current_tools, current_fingerprint, changed_at, coverage, fingerprint_version)
       values (${r.origin}, ${r.server}, ${j(r.approved_tools)}, ${r.approved_fingerprint}, ${r.approved_at},
-              ${j(r.current_tools)}, ${r.current_fingerprint}, ${r.changed_at}, ${r.coverage})
+              ${j(r.current_tools)}, ${r.current_fingerprint}, ${r.changed_at}, ${r.coverage},
+              ${r.fingerprint_version ?? 1})
       on conflict (origin, server) do update set
         approved_tools = excluded.approved_tools,
         approved_fingerprint = excluded.approved_fingerprint,
@@ -117,7 +130,8 @@ export class PgMcpApprovalStore implements McpApprovalStore {
         current_tools = excluded.current_tools,
         current_fingerprint = excluded.current_fingerprint,
         changed_at = excluded.changed_at,
-        coverage = excluded.coverage`;
+        coverage = excluded.coverage,
+        fingerprint_version = excluded.fingerprint_version`;
   }
 
   async remove(origin: McpToolOrigin, server: string) {
@@ -243,10 +257,15 @@ export class McpToolGuard {
     const key = approvalKey(origin, server);
     return this.serial(key, async () => {
       await this.load();
-      const hashes = toolHashes(tools);
-      const fp = listFingerprint(hashes);
+      // What the list is now, at the version that is made today.
+      const latest = toolHashesV2(tools);
+      const latestFp = listFingerprint(latest);
       const at = this.now().toISOString();
       const prev = this.rows.get(key);
+      // A row made before the fingerprint covered tiers and hints is compared as it was made.
+      const legacy = prev !== undefined && (prev.fingerprint_version ?? 1) < FINGERPRINT_VERSION;
+      const hashes = legacy ? toolHashes(tools) : latest;
+      const fp = legacy ? listFingerprint(hashes) : latestFp;
       const sameNames = (a: ToolHashes, b: ToolHashes) =>
         Object.keys(a).sort().join('\u0000') === Object.keys(b).sort().join('\u0000');
 
@@ -258,21 +277,26 @@ export class McpToolGuard {
         const row: ApprovalRow = {
           origin,
           server,
-          approved_tools: hashes,
-          approved_fingerprint: fp,
+          approved_tools: latest,
+          approved_fingerprint: latestFp,
           approved_at: prev?.approved_at ?? at,
-          current_tools: hashes,
-          current_fingerprint: fp,
+          current_tools: latest,
+          current_fingerprint: latestFp,
           changed_at: null,
           coverage,
+          fingerprint_version: FINGERPRINT_VERSION,
         };
         await this.deps.store.put(row);
         this.rows.set(key, row);
         return { state: 'approved', held: new Set(), diff: null };
       }
-      if (prev.current_fingerprint === fp) return this.observed(prev);
+      if (prev.current_fingerprint === fp) {
+        // Still the list that was approved, as it was fingerprinted then: count it at version 2, silently.
+        if (legacy && !changedState(prev)) return this.observed(await this.upgrade(prev, latest, latestFp));
+        return this.observed(prev);
+      }
 
-      const row: ApprovalRow = {
+      let row: ApprovalRow = {
         ...prev,
         current_tools: hashes,
         current_fingerprint: fp,
@@ -281,6 +305,8 @@ export class McpToolGuard {
       await this.deps.store.put(row);
       this.rows.set(key, row);
       if (!changedState(row)) {
+        // Back to the approved list (a legacy one, as it was fingerprinted): move it up to version 2 as well.
+        if (legacy) row = await this.upgrade(row, latest, latestFp);
         log.info({ origin, server }, 'MCP server is back to the tools you approved');
         await this.announce(row);
         return this.observed(row);
@@ -300,6 +326,29 @@ export class McpToolGuard {
       await this.announce(row);
       return this.observed(row);
     });
+  }
+
+  /**
+   * Move an approved, unchanged row from version 1 to version 2: the same list, now fingerprinted with the
+   * tiers and hints. Quiet on purpose (nothing revoked, announced or asked again): what was approved did not change.
+   */
+  private async upgrade(r: ApprovalRow, hashes: ToolHashes, fp: string): Promise<ApprovalRow> {
+    const row: ApprovalRow = {
+      ...r,
+      approved_tools: hashes,
+      approved_fingerprint: fp,
+      current_tools: hashes,
+      current_fingerprint: fp,
+      changed_at: null,
+      fingerprint_version: FINGERPRINT_VERSION,
+    };
+    await this.deps.store.put(row);
+    this.rows.set(approvalKey(r.origin, r.server), row);
+    log.info(
+      { origin: r.origin, server: r.server },
+      'an MCP tool list was fingerprinted again with its tiers and hints',
+    );
+    return row;
   }
 
   private observed(r: ApprovalRow): Observed {

@@ -325,6 +325,10 @@ export class McpManager {
           destructive: t.destructive,
           ...(t.readOnly && { readOnly: true }),
           source: { kind: 'mcp', server: spec.name },
+          // The resource names the tool, not what it touches: a plugin's own resource() is a function and
+          // cannot travel over MCP. The gate reads the call's real arguments beside it (floors, and
+          // Cedar's context.args). TODO(phase-5b): a plugin sends a resource template in
+          // _meta (sh.nvx.ancile/resource); fill it from the arguments here for the plugin's own tools.
           resource: () => `mcp:${spec.name}/${t.name}`,
           execute: async (args, ctx) => {
             const live = this.live.get(spec.name)?.client;
@@ -359,10 +363,14 @@ export class McpManager {
       ? await this.opts.guard.observe(
           'host',
           spec.name,
+          // Everything that decides a tool's tier and what the model is told: a server that lowers a tool to
+          // auto after you approved it has changed the tool (fingerprint.ts, version 2).
           listed.map((t) => ({
             name: t.name,
             description: t.description ?? null,
             inputSchema: t.inputSchema,
+            annotations: t.annotations ?? null,
+            meta: t._meta ?? null,
           })),
         )
       : null;

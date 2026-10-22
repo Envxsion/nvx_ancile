@@ -847,6 +847,8 @@ export const mcpToolApprovals = core.table(
     server: text('server').notNull(),
     approvedTools: jsonb('approved_tools').notNull(),
     approvedFingerprint: text('approved_fingerprint').notNull(),
+    // 1: name, description, schema. 2: and the MCP annotations and Ancile's _meta (0048_mcp_fingerprint_version.sql).
+    fingerprintVersion: integer('fingerprint_version').notNull().default(1),
     approvedAt: ts('approved_at').notNull().defaultNow(),
     currentTools: jsonb('current_tools').notNull(),
     currentFingerprint: text('current_fingerprint').notNull(),
