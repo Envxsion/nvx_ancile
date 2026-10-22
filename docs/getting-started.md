@@ -143,6 +143,8 @@ docker compose --profile search up -d         # + SearXNG, for web evidence in f
 docker compose --profile observability up -d  # + Phoenix trace explorer on :6006
 ```
 
+The Knowledge container mounts `./data`, so it can read the install key (`data/local-api.key`) as well as write the files Core reads. That is accepted: it already holds `DATABASE_URL`, which opens everything the key protects, and the key is never passed to it as a value.
+
 ## When something goes wrong
 
 - `pnpm doctor` checks the environment.

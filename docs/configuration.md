@@ -15,6 +15,7 @@ Both are validated by schemas in `packages/contracts/src/config.ts`, and by each
 |---|---|---|
 | `ANCILE_HOST` | `127.0.0.1` | Bind address. A non-loopback address requires `ANCILE_PASSPHRASE_REQUIRED=true` (the boot test enforces this). |
 | `ANCILE_PORT` | `7700` | Core API, and the built Cockpit. |
+| `COCKPIT_PORT` | `7701` | Where the Cockpit's dev server listens. `pnpm start` sets it for every service it starts (the test profile uses `7801`). Core reads it so that no tool call may reach the Cockpit's port, as it may not reach its own (docs/permissions.md, Floors in every preset), and so that `pnpm pair` finds the Cockpit. Leave it unset unless you moved the Cockpit; then set it the same everywhere. |
 | `ANCILE_PUBLIC_URL` | `http://localhost:7700` | The URL the browser uses: cookies, CORS, OAuth callbacks. |
 | `ANCILE_SECRET_KEY` | none (required) | 32 random bytes, base64. Encrypts secrets at rest. |
 | `ANCILE_PASSPHRASE_REQUIRED` | `false` | Require a passphrase to open the Cockpit. |
