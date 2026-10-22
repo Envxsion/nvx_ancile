@@ -8,9 +8,6 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Message, RunEvent, ThreadPath } from '@nvx/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { hashArgs } from '../../src/permissions/argsHash';
-import { BuiltinPolicy } from '../../src/permissions/cedar';
-import type { PolicyEvaluator } from '../../src/permissions/decide';
 import type { NewApproval } from '../../src/permissions/store';
 import { type Harness, harness } from '../support/harness';
 
