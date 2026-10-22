@@ -7,6 +7,8 @@ coverage/
 playwright-report/
 test-results/
 crawl-report/
+# The e2e suite's paired-browser state (a session cookie for the test profile)
+tests/e2e/.auth/
 *.tsbuildinfo
 
 # Python

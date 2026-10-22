@@ -11,12 +11,7 @@
  * streams, scripted tool calls, injectable failures), never real networks.
  */
 import { defineConfig, devices } from '@playwright/test';
-import {
-  PREFS_STORE_KEY,
-  prefsStateNeverAdoptingCore,
-  UI_STORE_KEY,
-  uiStateWithDefaultModel,
-} from './global-setup';
+import { E2E_AUTH_STATE } from './global-setup';
 
 // Backend specs run against the test profile (`pnpm start:e2e`, Cockpit on
 // :7801) so your everyday stack on :7701 can keep running beside it.
@@ -42,21 +37,14 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL,
-    // Against a real Core, every browser starts with the offline test model as its default: Core
-    // keeps none, and the Cockpit's own fallback is the first real model that can answer.
+    // Against a real Core, every browser starts paired with it (Core answers only its owner, docs/api.md)
+    // and with the offline test model as its default: Core keeps none, and the Cockpit's own fallback is
+    // the first real model that can answer. Both are in the state file the global setup writes.
     ...(process.env.E2E_BACKEND && {
-      storageState: {
-        cookies: [],
-        origins: [
-          {
-            origin: new URL(baseURL).origin,
-            localStorage: [
-              { name: UI_STORE_KEY, value: uiStateWithDefaultModel() },
-              { name: PREFS_STORE_KEY, value: prefsStateNeverAdoptingCore() },
-            ],
-          },
-        ],
-      },
+      storageState: E2E_AUTH_STATE,
+      // A browser says which site a change comes from; the specs' own API calls (page.request, request) do
+      // not, so they say it here. Core refuses a change made with the session cookie and no Origin.
+      extraHTTPHeaders: { origin: new URL(baseURL).origin },
     }),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

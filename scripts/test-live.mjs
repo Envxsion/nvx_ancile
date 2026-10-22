@@ -28,6 +28,7 @@ import { spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { c, IS_WIN, killTree, mark, ROOT, readEnv, run, sleep } from './lib.mjs';
+import { bearer, keyFileIn, readKeyFile } from './local-api.mjs';
 import { composeEnv, RUNTIME_DIR } from './runtime.mjs';
 
 const args = process.argv.slice(2);
@@ -64,9 +65,18 @@ const fail = (title, hint) => {
   process.exit(1);
 };
 
+// Core answers /api/v1 only to its owner (docs/api.md): this run holds the install key's file, not its value.
+const keyFile = keyFileIn(env.ANCILE_DATA_DIR);
+const asOwner = () => {
+  const key = readKeyFile(keyFile);
+  if (!key) throw new Error(`Core has not made its install key yet (${keyFile}).`);
+  return bearer(key);
+};
+
 async function healthy(base = core) {
   try {
-    const r = await fetch(`${base}/api/v1/system/health`, { signal: AbortSignal.timeout(3_000) });
+    // /ready needs no key, so it answers before Core has made one.
+    const r = await fetch(`${base}/ready`, { signal: AbortSignal.timeout(3_000) });
     return r.ok;
   } catch {
     return false;
@@ -75,7 +85,10 @@ async function healthy(base = core) {
 
 /** Which keys are set, from GET /credentials: only `set` true or false is read. */
 async function keysSet() {
-  const r = await fetch(`${core}/api/v1/credentials`, { signal: AbortSignal.timeout(10_000) });
+  const r = await fetch(`${core}/api/v1/credentials`, {
+    headers: asOwner(),
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!r.ok) throw new Error(`GET /credentials answered ${r.status}`);
   const { items } = await r.json();
   const set = (id) => items.find((i) => i.id === id)?.set === true;
@@ -224,7 +237,7 @@ async function main() {
     if (startedByUs) say(`${mark.ok} The log says Claude Code is off`);
     await fetch(`${core}/api/v1/setup/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...asOwner() },
       body: JSON.stringify({ preset: 'balanced' }),
     }).catch(() => undefined);
   } else {
@@ -245,6 +258,8 @@ async function main() {
     ...process.env,
     LIVE_MODE: DRY ? 'dry' : 'live',
     LIVE_CORE_URL: core,
+    // The file, not the key: an environment is copied and logged, a file is not.
+    LIVE_CORE_KEY_FILE: keyFile,
     LIVE_COCKPIT_URL: cockpit,
     LIVE_CONTROLLER_URL: controller,
     // Passed to the spec through the environment, never printed.

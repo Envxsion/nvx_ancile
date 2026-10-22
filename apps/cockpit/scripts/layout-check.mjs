@@ -17,6 +17,7 @@
  *           |  nothing is billed. Exits 1 when it finds anything.
  *           |    COCKPIT_URL (default http://localhost:7701)
  *           |    CORE_URL    (default http://localhost:7700)
+ *           |    CORE_KEY_FILE (default data/local-api.key: Core's install key)
  *           |    --quick     one size (1366x768), both themes
  *           |    --zoom=1.4  the interface zoom at its largest (Settings →
  *           |                Appearance), to see what larger text does
@@ -27,10 +28,21 @@
  * ------------------------------------------------------------------
  */
 
+import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
+import { bearer, pairUrl, readKeyFile } from '../../../scripts/local-api.mjs';
 
 const APP = process.env.COCKPIT_URL ?? 'http://localhost:7701';
 const CORE = process.env.CORE_URL ?? 'http://localhost:7700';
+// Core answers only its owner (docs/api.md): this reads the install key from the everyday profile's data
+// folder (CORE_KEY_FILE names another, e.g. data/e2e/local-api.key) and connects each browser it opens.
+const KEY_FILE =
+  process.env.CORE_KEY_FILE ?? fileURLToPath(new URL('../../../data/local-api.key', import.meta.url));
+const KEY = readKeyFile(KEY_FILE);
+if (!KEY) {
+  console.error(`There is no install key at ${KEY_FILE}. Start the stack with pnpm start first.`);
+  process.exit(2);
+}
 const args = process.argv.slice(2);
 const quick = args.includes('--quick');
 const zoom = args.find((a) => a.startsWith('--zoom='))?.slice(7);
@@ -51,7 +63,7 @@ const SIZES = quick ? ALL_SIZES.slice(0, 1) : ALL_SIZES;
 async function api(path, method = 'GET', body) {
   const r = await fetch(`${CORE}/api/v1${path}`, {
     method,
-    headers: { 'content-type': 'application/json', 'x-ancile-client': 'layout-check-0001' },
+    headers: { 'content-type': 'application/json', 'x-ancile-client': 'layout-check-0001', ...bearer(KEY) },
     ...(body && { body: JSON.stringify(body) }),
   });
   const text = await r.text();
@@ -296,6 +308,8 @@ async function main() {
     for (const [size, width, height] of SIZES) {
       const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme });
       const page = await ctx.newPage();
+      // Connect this browser first (a one-time code, spent at the pairing address), then open the Cockpit.
+      await page.goto(await pairUrl({ coreUrl: CORE, key: KEY, where: APP }), { waitUntil: 'load' });
       await page.goto(APP, { waitUntil: 'load' });
       await settle(page, 1500);
       if (zoom) await page.evaluate((z) => document.documentElement.style.setProperty('--ui-zoom', z), zoom);

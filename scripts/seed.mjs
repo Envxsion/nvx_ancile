@@ -19,6 +19,7 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ROOT, readEnv } from './lib.mjs';
+import { keyFileIn } from './local-api.mjs';
 import { composeEnv } from './runtime.mjs';
 
 // `pnpm seed --e2e` fills the test profile (`pnpm start:e2e`) instead.
@@ -35,6 +36,8 @@ const res = spawnSync(
       ...process.env,
       DATABASE_URL: env.DATABASE_URL,
       ANCILE_SEED_API: `http://127.0.0.1:${env.ANCILE_PORT ?? '7700'}/api/v1`,
+      // Core answers only its owner: the seeder reads the install key from this file, so the key is never in an environment.
+      ANCILE_SEED_KEY_FILE: keyFileIn(env.ANCILE_DATA_DIR),
       ANCILE_SEED_ROOT: ROOT,
     },
   },

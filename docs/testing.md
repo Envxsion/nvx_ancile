@@ -9,6 +9,8 @@
 | `pnpm test:live --dry` | The live spec against the test profile, with offline models | Free |
 | `pnpm test:live --yes` | The live suite below, with real models | Under $2, hard-capped |
 
+Every test that calls Core's HTTP API carries credentials, because Core answers only its owner ([api.md](api.md#calling-the-api)). Core's own tests build the app with a known install key, which is a required argument of `createApp`. Their `call` helper acts as a paired browser (cookie and `Origin`), and `callAs` sends anything else: a script with the key, a stranger, a foreign origin. What is refused is proved in `services/core/test/http/local-auth.test.ts`. The browser suites read the profile's key from its data folder, and `pnpm test:live` and `pnpm seed` hand their children the key's file, never its value.
+
 ## The live suite (LT1)
 
 Offline fakes cannot show what real providers do. The live suite moves one chat between Claude Haiku and a small open model on a RunPod pod, and back, then checks four things:

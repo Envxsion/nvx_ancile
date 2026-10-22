@@ -158,8 +158,9 @@ jobs:
       - name: Start the test profile
         run: |
           pnpm start:e2e > stack.log 2>&1 &
-          for i in $(seq 1 120); do curl -sf http://localhost:7800/api/v1/system/health >/dev/null && break; sleep 3; done
-          curl -sf http://localhost:7800/api/v1/system/health
+          # /ready needs no install key (Core answers /api/v1 only to its owner, docs/api.md).
+          for i in $(seq 1 120); do curl -sf http://localhost:7800/ready >/dev/null && break; sleep 3; done
+          curl -sf http://localhost:7800/ready
           pnpm seed --e2e
       - name: Journeys
         run: E2E_BACKEND=1 pnpm test:e2e --project=chromium-dark

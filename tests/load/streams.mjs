@@ -34,7 +34,25 @@
  * ------------------------------------------------------------------
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 const BASE = process.env.LOAD_BASE ?? 'http://localhost:7800/api/v1';
+// Core answers /api/v1 only to its owner (docs/api.md): the test profile's install key, read from its data
+// folder (LOAD_KEY_FILE names another). It is sent as a Bearer token and never printed.
+const KEY_FILE =
+  process.env.LOAD_KEY_FILE ?? fileURLToPath(new URL('../../data/e2e/local-api.key', import.meta.url));
+const KEY = (() => {
+  try {
+    return readFileSync(KEY_FILE, 'utf8').trim();
+  } catch {
+    console.error(
+      `There is no install key at ${KEY_FILE}. Start the test profile with pnpm start:e2e first.`,
+    );
+    process.exit(2);
+  }
+})();
+const AUTH = { authorization: `Bearer ${KEY}` };
 const N = Number(process.env.LOAD_N ?? 50);
 const BUDGET = Number(process.env.LOAD_BUDGET_MS ?? 150);
 const PROVIDER_MS = Number(process.env.LOAD_PROVIDER_MS ?? 400);
@@ -52,13 +70,13 @@ async function one(i, spread = SPREAD_MS) {
   if (spread) await new Promise((r) => setTimeout(r, ((i * 7919) % N) * (spread / N)));
   const thread = await fetch(`${BASE}/threads`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...AUTH },
     body: JSON.stringify({ title: `load ${i}` }),
   }).then(json);
   const t0 = performance.now();
   const sent = await fetch(`${BASE}/threads/${thread.id}/messages`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...AUTH },
     body: JSON.stringify({
       parent_id: null,
       parts: [
@@ -70,7 +88,9 @@ async function one(i, spread = SPREAD_MS) {
     }),
   }).then(json);
   const accepted = performance.now() - t0;
-  const res = await fetch(`${BASE}/runs/${sent.run_id}/stream`, { headers: { accept: 'text/event-stream' } });
+  const res = await fetch(`${BASE}/runs/${sent.run_id}/stream`, {
+    headers: { accept: 'text/event-stream', ...AUTH },
+  });
   if (!res.ok || !res.body) throw new Error(`events ${res.status}`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();

@@ -29,7 +29,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { chromium, expect, test } from '@playwright/test';
 
 /** What the runner passes in. Nothing here is a secret except the Controller token, which is never printed. */
@@ -43,6 +43,8 @@ const env = (k: string, fallback?: string): string => {
 const MODE = env('LIVE_MODE');
 const DRY = MODE === 'dry';
 const CORE = env('LIVE_CORE_URL').replace(/\/$/, '');
+/** Core answers /api/v1 only to its owner: the runner hands over the install key's file, and it is never printed. */
+const CORE_KEY = readFileSync(env('LIVE_CORE_KEY_FILE'), 'utf8').trim();
 const COCKPIT = process.env.LIVE_COCKPIT_URL;
 const CONTROLLER = env('LIVE_CONTROLLER_URL').replace(/\/$/, '');
 const CONTROLLER_TOKEN = env('LIVE_CONTROLLER_TOKEN');
@@ -138,7 +140,7 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
   ): Promise<T> => {
     const res = await request.fetch(`${CORE}/api/v1${path}`, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${CORE_KEY}` },
       ...(body !== undefined && { data: body }),
     });
     if (!ok.includes(res.status()))
@@ -434,7 +436,11 @@ test('live: Haiku, a RunPod model, and back', async ({ request }) => {
       const browser = await chromium.launch();
       try {
         const page = await browser.newPage();
-        await page.goto(`${COCKPIT.replace(/\/$/, '')}/t/${threadId}`);
+        // Connect this browser first: a one-time code from Core, spent by the pairing address, then on to the thread.
+        const minted = await core<{ code: string }>('POST', '/session/pair-codes', undefined, [201]);
+        await page.goto(
+          `${COCKPIT.replace(/\/$/, '')}/api/v1/session/pair?code=${minted.code}&next=${encodeURIComponent(`/t/${threadId}`)}`,
+        );
         await page.waitForTimeout(2_000);
         await page.screenshot({ path: 'test-results/live/thread.png', fullPage: true });
       } finally {

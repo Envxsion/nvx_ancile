@@ -174,6 +174,17 @@ interface Manifest {
 
 const ROOT = process.env.ANCILE_SEED_ROOT ?? join(process.cwd(), '..', '..');
 const API = process.env.ANCILE_SEED_API ?? 'http://127.0.0.1:7700/api/v1';
+// Core answers /api/v1 only to its owner (docs/api.md): `pnpm seed` hands over the install key's file, never its value.
+const KEY_FILE = process.env.ANCILE_SEED_KEY_FILE ?? join(ROOT, 'data', 'local-api.key');
+let ownerKey: string;
+try {
+  ownerKey = readFileSync(KEY_FILE, 'utf8').trim();
+} catch {
+  console.error(
+    `There is no install key at ${KEY_FILE}. Start the stack with \`pnpm start\` once, then seed.`,
+  );
+  process.exit(1);
+}
 const DB = process.env.DATABASE_URL;
 if (!DB) {
   console.error('DATABASE_URL is not set. Run this through `pnpm seed`.');
@@ -215,7 +226,10 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
     try {
       res = await fetch(API + path, {
         method,
-        headers: body instanceof FormData ? {} : { 'content-type': 'application/json' },
+        headers: {
+          authorization: `Bearer ${ownerKey}`,
+          ...(body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+        },
         body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (err) {
@@ -1020,12 +1034,11 @@ async function seedApproval(ctx: Ctx): Promise<void> {
   );
   let approvalId: string | null = null;
   for (let i = 0; i < 40 && !approvalId; i++) {
-    const list = await api<{ items: { id: string; run_id: string }[] } | { id: string; run_id: string }[]>(
-      'GET',
-      '/approvals',
-    );
-    const items = Array.isArray(list) ? list : list.items;
-    approvalId = items.find((x) => x.run_id === started.run_id)?.id ?? null;
+    // Read from the database: /approvals is the paired browser's alone, even to a script with the key.
+    const waiting = await sql<
+      { id: string }[]
+    >`select id from core.approvals where run_id = ${started.run_id} and status = 'pending' limit 1`;
+    approvalId = waiting[0]?.id ?? null;
     if (!approvalId) await sleep(500);
   }
   if (!approvalId) {
