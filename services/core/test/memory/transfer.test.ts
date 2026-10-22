@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 async function download(query: string): Promise<{ status: number; type: string; name: string; buf: Buffer }> {
-  const res = await h.app.request(`/api/v1/memory/export?${query}`);
+  const res = await h.request(`/memory/export?${query}`);
   return {
     status: res.status,
     type: res.headers.get('content-type') ?? '',

@@ -11,7 +11,7 @@ The schemas live in `packages/contracts` (zod), which is the single source of tr
 
 - **JSON in and out.** IDs are prefixed ULIDs: `thr_01J9…`, `msg_…`, `run_…`.
 - **Every response has `x-trace-id`.** Send a W3C `traceparent` to join an existing trace.
-- **Auth:** an httpOnly session cookie from `POST /api/v1/session` (required only when a passphrase is set). Service-to-service calls use `Authorization: Bearer <token>`.
+- **Auth:** every `/api/v1` route, reads included, needs the install key or a paired browser (see [Calling the API](#calling-the-api)). Service-to-service calls under `/internal/v1` use `Authorization: Bearer <token>`.
 - **Errors** share one shape. See [errors.md](errors.md):
   ```json
   { "error": { "code": "thread.not_found", "title": "That thread doesn't exist", "hint": "It may have been deleted. Check the trash in the rail.", "retryable": false, "trace_id": "…", "attempts": [], "context": {} } }
@@ -19,6 +19,33 @@ The schemas live in `packages/contracts` (zod), which is the single source of tr
 - **Pagination:** `?cursor=&limit=`. The response is `{ items, next_cursor }`.
 - **Optimistic concurrency** on editable files (memory, notes): send `base_sha` or `If-Match`. A conflict returns 409 with both versions.
 - **Idempotency:** side-effecting POSTs accept `Idempotency-Key`. Controller actions require it.
+
+## Calling the API
+
+Core listens on localhost, so any process on the machine can reach `/api/v1`, including a shell command an agent runs through Ancile's own tools. Every route therefore needs proof that the caller is you.
+
+- **The install key.** Core makes 32 random bytes the first time it starts and keeps them in its data folder as `local-api.key` (mode 0600 where the system has modes). In a checkout that is `data/local-api.key`, or `data/e2e/local-api.key` for the test profile; in the desktop app it is the app's data folder. Never put the key in an address, an environment variable, a log or a chat. To change it, delete the file and restart Core: every script and browser then connects again.
+- **A script** sends it as `Authorization: Bearer <key>`. It can read and do ordinary work. It cannot answer for you (see "Browser session only" below).
+- **A browser** is connected once. `pnpm pair` (or the desktop app, by itself) asks Core for a one-time code, good for 60 seconds, and opens `GET /api/v1/session/pair?code=…`. Core spends the code, sets an HttpOnly, SameSite=Strict cookie (400 days) and answers `303` to `/`. The cookie holds a value derived from the key, not the key. A browser that is not connected gets `401 auth.local_key_required`, and the Cockpit shows "Connect this browser".
+- **A change made with the cookie** must also carry an `Origin` that is the Cockpit's. A request from another site, or with another `Origin`, is refused (`request.cross_origin`) whatever else it carries. A request with no `Origin` is accepted only with the key.
+- **Open routes:** `GET /health`, `GET /ready` and `GET /api/v1/session/pair` (its code is its credential). `POST /api/v1/session/pair-codes` takes the key and nothing else.
+
+### Browser session only
+
+These routes refuse the key on its own (`403 auth.browser_session_required`), so a script, or an agent that somehow held the key, cannot approve its own tool calls or widen what it may do:
+
+| Routes | Methods |
+|---|---|
+| `/approvals`, `/approvals/:id`, `/approvals/batch` | all |
+| `/grants`, `/grants/:id`, `/grants/:id/restore` | all |
+| `/auto/*` (plans, steps, decisions, reviewer check) | all |
+| `/permissions/preset` and the rest of `/permissions/*` | changes (the decision log can be read with the key) |
+| `/notebooks/:id/scope`, `/threads/:id/scope`, `/tool-presets` | changes |
+| `/privacy/policy` | changes |
+| `/mcp/*` (servers, presets, approving a tool list, the apps let into Ancile's MCP server) and `/claude-code/mcp-servers` | changes |
+| `/memory/proposals/:id`, `/memory/imports/:id/decide` | changes |
+
+The desktop app's own Approve and Deny buttons on a notification (Pro) arrive on `/internal/v1/desktop`, with the service token only the app holds.
 
 ## Cockpit ↔ Core
 

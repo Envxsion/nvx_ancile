@@ -27,8 +27,16 @@ const TEXT_PATTERNS: [RegExp, string][] = [
   [/\bNVX-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}\b/g, 'NVX-…'],
 ];
 
+/** Secrets this process holds (the local API key): removed from any text by value, whatever its shape. */
+const KNOWN_SECRETS = new Set<string>();
+
+export function registerSecret(value: string): void {
+  if (value.length >= 16) KNOWN_SECRETS.add(value);
+}
+
 export function redactText(text: string): string {
   let out = text;
+  for (const secret of KNOWN_SECRETS) if (out.includes(secret)) out = out.split(secret).join('…');
   for (const [re, repl] of TEXT_PATTERNS) out = out.replace(re, repl);
   return out;
 }

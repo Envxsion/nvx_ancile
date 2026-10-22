@@ -135,6 +135,7 @@ import { restartAdapterFor } from './health/restart';
 import { healthRoutes, recordHealth, systemHealthOf } from './health/routes';
 import { DEFAULT_SUPERVISOR, startSupervisor } from './health/supervisor';
 import { cockpitOrigins } from './http/guard';
+import { ensureLocalKey, LocalAuth } from './http/localAuth';
 import { imageRoutes } from './images/routes';
 import { ImageService } from './images/service';
 import { ImageStore, PgImageRows } from './images/store';
@@ -190,6 +191,7 @@ import { PgNotebookRepo } from './notebooks/repo';
 import { notebookRoutes } from './notebooks/routes';
 import { notificationRoutes, PgNotificationStore, startNotificationSink } from './notifications/routes';
 import { log, logFor, setLogTap } from './obs/logger';
+import { registerSecret } from './obs/redact';
 import { traceRoutes } from './obs/routes';
 import { setSpanSink, startSpan } from './obs/spans';
 import { ObsPipeline, PgObsStore, toNewLog } from './obs/store';
@@ -316,6 +318,18 @@ async function main() {
     version: VERSION,
   });
   await mkdir(resolve(env.ANCILE_DATA_DIR), { recursive: true });
+  // Who may call /api/v1 (docs/api.md): made on the first start, before anything listens, so even the
+  // start-up screen below answers only the owner. Core keeps a hash of it; the key is never logged and
+  // never put in a child process's environment.
+  const localKey = await ensureLocalKey(resolve(env.ANCILE_DATA_DIR));
+  registerSecret(localKey.key);
+  const localAuth = new LocalAuth({ key: localKey.key, port: env.ANCILE_PORT });
+  log.info(
+    { file: localKey.path, created: localKey.created },
+    localKey.created
+      ? 'made the install key for the Cockpit API'
+      : 'the install key for the Cockpit API is in place',
+  );
 
   const database = await connect(env.DATABASE_URL, { poolMax: env.DATABASE_POOL_MAX });
   // Never backwards, never without a backup, never onto a full disk (db/prepare.ts).
@@ -333,6 +347,7 @@ async function main() {
       version: VERSION,
       schema: () => ({ expected: seen?.expected ?? '', current: seen?.current ?? null }),
       allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
+      localAuth,
       managed: env.ANCILE_RUNTIME === 'desktop',
       ...(env.NODE_ENV === 'production' &&
         existsSync(resolve(env.ANCILE_COCKPIT_DIST ?? '../../apps/cockpit/dist')) && {
@@ -374,6 +389,7 @@ async function main() {
       version: VERSION,
       schema: () => ({ expected: seen?.expected ?? '', current: seen?.current ?? null }),
       allowedOrigins: cockpitOrigins(env.ANCILE_PUBLIC_URL, env.ANCILE_ALLOWED_ORIGINS),
+      localAuth,
       managed: env.ANCILE_RUNTIME === 'desktop',
       ...(env.NODE_ENV === 'production' && existsSync(cockpit) && { cockpitDist: cockpit }),
     });
@@ -1840,6 +1856,7 @@ async function main() {
   desktopHost = desktop;
   const app = createApp({
     version: VERSION,
+    localAuth,
     serviceToken: env.ANCILE_SERVICE_TOKEN,
     gatewayToken: env.AGENT_GATEWAY_TOKEN,
     events,

@@ -1,24 +1,29 @@
 /**
  * The Cockpit API's front door: another site cannot act through the
- * browser, bodies must be JSON, what a person sends is checked, and a
+ * browser (the owner's credentials are tested in local-auth.test.ts; here
+ * every request is a script with the install key), bodies must be JSON, what a person sends is checked, and a
  * stream for a run that does not exist says so. Plus the jsonb helper
  * that keeps a NUL character from failing a write.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanText, hasBadText, pgSafe } from '../../src/db/json';
 import { cockpitOrigins } from '../../src/http/guard';
-import { type Harness, harness } from '../support/harness';
+import { type Harness, harness, SCRIPT } from '../support/harness';
 
 let h: Harness;
 afterEach(async () => h?.close());
 
 const raw = (method: string, path: string, headers: Record<string, string>, body?: string) =>
-  h.app.request(`/api/v1${path}`, { method, headers, ...(body !== undefined && { body }) });
+  h.app.request(`/api/v1${path}`, {
+    method,
+    headers: { ...h.headersFor(SCRIPT), ...headers },
+    ...(body !== undefined && { body }),
+  });
 
 const errorCode = async (res: Response) => ((await res.json()) as { error: { code: string } }).error.code;
 
 describe('cross-site requests', () => {
-  it('refuses a change from another origin, and allows the Cockpit and no-origin callers', async () => {
+  it('refuses a request from another origin, and allows the Cockpit and no-origin callers with the key', async () => {
     h = await harness();
     const body = JSON.stringify({ title: 'x' });
     const json = { 'content-type': 'application/json' };
@@ -30,8 +35,9 @@ describe('cross-site requests', () => {
       201,
     );
     expect((await raw('POST', '/threads', json, body)).status).toBe(201);
-    // Reading is not a change.
-    expect((await raw('GET', '/threads', { origin: 'https://evil.example' })).status).toBe(200);
+    // Reading is refused too: a page on another site that fetches with the browser's cookie reads nothing.
+    expect((await raw('GET', '/threads', { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await raw('GET', '/threads', {})).status).toBe(200);
   });
 
   it('refuses a cross-site fetch even without an Origin header', async () => {

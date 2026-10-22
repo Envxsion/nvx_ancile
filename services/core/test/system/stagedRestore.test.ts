@@ -19,6 +19,7 @@ import {
   stageRestore,
 } from '../../src/system/stagedRestore';
 import { RESTART_ALL_EXIT, startupRoutes, startupStatus } from '../../src/system/startup';
+import { headersFor, SCRIPT, testLocalAuth } from '../support/local';
 
 const dirs: string[] = [];
 const tmp = () => {
@@ -204,10 +205,12 @@ describe('applying it at the next start', () => {
     const exits: number[] = [];
     let fetch: ((r: Request) => Response | Promise<Response>) | null = null;
     vi.useFakeTimers();
+    const localAuth = testLocalAuth();
     try {
       await bootRestore({
         ...deps(dataDir),
         allowedOrigins: ['http://localhost:7701'],
+        localAuth,
         managed: true,
         exit: (c) => exits.push(c),
         lingerMs: 10,
@@ -216,7 +219,9 @@ describe('applying it at the next start', () => {
         },
       });
       const res = await (fetch as unknown as (r: Request) => Promise<Response>)(
-        new Request('http://localhost:7701/api/v1/system/startup'),
+        new Request('http://localhost:7701/api/v1/system/startup', {
+          headers: headersFor(localAuth, SCRIPT),
+        }),
       );
       const status = (await res.json()) as {
         error: { code: string };

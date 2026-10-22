@@ -532,7 +532,7 @@ describe('flow routes', () => {
   it('exports YAML and imports it back', async () => {
     h = await harness();
     const f = await fromTemplate('tpl_router');
-    const res = await h.app.request(`/api/v1/flows/${f.id}/export`);
+    const res = await h.request(`/flows/${f.id}/export`);
     const yaml = await res.text();
     expect(yaml).toContain('router');
     const imported = await h.call<Flow>('POST', '/flows/import', { yaml });

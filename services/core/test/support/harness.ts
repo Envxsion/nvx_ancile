@@ -73,11 +73,13 @@ import { ToolRegistry } from '../../src/tools/registry';
 import { MemoryCallLedger } from '../../src/usage/ledger';
 import { MemoryUsageSource } from '../../src/usage/report';
 import { usageRoutes } from '../../src/usage/routes';
+import { BROWSER, type Credentials, headersFor as headersForAuth, testLocalAuth } from './local';
 
 export const WORKSPACE_ID = 'wsp_01TESTWORKSPACE000000000000';
 export const USER_ID = 'usr_01TESTUSER00000000000000000';
 export const TOKEN = 'x'.repeat(32);
 export const GATEWAY = 'g'.repeat(32);
+export { BROWSER, COCKPIT_ORIGIN, type Credentials, LOCAL_KEY, LOCAL_PORT, SCRIPT } from './local';
 
 export interface HarnessOptions {
   /** The notebooks that exist, as far as the thread routes can tell (absent: not checked). */
@@ -382,8 +384,10 @@ export async function harness(opts: HarnessOptions = {}) {
       ]
     : [];
 
+  const localAuth = testLocalAuth();
   const app = createApp({
     version: 'test',
+    localAuth,
     serviceToken: TOKEN,
     gatewayToken: GATEWAY,
     events: bus,
@@ -573,21 +577,38 @@ export async function harness(opts: HarnessOptions = {}) {
     ],
   });
 
-  /** One Cockpit window by default; pass another client id to be a second window. */
-  const call = async <T = unknown>(
+  /** The headers a caller with these credentials sends. */
+  const headersFor = (who: Credentials) => headersForAuth(localAuth, who);
+
+  /** A request to /api/v1 as a paired browser on the Cockpit, unless `who` says otherwise. */
+  const request = (path: string, init: RequestInit = {}, who: Credentials = BROWSER) =>
+    app.request(`/api/v1${path}`, {
+      ...init,
+      headers: { ...headersFor(who), ...(init.headers as Record<string, string> | undefined) },
+    });
+
+  /** One Cockpit window by default (a paired browser); pass another client id to be a second window. */
+  const callAs = async <T = unknown>(
+    who: Credentials,
     method: string,
     path: string,
     body?: unknown,
     client = 'harness-window-1',
   ): Promise<{ status: number; body: T }> => {
-    const res = await app.request(`/api/v1${path}`, {
-      method,
-      headers: { 'content-type': 'application/json', [CLIENT_ID_HEADER]: client },
-      ...(body !== undefined && { body: JSON.stringify(body) }),
-    });
+    const res = await request(
+      path,
+      {
+        method,
+        headers: { 'content-type': 'application/json', [CLIENT_ID_HEADER]: client },
+        ...(body !== undefined && { body: JSON.stringify(body) }),
+      },
+      who,
+    );
     const text = await res.text();
     return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
   };
+  const call = <T = unknown>(method: string, path: string, body?: unknown, client = 'harness-window-1') =>
+    callAs<T>(BROWSER, method, path, body, client);
 
   /** Wait until the run is no longer queued or running. */
   const settle = async (runId: string, timeoutMs = 3_000) => {
@@ -658,6 +679,12 @@ export async function harness(opts: HarnessOptions = {}) {
       await worker.start();
     },
     call,
+    /** The same, as any caller: a script with the key, no credentials, a stranger's origin … */
+    callAs,
+    /** A raw /api/v1 request, as a paired browser unless told otherwise. */
+    request,
+    headersFor,
+    localAuth,
     settle,
     eventsOf,
     text,

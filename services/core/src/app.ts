@@ -13,9 +13,12 @@
  *           |    /*                      the built Cockpit, SPA fallback
  *  How      |  createApp() takes its dependencies, so tests build an
  *           |  app with fakes and no network. /api/v1 sits behind the
- *           |  request guard (http/guard.ts: other sites cannot act
- *           |  through the browser) and a 25 MB body limit (200 MB for
- *           |  a file added as a source).
+ *           |  request guard (http/guard.ts: only the owner, with the
+ *           |  install key or a paired browser, and no other site
+ *           |  driving the browser) and a 25 MB body limit (200 MB for
+ *           |  a file added as a source). The guard's credentials are a
+ *           |  required dependency (localAuth): there is no app without
+ *           |  them.
  * ------------------------------------------------------------------
  */
 
@@ -37,6 +40,8 @@ import type { EventBus } from './events/bus';
 import type { ServiceState } from './health/supervisor';
 import { cockpitPageHeaders } from './http/csp';
 import { cockpitOrigins, requestGuard } from './http/guard';
+import type { LocalAuth, Presented } from './http/localAuth';
+import { pairingRoutes } from './http/pairing';
 import { lastEventId, sseStream } from './http/sse';
 import { mountPlanned } from './http/stubs';
 import { type InternalDeps, internalRoutes } from './internal/openai';
@@ -48,10 +53,15 @@ import type { RunStore } from './runs/engine';
 import { type RunEventLog, replayThenTail } from './runs/events';
 import type { ApiObservation } from './telemetry/collect';
 
-export type AppEnv = { Variables: { traceId: string; principal?: Principal } };
+export type AppEnv = { Variables: { traceId: string; principal?: Principal; presented?: Presented } };
 
 export interface AppDeps {
   version: string;
+  /**
+   * Who may call /api/v1: the install key and the paired browser's session (http/localAuth.ts).
+   * Required, not optional, so no caller of createApp can leave the Cockpit API open by leaving it out.
+   */
+  localAuth: LocalAuth;
   serviceToken: string;
   /** A narrower token (the lab's): model calls under /internal/v1/openai only. */
   gatewayToken?: string | undefined;
@@ -123,7 +133,8 @@ export function createApp(deps: AppDeps) {
       });
     });
   }
-  api.use('*', requestGuard({ origins: deps.allowedOrigins ?? cockpitOrigins() }));
+  api.use('*', requestGuard({ origins: deps.allowedOrigins ?? cockpitOrigins(), auth: deps.localAuth }));
+  api.route('/', pairingRoutes(deps.localAuth));
   if (deps.identity) api.use('*', identityMiddleware(deps.identity));
   const limit = (maxSize: number, what: string) =>
     bodyLimit({

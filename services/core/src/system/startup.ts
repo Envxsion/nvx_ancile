@@ -44,6 +44,8 @@ import type { SchemaState } from '../db/version';
 import { body } from '../http/body';
 import { cockpitPageHeaders } from '../http/csp';
 import { requestGuard } from '../http/guard';
+import type { LocalAuth } from '../http/localAuth';
+import { pairingRoutes } from '../http/pairing';
 import { errorHandler } from '../obs/errors';
 import { logFor } from '../obs/logger';
 import { traceMiddleware } from '../obs/tracing';
@@ -202,6 +204,8 @@ export interface StoppedDeps extends StartupDeps {
   /** The built Cockpit, which shows the start-up screen. */
   cockpitDist?: string;
   allowedOrigins: string[];
+  /** Who may use the start-up screen's actions (a restore replaces the database): the same rule as the running app. */
+  localAuth: LocalAuth;
   /** Run by the desktop app, which starts every service again on RESTART_ALL_EXIT. */
   managed: boolean;
   exit?: (code: number) => void;
@@ -219,7 +223,8 @@ export function stoppedApp(deps: StoppedDeps) {
   app.get('/ready', (c) => c.json({ ok: true, stopped: true, checks: { startup: false } }));
 
   const api = new Hono<AppEnv>();
-  api.use('*', requestGuard({ origins: deps.allowedOrigins }));
+  api.use('*', requestGuard({ origins: deps.allowedOrigins, auth: deps.localAuth }));
+  api.route('/', pairingRoutes(deps.localAuth));
   api.get('/system/startup', async (c) => {
     c.header('cache-control', 'no-store');
     return c.json(await startupStatus(deps, error, c.get('traceId')));

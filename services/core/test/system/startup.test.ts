@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { backupsDir } from '../../src/db/backup';
 import { SKIP_BACKUP_MARKER } from '../../src/db/prepare';
 import { actionsFor, RESTART_ALL_EXIT, stoppedApp } from '../../src/system/startup';
+import { headersFor, SCRIPT, testLocalAuth } from '../support/local';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,7 +23,8 @@ function app(error: AncileError, managed = true) {
   const dataDir = mkdtempSync(join(tmpdir(), 'ancile-start-'));
   dirs.push(dataDir);
   const exits: number[] = [];
-  const a = stoppedApp({
+  const localAuth = testLocalAuth();
+  const raw = stoppedApp({
     error,
     sql: (() => Promise.reject(new Error('no database here'))) as unknown as Sql,
     url: 'postgres://a:b@127.0.0.1:1/x',
@@ -30,10 +32,22 @@ function app(error: AncileError, managed = true) {
     version: '0.2.0',
     schema: () => ({ expected: '0020_x.sql', current: '0021_y.sql' }),
     allowedOrigins: ['http://localhost:7701'],
+    localAuth,
     managed,
     exit: (c) => exits.push(c),
   });
-  return { a, exits, dataDir };
+  // Every route answers only the owner: these tests are a script with the install key.
+  const a = {
+    request: (path: string, init: RequestInit = {}) =>
+      raw.request(path, {
+        ...init,
+        headers: {
+          ...headersFor(localAuth, SCRIPT),
+          ...(init.headers as Record<string, string> | undefined),
+        },
+      }),
+  };
+  return { a, raw, exits, dataDir };
 }
 
 const failedBackup = new AncileError({
@@ -95,6 +109,21 @@ describe('the start-up screen', () => {
       restarting: false,
     });
     expect(dev.exits).toEqual([]);
+  });
+
+  it('answers nobody who is not the owner, with the same rule as the running app', async () => {
+    const { raw, exits } = app(failedBackup);
+    const none = await raw.request('/api/v1/system/startup');
+    expect(none.status).toBe(401);
+    expect(((await none.json()) as { error: { code: string } }).error.code).toBe('auth.local_key_required');
+    const wrong = await raw.request('/api/v1/system/startup/retry', {
+      ...post(),
+      headers: { authorization: 'Bearer nope', 'content-type': 'application/json' },
+    });
+    expect(wrong.status).toBe(401);
+    expect(exits).toEqual([]);
+    // The health probes the desktop app waits on stay open.
+    expect((await raw.request('/ready')).status).toBe(200);
   });
 
   it('refuses actions from another site', async () => {

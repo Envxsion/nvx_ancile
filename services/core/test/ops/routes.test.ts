@@ -39,7 +39,7 @@ describe('logs', () => {
     const text = await h.call<{ items: unknown[] }>('GET', '/logs?q=uvicorn');
     expect(text.body.items).toHaveLength(1);
 
-    const csv = await h.app.request('/api/v1/logs/export?format=csv&service=knowledge');
+    const csv = await h.request('/logs/export?format=csv&service=knowledge');
     expect(csv.headers.get('content-disposition')).toContain('.csv');
     const body = await csv.text();
     expect(body.split('\r\n')[0]).toBe('id,at,level,service,component,trace_id,span_id,msg,data');
