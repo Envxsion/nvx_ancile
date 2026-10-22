@@ -1,7 +1,9 @@
 /**
  * End-to-end tests (ROADMAP.md, every phase).
  *
- * By default this starts the Cockpit dev server on :7701 (demo fixtures).
+ * By default this starts its own Cockpit dev server on :7901 with no Core
+ * behind it (demo fixtures). Never :7701: that is your everyday stack, and a
+ * reused server there once ran these specs against your own workspace.
  * Specs that need the backend run with E2E_BACKEND=1 against the test
  * profile, `pnpm start:e2e`, on :7801 (its own ports, database and data).
  *
@@ -18,8 +20,12 @@ import {
 
 // Backend specs run against the test profile (`pnpm start:e2e`, Cockpit on
 // :7801) so your everyday stack on :7701 can keep running beside it.
+/** The fixtures-only Cockpit: its own port, and a Core address where nothing listens. */
+export const FIXTURES_PORT = '7901';
+export const NO_CORE_URL = 'http://127.0.0.1:9';
 const baseURL =
-  process.env.E2E_BASE_URL ?? (process.env.E2E_BACKEND ? 'http://localhost:7801' : 'http://localhost:7701');
+  process.env.E2E_BASE_URL ??
+  (process.env.E2E_BACKEND ? 'http://localhost:7801' : `http://localhost:${FIXTURES_PORT}`);
 /** The Controller restart journey has its own project (see 'restart' below). */
 const RESTART = /restart\.spec\.ts$/;
 const external = Boolean(process.env.E2E_BASE_URL || process.env.E2E_BACKEND);
@@ -102,6 +108,7 @@ export default defineConfig({
         command: 'pnpm --filter @nvx/ancile-cockpit run dev',
         url: baseURL,
         cwd: '../..',
+        env: { COCKPIT_PORT: FIXTURES_PORT, ANCILE_CORE_URL: NO_CORE_URL },
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
       },

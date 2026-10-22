@@ -33,7 +33,17 @@ export const prefsStateNeverAdoptingCore = () =>
 const E2E_PORTS = new Set(['7801', '7800']);
 
 export default async function globalSetup(config: FullConfig) {
-  if (!process.env.E2E_BACKEND) return;
+  if (!process.env.E2E_BACKEND) {
+    // Fixtures only: refuse to start if a real Core answers behind this Cockpit (your workspace).
+    if (process.env.E2E_BASE_URL) return;
+    const base = config.projects[0]?.use.baseURL ?? '';
+    const health = await fetch(`${base}/api/v1/system/health`).catch(() => null);
+    if (health?.ok)
+      throw new Error(
+        `A real Core answers behind ${base}. The fixtures-only specs must not touch a workspace: stop whatever serves that port, or run the suite against the test profile with E2E_BACKEND=1 and pnpm start:e2e.`,
+      );
+    return;
+  }
   // Backend specs create threads, sources and approvals. Run them against
   // `pnpm start:e2e` (its own database) so they never land in your workspace.
   const base = config.projects[0]?.use.baseURL ?? 'http://localhost:7801';
